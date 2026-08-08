@@ -60,10 +60,10 @@ Removing or invalidating the promotion record restores the existing lexical/hybr
 The frozen corpus (`tests/contracts/learned_sparse_task_corpus_v1.json`, revision
 2026-07-30) was evaluated on a real instance against the pinned SPLADE ONNX sidecar
 (`docs/RESEARCH.md` §4.3) across all four routes — Lexical, Hybrid, SparseOnly, and
-SparseFused — with 31 timed runs per case per route and the real lifecycle operations
-measured on the durable projection. The dated report is
+SparseFused — with 31 timed runs per case per route, RAPL-measured energy, and the real
+lifecycle operations measured on the durable projections. The dated report is
 `tests/contracts/learned_sparse_report_v1.json` (report hash
-`sha256:920b6551d5eb7ee56d76d921c083e31515188fdbe772e8ce2cc3e8fce40493e8`), pinned in
+`sha256:34dda994de82f43fa42af64cb4517efd7b5593cbad423707ba51fb36529d2f35`), pinned in
 the benchmark evidence ledger milestone `v1.2` with index generation
 `sparse-text-v1-2` and the splade-onnx model fingerprint.
 
@@ -76,11 +76,19 @@ the benchmark evidence ledger milestone `v1.2` with index generation
 | NoEvidence | RetainLexical | none | — |
 | Security | RetainLexical | none | — |
 
-No class won: the evaluation host cannot read RAPL `energy_uj` without privileges, so
-energy is recorded `Unavailable` and the promotion gate (complete telemetry required)
-yields no winning route. No promotion record exists; the daemon serves the lexical and
-hybrid routes. This is the honest no-promotion outcome the evaluation contract allows —
-nothing is fabricated into a promotion.
+No class won, on measured data: telemetry is complete (energy measured from RAPL on all
+72 observations), but the sparse-fused candidate violates the frozen per-operation
+budgets on every case — initial indexing and rebuild of the corpus through the SPLADE
+sidecar measure ~17 s against the 5 s `ingest_update_budget_ms` — so the promotion gate
+records budget violations and yields no winning route. No promotion record exists; the
+daemon serves the lexical and hybrid routes.
+
+The quality signal is real and recorded: sparse fusion improves DomainTerminology
+(recall@20 28.6% → 35.7%, evidence-chain coverage 60.7% → 67.9%, MRR@10 11.3 → 16.6)
+while exact, no-evidence, and security classes stay protected at zero across routes.
+The lane remains benchmark-gated: a future candidate must meet the lifecycle budgets
+(or the frozen budgets must be re-justified by a new judgment set) before the gate can
+promote.
 
 ### 2.1.1. Frozen learned-sparse task corpus
 

@@ -48,6 +48,46 @@ impl TantivyFullTextIndex {
         self.reader.reload().map_err(to_port_error)
     }
 
+    pub(crate) fn delete_chunks_impl(
+        &self,
+        chunks: &[(maestria_domain::ArtifactId, maestria_domain::ChunkId)],
+    ) -> Result<(), PortError> {
+        let mut writer_guard = self.writer.lock().map_err(|_| PortError::InternalContext {
+            context: "Tantivy writer lock poisoned",
+            source: "Tantivy writer mutex is poisoned".to_string(),
+        })?;
+        let writer = writer_guard
+            .as_mut()
+            .ok_or_else(|| PortError::DownstreamContext {
+                context: "delete chunks requires a writable full-text index",
+                source: "full-text index is read-only".to_string(),
+            })?;
+        for (artifact_id, chunk_id) in chunks {
+            writer.delete_term(Term::from_field_text(
+                self.fields.key,
+                &chunk_key(*artifact_id, *chunk_id),
+            ));
+        }
+        writer.commit().map_err(to_port_error)?;
+        self.reader.reload().map_err(to_port_error)
+    }
+
+    pub(crate) fn clear_impl(&self) -> Result<(), PortError> {
+        let mut writer_guard = self.writer.lock().map_err(|_| PortError::InternalContext {
+            context: "Tantivy writer lock poisoned",
+            source: "Tantivy writer mutex is poisoned".to_string(),
+        })?;
+        let writer = writer_guard
+            .as_mut()
+            .ok_or_else(|| PortError::DownstreamContext {
+                context: "clear requires a writable full-text index",
+                source: "full-text index is read-only".to_string(),
+            })?;
+        writer.delete_all_documents().map_err(to_port_error)?;
+        writer.commit().map_err(to_port_error)?;
+        self.reader.reload().map_err(to_port_error)
+    }
+
     pub(crate) fn search_chunks_impl(
         &self,
         query: SearchQuery,

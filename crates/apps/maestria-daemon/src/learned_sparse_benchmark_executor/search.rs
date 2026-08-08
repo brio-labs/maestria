@@ -236,7 +236,10 @@ impl LearnedSparseBenchmarkExecutor {
                 };
             }
             if run >= super::WARMUP_SAMPLES {
-                samples.push(started.elapsed().as_micros());
+                // The latency metrics are millisecond-valued; the monotonic
+                // samples are converted here so the percentile computation
+                // stays in one unit.
+                samples.push(started.elapsed().as_millis());
             }
         }
         Ok((candidates, samples))

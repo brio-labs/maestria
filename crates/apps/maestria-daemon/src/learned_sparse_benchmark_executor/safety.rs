@@ -18,6 +18,7 @@ impl LearnedSparseBenchmarkExecutor {
         &self,
         case: &LearnedSparseBenchmarkCase,
         candidates: &[LearnedSparseRetrievedCandidate],
+        energy: maestria_retrieval::Measurement<u64>,
     ) -> LearnedSparseSafetyMetrics {
         let leaked = !candidates.is_empty();
         let security_case = matches!(case.class, LearnedSparseQueryClass::Security);
@@ -68,9 +69,7 @@ impl LearnedSparseBenchmarkExecutor {
             quarantine_outcome: Measurement::measured(quarantine_outcome),
             prompt_injection_outcome: Measurement::measured(prompt_injection_outcome),
             fail_open_count: Measurement::measured(0),
-            energy: Measurement::unavailable(
-                "RAPL energy_uj is not readable without privileges on this host",
-            ),
+            energy,
         }
     }
 }

@@ -15,6 +15,17 @@ impl FullTextIndex for TantivyFullTextIndex {
         self.index_chunks_impl(chunks)
     }
 
+    fn delete_chunks(
+        &self,
+        chunks: &[(maestria_domain::ArtifactId, maestria_domain::ChunkId)],
+    ) -> Result<(), PortError> {
+        self.delete_chunks_impl(chunks)
+    }
+
+    fn clear(&self) -> Result<(), PortError> {
+        self.clear_impl()
+    }
+
     fn search(&self, query: SearchQuery) -> Result<BoundedSearch<SearchHit>, PortError> {
         self.search_chunks_impl(query)
     }

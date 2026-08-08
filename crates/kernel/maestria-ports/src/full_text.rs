@@ -11,6 +11,29 @@ pub trait FullTextIndex: Send + Sync {
     fn index_cards(&self, cards: Vec<IndexedCard>) -> Result<(), PortError>;
     fn search_cards(&self, query: SearchQuery) -> Result<BoundedSearch<CardHit>, PortError>;
 
+    /// Delete chunks by their (artifact, chunk) identity, removing every
+    /// representation. Adapters without a standalone deletion operation MUST
+    /// return an error rather than silently ignoring the request.
+    fn delete_chunks(
+        &self,
+        chunks: &[(maestria_domain::ArtifactId, maestria_domain::ChunkId)],
+    ) -> Result<(), PortError> {
+        let _ = chunks;
+        Err(PortError::InternalContext {
+            context: "chunk deletion is unsupported",
+            source: "adapter must implement standalone chunk deletion".to_string(),
+        })
+    }
+
+    /// Remove every document from the index. Adapters without a standalone
+    /// clear operation MUST return an error rather than silently ignoring it.
+    fn clear(&self) -> Result<(), PortError> {
+        Err(PortError::InternalContext {
+            context: "full-text clear is unsupported",
+            source: "adapter must implement standalone clearing".to_string(),
+        })
+    }
+
     /// Execute a search, applying a pre-score filter to candidates.
     /// If an adapter cannot perform pre-filtering natively, it MUST return an error
     /// rather than silently ignoring the filter.

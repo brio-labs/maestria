@@ -13,6 +13,8 @@
 //! - `lifecycle`: lifecycle operations measured on the route's projection.
 //! - `safety`: safety metrics from the served search path.
 //! - `search`: per-route search execution and candidate mapping.
+//! - `energy`: RAPL energy accounting.
+//! - `spans`: accepted-span coordinate conversion.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -28,11 +30,14 @@ use maestria_retrieval::adapters::{
 use maestria_retrieval::{
     CandidateRetriever, HybridExecutionPolicy, HybridPromotionRecord, LearnedSparseBenchmarkCase,
     LearnedSparseBenchmarkCorpus, LearnedSparseBenchmarkError, LearnedSparseBenchmarkIdentity,
-    LearnedSparseBenchmarkObservation, LearnedSparseExecutionPolicy, LearnedSparseQueryClass,
-    LearnedSparseResourceMetrics, LearnedSparseRoute, Measurement, RetrievalEngine, score_case,
+    LearnedSparseBenchmarkObservation, LearnedSparseExecutionPolicy, LearnedSparseExpectedOutcome,
+    LearnedSparseQueryClass, LearnedSparseResourceMetrics, LearnedSparseRoute, Measurement,
+    RetrievalEngine, score_case,
 };
 use maestria_storage_sqlite::{SqliteLearnedSparseIndex, SqliteStore};
 
+#[path = "learned_sparse_benchmark_executor/energy.rs"]
+pub(super) mod energy;
 #[path = "learned_sparse_benchmark_executor/lifecycle.rs"]
 mod lifecycle;
 #[path = "learned_sparse_benchmark_executor/record.rs"]
@@ -41,12 +46,15 @@ mod record;
 mod safety;
 #[path = "learned_sparse_benchmark_executor/search.rs"]
 mod search;
+#[path = "learned_sparse_benchmark_executor/spans.rs"]
+mod spans;
 
 use crate::search_executor::{SearchRuntime, prepare_search_runtime};
 use crate::sparse_startup::{
     build_sparse_provider_for_layout, reconcile_sparse_generation,
     reconcile_sparse_projection_for_layout, sparse_identity,
 };
+use spans::convert_expected_spans;
 
 const HYBRID_RECORD_VERSION: &str = "hybrid";
 const HYBRID_RECORD_DATE: &str = "2026-07-18";
@@ -71,9 +79,16 @@ pub struct LearnedSparseBenchmarkExecutor {
     hybrid_record: HybridPromotionRecord,
     /// Maps a source file path to the corpus source id.
     pub(super) source_ids: BTreeMap<String, String>,
+    /// Case expectations with accepted spans converted from character
+    /// offsets to line ranges, matching the candidate span coordinates.
+    pub expected_by_case: BTreeMap<String, LearnedSparseExpectedOutcome>,
     /// Real instance chunks (id + text) used for lifecycle operations.
     pub(super) chunks: Vec<maestria_domain::Chunk>,
     pub(super) layout: InstanceLayout,
+    /// Durable store for registry lifecycle transitions.
+    pub(super) store: Arc<SqliteStore>,
+    /// Kernel state snapshot used to validate registry transitions.
+    pub(super) state: KernelState,
 }
 
 impl LearnedSparseBenchmarkExecutor {
@@ -89,11 +104,17 @@ impl LearnedSparseBenchmarkExecutor {
         chunks: Vec<maestria_domain::Chunk>,
     ) -> Result<Self> {
         corpus.validate()?;
+        // The daemon's real search policy allows unscoped items; the
+        // benchmark must execute through the same authorization the served
+        // path applies (R28), otherwise every candidate is denied before
+        // scoring.
         let runtime = prepare_search_runtime(
             layout,
             state,
             manifest,
-            maestria_governance::RetrievalSecurityPolicy::default(),
+            maestria_governance::RetrievalSecurityPolicy::default()
+                .require_read_allowed(true)
+                .allow_unscoped_items(true),
         )?;
         let (sparse, sparse_generation_id) = if manifest
             .sparse
@@ -107,10 +128,11 @@ impl LearnedSparseBenchmarkExecutor {
             let identity = sparse_identity(state, manifest, generation_id)?;
             let provider = build_sparse_provider_for_layout(manifest, state)?
                 .ok_or_else(|| anyhow!("sparse provider is not configured"))?;
-            let store = SqliteStore::open(&layout.database_path)
-                .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
+            let store = Arc::new(SqliteStore::open(&layout.database_path).with_context(|| {
+                format!("open sqlite store {}", layout.database_path.display())
+            })?);
             let index = Arc::new(
-                SqliteLearnedSparseIndex::new(Arc::new(store), identity.clone())
+                SqliteLearnedSparseIndex::new(store.clone(), identity.clone())
                     .map_err(|error| anyhow!("open sparse projection: {error}"))?,
             );
             let capability = LearnedSparseGenerationCapability::activate(
@@ -147,6 +169,7 @@ impl LearnedSparseBenchmarkExecutor {
             HYBRID_RECORD_DATE.to_string(),
         )
         .ok_or_else(|| anyhow!("hybrid promotion record is unavailable"))?;
+        let expected_by_case = convert_expected_spans(&corpus, &source_ids)?;
         Ok(Self {
             corpus,
             runtime,
@@ -154,8 +177,13 @@ impl LearnedSparseBenchmarkExecutor {
             sparse_generation_id,
             hybrid_record,
             source_ids,
+            expected_by_case,
             chunks,
             layout: layout.clone(),
+            store: Arc::new(SqliteStore::open(&layout.database_path).with_context(|| {
+                format!("open sqlite store {}", layout.database_path.display())
+            })?),
+            state: state.clone(),
         })
     }
 
@@ -215,12 +243,15 @@ impl maestria_retrieval::LearnedSparseBenchmarkExecutor for LearnedSparseBenchma
         case: LearnedSparseBenchmarkCase,
         route: LearnedSparseRoute,
     ) -> Result<LearnedSparseBenchmarkObservation, LearnedSparseBenchmarkError> {
-        let expected = case.expected.clone().ok_or_else(|| {
-            LearnedSparseBenchmarkError::InvalidCorpus(format!(
-                "case {} has no expected outcome",
-                case.case_id
-            ))
-        })?;
+        let expected = match self.expected_by_case.get(&case.case_id) {
+            Some(expected) => expected.clone(),
+            None => case.expected.clone().ok_or_else(|| {
+                LearnedSparseBenchmarkError::InvalidCorpus(format!(
+                    "case {} has no expected outcome",
+                    case.case_id
+                ))
+            })?,
+        };
         let configuration = self
             .corpus
             .route_configurations
@@ -234,9 +265,11 @@ impl maestria_retrieval::LearnedSparseBenchmarkExecutor for LearnedSparseBenchma
         let engine = self
             .engine_for(route, case.class)
             .map_err(|error| LearnedSparseBenchmarkError::InvalidCorpus(error.to_string()))?;
+        let energy_before = energy::EnergySample::capture();
         let (candidates, samples) = self
             .timed_retrievals(&case, route, &engine, limit)
             .map_err(|error| LearnedSparseBenchmarkError::InvalidMeasurement(error.to_string()))?;
+        let energy_after = energy::EnergySample::capture();
         let (p50, p95, p99) = Self::percentiles(&samples);
         let quality = score_case(&case.case_id, &expected, &candidates)
             .map_err(|error| LearnedSparseBenchmarkError::InvalidMeasurement(error.to_string()))?;
@@ -244,7 +277,11 @@ impl maestria_retrieval::LearnedSparseBenchmarkExecutor for LearnedSparseBenchma
         let (initial_indexing, incremental_update, deletion, rebuild, activation, rollback) =
             self.lifecycle_operations(route);
 
-        let safety = self.safety_for(&case, &candidates);
+        let safety = self.safety_for(
+            &case,
+            &candidates,
+            energy::EnergySample::delta_uj_pair(energy_before, energy_after),
+        );
 
         Ok(LearnedSparseBenchmarkObservation {
             schema_version: 2,

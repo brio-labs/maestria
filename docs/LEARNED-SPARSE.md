@@ -14,11 +14,15 @@ per-query-class decision is **retain all**:
 | NoEvidence | RetainLexical | none | `learned_sparse_report_v1.json` |
 | Security | RetainLexical | none | `learned_sparse_report_v1.json` |
 
-No class was promoted because the evaluation could not certify complete telemetry:
-RAPL energy counters are not readable without privileges on the evaluation host, so the
-promotion gate records energy as `Unavailable` and yields no winning route. That is the
-honest no-promotion outcome the evaluation contract defines; no promotion record exists
-and the daemon serves the lexical/hybrid routes.
+No class was promoted on measured data: telemetry is complete (RAPL energy measured on
+all 72 observations), but the sparse-fused candidate violates the frozen per-operation
+budgets on every case — initial indexing and rebuild through the SPLADE sidecar measure
+~17 s against the 5 s `ingest_update_budget_ms` — so the promotion gate records budget
+violations and yields no winning route. The sparse lane measurably improves
+DomainTerminology recall and evidence-chain coverage (see `docs/RESEARCH.md` §2.1.0),
+which is exactly why it stays benchmark-gated: promotion requires meeting the frozen
+lifecycle budgets. No promotion record exists and the daemon serves the lexical/hybrid
+routes.
 
 The lane remains implemented and benchmark-gated:
 
