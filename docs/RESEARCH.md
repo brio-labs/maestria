@@ -55,7 +55,7 @@ A concrete learned-sparse route is eligible for activation only for a frozen que
 
 Removing or invalidating the promotion record restores the existing lexical/hybrid route. The presence of a provider or index adapter never activates sparse retrieval by itself.
 
-### 2.1.0. Four-profile evaluation decision (dated 2026-08-07)
+### 2.1.0. Four-profile evaluation decision (dated 2026-08-08)
 
 The frozen corpus (`tests/contracts/learned_sparse_task_corpus_v1.json`, revision
 2026-07-30) was evaluated on a real instance against the pinned SPLADE ONNX sidecar
@@ -63,11 +63,14 @@ The frozen corpus (`tests/contracts/learned_sparse_task_corpus_v1.json`, revisio
 SparseFused — with 31 timed runs per case per route, RAPL-measured energy, and the real
 lifecycle operations measured on the durable projections. The candidate was re-pinned
 on 2026-08-07 to the int8-quantized ONNX export with 512-token truncation (standard
-SPLADE preprocessing), which halved the lifecycle encode cost while retaining the
-quality signal. The dated report is
-`tests/contracts/learned_sparse_report_v1.json` (report hash
-`sha256:858f2331e03d8a54b5add4927c7a7b98ddddbd00a411c4524d478613b2406a69`), pinned in
-the benchmark evidence ledger milestone `v1.2` with index generation
+SPLADE preprocessing), and the lane itself was optimized before the terminal run:
+the projection gained an in-memory vector cache with term postings (searches
+authorize and score only term-sharing chunks), the retriever gained per-request
+artifact/evidence prefetch and per-artifact snapshot verification, and the sidecar
+gained a parallel batch endpoint (bounded intra-op threads with a worker pool). The
+dated report is `tests/contracts/learned_sparse_report_v1.json` (report hash
+`sha256:c6a9017b5c1526dfe8403c09e537cfdc56551ab9fadb6b9e09219f505a668c88`), pinned
+in the benchmark evidence ledger milestone `v1.2` with index generation
 `sparse-text-v1-2` and the splade-onnx model fingerprint.
 
 | Query class | Decision | Winning route | Rollback target |
@@ -79,20 +82,30 @@ the benchmark evidence ledger milestone `v1.2` with index generation
 | NoEvidence | RetainLexical | none | — |
 | Security | RetainLexical | none | — |
 
-No class won, on measured data: telemetry is complete (energy measured from RAPL on all
-72 observations), but the sparse-fused candidate still violates the frozen budgets — the
-int8+truncated lifecycle initial-indexing/rebuild measure ~7.7 s against the 5 s
-`ingest_update_budget_ms` (down from ~17 s for the fp32 candidate) and the fused route's
-p95 latency reaches ~500 ms against the 250 ms budget — so the promotion gate records
-budget violations and yields no winning route. No promotion record exists; the daemon
-serves the lexical and hybrid routes.
+No class won, on measured data, and the reasons are now precise:
 
-The quality signal is real, reproducible, and survives the quantization: sparse fusion
-improves DomainTerminology (recall@20 28.6% → 35.7%, evidence-chain coverage 60.7% →
-67.9%) while exact, no-evidence, and security classes stay protected at zero across
-routes. The lane remains benchmark-gated: a future candidate must meet the lifecycle and
-latency budgets (faster encoding, batched inference, or a re-justified judgment set)
-before the gate can promote.
+- **Lifecycle passes**: initial indexing and rebuild of the 147-chunk corpus through
+  the optimized lane measure ~3.2 s, under the 5 s `ingest_update_budget_ms` (down
+  from ~17 s for the fp32 candidate and ~9 s for the first batch attempt).
+- **Latency budget passes for every eligible class**: fused p95 mean is 191 ms
+  (down from ~393 ms); the only two violations (274 ms, 303 ms) are ExactLiteral and
+  Security cases, which are ineligible by design.
+- **The promotion gate still refuses**, for two measured reasons. First, the gate's
+  lifecycle-within-factor criterion compares the sparse lane's encode-based
+  operations against the lexical route's tantivy projection (3.2 s vs 82 ms × 2):
+  an HTTP-encode lane cannot meet a 2× factor over a local index at this corpus
+  size, regardless of latency. Second, fused DomainTerminology quality regresses on
+  MRR@10 (10.5 vs 11.3) even while recall@20 (35.7% vs 28.6%) and evidence-chain
+  coverage (67.9% vs 60.7%) improve: the fusion re-ranks the first correct hit
+  below the lexical baseline's.
+
+The quality signal is real, reproducible, and survives the quantization and the
+optimizations; exact, no-evidence, and security classes stay protected at zero across
+routes. The lane remains benchmark-gated. The measured evidence says the remaining
+blockers are a gate criterion that encode-based lanes cannot satisfy and a fusion
+ranking regression — either a re-justified judgment set (documented budgets and
+lifecycle factors) or a fusion change that preserves first-hit ranking would be the
+next candidates for a new dated evaluation.
 
 ### 2.1.1. Frozen learned-sparse task corpus
 
@@ -264,7 +277,11 @@ sparse_retention_policy=no_retention
 
 The sidecar applies the `query: {text}` / `document: {text}` templates, caps
 term vectors at 256 terms, accepts loopback traffic only, performs CPU
-inference, and retains no inputs. Unlike the embedding/visual profiles, a
+inference, and retains no inputs. It also serves `POST /v1/sparse/batch`
+(`{"texts": [...], "kind": "document"}` → one vector per text, input order
+preserved) with a bounded worker pool over a two-thread ONNX session, which is
+what the daemon's projection reconciliation and the benchmark lifecycle
+operations use. Unlike the embedding/visual profiles, a
 remote provider or retained retention policy is a manifest error, not a
 deferred rejection. Sparse activation additionally requires a matching
 fingerprinted `sparse_text_v1` generation and a passing benchmark; otherwise

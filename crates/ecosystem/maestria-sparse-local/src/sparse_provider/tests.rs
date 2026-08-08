@@ -62,6 +62,10 @@ impl ProviderTransport for RecordingTransport {
     }
 
     fn post(&self, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
+        self.post_to("", body)
+    }
+
+    fn post_to(&self, _path_suffix: &'static str, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
         *self.body.lock().map_err(|_| PortError::Internal {
             message: "recording mutex poisoned".to_string(),
         })? = Some(body);
@@ -357,5 +361,102 @@ fn document_kind_is_serialized_on_the_wire() -> Result<(), PortError> {
         })?;
     assert_eq!(payload["text"], "fn main() {}");
     assert_eq!(payload["kind"], "document");
+    Ok(())
+}
+
+const VALID_BATCH_RESPONSE: &[u8] = br#"{"model":"splade","vectors":[
+  {"term_ids":[1,2],"weights":[0.5,0.25]},
+  {"term_ids":[3],"weights":[0.75]}]}"#;
+
+#[test]
+fn encode_batch_returns_one_vector_per_text() -> Result<(), Box<dyn std::error::Error>> {
+    let provider = LocalHttpSparseProvider::with_transport(
+        ENDPOINT,
+        "fixture-sparse",
+        fixture_sparse_identity()?,
+        Arc::new(RecordingTransport::new(VALID_BATCH_RESPONSE.to_vec())?),
+    )?;
+    let identity = fixture_sparse_identity()?;
+    let vectors = provider.encode_batch(
+        &["first document".to_string(), "second document".to_string()],
+        SparseInputKind::Document,
+        identity.clone(),
+    )?;
+    assert_eq!(vectors.len(), 2);
+    assert_eq!(vectors[0].terms().len(), 2);
+    assert_eq!(vectors[1].terms().len(), 1);
+    assert!(vectors.iter().all(|vector| vector.identity() == &identity));
+    Ok(())
+}
+
+#[test]
+fn encode_batch_rejects_response_count_mismatch() -> Result<(), Box<dyn std::error::Error>> {
+    let provider = LocalHttpSparseProvider::with_transport(
+        ENDPOINT,
+        "fixture-sparse",
+        fixture_sparse_identity()?,
+        Arc::new(RecordingTransport::new(VALID_BATCH_RESPONSE.to_vec())?),
+    )?;
+    let identity = fixture_sparse_identity()?;
+    let result = provider.encode_batch(
+        &["only one".to_string()],
+        SparseInputKind::Document,
+        identity,
+    );
+    assert!(
+        result
+            .as_ref()
+            .is_err_and(|error| error.to_string().contains("vector count does not match")),
+        "mismatched batch sizes must fail: {result:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn encode_batch_rejects_empty_texts() -> Result<(), Box<dyn std::error::Error>> {
+    let provider = LocalHttpSparseProvider::with_transport(
+        ENDPOINT,
+        "fixture-sparse",
+        fixture_sparse_identity()?,
+        Arc::new(RecordingTransport::new(VALID_BATCH_RESPONSE.to_vec())?),
+    )?;
+    let identity = fixture_sparse_identity()?;
+    let result = provider.encode_batch(&[], SparseInputKind::Document, identity);
+    assert!(result.is_err_and(|error| error.is_invalid_input()));
+    Ok(())
+}
+
+#[test]
+fn encode_batch_rejects_identity_mismatch() -> Result<(), Box<dyn std::error::Error>> {
+    let provider = LocalHttpSparseProvider::with_transport(
+        ENDPOINT,
+        "fixture-sparse",
+        fixture_sparse_identity()?,
+        Arc::new(RecordingTransport::new(VALID_BATCH_RESPONSE.to_vec())?),
+    )?;
+    let mut other = fixture_sparse_identity()?;
+    other.generation_id =
+        maestria_domain::IndexGenerationId::new(other.generation_id.value().saturating_add(1));
+    let result = provider.encode_batch(&["text".to_string()], SparseInputKind::Document, other);
+    assert!(result.is_err_and(|error| error.is_invalid_input()));
+    Ok(())
+}
+
+#[test]
+fn encode_batch_fails_when_transport_has_no_batch_path() -> Result<(), Box<dyn std::error::Error>> {
+    let provider = LocalHttpSparseProvider::with_transport(
+        ENDPOINT,
+        "fixture-sparse",
+        fixture_sparse_identity()?,
+        Arc::new(StaticTransport::new(Ok(VALID_RESPONSE.to_vec()))?),
+    )?;
+    let identity = fixture_sparse_identity()?;
+    let result = provider.encode_batch(&["text".to_string()], SparseInputKind::Document, identity);
+    assert!(
+        result
+            .as_ref()
+            .is_err_and(|error| { error.to_string().contains("batch posting is unsupported") }),
+        "transports without the batch path must fail closed: {result:?}"
+    );
     Ok(())
 }

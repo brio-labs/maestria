@@ -210,7 +210,7 @@ pub fn reconcile_sparse_projection_for_layout(
         .map_err(|error| anyhow!("open sparse projection: {error}"))?;
     activate_projection(&index)?;
 
-    let documents = state
+    let eligible = state
         .chunks
         .values()
         .filter(|chunk| {
@@ -220,7 +220,31 @@ pub fn reconcile_sparse_projection_for_layout(
                 .is_some_and(|artifact| artifact.security.retrieval_allowed());
             artifact_allowed && maestria_governance::scan_secrets(&chunk.text).is_clean()
         })
-        .map(|chunk| {
+        .collect::<Vec<_>>();
+    // An empty chunk set reconciles to an empty projection; do not call the
+    // provider at all (the batch contract requires at least one text).
+    let Some(first) = eligible.first() else {
+        return index
+            .index_documents(Vec::new())
+            .map_err(|error| anyhow!("index sparse projection: {error}"));
+    };
+    let _ = first;
+    let encoded_texts = eligible
+        .iter()
+        .map(|chunk| truncate_document_text(&chunk.text))
+        .collect::<Vec<_>>();
+    let vectors =
+        provider.encode_batch(&encoded_texts, SparseInputKind::Document, identity.clone())?;
+    let documents = eligible
+        .into_iter()
+        .zip(vectors)
+        .map(|(chunk, vector)| {
+            if vector.identity() != &identity {
+                return Err(anyhow!(
+                    "encode chunk {} returned an incompatible generation identity",
+                    chunk.id
+                ));
+            }
             let content_hash = match state
                 .artifacts
                 .get(&chunk.artifact_id)
@@ -237,16 +261,6 @@ pub fn reconcile_sparse_projection_for_layout(
                     })?
                 }
             };
-            let encoded_text = truncate_document_text(&chunk.text);
-            let vector = provider
-                .encode(&encoded_text, SparseInputKind::Document, identity.clone())
-                .map_err(|error| anyhow!("encode chunk {}: {error}", chunk.id))?;
-            if vector.identity() != &identity {
-                return Err(anyhow!(
-                    "encode chunk {} returned an incompatible generation identity",
-                    chunk.id
-                ));
-            }
             Ok(SparseDocument {
                 chunk_id: chunk.id,
                 content_hash,

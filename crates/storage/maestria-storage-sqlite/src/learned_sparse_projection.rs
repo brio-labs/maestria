@@ -21,12 +21,17 @@ mod storage;
 pub struct SqliteLearnedSparseIndex {
     store: Arc<SqliteStore>,
     identity: SparseIdentity,
+    cache: std::sync::Mutex<Option<search::SearchCache>>,
 }
 
 impl SqliteLearnedSparseIndex {
     pub fn new(store: Arc<SqliteStore>, identity: SparseIdentity) -> Result<Self, PortError> {
         identity.validate()?;
-        let index = Self { store, identity };
+        let index = Self {
+            store,
+            identity,
+            cache: std::sync::Mutex::new(None),
+        };
         storage::ensure_generation(&index.store, &index.identity)?;
         Ok(index)
     }
@@ -53,7 +58,47 @@ impl LearnedSparseIndex for SqliteLearnedSparseIndex {
         query: SparseSearchQuery,
         filter: &dyn Fn(maestria_domain::ChunkId) -> Result<bool, PortError>,
     ) -> Result<BoundedSearch<SparseSearchHit>, PortError> {
-        search::execute(&self.store, &self.identity, query, filter)
+        let identity_json = storage::identity_json(&self.identity)?;
+        let version = storage::read_version(&self.store, &identity_json)?;
+        let Some(version) = version else {
+            // A projection written before the version row: no cache, cold
+            // per-document reads.
+            return search::execute(&self.store, &self.identity, query, filter);
+        };
+        let cached = {
+            let mut cache = self.cache.lock().map_err(|_| PortError::InternalContext {
+                context: "sparse search cache",
+                source: "cache lock is poisoned".to_string(),
+            })?;
+            match cache.as_ref() {
+                Some(cached) if cached.version == version => cached.clone(),
+                _ => {
+                    let documents =
+                        Arc::new(storage::load_all_documents(&self.store, &self.identity)?);
+                    let mut postings = std::collections::BTreeMap::<u32, Vec<usize>>::new();
+                    for (index, cached) in documents.iter().enumerate() {
+                        for term in cached.document.vector.terms() {
+                            postings.entry(term.term_id()).or_default().push(index);
+                        }
+                    }
+                    let cached = search::SearchCache {
+                        version,
+                        documents,
+                        postings: Arc::new(postings),
+                    };
+                    *cache = Some(cached.clone());
+                    cached
+                }
+            }
+        };
+        search::execute_cached(
+            cached.documents.as_ref(),
+            cached.postings.as_ref(),
+            &self.identity,
+            &self.store,
+            query,
+            filter,
+        )
     }
 
     fn delete_chunks(&self, chunk_ids: &[maestria_domain::ChunkId]) -> Result<(), PortError> {

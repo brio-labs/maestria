@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import sys
 from http import HTTPStatus
@@ -12,7 +13,10 @@ from typing import Any, Protocol, cast
 
 MAX_BODY_BYTES = 1024 * 1024
 SPARSE_PATH = "/v1/sparse"
+SPARSE_BATCH_PATH = "/v1/sparse/batch"
 MAX_TEXT_LENGTH = 8192
+MAX_BATCH_SIZE = 1024
+BATCH_WORKERS = 6
 DEFAULT_TERM_CAP = 256
 QUERY_TEMPLATE = "query: {text}"
 DOCUMENT_TEMPLATE = "document: {text}"
@@ -35,6 +39,21 @@ def input_from_request(payload: dict[str, Any]) -> tuple[str, str]:
     return text, kind
 
 
+def sparse_batch_response(
+    model: str, vectors: list[tuple[list[int], list[float]]], term_cap: int
+) -> bytes:
+    return json.dumps(
+        {
+            "model": model,
+            "term_cap": term_cap,
+            "vectors": [
+                {"term_ids": term_ids, "weights": weights}
+                for term_ids, weights in vectors
+            ],
+        }
+    ).encode("utf-8")
+
+
 def sparse_response(model: str, term_ids: list[int], weights: list[float], term_cap: int) -> bytes:
     if len(term_ids) != len(weights):
         raise ValueError("sparse term_ids and weights must have equal length")
@@ -53,6 +72,36 @@ def sparse_response(model: str, term_ids: list[int], weights: list[float], term_
         {"model": model, "term_ids": term_ids, "weights": weights},
         separators=(",", ":"),
     ).encode("utf-8")
+
+
+def run_sparse_batch(
+    engine: SparseEngine, payload: dict[str, Any], term_cap: int
+) -> list[tuple[list[int], list[float]]]:
+    if not isinstance(payload.get("texts"), list) or not payload["texts"]:
+        raise ValueError("texts must be a non-empty list")
+    if len(payload["texts"]) > MAX_BATCH_SIZE:
+        raise ValueError("texts exceeds the batch size limit")
+    kind = payload.get("kind", "document")
+    if kind not in ("query", "document"):
+        raise ValueError("kind must be 'query' or 'document'")
+    template = QUERY_TEMPLATE if kind == "query" else DOCUMENT_TEMPLATE
+    texts = payload["texts"]
+    for text in texts:
+        if not isinstance(text, str):
+            raise ValueError("texts entries must be strings")
+        if len(text) > MAX_TEXT_LENGTH:
+            raise ValueError("text exceeds the length limit")
+    # The ONNX runtime releases the GIL during session.run, so a bounded
+    # worker pool parallelizes the transformer passes on the machine's cores
+    # while preserving input order in the response.
+    def encode_one(text: str) -> tuple[list[int], list[float]]:
+        term_ids, weights = engine.encode(template.format(text=text), kind)
+        if not term_ids or len(term_ids) != len(weights) or len(term_ids) > term_cap:
+            raise ValueError("sparse engine returned an invalid term vector")
+        return term_ids, weights
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=BATCH_WORKERS) as pool:
+        return list(pool.map(encode_one, texts))
 
 
 def run_sparse(engine: SparseEngine, payload: dict[str, Any], term_cap: int) -> tuple[list[int], list[float]]:
@@ -79,7 +128,13 @@ class SpladeOnnxEngine:
         from tokenizers import Tokenizer
 
         self._np = np
-        self._session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+        # Bounded intra-op threads leave cores for the batch worker pool;
+        # small [1, 512] passes do not scale past two threads anyway.
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = 2
+        self._session = ort.InferenceSession(
+            model_path, sess_options=options, providers=["CPUExecutionProvider"]
+        )
         self._input_names = {input_.name for input_ in self._session.get_inputs()}
         self._tokenizer = Tokenizer.from_file(tokenizer_path)
         self._term_cap = term_cap
@@ -132,7 +187,7 @@ class RequestHandler(BaseHTTPRequestHandler):
     server_version = "maestria-splade-sparse/1"
 
     def do_POST(self) -> None:
-        if self.path != SPARSE_PATH:
+        if self.path not in (SPARSE_PATH, SPARSE_BATCH_PATH):
             self.send_error(HTTPStatus.NOT_FOUND, "unknown sparse endpoint")
             return
         try:
@@ -146,8 +201,12 @@ class RequestHandler(BaseHTTPRequestHandler):
         server = cast(SparseServer, self.server)
         try:
             payload = json.loads(self.rfile.read(content_length))
-            term_ids, weights = run_sparse(server.sparse_engine, payload, server.term_cap)
-            body = sparse_response(server.sparse_model, term_ids, weights, server.term_cap)
+            if self.path == SPARSE_BATCH_PATH:
+                vectors = run_sparse_batch(server.sparse_engine, payload, server.term_cap)
+                body = sparse_batch_response(server.sparse_model, vectors, server.term_cap)
+            else:
+                term_ids, weights = run_sparse(server.sparse_engine, payload, server.term_cap)
+                body = sparse_response(server.sparse_model, term_ids, weights, server.term_cap)
         except (ValueError, json.JSONDecodeError) as error:
             self.send_error(HTTPStatus.BAD_REQUEST, str(error))
             return
