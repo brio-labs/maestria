@@ -107,6 +107,41 @@ ranking regression — either a re-justified judgment set (documented budgets an
 lifecycle factors) or a fusion change that preserves first-hit ranking would be the
 next candidates for a new dated evaluation.
 
+### 2.1.0a. Multilingual candidate evaluation (dated 2026-08-08)
+
+The sparse lane is English-only today (`prithivida/Splade_PP_en_v1`, BERT
+tokenizer). For multilingual contexts (e.g. French users), BGE-M3 was
+investigated as the leading candidate (MIT license, 100+ languages, explicit
+sparse output). Verdict: **not evaluable and not budget-feasible**:
+
+- **The trained sparse head is not released.** The official `BAAI/bge-m3`
+  checkpoint contains only the backbone (391 keys); the published
+  `sparse_linear.pt` is a 3.5 KB stub holding a `[1, 1024]` tensor, not the
+  trained `[250002, 1024]` projection. FlagEmbedding's own loader falls back
+  to a *randomly initialized* head when the `.pt` is missing or unusable, so
+  even the reference library cannot serve the real sparse model from the
+  release. Community ONNX exports either omit the head or export a broken
+  `sparse_vecs` output (vocab dimension collapsed to 1, verified in
+  `aapot/bge-m3-onnx`).
+- **Throughput excludes it from the frozen budgets.** Measured on this
+  machine (2-thread ONNX session): fp32 2.13 s and int8 0.79 s per 512-token
+  encode; the 147-chunk corpus re-encode with 6 parallel workers measures
+  164.6 s fp32 and 65.8 s int8 — 13× over the 5 s `ingest_update_budget_ms`
+  and ~15× over the gate's lifecycle-within-factor allowance against the
+  lexical route.
+
+The lexical lane itself is language-agnostic (tantivy's Unicode-aware default
+tokenizer: no stemming, no stopword language, accents preserved), so a
+non-English user already gets working exact-term retrieval today; the sparse
+lane being unpromoted means no English-model noise is injected. The principled
+multilingual path is therefore: (1) extend the frozen corpus with non-English
+cases and judged spans (the corpus format has no language restriction), and
+(2) evaluate a budget-fitting candidate — either a multilingual sparse
+checkpoint of SPLADE-class size (XLM-R-base-class, ~50-150 ms/text int8) when
+one with a clean license appears, or BGE-M3's *dense* output through the
+dense lane (the released, trained, multilingual artifact) under a
+re-justified judgment set (issue #427).
+
 ### 2.1.1. Frozen learned-sparse task corpus
 
 The representative real-task freeze is `tests/contracts/learned_sparse_task_corpus_v1.json`.
