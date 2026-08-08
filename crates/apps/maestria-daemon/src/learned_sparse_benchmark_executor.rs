@@ -7,37 +7,40 @@
 //! lane eligible and KRRF fusion. Telemetry that cannot be measured honestly
 //! (RAPL energy without privileges, standalone lifecycle operations the
 //! adapters do not expose) is recorded `Unavailable`, never inferred.
+//!
+//! Responsibility map:
+//! - `record`: benchmark instrumentation promotion records.
+//! - `lifecycle`: lifecycle operations measured on the route's projection.
+//! - `safety`: safety metrics from the served search path.
+//! - `search`: per-route search execution and candidate mapping.
 
 use std::collections::BTreeMap;
-use std::path::Path;
 use std::sync::Arc;
-use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow};
 use maestria_core::{InstanceLayout, InstanceManifest};
-use maestria_domain::{
-    Chunk, ChunkId, ContentHash, IndexGenerationId, KernelState, SearchOutcome, SearchPlan,
-};
-use maestria_ports::{
-    LearnedSparseIndex, LearnedSparseProjectionLifecycle, LearnedSparseProvider, SparseDocument,
-    SparseIdentity, SparseInputKind,
-};
+use maestria_domain::KernelState;
+use maestria_ports::{LearnedSparseIndex, LearnedSparseProvider, SparseIdentity};
 use maestria_retrieval::adapters::{
     LearnedSparseChunkRetriever, LearnedSparseChunkRetrieverParts,
     LearnedSparseGenerationCapability,
 };
 use maestria_retrieval::{
-    CandidateRetriever, CheckStatus, HybridExecutionPolicy, HybridPromotionRecord,
-    LearnedSparseBenchmarkBudget, LearnedSparseBenchmarkCase, LearnedSparseBenchmarkCorpus,
-    LearnedSparseBenchmarkError, LearnedSparseBenchmarkIdentity, LearnedSparseBenchmarkObservation,
-    LearnedSparseClassDecision, LearnedSparseExecutionPolicy, LearnedSparseExpectedOutcome,
-    LearnedSparseOperationMeasurement, LearnedSparsePromotionRecord,
-    LearnedSparseProviderDisclosure, LearnedSparseQueryClass,
-    LearnedSparseResourceMetrics, LearnedSparseRetentionPolicy, LearnedSparseRetrievedCandidate,
-    LearnedSparseRetrievedSpan, LearnedSparseRollbackTarget, LearnedSparseRoute,
-    LearnedSparseSafetyMetrics, Measurement, RetrievalEngine, score_case,
+    CandidateRetriever, HybridExecutionPolicy, HybridPromotionRecord, LearnedSparseBenchmarkCase,
+    LearnedSparseBenchmarkCorpus, LearnedSparseBenchmarkError, LearnedSparseBenchmarkIdentity,
+    LearnedSparseBenchmarkObservation, LearnedSparseExecutionPolicy, LearnedSparseQueryClass,
+    LearnedSparseResourceMetrics, LearnedSparseRoute, Measurement, RetrievalEngine, score_case,
 };
 use maestria_storage_sqlite::{SqliteLearnedSparseIndex, SqliteStore};
+
+#[path = "learned_sparse_benchmark_executor/lifecycle.rs"]
+mod lifecycle;
+#[path = "learned_sparse_benchmark_executor/record.rs"]
+mod record;
+#[path = "learned_sparse_benchmark_executor/safety.rs"]
+mod safety;
+#[path = "learned_sparse_benchmark_executor/search.rs"]
+mod search;
 
 use crate::search_executor::{SearchRuntime, prepare_search_runtime};
 use crate::sparse_startup::{
@@ -47,30 +50,30 @@ use crate::sparse_startup::{
 
 const HYBRID_RECORD_VERSION: &str = "hybrid";
 const HYBRID_RECORD_DATE: &str = "2026-07-18";
-const RUN_SAMPLES: u32 = 30;
-const WARMUP_SAMPLES: u32 = 1;
-const BACKEND_FINGERPRINT: &str = "sqlite-learned-sparse-projection-v1";
+pub(super) const RUN_SAMPLES: u32 = 30;
+pub(super) const WARMUP_SAMPLES: u32 = 1;
+pub(super) const BACKEND_FINGERPRINT: &str = "sqlite-learned-sparse-projection-v1";
 
 /// One live sparse lane: identity, projection, provider, and retriever.
-struct SparseLane {
-    identity: SparseIdentity,
-    index: Arc<SqliteLearnedSparseIndex>,
-    provider: Arc<dyn LearnedSparseProvider + Send + Sync>,
-    retriever: Arc<dyn CandidateRetriever>,
+pub(super) struct SparseLane {
+    pub(super) identity: SparseIdentity,
+    pub(super) index: Arc<SqliteLearnedSparseIndex>,
+    pub(super) provider: Arc<dyn LearnedSparseProvider + Send + Sync>,
+    pub(super) retriever: Arc<dyn CandidateRetriever>,
 }
 
 /// Executes the frozen corpus against a real prepared instance.
 pub struct LearnedSparseBenchmarkExecutor {
-    corpus: LearnedSparseBenchmarkCorpus,
-    runtime: Arc<SearchRuntime>,
-    sparse: Option<SparseLane>,
-    sparse_generation_id: Option<IndexGenerationId>,
+    pub(super) corpus: LearnedSparseBenchmarkCorpus,
+    pub(super) runtime: Arc<SearchRuntime>,
+    pub(super) sparse: Option<SparseLane>,
+    pub(super) sparse_generation_id: Option<maestria_domain::IndexGenerationId>,
     hybrid_record: HybridPromotionRecord,
     /// Maps a source file path to the corpus source id.
-    source_ids: BTreeMap<String, String>,
+    pub(super) source_ids: BTreeMap<String, String>,
     /// Real instance chunks (id + text) used for lifecycle operations.
-    chunks: Vec<Chunk>,
-    layout: InstanceLayout,
+    pub(super) chunks: Vec<maestria_domain::Chunk>,
+    pub(super) layout: InstanceLayout,
 }
 
 impl LearnedSparseBenchmarkExecutor {
@@ -83,7 +86,7 @@ impl LearnedSparseBenchmarkExecutor {
         manifest: &InstanceManifest,
         corpus: LearnedSparseBenchmarkCorpus,
         source_ids: BTreeMap<String, String>,
-        chunks: Vec<Chunk>,
+        chunks: Vec<maestria_domain::Chunk>,
     ) -> Result<Self> {
         corpus.validate()?;
         let runtime = prepare_search_runtime(
@@ -156,114 +159,13 @@ impl LearnedSparseBenchmarkExecutor {
         })
     }
 
-    pub fn sparse_generation_id(&self) -> Option<IndexGenerationId> {
+    pub fn sparse_generation_id(&self) -> Option<maestria_domain::IndexGenerationId> {
         self.sparse_generation_id
     }
 
     /// The evaluated sparse identity, for report fingerprint binding.
     pub fn sparse_identity_for_report(&self) -> Option<SparseIdentity> {
         self.sparse.as_ref().map(|lane| lane.identity.clone())
-    }
-
-    /// A valid instrumentation record promoting exactly one class.
-    ///
-    /// Protected classes cannot be promoted by policy; for their fused-route
-    /// observations the record promotes an eligible class so the sparse lane
-    /// stays eligible in the engine while the query itself routes hybrid.
-    fn active_record(
-        &self,
-        class: LearnedSparseQueryClass,
-    ) -> Result<LearnedSparsePromotionRecord> {
-        let promoted = if matches!(
-            class,
-            LearnedSparseQueryClass::ExactLiteral
-                | LearnedSparseQueryClass::NoEvidence
-                | LearnedSparseQueryClass::Security
-        ) {
-            LearnedSparseQueryClass::VocabularyExpansion
-        } else {
-            class
-        };
-        let mut decisions = BTreeMap::new();
-        let mut class_final_real = BTreeMap::new();
-        let mut budgets = BTreeMap::new();
-        for candidate in LearnedSparseQueryClass::all() {
-            let decision = if candidate == promoted {
-                LearnedSparseClassDecision::PromoteSparseFused
-            } else if matches!(
-                candidate,
-                LearnedSparseQueryClass::ExactLiteral
-                    | LearnedSparseQueryClass::NoEvidence
-                    | LearnedSparseQueryClass::Security
-            ) {
-                LearnedSparseClassDecision::RetainLexical
-            } else {
-                LearnedSparseClassDecision::RetainHybrid
-            };
-            decisions.insert(candidate, decision);
-            class_final_real.insert(candidate, true);
-            budgets.insert(candidate, self.budget_for_class(candidate));
-        }
-        let lane = self
-            .sparse
-            .as_ref()
-            .ok_or_else(|| anyhow!("sparse lane is unavailable"))?;
-        let benchmark_identity = LearnedSparseBenchmarkIdentity::from_sparse_identity(
-            &lane.identity,
-            BACKEND_FINGERPRINT,
-        )?;
-        let report_hash = ContentHash::new(maestria_domain::content_hash(
-            format!("learned-sparse-benchmark-{class:?}").as_bytes(),
-        ))
-        .map_err(|error| anyhow!("invalid benchmark report hash: {error}"))?;
-        let record = LearnedSparsePromotionRecord {
-            evaluation_id: format!("benchmark-instrumentation-{class:?}"),
-            evaluation_date: self.corpus.evaluation_date.clone(),
-            corpus_id: self.corpus.corpus_id.clone(),
-            corpus_revision: self.corpus.corpus_revision.clone(),
-            judgment_set_id: self.corpus.judgment_set_id.clone(),
-            source_input_hash: self.corpus.source_input_hash.clone(),
-            final_evaluation: true,
-            class_final_real,
-            judgment_set_hash: self.corpus.judgment_set_hash.clone(),
-            environment: self.corpus.environment.clone(),
-            data_fidelity: self.corpus.data_fidelity,
-            identity: benchmark_identity,
-            route_configuration: self
-                .corpus
-                .route_configurations
-                .get(&LearnedSparseRoute::SparseFused)
-                .cloned()
-                .ok_or_else(|| anyhow!("sparse-fused route configuration is missing"))?,
-            budgets,
-            decisions,
-            rollback_target: LearnedSparseRollbackTarget {
-                route: LearnedSparseRoute::Hybrid,
-                index_generation: IndexGenerationId::new(1),
-            },
-            report_hash,
-        };
-        record
-            .validate()
-            .map_err(|error| anyhow!("benchmark instrumentation record is invalid: {error}"))?;
-        Ok(record)
-    }
-
-    fn budget_for_class(&self, class: LearnedSparseQueryClass) -> LearnedSparseBenchmarkBudget {
-        let case = self
-            .corpus
-            .cases
-            .iter()
-            .find(|case| case.class == class)
-            .expect("corpus covers every query class");
-        LearnedSparseBenchmarkBudget {
-            latency_ms: case.latency_budget_ms,
-            memory_bytes: case.memory_budget_bytes,
-            disk_bytes: case.disk_budget_bytes,
-            indexing_cost_micros: case.ingest_update_budget_ms.saturating_mul(1_000),
-            incremental_update_cost_micros: case.ingest_update_budget_ms.saturating_mul(1_000),
-            energy_millijoules: case.energy_budget_millijoules,
-        }
     }
 
     fn engine_for(
@@ -305,454 +207,6 @@ impl LearnedSparseBenchmarkExecutor {
             }
         }
     }
-
-    fn plan_for(
-        &self,
-        engine: &RetrievalEngine,
-        route: LearnedSparseRoute,
-        query: &str,
-        limit: usize,
-    ) -> Result<SearchPlan> {
-        let mut context = self.runtime.planner_context();
-        if route == LearnedSparseRoute::SparseOnly {
-            // The sparse-only ablation serves exclusively from the sparse
-            // generation, so its plan must target that generation.
-            context.primary_generation = self
-                .sparse_generation_id
-                .ok_or_else(|| anyhow!("sparse generation is unavailable"))?;
-        }
-        let plan = engine
-            .plan(query, limit, &context)
-            .map_err(anyhow::Error::new)?;
-        plan.confine_to_scope(self.runtime.scope_id)
-            .map_err(anyhow::Error::new)
-    }
-
-    fn plan_and_search(
-        &self,
-        engine: &RetrievalEngine,
-        plan: &SearchPlan,
-    ) -> Result<SearchOutcome> {
-        // The engine is async; the daemon runs it on a blocking worker so the
-        // benchmark can run both inside and outside an existing runtime.
-        std::thread::scope(|scope| {
-            scope
-                .spawn(|| {
-                    let runtime = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(anyhow::Error::new)?;
-                    runtime
-                        .block_on(engine.search(plan))
-                        .map_err(anyhow::Error::new)
-                })
-                .join()
-                .map_err(|_| anyhow!("benchmark search worker panicked"))?
-        })
-    }
-
-    /// The sparse-only ablation: the projection's own retriever through the
-    /// same authorization path the engine applies, scored standalone.
-    ///
-    /// Returns `None` when the engine refuses to plan the query on this
-    /// instance; the route then abstains honestly.
-    fn sparse_only_candidates(
-        &self,
-        query: &str,
-        limit: usize,
-    ) -> Result<Option<Vec<LearnedSparseRetrievedCandidate>>> {
-        let lane = self
-            .sparse
-            .as_ref()
-            .ok_or_else(|| anyhow!("sparse lane is unavailable"))?;
-        let generation_id = self
-            .sparse_generation_id
-            .ok_or_else(|| anyhow!("sparse generation is unavailable"))?;
-        let route_configuration = self
-            .corpus
-            .route_configurations
-            .get(&LearnedSparseRoute::SparseOnly)
-            .cloned()
-            .ok_or_else(|| anyhow!("sparse-only route configuration is missing"))?;
-        let engine = self.engine_for(
-            LearnedSparseRoute::SparseOnly,
-            LearnedSparseQueryClass::VocabularyExpansion,
-        )?;
-        let plan = match self.plan_for(&engine, LearnedSparseRoute::SparseOnly, query, limit) {
-            Ok(plan) => plan,
-            Err(error) => {
-                eprintln!("sparse-only plan refused, recording abstention: {error}");
-                return Ok(None);
-            }
-        };
-        let authorization = self
-            .runtime
-            .retrieval_policy
-            .authorization_context(plan.scope())
-            .map_err(anyhow::Error::new)?;
-        let request = maestria_retrieval::types::CandidateRequest {
-            plan: plan.clone(),
-            query: maestria_ports::SearchQuery {
-                q: query.to_string(),
-                limit,
-                offset: 0,
-                execution_budget: route_configuration.budget,
-            },
-            execution_budget: route_configuration.budget,
-            expected_generation: generation_id,
-            authorization,
-            source_filter: None,
-        };
-        let batch = std::thread::scope(|scope| {
-            scope
-                .spawn(|| {
-                    let runtime = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(anyhow::Error::new)?;
-                    runtime
-                        .block_on(lane.retriever.retrieve(request))
-                        .map_err(anyhow::Error::new)
-                })
-                .join()
-                .map_err(|_| anyhow!("benchmark sparse-only worker panicked"))?
-        })?;
-        Ok(Some(self.candidates_from(batch.candidates)))
-    }
-
-    fn candidates_from(
-        &self,
-        candidates: Vec<maestria_domain::EvidenceCandidate>,
-    ) -> Vec<LearnedSparseRetrievedCandidate> {
-        candidates
-            .iter()
-            .enumerate()
-            .filter_map(|(index, candidate)| {
-                let (source_id, start_line, end_line) = match candidate.source_span().location() {
-                    maestria_domain::SourceLocation::File {
-                        path,
-                        start_line,
-                        end_line,
-                    } => (
-                        self.source_ids
-                            .get(path)
-                            .cloned()
-                            .unwrap_or_else(|| path.clone()),
-                        *start_line,
-                        *end_line,
-                    ),
-                    _ => return None,
-                };
-                let span = LearnedSparseRetrievedSpan {
-                    source_id: source_id.clone(),
-                    start: start_line,
-                    end: end_line,
-                };
-                Some(LearnedSparseRetrievedCandidate {
-                    evidence_id: candidate.evidence_id().value().to_string(),
-                    lane_rank: index as u32 + 1,
-                    citation: Some(span.clone()),
-                    span,
-                    grade: None,
-                })
-            })
-            .collect()
-    }
-
-    fn outcome_candidates(
-        &self,
-        outcome: &SearchOutcome,
-    ) -> Vec<LearnedSparseRetrievedCandidate> {
-        self.candidates_from(outcome.evidence.clone())
-    }
-
-    /// Latency percentiles from the timed runs (warmup excluded).
-    fn percentiles(samples: &[u128]) -> (u64, u64, u64) {
-        let mut sorted = samples.to_vec();
-        sorted.sort_unstable();
-        let percentile = |p: usize| -> u64 {
-            let index = (sorted.len() * p).div_ceil(100).saturating_sub(1);
-            *sorted.get(index).unwrap_or(&0) as u64
-        };
-        (percentile(50), percentile(95), percentile(99))
-    }
-
-    fn peak_ram_bytes(&self) -> u64 {
-        let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
-        status
-            .lines()
-            .find_map(|line| line.strip_prefix("VmHWM:"))
-            .and_then(|value| value.trim().strip_suffix(" kB"))
-            .and_then(|value| value.trim().parse::<u64>().ok())
-            .map(|kb| kb.saturating_mul(1024))
-            .unwrap_or(0)
-    }
-
-    fn dir_size(path: &Path) -> u64 {
-        fn walk(path: &Path, total: &mut u64) {
-            if let Ok(entries) = std::fs::read_dir(path) {
-                for entry in entries.flatten() {
-                    let entry_path = entry.path();
-                    if entry_path.is_dir() {
-                        walk(&entry_path, total);
-                    } else if let Ok(metadata) = entry.metadata() {
-                        *total = total.saturating_add(metadata.len());
-                    }
-                }
-            }
-        }
-        let mut total = 0_u64;
-        walk(path, &mut total);
-        total
-    }
-
-    fn index_disk_bytes(&self, route: LearnedSparseRoute) -> u64 {
-        match route {
-            LearnedSparseRoute::Lexical => Self::dir_size(&self.layout.full_text_index_dir),
-            LearnedSparseRoute::Hybrid => Self::dir_size(&self.layout.vector_index_dir),
-            LearnedSparseRoute::SparseOnly | LearnedSparseRoute::SparseFused => {
-                std::fs::metadata(&self.layout.database_path)
-                    .map(|metadata| metadata.len())
-                    .unwrap_or(0)
-            }
-        }
-    }
-
-    /// Measures one lifecycle operation on the route's projection.
-    fn measure_operation(
-        &self,
-        _route: LearnedSparseRoute,
-        items: usize,
-        op: impl Fn() -> Result<(), anyhow::Error>,
-    ) -> LearnedSparseOperationMeasurement {
-        let started = Instant::now();
-        let result = op();
-        let elapsed_us = started.elapsed().as_micros() as u64;
-        let energy = Measurement::unavailable(
-            "RAPL energy_uj is not readable without privileges on this host",
-        );
-        match result {
-            Ok(()) => LearnedSparseOperationMeasurement {
-                elapsed_ms: Measurement::measured(elapsed_us.saturating_div(1_000)),
-                throughput_items_per_second: Measurement::measured(
-                    (items as u128)
-                        .saturating_mul(1_000_000)
-                        .checked_div(started.elapsed().as_micros().max(1))
-                        .unwrap_or(0) as u64,
-                ),
-                cost_micros: Measurement::measured(elapsed_us),
-                energy_millijoules: energy,
-            },
-            Err(error) => LearnedSparseOperationMeasurement {
-                elapsed_ms: Measurement::unavailable(format!(
-                    "lifecycle operation failed: {error}"
-                )),
-                throughput_items_per_second: Measurement::unavailable(
-                    "lifecycle operation failed".to_string(),
-                ),
-                cost_micros: Measurement::unavailable("lifecycle operation failed".to_string()),
-                energy_millijoules: energy,
-            },
-        }
-    }
-
-    fn encode_documents(
-        provider: &(dyn LearnedSparseProvider + Send + Sync),
-        identity: &SparseIdentity,
-        chunks: &[Chunk],
-    ) -> Result<Vec<SparseDocument>, anyhow::Error> {
-        chunks
-            .iter()
-            .map(|chunk| {
-                let content_hash = ContentHash::new(maestria_domain::content_hash(
-                    chunk.text.as_bytes(),
-                ))?;
-                let encoded_text = crate::sparse_startup::truncate_document_text(&chunk.text);
-                let vector = provider.encode(
-                    &encoded_text,
-                    SparseInputKind::Document,
-                    identity.clone(),
-                )?;
-                if vector.identity() != identity {
-                    return Err(anyhow!(
-                        "encode chunk {} returned an incompatible generation identity",
-                        chunk.id
-                    ));
-                }
-                Ok(SparseDocument {
-                    chunk_id: chunk.id,
-                    content_hash,
-                    vector,
-                })
-            })
-            .collect()
-    }
-
-    /// Lifecycle operations for one route, measured on its projection.
-    fn lifecycle_operations(
-        &self,
-        route: LearnedSparseRoute,
-    ) -> (
-        LearnedSparseOperationMeasurement,
-        LearnedSparseOperationMeasurement,
-        LearnedSparseOperationMeasurement,
-        LearnedSparseOperationMeasurement,
-        LearnedSparseOperationMeasurement,
-        LearnedSparseOperationMeasurement,
-    ) {
-        let Some(lane) = &self.sparse else {
-            let unavailable = |op: &str| LearnedSparseOperationMeasurement {
-                elapsed_ms: Measurement::unavailable(format!(
-                    "{op} is not exposed as a standalone operation on the {route:?} projection"
-                )),
-                throughput_items_per_second: Measurement::unavailable(format!(
-                    "{op} is not exposed as a standalone operation on the {route:?} projection"
-                )),
-                cost_micros: Measurement::unavailable(format!(
-                    "{op} is not exposed as a standalone operation on the {route:?} projection"
-                )),
-                energy_millijoules: Measurement::unavailable(
-                    "RAPL energy_uj is not readable without privileges on this host",
-                ),
-            };
-            return (
-                unavailable("initial indexing"),
-                unavailable("incremental update"),
-                unavailable("deletion"),
-                unavailable("rebuild"),
-                unavailable("activation"),
-                unavailable("rollback"),
-            );
-        };
-        let index = lane.index.clone();
-        let identity = lane.identity.clone();
-        let provider = lane.provider.clone();
-        let chunks = self.chunks.clone();
-        let one_chunk = chunks
-            .first()
-            .map(|chunk| chunk.id)
-            .unwrap_or(ChunkId::new(0));
-        let initial = self.measure_operation(route, chunks.len(), || {
-            let documents = Self::encode_documents(provider.as_ref(), &identity, &chunks)?;
-            index
-                .index_documents(documents)
-                .map_err(anyhow::Error::from)
-        });
-        let incremental = self.measure_operation(route, 1, || {
-            let one = chunks
-                .iter()
-                .filter(|chunk| chunk.id == one_chunk)
-                .cloned()
-                .collect::<Vec<_>>();
-            let documents = Self::encode_documents(provider.as_ref(), &identity, &one)?;
-            index
-                .index_documents(documents)
-                .map_err(anyhow::Error::from)
-        });
-        let deletion = self.measure_operation(route, 1, || {
-            index
-                .delete_chunks(&[one_chunk])
-                .map_err(anyhow::Error::from)
-        });
-        let rebuild = self.measure_operation(route, chunks.len(), || {
-            let documents = Self::encode_documents(provider.as_ref(), &identity, &chunks)?;
-            index.rebuild(documents).map_err(anyhow::Error::from)
-        });
-        // The evaluated projection is active, so the measured rollback is the
-        // real Active -> Retired transition and the measured activation is
-        // the Retired -> Active path the registry rollback uses.
-        let rollback = self.measure_operation(route, 0, || {
-            index
-                .transition(
-                    maestria_domain::IndexLifecycle::Active,
-                    maestria_domain::IndexLifecycle::Retired,
-                )
-                .map_err(anyhow::Error::from)
-        });
-        let activation = self.measure_operation(route, 0, || {
-            index
-                .transition(
-                    maestria_domain::IndexLifecycle::Retired,
-                    maestria_domain::IndexLifecycle::Active,
-                )
-                .map_err(anyhow::Error::from)
-        });
-        (initial, incremental, deletion, rebuild, activation, rollback)
-    }
-
-    /// Safety metrics from the same search path the daemon serves.
-    ///
-    /// The engine's secret scanner and authorization deny the security
-    /// fixtures before candidates exist; a leaked candidate is recorded as a
-    /// failure instead of being filtered from the report.
-    fn safety_for(
-        &self,
-        case: &LearnedSparseBenchmarkCase,
-        candidates: &[LearnedSparseRetrievedCandidate],
-    ) -> LearnedSparseSafetyMetrics {
-        let leaked = !candidates.is_empty();
-        let security_case = matches!(case.class, LearnedSparseQueryClass::Security);
-        let expects_no_evidence = matches!(
-            case.expected.as_ref(),
-            Some(
-                LearnedSparseExpectedOutcome::Abstain
-                    | LearnedSparseExpectedOutcome::UnsupportedClaim
-                    | LearnedSparseExpectedOutcome::Conflict
-            )
-        );
-        let attack_outcome = if security_case {
-            if leaked {
-                CheckStatus::Failed
-            } else {
-                CheckStatus::Passed
-            }
-        } else {
-            CheckStatus::NotDetected
-        };
-        let secret_exposure = if security_case && leaked {
-            CheckStatus::Failed
-        } else {
-            CheckStatus::NotDetected
-        };
-        let prompt_injection_outcome = if security_case && leaked {
-            CheckStatus::Failed
-        } else {
-            CheckStatus::Passed
-        };
-        let poisoning_outcome = if leaked {
-            CheckStatus::Failed
-        } else {
-            CheckStatus::Passed
-        };
-        let quarantine_outcome = if leaked {
-            CheckStatus::Failed
-        } else {
-            CheckStatus::Passed
-        };
-        let namespace_isolation = if leaked {
-            CheckStatus::Failed
-        } else {
-            CheckStatus::Passed
-        };
-        let _ = expects_no_evidence;
-        LearnedSparseSafetyMetrics {
-            provider: Measurement::measured(LearnedSparseProviderDisclosure {
-                remote: false,
-                retention: LearnedSparseRetentionPolicy::NoRetention,
-            }),
-            namespace_isolation: Measurement::measured(namespace_isolation),
-            acl_leakage: Measurement::measured(if leaked { candidates.len() as u32 } else { 0 }),
-            attack_outcome: Measurement::measured(attack_outcome),
-            poisoning_outcome: Measurement::measured(poisoning_outcome),
-            secret_exposure: Measurement::measured(secret_exposure),
-            quarantine_outcome: Measurement::measured(quarantine_outcome),
-            prompt_injection_outcome: Measurement::measured(prompt_injection_outcome),
-            fail_open_count: Measurement::measured(0),
-            energy: Measurement::unavailable(
-                "RAPL energy_uj is not readable without privileges on this host",
-            ),
-        }
-    }
 }
 
 impl maestria_retrieval::LearnedSparseBenchmarkExecutor for LearnedSparseBenchmarkExecutor {
@@ -761,75 +215,31 @@ impl maestria_retrieval::LearnedSparseBenchmarkExecutor for LearnedSparseBenchma
         case: LearnedSparseBenchmarkCase,
         route: LearnedSparseRoute,
     ) -> Result<LearnedSparseBenchmarkObservation, LearnedSparseBenchmarkError> {
-        let expected = case
-            .expected
-            .clone()
-            .ok_or_else(|| {
-                LearnedSparseBenchmarkError::InvalidCorpus(format!(
-                    "case {} has no expected outcome",
-                    case.case_id
-                ))
-            })?;
-        let limit = self
+        let expected = case.expected.clone().ok_or_else(|| {
+            LearnedSparseBenchmarkError::InvalidCorpus(format!(
+                "case {} has no expected outcome",
+                case.case_id
+            ))
+        })?;
+        let configuration = self
             .corpus
             .route_configurations
             .get(&route)
-            .map(|configuration| configuration.result_limit as usize)
-            .unwrap_or(20);
+            .ok_or_else(|| {
+                LearnedSparseBenchmarkError::InvalidCorpus(format!(
+                    "route {route:?} configuration is missing"
+                ))
+            })?;
+        let limit = configuration.result_limit as usize;
         let engine = self
             .engine_for(route, case.class)
             .map_err(|error| LearnedSparseBenchmarkError::InvalidCorpus(error.to_string()))?;
-
-        let mut samples = Vec::with_capacity(RUN_SAMPLES as usize);
-        let mut candidates = Vec::new();
-        for run in 0..(WARMUP_SAMPLES + RUN_SAMPLES) {
-            let started = Instant::now();
-            if route == LearnedSparseRoute::SparseOnly {
-                candidates = self
-                    .sparse_only_candidates(&case.query, limit)
-                    .map_err(|error| {
-                        LearnedSparseBenchmarkError::InvalidMeasurement(format!(
-                            "sparse-only retrieval on route {route:?} for case {} failed: {error}",
-                            case.case_id
-                        ))
-                    })?
-                    .unwrap_or_default();
-            } else {
-                match self.plan_for(&engine, route, &case.query, limit) {
-                    Ok(plan) => {
-                        let outcome = self
-                            .plan_and_search(&engine, &plan)
-                            .map_err(|error| {
-                                LearnedSparseBenchmarkError::InvalidMeasurement(format!(
-                                    "search on route {route:?} for case {} failed: {error}",
-                                    case.case_id
-                                ))
-                            })?;
-                        candidates = self.outcome_candidates(&outcome);
-                    }
-                    Err(error) => {
-                        // A plan the engine refuses (unsupported intent or
-                        // modality on this instance) is an honest route
-                        // abstention: no evidence is produced or fabricated.
-                        // Recorded once per observation, not per run.
-                        if run == WARMUP_SAMPLES {
-                            eprintln!(
-                                "case {} route {route:?}: plan refused, recording abstention: {error}",
-                                case.case_id
-                            );
-                        }
-                        candidates = Vec::new();
-                    }
-                }
-            }
-            if run >= WARMUP_SAMPLES {
-                samples.push(started.elapsed().as_micros());
-            }
-        }
+        let (candidates, samples) = self
+            .timed_retrievals(&case, route, &engine, limit)
+            .map_err(|error| LearnedSparseBenchmarkError::InvalidMeasurement(error.to_string()))?;
         let (p50, p95, p99) = Self::percentiles(&samples);
-        let quality = score_case(&case.case_id, &expected, &candidates).map_err(|error| {
-            LearnedSparseBenchmarkError::InvalidMeasurement(error.to_string())
-        })?;
+        let quality = score_case(&case.case_id, &expected, &candidates)
+            .map_err(|error| LearnedSparseBenchmarkError::InvalidMeasurement(error.to_string()))?;
 
         let (initial_indexing, incremental_update, deletion, rebuild, activation, rollback) =
             self.lifecycle_operations(route);
@@ -854,9 +264,7 @@ impl maestria_retrieval::LearnedSparseBenchmarkExecutor for LearnedSparseBenchma
                     )
                 })
                 .transpose()
-                .map_err(|error| {
-                    LearnedSparseBenchmarkError::InvalidIdentity(error.to_string())
-                })?
+                .map_err(|error| LearnedSparseBenchmarkError::InvalidIdentity(error.to_string()))?
                 .ok_or_else(|| {
                     LearnedSparseBenchmarkError::InvalidIdentity(
                         "sparse identity is unavailable for the observation".to_string(),

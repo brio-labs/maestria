@@ -15,18 +15,19 @@ use maestria_core::{artifact_id_for, content_hash};
 use maestria_domain::{ContentHash, DomainInput, KernelState};
 use maestria_governance::AutonomyProfile;
 use maestria_retrieval::{
-    LearnedSparseBenchmarkComparison, LearnedSparseClassDecision,
+    LearnedSparseBenchmarkComparison, LearnedSparseBenchmarkCorpus, LearnedSparseClassDecision,
     LearnedSparseEnvironment, LearnedSparseQueryClass, LearnedSparseRollbackTarget,
     LearnedSparseRoute, LearnedSparseRouteConfiguration, LearnedSparseTaskCorpus,
     run_learned_sparse_benchmark,
 };
 
 use maestria_daemon::{
-    LearnedSparseBenchmarkExecutor, MutationSession, load_kernel_state, prepare_instance_with_roots,
-    reconcile_sparse_generation, sparse_namespace,
+    LearnedSparseBenchmarkExecutor, MutationSession, load_kernel_state,
+    prepare_instance_with_roots, reconcile_sparse_generation, sparse_namespace,
 };
 
-const TASK_CORPUS: &str = include_str!("../../../../tests/contracts/learned_sparse_task_corpus_v1.json");
+const TASK_CORPUS: &str =
+    include_str!("../../../../tests/contracts/learned_sparse_task_corpus_v1.json");
 const ROUTE_CONFIGURATIONS: &str =
     include_str!("../../../../tests/contracts/learned_sparse_benchmark_v2.json");
 
@@ -75,11 +76,9 @@ impl Drop for TempDir {
     }
 }
 
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .expect("repo root is canonicalizable")
+fn repo_root() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    Ok(root.canonicalize()?)
 }
 
 fn task_corpus() -> Result<LearnedSparseTaskCorpus, Box<dyn std::error::Error>> {
@@ -99,8 +98,8 @@ fn environment() -> Result<LearnedSparseEnvironment, Box<dyn std::error::Error>>
     Ok(document.environment)
 }
 
-fn route_configurations(
-) -> Result<BTreeMap<LearnedSparseRoute, LearnedSparseRouteConfiguration>, Box<dyn std::error::Error>>
+fn route_configurations()
+-> Result<BTreeMap<LearnedSparseRoute, LearnedSparseRouteConfiguration>, Box<dyn std::error::Error>>
 {
     #[derive(serde::Deserialize)]
     struct ConfigDocument {
@@ -111,7 +110,9 @@ fn route_configurations(
 }
 
 /// Enables the pinned sparse profile on the instance manifest.
-fn enable_sparse_profile(layout: &maestria_core::InstanceLayout) -> Result<(), Box<dyn std::error::Error>> {
+fn enable_sparse_profile(
+    layout: &maestria_core::InstanceLayout,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut contents = fs::read_to_string(&layout.manifest_path)?;
     if !contents.ends_with('\n') {
         contents.push('\n');
@@ -178,19 +179,16 @@ async fn wait_for_indexed(
     artifact_id: maestria_domain::ArtifactId,
 ) -> anyhow::Result<()> {
     let budget = std::time::Duration::from_secs(120);
-    let deadline = std::time::Instant::now() + budget;
+    let deadline = tokio::time::Instant::now() + budget;
     loop {
-        if std::time::Instant::now() >= deadline {
+        if tokio::time::Instant::now() >= deadline {
             return Err(anyhow::anyhow!("timed out waiting for artifact indexing"));
         }
         match maestria_daemon::load_kernel_state(layout) {
             Ok(state)
-                if state
-                    .artifacts
-                    .get(&artifact_id)
-                    .is_some_and(|artifact| {
-                        artifact.index_status == maestria_domain::IndexStatus::Indexed
-                    }) =>
+                if state.artifacts.get(&artifact_id).is_some_and(|artifact| {
+                    artifact.index_status == maestria_domain::IndexStatus::Indexed
+                }) =>
             {
                 return Ok(());
             }
@@ -198,7 +196,7 @@ async fn wait_for_indexed(
             Err(error) if maestria_daemon::db_retry::is_database_busy(&error) => {
                 tokio::time::sleep(std::time::Duration::from_millis(25)).await;
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(error),
         }
     }
 }
@@ -213,17 +211,18 @@ async fn index_source(
     let artifact_id = artifact_id_for(path, &bytes);
     let hash = ContentHash::new(content_hash(&bytes))?;
     session
-        .submit(DomainInput::ArtifactDetected(maestria_domain::ArtifactDetected {
-            artifact_id,
-            title: path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("source")
-                .to_string(),
-            source_path: path.display().to_string(),
-            source_bytes: bytes,
-            content_hash: hash,
-        }))
+        .submit(DomainInput::ArtifactDetected(
+            maestria_domain::ArtifactDetected {
+                artifact_id,
+                title: match path.file_name().and_then(|name| name.to_str()) {
+                    Some(name) => name.to_string(),
+                    None => "source".to_string(),
+                },
+                source_path: path.display().to_string(),
+                source_bytes: bytes,
+                content_hash: hash,
+            },
+        ))
         .await?;
     wait_for_indexed(layout, artifact_id).await
 }
@@ -278,21 +277,188 @@ async fn learned_sparse_four_profile_real_evaluation() -> Result<(), Box<dyn std
         eprintln!("skipping: MAESTRIA_SPARSE_EVALUATION=1 is required");
         return Ok(());
     }
-    let root = repo_root();
+    let root = repo_root()?;
     let temp = TempDir::create()?;
-    let sources_dir = temp.path().join("sources");
+    let prepared = prepare_evaluation_instance(&root, temp.path()).await?;
+    let (_layout, state, _manifest, benchmark_corpus, executor, sparse_generation) = prepared;
+    let _ = state;
+
+    let observations = run_learned_sparse_benchmark(&benchmark_corpus, &executor)?;
+    let comparison = LearnedSparseBenchmarkComparison::evaluate(&benchmark_corpus, &observations)?;
+    let decisions = decisions_from_comparison(&comparison);
+    println!("== per-class decisions (winning route) ==");
+    for (class, entry) in comparison.classes() {
+        println!("{class:?}: winning_route={:?}", entry.winning_route);
+    }
+    let won = comparison
+        .classes()
+        .values()
+        .any(|entry| entry.winning_route == Some(LearnedSparseRoute::SparseFused));
+
+    // Report emission: the dated report is the serialized comparison plus the
+    // ledger-bound identity fields, mirroring the contract report shape.
+    let report_path = emit_report(
+        &root,
+        &executor,
+        &benchmark_corpus,
+        &observations,
+        sparse_generation,
+        decisions,
+    )?;
+    let report_hash = ContentHash::new(content_hash(&fs::read(&report_path)?))?;
+    println!(
+        "report written: {} (sha256 {})",
+        report_path.display(),
+        report_hash.as_str()
+    );
+    let identity = executor
+        .sparse_identity_for_report()
+        .ok_or("sparse identity is unavailable for the report")?;
+    println!(
+        "ledger fingerprints: index_generation={} model_fingerprint={}",
+        index_generation_label(sparse_generation),
+        model_fingerprint(&identity)
+    );
+
+    // The gate decision: a valid promotion record when at least one eligible
+    // class won with complete telemetry; otherwise the honest no-promotion.
+    let promotion = comparison.promotion(
+        "learned-sparse-four-profile-2026-08-07".to_string(),
+        benchmark_corpus.evaluation_date.clone(),
+        LearnedSparseRollbackTarget {
+            route: LearnedSparseRoute::Hybrid,
+            index_generation: state
+                .index_generations
+                .get_active(&maestria_domain::RepresentationName::new("lexical_text_v1"))
+                .map(|generation| generation.id)
+                .ok_or("primary lexical generation is missing")?,
+        },
+        report_hash,
+    )?;
+    if won {
+        assert!(
+            promotion.validate().is_ok(),
+            "winning classes must produce a valid promotion record"
+        );
+        println!("== promotion record ==");
+        println!("{}", serde_json::to_string_pretty(&promotion)?);
+    } else {
+        assert!(
+            promotion.validate().is_err(),
+            "no winning class must not produce a promotion record"
+        );
+        println!("== no class won; no promotion record is produced ==");
+    }
+    Ok(())
+}
+
+/// Writes the dated real-evaluation report and returns its path.
+fn emit_report(
+    root: &Path,
+    executor: &LearnedSparseBenchmarkExecutor,
+    corpus: &LearnedSparseBenchmarkCorpus,
+    observations: &[maestria_retrieval::LearnedSparseBenchmarkObservation],
+    sparse_generation: u64,
+    decisions: BTreeMap<LearnedSparseQueryClass, LearnedSparseClassDecision>,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    #[derive(serde::Serialize)]
+    struct ReportObservation<'a> {
+        case_id: &'a str,
+        route: LearnedSparseRoute,
+        quality: &'a maestria_retrieval::LearnedSparseQualityMetrics,
+        resources: &'a maestria_retrieval::LearnedSparseResourceMetrics,
+        safety: &'a maestria_retrieval::LearnedSparseSafetyMetrics,
+        measurement_status: &'static str,
+    }
+    #[derive(serde::Serialize)]
+    struct Report<'a> {
+        measurement_kind: &'static str,
+        evaluation_date: &'a str,
+        corpus_id: &'a str,
+        corpus_revision: &'a str,
+        index_generation: String,
+        model_fingerprint: String,
+        namespace: String,
+        route_configuration: &'a LearnedSparseRouteConfiguration,
+        observations: Vec<ReportObservation<'a>>,
+        decisions: BTreeMap<LearnedSparseQueryClass, LearnedSparseClassDecision>,
+    }
+    let report_dir = match std::env::var("MAESTRIA_BENCHMARK_REPORT_DIR") {
+        Ok(report_dir) => report_dir,
+        Err(_) => root.join("target/benchmark-reports").display().to_string(),
+    };
+    fs::create_dir_all(&report_dir)?;
+    let identity = executor
+        .sparse_identity_for_report()
+        .ok_or("sparse identity is unavailable for the report")?;
+    let route_configuration = corpus
+        .route_configurations
+        .get(&LearnedSparseRoute::SparseFused)
+        .cloned()
+        .ok_or("sparse-fused route configuration is missing")?;
+    let report_path = Path::new(&report_dir).join("learned-sparse.json");
+    let report = Report {
+        measurement_kind: "learned_sparse_four_profile",
+        evaluation_date: &corpus.evaluation_date,
+        corpus_id: &corpus.corpus_id,
+        corpus_revision: &corpus.corpus_revision,
+        index_generation: index_generation_label(sparse_generation),
+        model_fingerprint: model_fingerprint(&identity),
+        namespace: format!(
+            "{}:{:?}:{}",
+            identity.namespace.instance_id(),
+            identity.namespace.trust_zone(),
+            identity.namespace.projection()
+        ),
+        route_configuration: &route_configuration,
+        observations: observations
+            .iter()
+            .map(|observation| ReportObservation {
+                case_id: &observation.case_id,
+                route: observation.route,
+                quality: &observation.quality,
+                resources: &observation.resources,
+                safety: &observation.safety,
+                measurement_status: "Measured",
+            })
+            .collect(),
+        decisions,
+    };
+    fs::write(&report_path, serde_json::to_vec_pretty(&report)?)?;
+    Ok(report_path)
+}
+
+/// Prepares the evaluation instance: indexes the frozen sources, binds the
+/// benchmark corpus, and builds the four-profile executor.
+async fn prepare_evaluation_instance(
+    root: &Path,
+    instance_dir: &Path,
+) -> Result<
+    (
+        maestria_core::InstanceLayout,
+        KernelState,
+        maestria_core::InstanceManifest,
+        LearnedSparseBenchmarkCorpus,
+        LearnedSparseBenchmarkExecutor,
+        u64,
+    ),
+    Box<dyn std::error::Error>,
+> {
+    let sources_dir = instance_dir.join("sources");
     fs::create_dir_all(&sources_dir)?;
-    let layout = prepare_instance_with_roots(temp.path().to_path_buf(), vec![sources_dir.clone()])?;
+    let layout =
+        prepare_instance_with_roots(instance_dir.to_path_buf(), vec![sources_dir.clone()])?;
     enable_sparse_profile(&layout)?;
 
     // C1: index the frozen corpus source inputs with verified hashes. The
     // content is the dated freeze, not the drifted working tree.
     let corpus = task_corpus()?;
-    let source_ids = materialize_sources(&corpus, &root, &sources_dir)?;
+    let source_ids = materialize_sources(&corpus, root, &sources_dir)?;
     {
-        let session = MutationSession::start(layout.clone(), AutonomyProfile::TrustedWorkspace).await?;
+        let session =
+            MutationSession::start(layout.clone(), AutonomyProfile::TrustedWorkspace).await?;
         let result = async {
-            for (path, _) in &source_ids {
+            for path in source_ids.keys() {
                 index_source(&session, &layout, Path::new(path)).await?;
             }
             Ok::<(), anyhow::Error>(())
@@ -326,129 +492,24 @@ async fn learned_sparse_four_profile_real_evaluation() -> Result<(), Box<dyn std
     if chunks.is_empty() {
         return Err("the prepared instance has no indexed chunks".into());
     }
-    let executor =
-        LearnedSparseBenchmarkExecutor::prepare(&layout, &mut state, &manifest, benchmark_corpus.clone(), source_ids, chunks)?;
-    let sparse_generation = executor.sparse_generation_id().ok_or("sparse generation missing")?;
-
-    let observations = run_learned_sparse_benchmark(&benchmark_corpus, &executor)?;
-    let comparison = LearnedSparseBenchmarkComparison::evaluate(&benchmark_corpus, &observations)?;
-    let decisions = decisions_from_comparison(&comparison);
-    println!("== per-class decisions (winning route) ==");
-    for (class, entry) in comparison.classes() {
-        println!(
-            "{class:?}: winning_route={:?}",
-            entry.winning_route
-        );
-    }
-    let won = comparison
-        .classes()
-        .values()
-        .any(|entry| entry.winning_route == Some(LearnedSparseRoute::SparseFused));
-
-    // Report emission: the dated report is the serialized comparison plus the
-    // ledger-bound identity fields, mirroring the contract report shape.
-    let report_dir = std::env::var("MAESTRIA_BENCHMARK_REPORT_DIR")
-        .unwrap_or_else(|_| root.join("target/benchmark-reports").display().to_string());
-    fs::create_dir_all(&report_dir)?;
-    let identity = executor
-        .sparse_identity_for_report()
-        .ok_or("sparse identity is unavailable for the report")?;
-    #[derive(serde::Serialize)]
-    struct ReportObservation<'a> {
-        case_id: &'a str,
-        route: LearnedSparseRoute,
-        quality: &'a maestria_retrieval::LearnedSparseQualityMetrics,
-        resources: &'a maestria_retrieval::LearnedSparseResourceMetrics,
-        safety: &'a maestria_retrieval::LearnedSparseSafetyMetrics,
-        measurement_status: &'static str,
-    }
-    #[derive(serde::Serialize)]
-    struct Report<'a> {
-        measurement_kind: &'static str,
-        evaluation_date: &'a str,
-        corpus_id: &'a str,
-        corpus_revision: &'a str,
-        index_generation: String,
-        model_fingerprint: String,
-        namespace: String,
-        route_configuration: &'a LearnedSparseRouteConfiguration,
-        observations: Vec<ReportObservation<'a>>,
-        decisions: BTreeMap<LearnedSparseQueryClass, LearnedSparseClassDecision>,
-    }
-    let route_configuration = benchmark_corpus
-        .route_configurations
-        .get(&LearnedSparseRoute::SparseFused)
-        .cloned()
-        .ok_or("sparse-fused route configuration is missing")?;
-    let report_path = Path::new(&report_dir).join("learned-sparse.json");
-    let report = Report {
-        measurement_kind: "learned_sparse_four_profile",
-        evaluation_date: &benchmark_corpus.evaluation_date,
-        corpus_id: &benchmark_corpus.corpus_id,
-        corpus_revision: &benchmark_corpus.corpus_revision,
-        index_generation: index_generation_label(sparse_generation.value()),
-        model_fingerprint: model_fingerprint(&identity),
-        namespace: format!(
-            "{}:{:?}:{}",
-            identity.namespace.instance_id(),
-            identity.namespace.trust_zone(),
-            identity.namespace.projection()
-        ),
-        route_configuration: &route_configuration,
-        observations: observations
-            .iter()
-            .map(|observation| ReportObservation {
-                case_id: &observation.case_id,
-                route: observation.route,
-                quality: &observation.quality,
-                resources: &observation.resources,
-                safety: &observation.safety,
-                measurement_status: "Measured",
-            })
-            .collect(),
-        decisions,
-    };
-    fs::write(&report_path, serde_json::to_vec_pretty(&report)?)?;
-    let report_hash = ContentHash::new(content_hash(&fs::read(&report_path)?))?;
-    println!(
-        "report written: {} (sha256 {})",
-        report_path.display(),
-        report_hash.as_str()
-    );
-    println!(
-        "ledger fingerprints: index_generation={} model_fingerprint={}",
-        index_generation_label(sparse_generation.value()),
-        model_fingerprint(&identity)
-    );
-
-    // The gate decision: a valid promotion record when at least one eligible
-    // class won with complete telemetry; otherwise the honest no-promotion.
-    let promotion = comparison.promotion(
-        format!("learned-sparse-four-profile-2026-08-07"),
-        benchmark_corpus.evaluation_date.clone(),
-        LearnedSparseRollbackTarget {
-            route: LearnedSparseRoute::Hybrid,
-            index_generation: state
-                .index_generations
-                .get_active(&maestria_domain::RepresentationName::new("lexical_text_v1"))
-                .map(|generation| generation.id)
-                .ok_or("primary lexical generation is missing")?,
-        },
-        report_hash,
+    let executor = LearnedSparseBenchmarkExecutor::prepare(
+        &layout,
+        &mut state,
+        &manifest,
+        benchmark_corpus.clone(),
+        source_ids,
+        chunks,
     )?;
-    if won {
-        assert!(
-            promotion.validate().is_ok(),
-            "winning classes must produce a valid promotion record"
-        );
-        println!("== promotion record ==");
-        println!("{}", serde_json::to_string_pretty(&promotion)?);
-    } else {
-        assert!(
-            promotion.validate().is_err(),
-            "no winning class must not produce a promotion record"
-        );
-        println!("== no class won; no promotion record is produced ==");
-    }
-    Ok(())
+    let sparse_generation = executor
+        .sparse_generation_id()
+        .ok_or("sparse generation missing")?
+        .value();
+    Ok((
+        layout,
+        state,
+        manifest,
+        benchmark_corpus,
+        executor,
+        sparse_generation,
+    ))
 }

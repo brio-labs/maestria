@@ -2,18 +2,40 @@
 
 ## Status
 
-Learned-sparse retrieval is a **research-only**, benchmark-gated candidate lane.
-It executes through a non-serving shadow path by default and is not part of the stable product
-surface.
+The learned-sparse four-profile evaluation is **complete** (2026-08-07) and the
+per-query-class decision is **retain all**:
 
-The checked-in in-memory provider is a deterministic contract fixture. It proves type,
-security, lifecycle, shadow-isolation, and ranking invariants; it is not a trained
-learned-sparse model and must not be used as product-quality evidence.
+| Query class | Decision | Winning route | Evidence |
+| --- | --- | --- | --- |
+| ExactLiteral | RetainLexical | none | `learned_sparse_report_v1.json` |
+| VocabularyExpansion | RetainHybrid | none | `learned_sparse_report_v1.json` |
+| DomainTerminology | RetainHybrid | none | `learned_sparse_report_v1.json` |
+| MultiTerm | RetainHybrid | none | `learned_sparse_report_v1.json` |
+| NoEvidence | RetainLexical | none | `learned_sparse_report_v1.json` |
+| Security | RetainLexical | none | `learned_sparse_report_v1.json` |
 
-Merging the research foundation does not complete the learned-sparse experiment and must not
-transition #90 to a completed state. The issue remains the owner of real-provider integration,
-representative judgments, complete measurements, and the final per-query-class
-promote-or-retain decision.
+No class was promoted because the evaluation could not certify complete telemetry:
+RAPL energy counters are not readable without privileges on the evaluation host, so the
+promotion gate records energy as `Unavailable` and yields no winning route. That is the
+honest no-promotion outcome the evaluation contract defines; no promotion record exists
+and the daemon serves the lexical/hybrid routes.
+
+The lane remains implemented and benchmark-gated:
+
+- a real local provider (pinned SPLADE ONNX sidecar, see `docs/RESEARCH.md` §4.3)
+  encodes queries and documents through the `sparse_text_v1` contract;
+- a durable SQLite projection serves the lane when a valid promotion record exists;
+- the promotion record is per-instance durable state: `maestria promotion set --record
+  <file.json>` validates and stores it, `maestria promotion remove` deletes it and
+  restores the lexical/hybrid route, `maestria promotion show` prints it. An invalid or
+  unparsable record is fail-closed to shadow serving; rolling the sparse generation back
+  in the registry degrades the lane to hybrid serving even while a record exists;
+- the benchmark evidence ledger (`tests/contracts/benchmark_evidence_v1.json`,
+  milestone `v1.2`) pins the frozen corpus, the report, and the model fingerprint.
+
+Re-evaluating with a different checkpoint, a privileged energy source, or a tuned final
+split requires updating the dated report, the ledger fingerprints, and this table; the
+promotion procedure itself is unchanged.
 
 ## Contract
 

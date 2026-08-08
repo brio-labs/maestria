@@ -489,6 +489,8 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "lifecycle_entry",
         "instance_setup",
         "providers",
+        "learned_sparse_benchmark_executor",
+        "sparse_startup",
         "runtime_construction",
         "blocked_patterns",
         "db_retry",
@@ -575,6 +577,10 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     "crates/ecosystem/maestria-visual-local/src/lib.rs": (
         "dto",
         "visual_provider",
+    ),
+    "crates/ecosystem/maestria-sparse-local/src/lib.rs": (
+        "dto",
+        "sparse_provider",
     ),
     "crates/ecosystem/maestria-retrieval/src/lib.rs": (
         "adapters",

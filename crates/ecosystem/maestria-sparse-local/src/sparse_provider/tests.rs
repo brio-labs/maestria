@@ -155,12 +155,13 @@ fn server_down_returns_typed_failure() -> Result<(), Box<dyn std::error::Error>>
     let port = listener.local_addr()?.port();
     drop(listener);
     let endpoint = format!("http://127.0.0.1:{port}/v1/sparse");
-    let provider = LocalHttpSparseProvider::new(
-        &endpoint,
-        "fixture-sparse",
+    let provider =
+        LocalHttpSparseProvider::new(&endpoint, "fixture-sparse", fixture_sparse_identity()?)?;
+    let result = provider.encode(
+        "table latency",
+        SparseInputKind::Query,
         fixture_sparse_identity()?,
-    )?;
-    let result = provider.encode("table latency", SparseInputKind::Query, fixture_sparse_identity()?);
+    );
     assert!(
         matches!(result, Err(PortError::DownstreamContext { .. })),
         "expected Downstream error for unreachable server, got {result:?}"
@@ -178,7 +179,11 @@ fn propagates_transport_error() -> Result<(), PortError> {
             message: "sparse transport failed".to_string(),
         }))?),
     )?;
-    let result = provider.encode("table latency", SparseInputKind::Query, fixture_sparse_identity()?);
+    let result = provider.encode(
+        "table latency",
+        SparseInputKind::Query,
+        fixture_sparse_identity()?,
+    );
     assert!(
         matches!(result, Err(PortError::Downstream { .. })),
         "expected Downstream error, got {result:?}"
@@ -194,7 +199,11 @@ fn rejects_malformed_json_response() -> Result<(), PortError> {
         fixture_sparse_identity()?,
         Arc::new(StaticTransport::new(Ok(br#"not-json"#.to_vec()))?),
     )?;
-    let result = provider.encode("table latency", SparseInputKind::Query, fixture_sparse_identity()?);
+    let result = provider.encode(
+        "table latency",
+        SparseInputKind::Query,
+        fixture_sparse_identity()?,
+    );
     assert!(
         matches!(result, Err(PortError::DownstreamContext { .. })),
         "expected Downstream error for malformed JSON, got {result:?}"
@@ -212,7 +221,11 @@ fn rejects_duplicate_terms_in_response() -> Result<(), PortError> {
             br#"{"model":"splade","term_ids":[1,1],"weights":[0.5,0.25]}"#.to_vec(),
         ))?),
     )?;
-    let result = provider.encode("table latency", SparseInputKind::Query, fixture_sparse_identity()?);
+    let result = provider.encode(
+        "table latency",
+        SparseInputKind::Query,
+        fixture_sparse_identity()?,
+    );
     assert!(
         matches!(result, Err(PortError::DownstreamContext { .. })),
         "expected Downstream error for duplicate terms, got {result:?}"
@@ -288,7 +301,11 @@ fn sends_text_and_kind_and_preserves_identity() -> Result<(), PortError> {
         expected_identity.clone(),
         transport.clone(),
     )?;
-    let vector = provider.encode("table latency", SparseInputKind::Query, expected_identity.clone())?;
+    let vector = provider.encode(
+        "table latency",
+        SparseInputKind::Query,
+        expected_identity.clone(),
+    )?;
     assert_eq!(vector.identity(), &expected_identity);
     assert_eq!(vector.terms().len(), 2);
     let body = transport
@@ -301,11 +318,10 @@ fn sends_text_and_kind_and_preserves_identity() -> Result<(), PortError> {
         .ok_or_else(|| PortError::Internal {
             message: "request body was not recorded".to_string(),
         })?;
-    let payload: serde_json::Value = serde_json::from_slice(&body).map_err(|error| {
-        PortError::Internal {
+    let payload: serde_json::Value =
+        serde_json::from_slice(&body).map_err(|error| PortError::Internal {
             message: format!("decode recorded request: {error}"),
-        }
-    })?;
+        })?;
     assert_eq!(payload["text"], "table latency");
     assert_eq!(payload["kind"], "query");
     Ok(())
@@ -335,11 +351,10 @@ fn document_kind_is_serialized_on_the_wire() -> Result<(), PortError> {
         .ok_or_else(|| PortError::Internal {
             message: "request body was not recorded".to_string(),
         })?;
-    let payload: serde_json::Value = serde_json::from_slice(&body).map_err(|error| {
-        PortError::Internal {
+    let payload: serde_json::Value =
+        serde_json::from_slice(&body).map_err(|error| PortError::Internal {
             message: format!("decode recorded request: {error}"),
-        }
-    })?;
+        })?;
     assert_eq!(payload["text"], "fn main() {}");
     assert_eq!(payload["kind"], "document");
     Ok(())

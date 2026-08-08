@@ -396,10 +396,7 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     validate_event_order(&transaction)?;
     validate_stored_event_payloads(&transaction)?;
 
-    if state.version.is_none()
-        || state.version == Some(13)
-        || state.version == Some(14)
-    {
+    if state.version.is_none() || state.version == Some(13) || state.version == Some(14) {
         transaction
             .execute(
                 "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",

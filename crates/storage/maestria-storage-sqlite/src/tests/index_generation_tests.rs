@@ -81,7 +81,7 @@ fn full_lifecycle_replay_asserts_active_generation() -> Result<(), Box<dyn std::
                 name: RepresentationName::new("dense_vector"),
                 corpus_snapshot: CorpusSnapshotId::new(42),
                 fingerprint: fingerprint.clone(),
-            sparse_namespace: None,
+                sparse_namespace: None,
             },
         };
 

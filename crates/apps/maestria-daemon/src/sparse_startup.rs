@@ -8,8 +8,7 @@ use maestria_domain::{
 };
 use maestria_ports::{
     LearnedSparseIndex, LearnedSparseProjectionLifecycle, LearnedSparseProvider,
-    SPARSE_REPRESENTATION_V1, SparseDocument, SparseFingerprint, SparseIdentity,
-    SparseInputKind,
+    SPARSE_REPRESENTATION_V1, SparseDocument, SparseFingerprint, SparseIdentity, SparseInputKind,
 };
 use maestria_storage_sqlite::{SqliteLearnedSparseIndex, SqliteStore};
 
@@ -98,7 +97,11 @@ pub fn reconcile_sparse_generation(
     state: &mut KernelState,
     manifest: &InstanceManifest,
 ) -> Result<IndexGenerationId> {
-    if manifest.sparse.as_ref().map_or(true, |config| !config.enabled) {
+    if manifest
+        .sparse
+        .as_ref()
+        .is_none_or(|config| !config.enabled)
+    {
         return Err(anyhow!("sparse profile is not enabled"));
     }
     let store = SqliteStore::open(&layout.database_path)
@@ -157,9 +160,7 @@ pub fn sparse_identity(
 }
 
 /// Advances the durable projection lifecycle to match the registry.
-fn activate_projection(
-    index: &SqliteLearnedSparseIndex,
-) -> Result<()> {
+fn activate_projection(index: &SqliteLearnedSparseIndex) -> Result<()> {
     let lifecycle = index
         .lifecycle()
         .map_err(|error| anyhow!("read sparse projection lifecycle: {error}"))?;
@@ -172,9 +173,7 @@ fn activate_projection(
         IndexLifecycle::Evaluated => vec![IndexLifecycle::Shadow, IndexLifecycle::Active],
         IndexLifecycle::Shadow => vec![IndexLifecycle::Active],
         IndexLifecycle::Active => Vec::new(),
-        IndexLifecycle::Retired
-        | IndexLifecycle::Collectable
-        | IndexLifecycle::Tombstoned => {
+        IndexLifecycle::Retired | IndexLifecycle::Collectable | IndexLifecycle::Tombstoned => {
             return Err(anyhow!(
                 "sparse projection lifecycle {lifecycle:?} cannot be reactivated"
             ));
@@ -231,7 +230,10 @@ pub fn reconcile_sparse_projection_for_layout(
                 None => {
                     let computed = maestria_domain::content_hash(chunk.text.as_bytes());
                     ContentHash::new(computed).map_err(|error| {
-                        anyhow!("computed content hash for chunk {} is invalid: {error}", chunk.id)
+                        anyhow!(
+                            "computed content hash for chunk {} is invalid: {error}",
+                            chunk.id
+                        )
                     })?
                 }
             };

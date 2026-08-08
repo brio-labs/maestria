@@ -1,8 +1,8 @@
 use maestria_domain::RepresentationName;
 use maestria_ports::{
     DEFAULT_MAX_SPARSE_TERMS, LearnedSparseProvider, PortError, ProviderDisclosure,
-    ProviderEndpoint, ProviderTransport, RetentionPolicy, SPARSE_REPRESENTATION_V1,
-    SparseIdentity, SparseInputKind, SparseTermWeight, SparseVector,
+    ProviderEndpoint, ProviderTransport, RetentionPolicy, SPARSE_REPRESENTATION_V1, SparseIdentity,
+    SparseInputKind, SparseTermWeight, SparseVector,
 };
 use std::sync::Arc;
 
@@ -139,7 +139,11 @@ impl LearnedSparseProvider for LocalHttpSparseProvider {
 }
 
 impl LocalHttpSparseProvider {
-    fn build_vector(&self, parsed: SparseApiResponse, identity: SparseIdentity) -> Result<SparseVector, PortError> {
+    fn build_vector(
+        &self,
+        parsed: SparseApiResponse,
+        identity: SparseIdentity,
+    ) -> Result<SparseVector, PortError> {
         let max_terms = usize::try_from(identity.fingerprint.max_terms).map_err(|_| {
             PortError::InvalidInputContext {
                 context: "sparse max_terms exceeds platform range",

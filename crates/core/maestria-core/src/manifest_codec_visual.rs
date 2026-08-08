@@ -1,4 +1,5 @@
-use super::{CoreError, CoreResult, ManifestFields, parse_retention_policy, string_or_empty};
+use super::common::{parse_retention_policy, string_or_empty};
+use super::{CoreError, CoreResult, ManifestFields};
 use url::Url;
 
 pub(crate) fn parse_visual_config(
