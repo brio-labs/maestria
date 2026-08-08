@@ -34,7 +34,7 @@ const ROUTE_CONFIGURATIONS: &str =
 /// generation and model fingerprint as the evaluated instance so CI report
 /// validation stays authoritative.
 const INDEX_GENERATION_LABEL: &str = "sparse-text-v1-2";
-const MODEL_FINGERPRINT: &str = "sparse:splade-onnx:prithivida/Splade_PP_en_v1:762be6a7206e2f299182705972a65e5c46e62be2:sha256:b6e75f8fd45d3de85db2c737f75d8ec670e600e92d746f267a8628747d75ff8a:splade-templates-v1";
+const MODEL_FINGERPRINT: &str = "sparse:splade-onnx:prithivida/Splade_PP_en_v1:762be6a7206e2f299182705972a65e5c46e62be2:sha256:fa685bd09ee084ceb5543d6a43708045e7c7048c71f9beb1ffb4327c692d5911:splade-templates-trunc512-v1";
 
 fn route_configurations()
 -> Result<BTreeMap<LearnedSparseRoute, LearnedSparseRouteConfiguration>, Box<dyn std::error::Error>>
