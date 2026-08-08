@@ -8,7 +8,7 @@
       "revision": "762be6a7206e2f299182705972a65e5c46e62be2",
       "vocabulary_size": 30522,
       "term_cap": 256,
-      "preprocessing_version": "splade-templates-v1",
+      "preprocessing_version": "splade-templates-trunc512-v1",
       "runtime": "scripts/splade_server.py",
       "artifacts": [
         "onnx/model.onnx",

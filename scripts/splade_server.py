@@ -83,6 +83,7 @@ class SpladeOnnxEngine:
         self._input_names = {input_.name for input_ in self._session.get_inputs()}
         self._tokenizer = Tokenizer.from_file(tokenizer_path)
         self._term_cap = term_cap
+        self._max_tokens = 512
 
     def encode(self, text: str, kind: str) -> tuple[list[int], list[float]]:
         encoding = self._tokenizer.encode(text)

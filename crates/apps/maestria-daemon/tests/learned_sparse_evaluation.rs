@@ -41,9 +41,12 @@ const SPARSE_PROFILE: &[(&str, &str)] = &[
     ),
     (
         "sparse_artifact_hash",
-        "sha256:cf7561add421b06727a1202cdbe29d81402b054a9d1157b2c682b919f582cae7",
+        "sha256:df924d41f0a18608bd0f6f27c4b0f411960b594b42267932201b90b766473a1a",
     ),
-    ("sparse_preprocessing_version", "splade-templates-v1"),
+    (
+        "sparse_preprocessing_version",
+        "splade-templates-trunc512-v1",
+    ),
     ("sparse_model", "prithivida/Splade_PP_en_v1"),
     ("sparse_vocabulary_size", "30522"),
     ("sparse_term_cap", "256"),

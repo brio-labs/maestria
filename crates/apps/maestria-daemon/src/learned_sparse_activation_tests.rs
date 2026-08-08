@@ -335,8 +335,8 @@ fn sparse_profile_lines() -> &'static str {
      sparse_endpoint=http://127.0.0.1:10002/v1/sparse\n\
      sparse_provider=splade-onnx\n\
      sparse_revision=762be6a7206e2f299182705972a65e5c46e62be2\n\
-     sparse_artifact_hash=sha256:cf7561add421b06727a1202cdbe29d81402b054a9d1157b2c682b919f582cae7\n\
-     sparse_preprocessing_version=splade-templates-v1\n\
+     sparse_artifact_hash=sha256:df924d41f0a18608bd0f6f27c4b0f411960b594b42267932201b90b766473a1a\n\
+     sparse_preprocessing_version=splade-templates-trunc512-v1\n\
      sparse_model=prithivida/Splade_PP_en_v1\n\
      sparse_vocabulary_size=30522\n\
      sparse_term_cap=256\n\

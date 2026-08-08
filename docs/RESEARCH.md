@@ -61,9 +61,12 @@ The frozen corpus (`tests/contracts/learned_sparse_task_corpus_v1.json`, revisio
 2026-07-30) was evaluated on a real instance against the pinned SPLADE ONNX sidecar
 (`docs/RESEARCH.md` §4.3) across all four routes — Lexical, Hybrid, SparseOnly, and
 SparseFused — with 31 timed runs per case per route, RAPL-measured energy, and the real
-lifecycle operations measured on the durable projections. The dated report is
+lifecycle operations measured on the durable projections. The candidate was re-pinned
+on 2026-08-07 to the int8-quantized ONNX export with 512-token truncation (standard
+SPLADE preprocessing), which halved the lifecycle encode cost while retaining the
+quality signal. The dated report is
 `tests/contracts/learned_sparse_report_v1.json` (report hash
-`sha256:34dda994de82f43fa42af64cb4517efd7b5593cbad423707ba51fb36529d2f35`), pinned in
+`sha256:858f2331e03d8a54b5add4927c7a7b98ddddbd00a411c4524d478613b2406a69`), pinned in
 the benchmark evidence ledger milestone `v1.2` with index generation
 `sparse-text-v1-2` and the splade-onnx model fingerprint.
 
@@ -77,18 +80,19 @@ the benchmark evidence ledger milestone `v1.2` with index generation
 | Security | RetainLexical | none | — |
 
 No class won, on measured data: telemetry is complete (energy measured from RAPL on all
-72 observations), but the sparse-fused candidate violates the frozen per-operation
-budgets on every case — initial indexing and rebuild of the corpus through the SPLADE
-sidecar measure ~17 s against the 5 s `ingest_update_budget_ms` — so the promotion gate
-records budget violations and yields no winning route. No promotion record exists; the
-daemon serves the lexical and hybrid routes.
+72 observations), but the sparse-fused candidate still violates the frozen budgets — the
+int8+truncated lifecycle initial-indexing/rebuild measure ~7.7 s against the 5 s
+`ingest_update_budget_ms` (down from ~17 s for the fp32 candidate) and the fused route's
+p95 latency reaches ~500 ms against the 250 ms budget — so the promotion gate records
+budget violations and yields no winning route. No promotion record exists; the daemon
+serves the lexical and hybrid routes.
 
-The quality signal is real and recorded: sparse fusion improves DomainTerminology
-(recall@20 28.6% → 35.7%, evidence-chain coverage 60.7% → 67.9%, MRR@10 11.3 → 16.6)
-while exact, no-evidence, and security classes stay protected at zero across routes.
-The lane remains benchmark-gated: a future candidate must meet the lifecycle budgets
-(or the frozen budgets must be re-justified by a new judgment set) before the gate can
-promote.
+The quality signal is real, reproducible, and survives the quantization: sparse fusion
+improves DomainTerminology (recall@20 28.6% → 35.7%, evidence-chain coverage 60.7% →
+67.9%) while exact, no-evidence, and security classes stay protected at zero across
+routes. The lane remains benchmark-gated: a future candidate must meet the lifecycle and
+latency budgets (faster encoding, batched inference, or a re-justified judgment set)
+before the gate can promote.
 
 ### 2.1.1. Frozen learned-sparse task corpus
 
@@ -247,7 +251,10 @@ sparse_endpoint=http://127.0.0.1:10002/v1/sparse
 sparse_provider=splade-onnx
 sparse_revision=762be6a7206e2f299182705972a65e5c46e62be2
 sparse_artifact_hash=sha256:<fingerprint-output>
-sparse_preprocessing_version=splade-templates-v1
+# pinned 2026-08-07 re-pin: int8-quantized ONNX (2.3x encode speedup) with
+# 512-token truncation (standard SPLADE preprocessing); the fp32 checkpoint
+# remains available as onnx/model_fp32.onnx outside the pinned artifact set
+sparse_preprocessing_version=splade-templates-trunc512-v1
 sparse_model=prithivida/Splade_PP_en_v1
 sparse_vocabulary_size=30522
 sparse_term_cap=256

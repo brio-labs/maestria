@@ -15,14 +15,15 @@ per-query-class decision is **retain all**:
 | Security | RetainLexical | none | `learned_sparse_report_v1.json` |
 
 No class was promoted on measured data: telemetry is complete (RAPL energy measured on
-all 72 observations), but the sparse-fused candidate violates the frozen per-operation
-budgets on every case — initial indexing and rebuild through the SPLADE sidecar measure
-~17 s against the 5 s `ingest_update_budget_ms` — so the promotion gate records budget
-violations and yields no winning route. The sparse lane measurably improves
-DomainTerminology recall and evidence-chain coverage (see `docs/RESEARCH.md` §2.1.0),
-which is exactly why it stays benchmark-gated: promotion requires meeting the frozen
-lifecycle budgets. No promotion record exists and the daemon serves the lexical/hybrid
-routes.
+all 72 observations), but the sparse-fused candidate violates the frozen budgets — the
+int8-quantized + 512-token-truncated encode path measures ~7.7 s lifecycle
+initial-indexing/rebuild against the 5 s `ingest_update_budget_ms` (down from ~17 s for
+the fp32 candidate) and fused p95 latency reaches ~500 ms against the 250 ms budget — so
+the promotion gate records budget violations and yields no winning route. The sparse
+lane measurably improves DomainTerminology recall and evidence-chain coverage, and that
+signal survives the quantization (see `docs/RESEARCH.md` §2.1.0), which is exactly why
+it stays benchmark-gated: promotion requires meeting the frozen budgets. No promotion
+record exists and the daemon serves the lexical/hybrid routes.
 
 The lane remains implemented and benchmark-gated:
 
