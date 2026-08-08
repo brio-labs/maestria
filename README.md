@@ -119,6 +119,11 @@ maestria memory candidates -i .maestria-dev
 maestria memory propose -i .maestria-dev -t "observation claim" -e 1,2 -c 700
 maestria memory promote -i .maestria-dev -c 1 --approve
 
+# 10b) Manage the learned-sparse promotion record
+maestria promotion show -i .maestria-dev
+maestria promotion set -i .maestria-dev --record learned_sparse_promotion_v1.json
+maestria promotion remove -i .maestria-dev
+
 # 11) Start the daemon (or restart after changes)
 maestria start -i .maestria-dev
 # Stop with Ctrl-C; start again picks up where it left off

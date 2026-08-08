@@ -11,9 +11,8 @@ use crate::helpers;
 /// partially validated record is ever persisted.
 pub fn run_set(instance_dir: PathBuf, record_path: PathBuf) -> Result<()> {
     let layout = helpers::validated_instance(instance_dir)?;
-    let contents = std::fs::read_to_string(&record_path).with_context(|| {
-        format!("read promotion record {}", record_path.display())
-    })?;
+    let contents = std::fs::read_to_string(&record_path)
+        .with_context(|| format!("read promotion record {}", record_path.display()))?;
     let record: LearnedSparsePromotionRecord = serde_json::from_str(&contents)
         .map_err(|error| anyhow!("parse promotion record: {error}"))?;
     record
@@ -60,9 +59,7 @@ pub fn run_remove(instance_dir: PathBuf) -> Result<()> {
     if removed == 0 {
         println!("No promotion record to remove; the lexical/hybrid route is already restored.");
     } else {
-        println!(
-            "Removed {removed} promotion record(s); the lexical/hybrid route is restored."
-        );
+        println!("Removed {removed} promotion record(s); the lexical/hybrid route is restored.");
     }
     Ok(())
 }
@@ -89,10 +86,9 @@ mod tests {
     use maestria_domain::{ContentHash, IndexGenerationId, SearchExecutionBudget};
     use maestria_ports::learned_sparse_contract_tests::fixture_sparse_identity;
     use maestria_retrieval::{
-        LearnedSparseBenchmarkBudget, LearnedSparseBenchmarkIdentity,
-        LearnedSparseClassDecision, LearnedSparseDataFidelity, LearnedSparseEnvironment,
-        LearnedSparseQueryClass, LearnedSparseRollbackTarget, LearnedSparseRoute,
-        LearnedSparseRouteConfiguration,
+        LearnedSparseBenchmarkBudget, LearnedSparseBenchmarkIdentity, LearnedSparseClassDecision,
+        LearnedSparseDataFidelity, LearnedSparseEnvironment, LearnedSparseQueryClass,
+        LearnedSparseRollbackTarget, LearnedSparseRoute, LearnedSparseRouteConfiguration,
     };
     use std::collections::BTreeMap;
 
@@ -191,7 +187,9 @@ mod tests {
             serde_json::to_vec_pretty(&record).map_err(anyhow::Error::from)?,
         )?;
         run_set(directory.path().to_path_buf(), record_path)?;
-        let store = SqliteStore::open(&InstanceLayout::for_root(directory.path().to_path_buf()).database_path)?;
+        let store = SqliteStore::open(
+            &InstanceLayout::for_root(directory.path().to_path_buf()).database_path,
+        )?;
         let stored = store
             .load_latest_promotion_record()?
             .ok_or("promotion record was not persisted")?;
@@ -216,7 +214,9 @@ mod tests {
             result.is_err(),
             "an invalid record must be refused with a validation error"
         );
-        let store = SqliteStore::open(&InstanceLayout::for_root(directory.path().to_path_buf()).database_path)?;
+        let store = SqliteStore::open(
+            &InstanceLayout::for_root(directory.path().to_path_buf()).database_path,
+        )?;
         assert!(store.load_latest_promotion_record()?.is_none());
         Ok(())
     }

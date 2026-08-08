@@ -6,16 +6,16 @@ mod contract;
 mod errors;
 #[path = "learned_sparse_benchmark_measurements.rs"]
 mod measurements;
-#[path = "learned_sparse_benchmark_scoring.rs"]
-mod scoring;
-#[path = "learned_sparse_benchmark_runner.rs"]
-mod runner;
 #[path = "learned_sparse_benchmark_metrics.rs"]
 mod metrics;
 #[path = "learned_sparse_benchmark_quality_resources.rs"]
 mod quality_resources;
+#[path = "learned_sparse_benchmark_runner.rs"]
+mod runner;
 #[path = "learned_sparse_benchmark_safety.rs"]
 mod safety;
+#[path = "learned_sparse_benchmark_scoring.rs"]
+mod scoring;
 pub use errors::LearnedSparseBenchmarkError;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -38,9 +38,7 @@ pub use measurements::{
     LearnedSparseRetentionPolicy, MAX_MEASUREMENT_REASON_CHARS, Measurement,
 };
 pub use runner::{LearnedSparseBenchmarkExecutor, run_learned_sparse_benchmark};
-pub use scoring::{
-    LearnedSparseRetrievedCandidate, LearnedSparseRetrievedSpan, score_case,
-};
+pub use scoring::{LearnedSparseRetrievedCandidate, LearnedSparseRetrievedSpan, score_case};
 
 pub const LEARNED_SPARSE_BENCHMARK_SCHEMA_VERSION: u32 = 2;
 

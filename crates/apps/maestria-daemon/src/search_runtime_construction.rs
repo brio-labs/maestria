@@ -188,6 +188,8 @@ fn prepare_search_runtime_with_options(
         dense_generation,
         repository_code_index,
         repository_execution_policy,
+        learned_sparse_execution_policy: maestria_retrieval::LearnedSparseExecutionPolicy::Shadow,
+        sparse_retriever: None,
         corpus_snapshot,
         scope_id: maestria_domain::DEFAULT_INSTANCE_SCOPE_ID,
     };

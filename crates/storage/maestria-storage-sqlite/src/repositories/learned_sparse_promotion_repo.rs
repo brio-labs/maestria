@@ -80,13 +80,16 @@ pub(crate) fn load_latest(
         ))
         .map_err(to_port_error)?;
     let mut rows = statement.query([]).map_err(to_port_error)?;
-    let record = rows.next().map_err(to_port_error)?.map(decode_row).transpose().map_err(to_port_error)?;
+    let record = rows
+        .next()
+        .map_err(to_port_error)?
+        .map(decode_row)
+        .transpose()
+        .map_err(to_port_error)?;
     Ok(record)
 }
 
-pub(crate) fn list(
-    connection: &Connection,
-) -> Result<Vec<StoredPromotionRecord>, PortError> {
+pub(crate) fn list(connection: &Connection) -> Result<Vec<StoredPromotionRecord>, PortError> {
     let mut statement = connection
         .prepare(&format!(
             "SELECT evaluation_id, corpus_id, evaluation_date, report_hash, record_json, created_at \
@@ -128,7 +131,14 @@ impl crate::SqliteStore {
         record_json: &str,
     ) -> Result<(), PortError> {
         let connection = self.lock()?;
-        save(&connection, corpus_id, evaluation_id, evaluation_date, report_hash, record_json)
+        save(
+            &connection,
+            corpus_id,
+            evaluation_id,
+            evaluation_date,
+            report_hash,
+            record_json,
+        )
     }
 
     pub fn load_latest_promotion_record(&self) -> Result<Option<StoredPromotionRecord>, PortError> {

@@ -250,9 +250,8 @@ impl LearnedSparsePromotionRecord {
     /// a record; `is_valid()` remains the fast gate for in-crate policy
     /// decisions.
     pub fn validate(&self) -> Result<(), LearnedSparseBenchmarkError> {
-        let invalid = |rule: &'static str| {
-            LearnedSparseBenchmarkError::InvalidPromotion(rule.to_string())
-        };
+        let invalid =
+            |rule: &'static str| LearnedSparseBenchmarkError::InvalidPromotion(rule.to_string());
         if self.evaluation_id.trim().is_empty() {
             return Err(invalid("evaluation_id must be non-empty"));
         }
@@ -293,7 +292,9 @@ impl LearnedSparsePromotionRecord {
             return Err(invalid("identity index generation must be positive"));
         }
         if self.route_configuration.route != LearnedSparseRoute::SparseFused {
-            return Err(invalid("route_configuration must be the sparse-fused route"));
+            return Err(invalid(
+                "route_configuration must be the sparse-fused route",
+            ));
         }
         self.route_configuration
             .validate()
@@ -302,7 +303,9 @@ impl LearnedSparsePromotionRecord {
             return Err(invalid("rollback target index generation must be positive"));
         }
         if self.rollback_target.route == LearnedSparseRoute::SparseFused {
-            return Err(invalid("rollback target must not be the sparse-fused route"));
+            return Err(invalid(
+                "rollback target must not be the sparse-fused route",
+            ));
         }
         for class in LearnedSparseQueryClass::all() {
             if !self.decisions.contains_key(&class) {

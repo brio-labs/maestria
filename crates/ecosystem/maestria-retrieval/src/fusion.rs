@@ -106,6 +106,13 @@ impl RankFusion for FixedKRrf {
                 });
                 if replace {
                     best_candidates.insert(identity, canonical_candidate);
+                } else if let Some(existing) = best_candidates.get_mut(&identity) {
+                    // The same evidence surfaced by another lane: keep the
+                    // canonical member and merge the new lane's score so the
+                    // fused candidate carries every contributing lane's
+                    // provenance instead of dropping it.
+                    let merged = merge_lane_scores(existing, &canonical_candidate)?;
+                    *existing = merged;
                 }
             }
         }
@@ -146,4 +153,42 @@ fn candidate_order(candidate: &EvidenceCandidate) -> (u64, u64) {
         candidate.evidence_id().value(),
         candidate.artifact_version().value(),
     )
+}
+
+/// Merges `extra`'s lane scores into `base`, keeping the base's identity and
+/// metadata. A score kind the base already carries is kept as-is: the kind
+/// identifies the model, and a same-model lane from another retriever is
+/// redundant provenance, not a second measurement.
+fn merge_lane_scores(
+    base: &EvidenceCandidate,
+    extra: &EvidenceCandidate,
+) -> RetrievalResult<EvidenceCandidate> {
+    let mut lanes = base.scores().lanes().to_vec();
+    let mut added = false;
+    for lane in extra.scores().lanes() {
+        if !lanes
+            .iter()
+            .any(|existing| existing.score_kind == lane.score_kind)
+        {
+            lanes.push(lane.clone());
+            added = true;
+        }
+    }
+    if !added {
+        return Ok(base.clone());
+    }
+    let scores = maestria_domain::RetrievalScoreSet::new(lanes)
+        .map_err(|error| RetrievalError::Internal(format!("merge fused lane scores: {error}")))?;
+    EvidenceCandidate::new(EvidenceCandidateDto {
+        evidence_id: base.evidence_id(),
+        artifact_version: base.artifact_version(),
+        source_span: base.source_span().clone(),
+        scores,
+        trust: base.trust(),
+        freshness: base.freshness(),
+        duplicate_cluster: base.duplicate_cluster(),
+        reasons: base.reasons().to_vec(),
+        coverage_keys: base.coverage_keys().to_vec(),
+    })
+    .map_err(|error| RetrievalError::Internal(format!("rebuild fused candidate: {error}")))
 }

@@ -14,17 +14,18 @@ use maestria_domain::{ContentHash, IndexGenerationId, SearchExecutionBudget};
 use maestria_ports::learned_sparse_contract_tests::fixture_sparse_identity;
 use maestria_retrieval::{
     CheckStatus, LearnedSparseAcceptedSpan, LearnedSparseBenchmarkCase,
-    LearnedSparseBenchmarkComparison, LearnedSparseBenchmarkCorpus,
-    LearnedSparseBenchmarkIdentity, LearnedSparseClassDecision, LearnedSparseDataFidelity,
-    LearnedSparseEnvironment, LearnedSparseExpectedOutcome, LearnedSparseOperationMeasurement,
+    LearnedSparseBenchmarkComparison, LearnedSparseBenchmarkCorpus, LearnedSparseBenchmarkIdentity,
+    LearnedSparseClassDecision, LearnedSparseDataFidelity, LearnedSparseEnvironment,
+    LearnedSparseExpectedOutcome, LearnedSparseOperationMeasurement,
     LearnedSparseProviderDisclosure, LearnedSparseQualityMetrics, LearnedSparseQueryClass,
     LearnedSparseResourceMetrics, LearnedSparseRetentionPolicy, LearnedSparseRetrievedCandidate,
     LearnedSparseRetrievedSpan, LearnedSparseRoute, LearnedSparseRouteConfiguration,
-    LearnedSparseSafetyMetrics, LearnedSparseTaskCorpus, Measurement,
-    run_learned_sparse_benchmark, score_case,
+    LearnedSparseSafetyMetrics, LearnedSparseTaskCorpus, Measurement, run_learned_sparse_benchmark,
+    score_case,
 };
 
-const TASK_CORPUS: &str = include_str!("../../../../tests/contracts/learned_sparse_task_corpus_v1.json");
+const TASK_CORPUS: &str =
+    include_str!("../../../../tests/contracts/learned_sparse_task_corpus_v1.json");
 const ROUTE_CONFIGURATIONS: &str =
     include_str!("../../../../tests/contracts/learned_sparse_benchmark_v2.json");
 
@@ -35,10 +36,9 @@ const ROUTE_CONFIGURATIONS: &str =
 const INDEX_GENERATION_LABEL: &str = "sparse-text-v1-2";
 const MODEL_FINGERPRINT: &str = "sparse:splade-onnx:prithivida/Splade_PP_en_v1:762be6a7206e2f299182705972a65e5c46e62be2:sha256:b6e75f8fd45d3de85db2c737f75d8ec670e600e92d746f267a8628747d75ff8a:splade-templates-v1";
 
-fn route_configurations() -> Result<
-    BTreeMap<LearnedSparseRoute, LearnedSparseRouteConfiguration>,
-    Box<dyn std::error::Error>,
-> {
+fn route_configurations()
+-> Result<BTreeMap<LearnedSparseRoute, LearnedSparseRouteConfiguration>, Box<dyn std::error::Error>>
+{
     #[derive(serde::Deserialize)]
     struct ConfigDocument {
         #[serde(default)]
@@ -102,8 +102,8 @@ impl ContractFixtureExecutor {
         case: &LearnedSparseBenchmarkCase,
         route: LearnedSparseRoute,
     ) -> Vec<LearnedSparseRetrievedCandidate> {
-        let LearnedSparseExpectedOutcome::Evidence { accepted_spans, .. } =
-            case.expected.as_ref().unwrap()
+        let Some(LearnedSparseExpectedOutcome::Evidence { accepted_spans, .. }) =
+            case.expected.as_ref()
         else {
             return Vec::new();
         };
@@ -198,17 +198,16 @@ impl maestria_retrieval::LearnedSparseBenchmarkExecutor for ContractFixtureExecu
         &self,
         case: LearnedSparseBenchmarkCase,
         route: LearnedSparseRoute,
-    ) -> Result<maestria_retrieval::LearnedSparseBenchmarkObservation, maestria_retrieval::LearnedSparseBenchmarkError>
-    {
-        let expected = case
-            .expected
-            .clone()
-            .ok_or_else(|| {
-                maestria_retrieval::LearnedSparseBenchmarkError::InvalidCorpus(format!(
-                    "case {} has no expected outcome",
-                    case.case_id
-                ))
-            })?;
+    ) -> Result<
+        maestria_retrieval::LearnedSparseBenchmarkObservation,
+        maestria_retrieval::LearnedSparseBenchmarkError,
+    > {
+        let expected = case.expected.clone().ok_or_else(|| {
+            maestria_retrieval::LearnedSparseBenchmarkError::InvalidCorpus(format!(
+                "case {} has no expected outcome",
+                case.case_id
+            ))
+        })?;
         let candidates = self.candidates(&case, route);
         let quality: LearnedSparseQualityMetrics =
             score_case(&case.case_id, &expected, &candidates)?;
@@ -221,15 +220,13 @@ impl maestria_retrieval::LearnedSparseBenchmarkExecutor for ContractFixtureExecu
             case_id: case.case_id,
             route,
             identity: self.identity.clone(),
-            route_configuration: self
-                .route_configurations
-                .get(&route)
-                .cloned()
-                .ok_or_else(|| {
+            route_configuration: self.route_configurations.get(&route).cloned().ok_or_else(
+                || {
                     maestria_retrieval::LearnedSparseBenchmarkError::InvalidCorpus(format!(
                         "route {route:?} configuration is missing"
                     ))
-                })?,
+                },
+            )?,
             quality,
             resources: self.resources(route),
             safety: self.safety(),
@@ -265,7 +262,8 @@ fn decisions_from_comparison(
 }
 
 #[test]
-fn learned_sparse_contract_benchmark_covers_all_cases_and_never_promotes() -> Result<(), Box<dyn std::error::Error>> {
+fn learned_sparse_contract_benchmark_covers_all_cases_and_never_promotes()
+-> Result<(), Box<dyn std::error::Error>> {
     let corpus = benchmark_corpus()?;
     corpus.validate()?;
     assert_eq!(corpus.cases.len(), 18);
@@ -274,7 +272,10 @@ fn learned_sparse_contract_benchmark_covers_all_cases_and_never_promotes() -> Re
         .iter()
         .map(|case| case.class)
         .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(classes, LearnedSparseQueryClass::all().into_iter().collect());
+    assert_eq!(
+        classes,
+        LearnedSparseQueryClass::all().into_iter().collect()
+    );
     let executor = ContractFixtureExecutor::new(&corpus)?;
     let observations = run_learned_sparse_benchmark(&corpus, &executor)?;
     assert_eq!(observations.len(), corpus.cases.len() * 4);
@@ -294,7 +295,9 @@ fn learned_sparse_contract_benchmark_covers_all_cases_and_never_promotes() -> Re
             route: LearnedSparseRoute::Hybrid,
             index_generation: IndexGenerationId::new(1),
         },
-        ContentHash::new("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string())?,
+        ContentHash::new(
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        )?,
     )?;
     assert!(
         promotion.validate().is_err(),
@@ -302,73 +305,86 @@ fn learned_sparse_contract_benchmark_covers_all_cases_and_never_promotes() -> Re
     );
 
     if let Ok(report_dir) = std::env::var("MAESTRIA_BENCHMARK_REPORT_DIR") {
-        #[derive(serde::Serialize)]
-        struct ReportObservation<'a> {
-            case_id: &'a str,
-            route: LearnedSparseRoute,
-            quality: &'a LearnedSparseQualityMetrics,
-            resources: &'a LearnedSparseResourceMetrics,
-            safety: &'a LearnedSparseSafetyMetrics,
-            measurement_status: &'static str,
-        }
-        #[derive(serde::Serialize)]
-        struct Report<'a> {
-            measurement_kind: &'static str,
-            evaluation_date: &'a str,
-            corpus_id: &'a str,
-            corpus_revision: &'a str,
-            index_generation: &'static str,
-            model_fingerprint: &'static str,
-            namespace: &'a str,
-            route_configuration: &'a LearnedSparseRouteConfiguration,
-            observations: Vec<ReportObservation<'a>>,
-            decisions: BTreeMap<LearnedSparseQueryClass, LearnedSparseClassDecision>,
-        }
-        let namespace = {
-            let identity = executor.identity.namespace.clone();
-            format!(
-                "{}:{:?}:{}",
-                identity.instance_id(),
-                identity.trust_zone(),
-                identity.projection()
-            )
-        };
-        fs::create_dir_all(&report_dir)?;
-        let report = Report {
-            measurement_kind: "learned_sparse_four_profile",
-            evaluation_date: &corpus.evaluation_date,
-            corpus_id: &corpus.corpus_id,
-            corpus_revision: &corpus.corpus_revision,
-            index_generation: INDEX_GENERATION_LABEL,
-            model_fingerprint: MODEL_FINGERPRINT,
-            namespace: &namespace,
-            route_configuration: executor
-                .route_configurations
-                .get(&LearnedSparseRoute::SparseFused)
-                .ok_or("sparse-fused route configuration is missing")?,
-            observations: observations
-                .iter()
-                .map(|observation| ReportObservation {
-                    case_id: &observation.case_id,
-                    route: observation.route,
-                    quality: &observation.quality,
-                    resources: &observation.resources,
-                    safety: &observation.safety,
-                    measurement_status: "Measured",
-                })
-                .collect(),
-            decisions: decisions_from_comparison(&comparison),
-        };
-        fs::write(
-            Path::new(&report_dir).join("learned-sparse.json"),
-            serde_json::to_vec_pretty(&report)?,
-        )?;
+        emit_report(&report_dir, &corpus, &executor, &observations, &comparison)?;
     }
     Ok(())
 }
 
+/// Writes the ledger-bound contract report when a report directory is set.
+fn emit_report(
+    report_dir: &str,
+    corpus: &LearnedSparseBenchmarkCorpus,
+    executor: &ContractFixtureExecutor,
+    observations: &[maestria_retrieval::LearnedSparseBenchmarkObservation],
+    comparison: &LearnedSparseBenchmarkComparison,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[derive(serde::Serialize)]
+    struct ReportObservation<'a> {
+        case_id: &'a str,
+        route: LearnedSparseRoute,
+        quality: &'a LearnedSparseQualityMetrics,
+        resources: &'a LearnedSparseResourceMetrics,
+        safety: &'a LearnedSparseSafetyMetrics,
+        measurement_status: &'static str,
+    }
+    #[derive(serde::Serialize)]
+    struct Report<'a> {
+        measurement_kind: &'static str,
+        evaluation_date: &'a str,
+        corpus_id: &'a str,
+        corpus_revision: &'a str,
+        index_generation: &'static str,
+        model_fingerprint: &'static str,
+        namespace: &'a str,
+        route_configuration: &'a LearnedSparseRouteConfiguration,
+        observations: Vec<ReportObservation<'a>>,
+        decisions: BTreeMap<LearnedSparseQueryClass, LearnedSparseClassDecision>,
+    }
+    let namespace = {
+        let identity = executor.identity.namespace.clone();
+        format!(
+            "{}:{:?}:{}",
+            identity.instance_id(),
+            identity.trust_zone(),
+            identity.projection()
+        )
+    };
+    fs::create_dir_all(report_dir)?;
+    let report = Report {
+        measurement_kind: "learned_sparse_four_profile",
+        evaluation_date: &corpus.evaluation_date,
+        corpus_id: &corpus.corpus_id,
+        corpus_revision: &corpus.corpus_revision,
+        index_generation: INDEX_GENERATION_LABEL,
+        model_fingerprint: MODEL_FINGERPRINT,
+        namespace: &namespace,
+        route_configuration: executor
+            .route_configurations
+            .get(&LearnedSparseRoute::SparseFused)
+            .ok_or("sparse-fused route configuration is missing")?,
+        observations: observations
+            .iter()
+            .map(|observation| ReportObservation {
+                case_id: &observation.case_id,
+                route: observation.route,
+                quality: &observation.quality,
+                resources: &observation.resources,
+                safety: &observation.safety,
+                measurement_status: "Measured",
+            })
+            .collect(),
+        decisions: decisions_from_comparison(comparison),
+    };
+    fs::write(
+        Path::new(report_dir).join("learned-sparse.json"),
+        serde_json::to_vec_pretty(&report)?,
+    )?;
+    Ok(())
+}
+
 #[test]
-fn learned_sparse_contract_environment_and_budgets_are_positive() -> Result<(), Box<dyn std::error::Error>> {
+fn learned_sparse_contract_environment_and_budgets_are_positive()
+-> Result<(), Box<dyn std::error::Error>> {
     let corpus = benchmark_corpus()?;
     corpus.environment.validate()?;
     for case in &corpus.cases {
@@ -377,7 +393,10 @@ fn learned_sparse_contract_environment_and_budgets_are_positive() -> Result<(), 
         assert!(case.disk_budget_bytes > 0);
         assert!(case.ingest_update_budget_ms > 0);
         assert!(case.energy_budget_millijoules > 0);
-        assert_ne!(case.fidelity, LearnedSparseDataFidelity::SyntheticContractFixture);
+        assert_ne!(
+            case.fidelity,
+            LearnedSparseDataFidelity::SyntheticContractFixture
+        );
     }
     let budget = SearchExecutionBudget::new(20, 50, 1_000, 0)?;
     let _ = budget;

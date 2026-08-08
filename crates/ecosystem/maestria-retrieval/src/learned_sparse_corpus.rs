@@ -99,7 +99,8 @@ impl LearnedSparseTaskCorpus {
             })
             .collect::<Result<Vec<_>, LearnedSparseCorpusError>>()?;
         let corpus = LearnedSparseBenchmarkCorpus {
-            schema_version: crate::learned_sparse_benchmark::LEARNED_SPARSE_BENCHMARK_SCHEMA_VERSION,
+            schema_version:
+                crate::learned_sparse_benchmark::LEARNED_SPARSE_BENCHMARK_SCHEMA_VERSION,
             corpus_id: self.corpus_id.clone(),
             corpus_revision: self.corpus_revision.clone(),
             judgment_set_id: self.judgment_set_id.clone(),

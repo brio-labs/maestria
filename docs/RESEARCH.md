@@ -55,6 +55,33 @@ A concrete learned-sparse route is eligible for activation only for a frozen que
 
 Removing or invalidating the promotion record restores the existing lexical/hybrid route. The presence of a provider or index adapter never activates sparse retrieval by itself.
 
+### 2.1.0. Four-profile evaluation decision (dated 2026-08-07)
+
+The frozen corpus (`tests/contracts/learned_sparse_task_corpus_v1.json`, revision
+2026-07-30) was evaluated on a real instance against the pinned SPLADE ONNX sidecar
+(`docs/RESEARCH.md` §4.3) across all four routes — Lexical, Hybrid, SparseOnly, and
+SparseFused — with 31 timed runs per case per route and the real lifecycle operations
+measured on the durable projection. The dated report is
+`tests/contracts/learned_sparse_report_v1.json` (report hash
+`sha256:920b6551d5eb7ee56d76d921c083e31515188fdbe772e8ce2cc3e8fce40493e8`), pinned in
+the benchmark evidence ledger milestone `v1.2` with index generation
+`sparse-text-v1-2` and the splade-onnx model fingerprint.
+
+| Query class | Decision | Winning route | Rollback target |
+| --- | --- | --- | --- |
+| ExactLiteral | RetainLexical | none | — |
+| VocabularyExpansion | RetainHybrid | none | — |
+| DomainTerminology | RetainHybrid | none | — |
+| MultiTerm | RetainHybrid | none | — |
+| NoEvidence | RetainLexical | none | — |
+| Security | RetainLexical | none | — |
+
+No class won: the evaluation host cannot read RAPL `energy_uj` without privileges, so
+energy is recorded `Unavailable` and the promotion gate (complete telemetry required)
+yields no winning route. No promotion record exists; the daemon serves the lexical and
+hybrid routes. This is the honest no-promotion outcome the evaluation contract allows —
+nothing is fabricated into a promotion.
+
 ### 2.1.1. Frozen learned-sparse task corpus
 
 The representative real-task freeze is `tests/contracts/learned_sparse_task_corpus_v1.json`.
@@ -69,6 +96,11 @@ work independently; disagreement is adjudicated by a third judge. The corpus val
 unknown sources, duplicate cases, path traversal, missing split coverage, underrepresented
 final classes, and incomplete expectations. Changing source content, judgment guidance, or
 judgments requires new corpus and judgment hashes.
+
+Note: the frozen final split (two independent task cases per class) is the dated judgment
+set as authored at the 2026-07-30 freeze; it has not been re-tuned or re-weighted for this
+evaluation. The 2026-08-07 decision above is bound to exactly this split and hash; any
+split change requires a new evaluation and a new dated decision.
 
 ### 2.2. Other semantic backends
 

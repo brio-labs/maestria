@@ -8,8 +8,8 @@
 use crate::golden::Metric;
 
 use super::{
-    CheckStatus, LearnedSparseAcceptedSpan, LearnedSparseBenchmarkError, LearnedSparseExpectedOutcome,
-    LearnedSparseQualityMetrics, Measurement,
+    CheckStatus, LearnedSparseAcceptedSpan, LearnedSparseBenchmarkError,
+    LearnedSparseExpectedOutcome, LearnedSparseQualityMetrics, Measurement,
 };
 
 /// Character span of one retrieved candidate inside a corpus source.
@@ -83,13 +83,13 @@ fn ndcg(candidates: &[LearnedSparseRetrievedCandidate], k: u32) -> Metric {
     let mut ranked = candidates
         .iter()
         .filter(|candidate| candidate.lane_rank <= k)
-        .map(|candidate| (candidate.lane_rank, candidate.grade.unwrap_or(0)))
+        .map(|candidate| {
+            let grade = candidate.grade.map_or(0, u8::from);
+            (candidate.lane_rank, grade)
+        })
         .collect::<Vec<_>>();
     ranked.sort_by_key(|(rank, _)| *rank);
-    let mut ideal = ranked
-        .iter()
-        .map(|(_, grade)| *grade)
-        .collect::<Vec<_>>();
+    let mut ideal = ranked.iter().map(|(_, grade)| *grade).collect::<Vec<_>>();
     ideal.sort_by(|left, right| right.cmp(left));
     let ideal = ideal
         .into_iter()
@@ -149,193 +149,147 @@ fn mean_average_precision(
     )
 }
 
-/// Computes every quality metric field for one case on one route.
-///
-/// Candidates are expected in lane order; ranks are honored as given so the
-/// executor controls what the route actually surfaced.
-pub fn score_case(
-    case_id: &str,
-    expected: &LearnedSparseExpectedOutcome,
-    candidates: &[LearnedSparseRetrievedCandidate],
-) -> Result<LearnedSparseQualityMetrics, LearnedSparseBenchmarkError> {
-    let invalid = candidates
+/// The evidence-quality metric block for an expected-evidence case.
+struct EvidenceQuality {
+    recall_at_5: Metric,
+    recall_at_20: Metric,
+    recall_at_50: Metric,
+    recall_at_100: Metric,
+    ndcg_at_10: Metric,
+    ndcg_at_20: Metric,
+    mrr_at_10: Metric,
+    mean_average_precision: Metric,
+    exact_span_recall: Metric,
+    evidence_chain_coverage: Metric,
+    source_diversity: Metric,
+    source_redundancy: Metric,
+    citation_precision: Metric,
+    citation_recall: Metric,
+}
+
+fn evidence_quality(
+    accepted: &[LearnedSparseAcceptedSpan],
+    evidence_chain: &[String],
+    ranked: &[LearnedSparseRetrievedCandidate],
+) -> EvidenceQuality {
+    let covered = spans_covered(accepted, ranked);
+    let covered_count = covered.iter().filter(|value| **value).count();
+    let recall = |k: u32| {
+        let top = ranked
+            .iter()
+            .filter(|candidate| candidate.lane_rank <= k)
+            .cloned()
+            .collect::<Vec<_>>();
+        let covered = spans_covered(accepted, &top);
+        ratio(
+            covered.iter().filter(|value| **value).count(),
+            accepted.len(),
+        )
+    };
+    let chain_sources = evidence_chain
         .iter()
-        .find(|candidate| candidate.lane_rank == 0 || candidate.span.source_id.trim().is_empty());
-    if let Some(candidate) = invalid {
-        return Err(LearnedSparseBenchmarkError::InvalidMeasurement(format!(
-            "case {case_id} candidate {} has an invalid lane rank or empty source",
-            candidate.evidence_id
-        )));
-    }
-    let mut ranked = candidates.to_vec();
-    ranked.sort_by_key(|candidate| candidate.lane_rank);
-    let answered = !ranked.is_empty();
-    let expected_relevant = match expected {
-        LearnedSparseExpectedOutcome::Evidence {
-            accepted_spans,
-            evidence_chain,
-            ..
-        } => {
-            let accepted = accepted_spans;
-            let covered = spans_covered(accepted, &ranked);
-            let covered_count = covered.iter().filter(|value| **value).count();
-            let recall = |k: u32| {
-                let top = ranked
-                    .iter()
-                    .filter(|candidate| candidate.lane_rank <= k)
-                    .cloned()
-                    .collect::<Vec<_>>();
-                let covered = spans_covered(accepted, &top);
-                ratio(covered.iter().filter(|value| **value).count(), accepted.len())
-            };
-            let exact = ratio(covered_count, accepted.len());
-            let chain_sources = evidence_chain
+        .filter(|source| {
+            ranked
                 .iter()
-                .filter(|source| {
-                    ranked
-                        .iter()
-                        .any(|candidate| &candidate.span.source_id == *source)
+                .any(|candidate| &candidate.span.source_id == *source)
+        })
+        .count();
+    let expected_sources = accepted
+        .iter()
+        .map(|span| span.source_id.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let retrieved_sources = ranked
+        .iter()
+        .map(|candidate| candidate.span.source_id.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let relevant_sources = ranked
+        .iter()
+        .filter(|candidate| accepted.iter().any(|span| candidate.span.overlaps(span)))
+        .map(|candidate| candidate.span.source_id.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let citation_count = ranked
+        .iter()
+        .filter(|candidate| candidate.citation.is_some())
+        .count();
+    let citation_hits = ranked
+        .iter()
+        .filter(|candidate| {
+            candidate
+                .citation
+                .as_ref()
+                .is_some_and(|citation| accepted.iter().any(|span| citation.overlaps(span)))
+        })
+        .count();
+    let citation_recall = ratio(
+        accepted
+            .iter()
+            .filter(|span| {
+                ranked.iter().any(|candidate| {
+                    candidate
+                        .citation
+                        .as_ref()
+                        .is_some_and(|citation| citation.overlaps(span))
                 })
-                .count();
-            let chain = ratio(chain_sources, evidence_chain.len());
-            let expected_sources = accepted
-                .iter()
-                .map(|span| span.source_id.as_str())
-                .collect::<std::collections::BTreeSet<_>>();
-            let retrieved_sources = ranked
-                .iter()
-                .map(|candidate| candidate.span.source_id.as_str())
-                .collect::<std::collections::BTreeSet<_>>();
-            let relevant_sources = ranked
-                .iter()
-                .filter(|candidate| {
-                    accepted
-                        .iter()
-                        .any(|span| candidate.span.overlaps(span))
-                })
-                .map(|candidate| candidate.span.source_id.as_str())
-                .collect::<std::collections::BTreeSet<_>>();
-            let diversity = ratio(
-                relevant_sources.len().min(expected_sources.len()),
-                expected_sources.len(),
-            );
-            let redundancy = if ranked.is_empty() {
-                Metric::ZERO
-            } else {
-                let total = ranked.len();
-                let distinct = retrieved_sources.len();
-                ratio(total - distinct, total)
-            };
-            let citation_count = ranked
-                .iter()
-                .filter(|candidate| candidate.citation.is_some())
-                .count();
-            let citation_hits = ranked
-                .iter()
-                .filter(|candidate| {
-                    candidate.citation.as_ref().is_some_and(|citation| {
-                        accepted
-                            .iter()
-                            .any(|span| citation.overlaps(span))
-                    })
-                })
-                .count();
-            let citation_precision = ratio(citation_hits, citation_count);
-            let citation_recall = ratio(
-                accepted
-                    .iter()
-                    .filter(|span| {
-                        ranked.iter().any(|candidate| {
-                            candidate
-                                .citation
-                                .as_ref()
-                                .is_some_and(|citation| citation.overlaps(span))
-                        })
-                    })
-                    .count(),
-                accepted.len(),
-            );
-            let mrr = ranked
-                .iter()
-                .find(|candidate| {
-                    accepted
-                        .iter()
-                        .any(|span| candidate.span.overlaps(span))
-                })
-                .filter(|candidate| candidate.lane_rank <= 10)
-                .map_or(Metric::ZERO, |candidate| {
-                    ratio(1, candidate.lane_rank as usize)
-                });
-            let map = mean_average_precision(accepted, &ranked);
-            let evidence = (
-                recall(5),
-                recall(20),
-                recall(50),
-                recall(100),
-                ndcg(&ranked, 10),
-                ndcg(&ranked, 20),
-                mrr,
-                map,
-                exact,
-                chain,
-                diversity,
-                redundancy,
-                citation_precision,
-                citation_recall,
-            );
-            let unsupported = if answered {
-                CheckStatus::Passed
-            } else {
-                CheckStatus::Failed
-            };
-            Some((evidence, unsupported, CheckStatus::NotDetected))
-        }
-        LearnedSparseExpectedOutcome::Abstain
-        | LearnedSparseExpectedOutcome::UnsupportedClaim
-        | LearnedSparseExpectedOutcome::Conflict => None,
+            })
+            .count(),
+        accepted.len(),
+    );
+    let mrr = ranked
+        .iter()
+        .find(|candidate| accepted.iter().any(|span| candidate.span.overlaps(span)))
+        .filter(|candidate| candidate.lane_rank <= 10)
+        .map(|candidate| ratio(1, candidate.lane_rank as usize));
+    let redundancy = if ranked.is_empty() {
+        Metric::ZERO
+    } else {
+        ratio(ranked.len() - retrieved_sources.len(), ranked.len())
     };
-
-    let (quality, unsupported, conflict) = match expected {
-        LearnedSparseExpectedOutcome::Evidence { .. } => {
-            let (evidence, unsupported, conflict) =
-                expected_relevant.ok_or_else(|| {
-                    LearnedSparseBenchmarkError::InvalidMeasurement(format!(
-                        "case {case_id} evidence expectation produced no quality profile"
-                    ))
-                })?;
-            (evidence, unsupported, conflict)
-        }
-        LearnedSparseExpectedOutcome::UnsupportedClaim => {
-            let status = if answered {
-                CheckStatus::Failed
-            } else {
-                CheckStatus::Passed
-            };
-            (
-                zero_evidence_metrics(),
-                status,
-                CheckStatus::NotDetected,
-            )
-        }
-        LearnedSparseExpectedOutcome::Conflict => {
-            let status = if answered {
-                CheckStatus::Failed
-            } else {
-                CheckStatus::Passed
-            };
-            (
-                zero_evidence_metrics(),
-                CheckStatus::NotDetected,
-                status,
-            )
-        }
-        LearnedSparseExpectedOutcome::Abstain => (
-            zero_evidence_metrics(),
-            CheckStatus::NotDetected,
-            CheckStatus::NotDetected,
+    EvidenceQuality {
+        recall_at_5: recall(5),
+        recall_at_20: recall(20),
+        recall_at_50: recall(50),
+        recall_at_100: recall(100),
+        ndcg_at_10: ndcg(ranked, 10),
+        ndcg_at_20: ndcg(ranked, 20),
+        mrr_at_10: match mrr {
+            Some(mrr) => mrr,
+            None => Metric::ZERO,
+        },
+        mean_average_precision: mean_average_precision(accepted, ranked),
+        exact_span_recall: ratio(covered_count, accepted.len()),
+        evidence_chain_coverage: ratio(chain_sources, evidence_chain.len()),
+        source_diversity: ratio(
+            relevant_sources.len().min(expected_sources.len()),
+            expected_sources.len(),
         ),
-    };
+        source_redundancy: redundancy,
+        citation_precision: ratio(citation_hits, citation_count),
+        citation_recall,
+    }
+}
 
+fn zero_evidence_quality() -> EvidenceQuality {
+    EvidenceQuality {
+        recall_at_5: Metric::ZERO,
+        recall_at_20: Metric::ZERO,
+        recall_at_50: Metric::ZERO,
+        recall_at_100: Metric::ZERO,
+        ndcg_at_10: Metric::ZERO,
+        ndcg_at_20: Metric::ZERO,
+        mrr_at_10: Metric::ZERO,
+        mean_average_precision: Metric::ZERO,
+        exact_span_recall: Metric::ZERO,
+        evidence_chain_coverage: Metric::ZERO,
+        source_diversity: Metric::ZERO,
+        source_redundancy: Metric::ZERO,
+        citation_precision: Metric::ZERO,
+        citation_recall: Metric::ZERO,
+    }
+}
+
+/// The abstention block: whether the route answered when it should and
+/// abstained when it should.
+fn abstention_metrics(expected: &LearnedSparseExpectedOutcome, answered: bool) -> (Metric, Metric) {
     let expects_abstention = matches!(
         expected,
         LearnedSparseExpectedOutcome::Abstain
@@ -347,296 +301,114 @@ pub fn score_case(
     } else {
         answered
     };
-    let abstention_precision = if abstention_ok {
+    let value = if abstention_ok {
         Metric::ONE
     } else {
         Metric::ZERO
     };
-    let abstention_recall = if abstention_ok {
-        Metric::ONE
-    } else {
-        Metric::ZERO
-    };
+    (value, value)
+}
 
-    let measured = |value: Metric| Measurement::measured(value);
-    let status = |value: CheckStatus| Measurement::measured(value);
-    let (
-        recall_at_5,
-        recall_at_20,
-        recall_at_50,
-        recall_at_100,
-        ndcg_at_10,
-        ndcg_at_20,
-        mrr_at_10,
-        mean_average_precision,
-        exact_span_recall,
-        evidence_chain_coverage,
-        source_diversity,
-        source_redundancy,
-        citation_precision,
-        citation_recall,
-    ) = quality;
+/// The check-status block for unsupported claims and conflicts.
+fn outcome_checks(
+    expected: &LearnedSparseExpectedOutcome,
+    answered: bool,
+) -> (CheckStatus, CheckStatus) {
+    match expected {
+        LearnedSparseExpectedOutcome::UnsupportedClaim => {
+            let status = if answered {
+                CheckStatus::Failed
+            } else {
+                CheckStatus::Passed
+            };
+            (status, CheckStatus::NotDetected)
+        }
+        LearnedSparseExpectedOutcome::Conflict => {
+            let status = if answered {
+                CheckStatus::Failed
+            } else {
+                CheckStatus::Passed
+            };
+            (CheckStatus::NotDetected, status)
+        }
+        LearnedSparseExpectedOutcome::Evidence { .. } => {
+            let status = if answered {
+                CheckStatus::Passed
+            } else {
+                CheckStatus::Failed
+            };
+            (status, CheckStatus::NotDetected)
+        }
+        LearnedSparseExpectedOutcome::Abstain => {
+            (CheckStatus::NotDetected, CheckStatus::NotDetected)
+        }
+    }
+}
+
+/// Validates the candidate list shape before scoring.
+fn validate_candidates(
+    case_id: &str,
+    candidates: &[LearnedSparseRetrievedCandidate],
+) -> Result<(), LearnedSparseBenchmarkError> {
+    let invalid = candidates
+        .iter()
+        .find(|candidate| candidate.lane_rank == 0 || candidate.span.source_id.trim().is_empty());
+    match invalid {
+        Some(candidate) => Err(LearnedSparseBenchmarkError::InvalidMeasurement(format!(
+            "case {case_id} candidate {} has an invalid lane rank or empty source",
+            candidate.evidence_id
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// Computes every quality metric field for one case on one route.
+///
+/// Candidates are expected in lane order; ranks are honored as given so the
+/// executor controls what the route actually surfaced.
+pub fn score_case(
+    case_id: &str,
+    expected: &LearnedSparseExpectedOutcome,
+    candidates: &[LearnedSparseRetrievedCandidate],
+) -> Result<LearnedSparseQualityMetrics, LearnedSparseBenchmarkError> {
+    validate_candidates(case_id, candidates)?;
+    let mut ranked = candidates.to_vec();
+    ranked.sort_by_key(|candidate| candidate.lane_rank);
+    let answered = !ranked.is_empty();
+    let (abstention_precision, abstention_recall) = abstention_metrics(expected, answered);
+    let (unsupported, conflict) = outcome_checks(expected, answered);
+    let quality = match expected {
+        LearnedSparseExpectedOutcome::Evidence {
+            accepted_spans,
+            evidence_chain,
+            ..
+        } => evidence_quality(accepted_spans, evidence_chain, &ranked),
+        _ => zero_evidence_quality(),
+    };
     let metrics = LearnedSparseQualityMetrics {
-        recall_at_5: measured(recall_at_5),
-        recall_at_20: measured(recall_at_20),
-        recall_at_50: measured(recall_at_50),
-        recall_at_100: measured(recall_at_100),
-        ndcg_at_10: measured(ndcg_at_10),
-        ndcg_at_20: measured(ndcg_at_20),
-        mrr_at_10: measured(mrr_at_10),
-        mean_average_precision: measured(mean_average_precision),
-        exact_span_recall: measured(exact_span_recall),
-        evidence_chain_coverage: measured(evidence_chain_coverage),
-        source_diversity: measured(source_diversity),
-        source_redundancy: measured(source_redundancy),
-        citation_precision: measured(citation_precision),
-        citation_recall: measured(citation_recall),
-        abstention_precision: measured(abstention_precision),
-        abstention_recall: measured(abstention_recall),
-        unsupported_claim_status: status(unsupported),
-        conflict_detection_status: status(conflict),
+        recall_at_5: Measurement::measured(quality.recall_at_5),
+        recall_at_20: Measurement::measured(quality.recall_at_20),
+        recall_at_50: Measurement::measured(quality.recall_at_50),
+        recall_at_100: Measurement::measured(quality.recall_at_100),
+        ndcg_at_10: Measurement::measured(quality.ndcg_at_10),
+        ndcg_at_20: Measurement::measured(quality.ndcg_at_20),
+        mrr_at_10: Measurement::measured(quality.mrr_at_10),
+        mean_average_precision: Measurement::measured(quality.mean_average_precision),
+        exact_span_recall: Measurement::measured(quality.exact_span_recall),
+        evidence_chain_coverage: Measurement::measured(quality.evidence_chain_coverage),
+        source_diversity: Measurement::measured(quality.source_diversity),
+        source_redundancy: Measurement::measured(quality.source_redundancy),
+        citation_precision: Measurement::measured(quality.citation_precision),
+        citation_recall: Measurement::measured(quality.citation_recall),
+        abstention_precision: Measurement::measured(abstention_precision),
+        abstention_recall: Measurement::measured(abstention_recall),
+        unsupported_claim_status: Measurement::measured(unsupported),
+        conflict_detection_status: Measurement::measured(conflict),
     };
     metrics.validate()?;
     Ok(metrics)
 }
 
-fn zero_evidence_metrics() -> (
-    Metric,
-    Metric,
-    Metric,
-    Metric,
-    Metric,
-    Metric,
-    Metric,
-    Metric,
-    Metric,
-    Metric,
-    Metric,
-    Metric,
-    Metric,
-    Metric,
-) {
-    (
-        Metric::ZERO,
-        Metric::ZERO,
-        Metric::ZERO,
-        Metric::ZERO,
-        Metric::ZERO,
-        Metric::ZERO,
-        Metric::ZERO,
-        Metric::ZERO,
-        Metric::ZERO,
-        Metric::ZERO,
-        Metric::ZERO,
-        Metric::ZERO,
-        Metric::ZERO,
-        Metric::ZERO,
-    )
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::learned_sparse_benchmark::LearnedSparseAcceptedSpan;
-
-    fn span(source_id: &str, start: u32, end: u32) -> LearnedSparseAcceptedSpan {
-        LearnedSparseAcceptedSpan {
-            source_id: source_id.to_string(),
-            start,
-            end,
-        }
-    }
-
-    fn accepted() -> Vec<LearnedSparseAcceptedSpan> {
-        vec![
-            span("alpha", 10, 20),
-            span("alpha", 100, 120),
-            span("beta", 0, 30),
-        ]
-    }
-
-    fn evidence_expected() -> LearnedSparseExpectedOutcome {
-        LearnedSparseExpectedOutcome::Evidence {
-            accepted_spans: accepted(),
-            evidence_chain: vec!["alpha".to_string(), "beta".to_string()],
-            minimum_source_diversity: 2,
-        }
-    }
-
-    fn candidate(
-        evidence_id: &str,
-        rank: u32,
-        source_id: &str,
-        start: u32,
-        end: u32,
-        grade: Option<u8>,
-    ) -> LearnedSparseRetrievedCandidate {
-        LearnedSparseRetrievedCandidate {
-            evidence_id: evidence_id.to_string(),
-            lane_rank: rank,
-            span: LearnedSparseRetrievedSpan {
-                source_id: source_id.to_string(),
-                start,
-                end,
-            },
-            citation: Some(LearnedSparseRetrievedSpan {
-                source_id: source_id.to_string(),
-                start,
-                end,
-            }),
-            grade,
-        }
-    }
-
-    #[test]
-    fn perfect_evidence_retrieval_scores_one() -> Result<(), Box<dyn std::error::Error>> {
-        let metrics = score_case(
-            "c1",
-            &evidence_expected(),
-            &[
-                candidate("e1", 1, "alpha", 10, 20, Some(2)),
-                candidate("e2", 2, "alpha", 100, 120, Some(2)),
-                candidate("e3", 3, "beta", 0, 30, Some(2)),
-            ],
-        )?;
-        for metric in [
-            &metrics.recall_at_5,
-            &metrics.recall_at_20,
-            &metrics.recall_at_50,
-            &metrics.recall_at_100,
-            &metrics.ndcg_at_10,
-            &metrics.ndcg_at_20,
-            &metrics.mrr_at_10,
-            &metrics.mean_average_precision,
-            &metrics.exact_span_recall,
-            &metrics.evidence_chain_coverage,
-            &metrics.source_diversity,
-            &metrics.citation_precision,
-            &metrics.citation_recall,
-            &metrics.abstention_precision,
-            &metrics.abstention_recall,
-        ] {
-            assert_eq!(metric.measured_value(), Some(&Metric::ONE));
-        }
-        assert_eq!(
-            metrics.unsupported_claim_status.measured_value(),
-            Some(&CheckStatus::Passed)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn empty_route_on_evidence_case_scores_zero_and_fails_checks() -> Result<(), Box<dyn std::error::Error>> {
-        let metrics = score_case("c2", &evidence_expected(), &[])?;
-        assert_eq!(metrics.recall_at_5.measured_value(), Some(&Metric::ZERO));
-        assert_eq!(
-            metrics.abstention_precision.measured_value(),
-            Some(&Metric::ZERO)
-        );
-        assert_eq!(
-            metrics.unsupported_claim_status.measured_value(),
-            Some(&CheckStatus::Failed)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn abstain_case_rewards_abstention_and_penalizes_answers() -> Result<(), Box<dyn std::error::Error>> {
-        let expected = LearnedSparseExpectedOutcome::Abstain;
-        let metrics = score_case("c3", &expected, &[])?;
-        assert_eq!(
-            metrics.abstention_precision.measured_value(),
-            Some(&Metric::ONE)
-        );
-        assert_eq!(
-            metrics.abstention_recall.measured_value(),
-            Some(&Metric::ONE)
-        );
-        let answered = score_case(
-            "c3",
-            &expected,
-            &[candidate("e1", 1, "alpha", 10, 20, None)],
-        )?;
-        assert_eq!(
-            answered.abstention_precision.measured_value(),
-            Some(&Metric::ZERO)
-        );
-        assert_eq!(
-            answered.abstention_recall.measured_value(),
-            Some(&Metric::ZERO)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn unsupported_claim_pass_only_when_abstained() -> Result<(), Box<dyn std::error::Error>> {
-        let expected = LearnedSparseExpectedOutcome::UnsupportedClaim;
-        let abstained = score_case("c4", &expected, &[])?;
-        assert_eq!(
-            abstained
-                .unsupported_claim_status
-                .measured_value(),
-            Some(&CheckStatus::Passed)
-        );
-        let answered = score_case(
-            "c4",
-            &expected,
-            &[candidate("e1", 1, "alpha", 10, 20, None)],
-        )?;
-        assert_eq!(
-            answered.unsupported_claim_status.measured_value(),
-            Some(&CheckStatus::Failed)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn conflict_detection_pass_only_when_abstained() -> Result<(), Box<dyn std::error::Error>> {
-        let expected = LearnedSparseExpectedOutcome::Conflict;
-        let abstained = score_case("c5", &expected, &[])?;
-        assert_eq!(
-            abstained.conflict_detection_status.measured_value(),
-            Some(&CheckStatus::Passed)
-        );
-        let answered = score_case(
-            "c5",
-            &expected,
-            &[candidate("e1", 1, "alpha", 10, 20, None)],
-        )?;
-        assert_eq!(
-            answered.conflict_detection_status.measured_value(),
-            Some(&CheckStatus::Failed)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn partial_recall_and_ndcg_are_rank_aware() -> Result<(), Box<dyn std::error::Error>> {
-        // Only the third accepted span is retrieved, at rank 3.
-        let metrics = score_case(
-            "c6",
-            &evidence_expected(),
-            &[candidate("e3", 3, "beta", 0, 30, Some(2))],
-        )?;
-        assert_eq!(
-            metrics.recall_at_5.measured_value(),
-            Some(&Metric::from_ratio(1, 3))
-        );
-        let recall = metrics.exact_span_recall.measured_value().copied().unwrap();
-        assert_eq!(recall.value(), Metric::ONE.value() / 3);
-        let mrr = metrics.mrr_at_10.measured_value().copied().unwrap();
-        assert_eq!(mrr.value(), Metric::ONE.value() / 3);
-        Ok(())
-    }
-
-    #[test]
-    fn rejects_zero_or_unattributed_ranks() -> Result<(), Box<dyn std::error::Error>> {
-        let result = score_case(
-            "c7",
-            &evidence_expected(),
-            &[candidate("e1", 0, "alpha", 10, 20, Some(2))],
-        );
-        assert!(result.is_err());
-        Ok(())
-    }
-}
+#[path = "learned_sparse_benchmark_scoring_tests.rs"]
+mod tests;

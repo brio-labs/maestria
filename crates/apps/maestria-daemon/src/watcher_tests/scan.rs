@@ -21,7 +21,7 @@ fn scan_skips_instance_state_when_root_contains_instance() -> Result<(), Box<dyn
         embeddings: None,
         ocr: None,
         visual: None,
-            sparse: None,
+        sparse: None,
     };
     let observations = scan_manifest(&manifest)?;
 
@@ -65,7 +65,7 @@ fn scan_allows_read_root_nested_in_instance() -> Result<(), Box<dyn std::error::
         embeddings: None,
         ocr: None,
         visual: None,
-            sparse: None,
+        sparse: None,
     };
     let observations = scan_manifest(&manifest)?;
 
@@ -96,7 +96,7 @@ fn scan_excludes_instance_manifest_and_preserves_alias_scope()
         embeddings: None,
         ocr: None,
         visual: None,
-            sparse: None,
+        sparse: None,
     };
     let observations = scan_manifest(&manifest)?;
 
