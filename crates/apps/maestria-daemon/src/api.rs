@@ -21,9 +21,10 @@ pub use protocol::{
     NotebookDraftSavedResponse, NotebookDraftSummary, NotebookListResponse, NotebookResponse,
     NotebookSourceCatalogEntry, NotebookSourceCatalogResponse, NotebookSourceSelection,
     NotebookSummary, RealmGrantAccess, RealmGrantCreatedResponse, RealmGrantListResponse,
-    RealmGrantResponse, RealmGrantSensitivity, SearchEvidenceResponse, SearchRawRankResponse,
-    SearchResponse, SearchScoreResponse, SearchScoreScaleResponse, StatusResponse, TaskResponse,
-    TaskSummary,
+    RealmGrantResponse, RealmGrantSensitivity, RetrievalLaneStatus, RetrievalPromotionRecordWire,
+    RetrievalPromotionRecords, RetrievalStatusResponse, SearchEvidenceResponse,
+    SearchRawRankResponse, SearchResponse, SearchScoreResponse, SearchScoreScaleResponse,
+    StatusResponse, TaskResponse, TaskSummary,
 };
 pub use server::ApiServer;
 

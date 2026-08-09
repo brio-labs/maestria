@@ -145,6 +145,50 @@ pub struct TaskResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetrievalStatusResponse {
+    pub index_generation: u64,
+    pub corpus_snapshot: u64,
+    pub fingerprint: String,
+    pub lanes: RetrievalLaneStatus,
+    pub promotion_records: RetrievalPromotionRecords,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetrievalLaneStatus {
+    /// "Shadow" | "Active"
+    pub hybrid_state: String,
+    /// PascalCase class names, e.g. "DomainTerminology"
+    pub hybrid_served_classes: Vec<String>,
+    pub hybrid_evaluation_id: Option<String>,
+    pub hybrid_evaluation_date: Option<String>,
+    pub hybrid_report_hash: Option<String>,
+    /// "Disabled" | "Shadow" | "Active"
+    pub learned_sparse_state: String,
+    pub learned_sparse_model: Option<String>,
+    pub dense_enabled: bool,
+    pub dense_model: Option<String>,
+    /// "Shadow" | "Active"
+    pub repository_code_state: String,
+    /// "Shadow" | "Active"
+    pub visual_state: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetrievalPromotionRecords {
+    pub learned_sparse: Option<RetrievalPromotionRecordWire>,
+    pub hybrid: Option<RetrievalPromotionRecordWire>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetrievalPromotionRecordWire {
+    pub evaluation_id: String,
+    pub corpus_id: String,
+    pub evaluation_date: String,
+    pub report_hash: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskSummary {
     pub task_id: u64,
     pub title: String,

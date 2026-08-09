@@ -35,7 +35,7 @@ pub use version::CORE_VERSION;
 pub use error::{CoreError, CoreResult};
 pub use ingestion::build_artifact_detected_input;
 pub use instance::{InitInstanceInput, InitInstancePlan, InstanceLayout, InstanceService};
-pub use manifest::{EmbeddingConfig, InstanceManifest, OcrConfig, VisualConfig};
+pub use manifest::{EmbeddingConfig, InstanceManifest, OcrConfig, SparseProfileConfig, VisualConfig};
 pub use notebook_draft_opening::open_notebook_draft_body;
 pub use ports::{CorePorts, CoreServices};
 pub use provenance::artifact_id_for;

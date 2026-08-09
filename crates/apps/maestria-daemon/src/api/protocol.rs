@@ -24,9 +24,10 @@ pub use protocol_notebook::{
     NotebookSummary,
 };
 pub use protocol_read::{
-    CoverageResponse, EvidenceResponse, EvidenceSourceResponse, SearchEvidenceResponse,
-    SearchRawRankResponse, SearchResponse, SearchScoreResponse, SearchScoreScaleResponse,
-    StatusResponse, TaskResponse, TaskSummary,
+    CoverageResponse, EvidenceResponse, EvidenceSourceResponse, RetrievalLaneStatus,
+    RetrievalPromotionRecordWire, RetrievalPromotionRecords, RetrievalStatusResponse,
+    SearchEvidenceResponse, SearchRawRankResponse, SearchResponse, SearchScoreResponse,
+    SearchScoreScaleResponse, StatusResponse, TaskResponse, TaskSummary,
 };
 
 const MAX_SEARCH_LIMIT: usize = 100;
@@ -35,6 +36,7 @@ const MAX_SEARCH_LIMIT: usize = 100;
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientOperation {
     Status,
+    RetrievalStatus,
     Search {
         query: String,
         limit: usize,
@@ -150,6 +152,7 @@ pub struct ClientRequest {
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum ClientResponse {
     Status(StatusResponse),
+    RetrievalStatus(Box<RetrievalStatusResponse>),
     Search(SearchResponse),
     Evidence(EvidenceResponse),
     Task(TaskResponse),

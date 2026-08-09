@@ -33,6 +33,9 @@ pub(crate) async fn dispatch(
         operation @ (ClientOperation::Status
         | ClientOperation::Task { .. }
         | ClientOperation::Evidence { .. }) => dispatch_read(context, operation).await,
+        ClientOperation::RetrievalStatus => Ok(ClientResponse::RetrievalStatus(Box::new(
+            search_services::retrieval_status(context).await?,
+        ))),
         ClientOperation::Search { query, limit } => {
             if query.trim().is_empty() {
                 return Err(anyhow!("search query must not be empty"));
