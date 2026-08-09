@@ -10,9 +10,7 @@ use maestria_ports::{
     IndexedChunk, LearnedSparseIndex, LearnedSparseProjectionLifecycle, LearnedSparseProvider,
     SparseDocument, SparseIdentity, SparseInputKind,
 };
-use maestria_retrieval::{
-    LearnedSparseOperationMeasurement, LearnedSparseRoute, MonotonicInstant,
-};
+use maestria_retrieval::{LearnedSparseOperationMeasurement, LearnedSparseRoute, MonotonicInstant};
 
 use super::LearnedSparseBenchmarkExecutor;
 use super::energy::EnergySample;

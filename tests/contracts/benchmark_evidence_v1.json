@@ -494,6 +494,10 @@
       "reports": [
         {
           "kind": "learned-sparse",
+          "path": "target/benchmark-reports/learned-sparse.json"
+        },
+        {
+          "kind": "learned-sparse",
           "path": "tests/contracts/learned_sparse_report_v1.json"
         }
       ]
@@ -537,10 +541,6 @@
       },
       "degradations": [],
       "reports": [
-        {
-          "kind": "learned-sparse",
-          "path": "target/benchmark-reports/learned-sparse.json"
-        },
         {
           "kind": "learned-sparse",
           "path": "tests/contracts/learned_sparse_report_v2.json"
