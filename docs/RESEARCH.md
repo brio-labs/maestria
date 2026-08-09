@@ -182,32 +182,42 @@ reliable signal. Full report: `tests/contracts/model_retrieval_report_v1.json`.
 
 | Model | EN nDCG@10 | FR nDCG@10 | EN MRR@10 | FR MRR@10 | Languages |
 | --- | --- | --- | --- | --- | --- |
-| mLateOn (ColBERT 307M) | **0.984** | 0.906 | 0.981 | 0.890 | multilingual, generalizes |
-| LFM2.5-Embedding-350M | 0.982 | **0.917** | 0.976 | **0.905** | 11 incl. French |
+| all-MiniLM-L12-v2 | **0.987** | 0.707 | 0.983 | 0.680 | English |
+| mLateOn (ColBERT 307M) | 0.984 | 0.906 | 0.981 | 0.890 | multilingual, generalizes |
+| bekko-embedding-v1-a25m | 0.984 | 0.894 | 0.978 | 0.880 | 100+ |
+| LFM2.5-Embedding-350M | 0.982 | 0.917 | 0.976 | **0.905** | 11 incl. French |
+| bekko-embedding-v1-a8m | 0.982 | 0.881 | 0.978 | 0.866 | 100+ |
 | e5-small (118M) | 0.980 | 0.852 | 0.976 | 0.843 | 100+ |
+| mDenseOn (307M) | 0.979 | **0.919** | 0.973 | 0.904 | 8 target + English |
+| nomic-embed-text-v1.5 | 0.978 | 0.740 | 0.974 | 0.720 | English (MTEB) |
 | BGE-M3 dense (560M) | 0.973 | 0.895 | 0.964 | 0.881 | 100+ |
+| all-MiniLM-L6-v2 (66M) | 0.973 | 0.617 | 0.970 | 0.586 | English |
 | BM25 (tantivy defaults) | 0.788 | 0.590 | 0.753 | 0.554 | language-agnostic |
 | SPLADE pinned (110M) | 0.109 | 0.012 | 0.085 | 0.011 | English only |
-| all-MiniLM-L6-v2 (66M) | 0.077 | 0.009 | 0.072 | 0.009 | English only |
 
-Findings: (1) the dense/late cluster (mLateOn, LFM2.5, e5, BGE-M3) dominates
-both languages; (2) LFM2.5-Embedding-350M is the top multilingual dense on
-French, and mLateOn the top overall (its late interaction generalizes to
-unseen languages, per its card); (3) SPLADE and MiniLM collapse on French —
-the English-only limitation is now measured, not assumed; (4) BM25 is the
-language-agnostic baseline and beats SPLADE on English in this sample (the
-sample inflation noted above favors exact-match models). The lifecycle
-budget analysis (previous section) still governs what can be served: among
-the top-quality candidates only e5-small is near the frozen 5 s budget
-(~5.8-6.6 s at 6-8 workers); mLateOn/LFM2.5/BGE-M3 need the #427 budget
-re-justification or a smaller multilingual candidate.
+Findings: (1) the dense/late cluster dominates both languages; (2) on
+French, mDenseOn and LFM2.5 lead (0.919/0.917), mLateOn leads overall when
+both languages are weighted, and the bekko pair delivers near-top quality at
+25M/8M active parameters; (3) the small English models are outstanding on
+English (MiniLM-L12 0.987 — top of the table) and degrade gracefully on
+French (0.61-0.74), while SPLADE collapses (0.012) — the difference between
+"English-only" and "English-first with a multilingual tokenizer"; (4) BM25
+is the language-agnostic baseline and beats SPLADE on English in this sample
+(the sample inflation noted above favors exact-match models). The lifecycle
+budget analysis still governs what can be served: bekko-a8m (~10 ms/text),
+MiniLM (~13 ms), SPLADE (~57 ms), bekko-a25m and e5-small (~100-130 ms) fit
+or nearly fit the frozen 5 s budget; mLateOn/LFM2.5/BGE-M3/mDenseOn need the
+#427 budget re-justification.
 
 Model-engineering notes recorded along the way: the official BGE-M3 sparse
 head is a stub (see §2.1.0a); the LFM2.5 ONNX export requires the repo's
 bidirectional modeling patch (`trust_remote_code` + a small `seq_idx`
 compatibility wrapper) — without it the embeddings are constant vectors; the
-same patch was verified end-to-end (torch vs ONNX cosine 1.0 on the correct
-export, distinct-text cosine -0.11 vs 0.43-0.47 for relevant pairs).
+sentence-transformers ONNX tokenizers (MiniLM-L6/L12) pad to a fixed 128
+tokens and count pads as real in the attention mask — pooling must zero the
+mask at pad positions or the embeddings lose all discrimination (measured:
+nDCG 0.009 -> 0.617 on French after the fix); the benchmark caches encoded
+vectors and the sampled dataset so re-runs cost minutes, not re-encodes.
 
 ### 2.1.1. Frozen learned-sparse task corpus
 

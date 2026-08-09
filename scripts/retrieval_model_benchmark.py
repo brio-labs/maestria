@@ -54,7 +54,16 @@ def load_dataset(lang: str, rng, n_queries: int, n_passages: int):
     The corpus sample keeps every judged relevant passage of the sampled
     queries and fills the rest with seeded random passages; a purely random
     sample would drop the qrel documents and make every metric zero.
+    The sampled dataset is cached on disk: the full-corpus scan that builds
+    it costs 6-8 minutes for mMARCO-fr and never changes for fixed
+    parameters.
     """
+    import pickle
+
+    cache = CACHE_DIR / f"dataset_{lang}_c{n_passages}_q{n_queries}_s{args.seed}.pkl"
+    if cache.exists():
+        with open(cache, "rb") as handle:
+            return pickle.load(handle)
     import ir_datasets
 
     dataset_id = "msmarco-passage/dev" if lang == "en" else "mmarco/fr/dev"
@@ -100,6 +109,9 @@ def load_dataset(lang: str, rng, n_queries: int, n_passages: int):
         for qrel in qrels_for
         if qrel.doc_id in passage_ids
     }
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    with open(cache, "wb") as handle:
+        pickle.dump((queries, passages, qrels), handle)
     return queries, passages, qrels
 
 
@@ -116,12 +128,19 @@ class TokenizerWrapper:
         from tokenizers import Tokenizer
 
         self._tok = Tokenizer.from_file(path)
+        self._pad_id = self._tok.token_to_id("[PAD]")
 
     def encode(self, text: str, max_tokens: int, prefix_id: int | None = None):
         enc = self._tok.encode(text)
         enc.truncate(max_tokens - (1 if prefix_id is not None else 0))
         ids = [prefix_id] + enc.ids if prefix_id is not None else enc.ids
-        mask = [1] * len(ids)
+        # sentence-transformers ONNX tokenizers pad to a fixed length and
+        # count the pad tokens as real in the attention mask; zero the mask
+        # at pad positions so pooling ignores them.
+        if self._pad_id is not None:
+            mask = [0 if token == self._pad_id else 1 for token in ids]
+        else:
+            mask = [1] * len(ids)
         return np.asarray([ids], dtype=np.int64), np.asarray([mask], dtype=np.int64)
 
 
@@ -257,6 +276,51 @@ def make_encoder(name: str):
                 results.append(l2(pooled).astype(np.float32))
             return np.stack(results)
         return lfm25, "dense"
+
+    if name == "minilm-l12":
+        return mean_pool_dense(
+            str(mdir / "minilm-l12" / "onnx" / "model.onnx"),
+            str(mdir / "minilm-l12" / "tokenizer.json"),
+            max_tokens=256,
+        ), "dense"
+
+    if name == "mdenseon":
+        tok = TokenizerWrapper(str(mdir / "mdenseon" / "tokenizer.json"))
+        sess = OnnxSession(str(mdir / "mdenseon" / "onnx" / "model_int8.onnx"))
+
+        def mdenseon(texts, is_query):
+            prefix = "query: " if is_query else "document: "
+            results = []
+            for text in texts:
+                ids, mask = tok.encode(prefix + text, MAX_TOKENS)
+                hidden = np.asarray(sess.run(ids, mask), dtype=np.float32)
+                pooled = hidden[0][0] if hidden.ndim == 3 else hidden[0]
+                results.append(l2(pooled).astype(np.float32))
+            return np.stack(results)
+        return mdenseon, "dense"
+
+    if name == "nomic":
+        tok = TokenizerWrapper(str(mdir / "nomic" / "tokenizer.json"))
+        sess = OnnxSession(str(mdir / "nomic" / "onnx" / "model_int8.onnx"))
+
+        def nomic(texts, is_query):
+            prefix = "search_query: " if is_query else "search_document: "
+            results = []
+            for text in texts:
+                ids, mask = tok.encode(prefix + text, MAX_TOKENS)
+                hidden = np.asarray(sess.run(ids, mask), dtype=np.float32)
+                m = mask.astype(np.float32)
+                pooled = (hidden * m[:, :, None]).sum(axis=1) / m.sum(axis=1, keepdims=True)
+                results.append(l2(pooled[0]).astype(np.float32))
+            return np.stack(results)
+        return nomic, "dense"
+
+    if name in ("bekko", "bekko-a8m"):
+        model_dir = mdir / name
+        return mean_pool_dense(
+            str(model_dir / "onnx" / "model.onnx"),
+            str(model_dir / "tokenizer.json"),
+        ), "dense"
 
     if name == "mlateon":
         tok = TokenizerWrapper(str(mdir / "mlateon" / "tokenizer.json"))
@@ -399,7 +463,13 @@ def evaluate(scores, query_ids, passage_ids, qrels):
 # ---------------------------------------------------------------------------
 
 
+def cache_file(cache_path, kind):
+    """The on-disk cache path: numpy appends .npz/.npy extensions."""
+    return cache_path.with_suffix(".npy" if kind == "late" else ".npz")
+
+
 def encode_all(encoder, kind, texts, is_query, cache_path):
+    cache_path = cache_file(cache_path, kind)
     if cache_path.exists():
         if kind == "late":
             return list(np.load(cache_path, allow_pickle=True))
@@ -434,7 +504,7 @@ def main() -> None:
     parser.add_argument(
         "--models",
         nargs="+",
-        default=["bm25", "splade", "minilm", "e5-small", "bge-m3", "lfm25", "mlateon"],
+        default=["bm25", "splade", "minilm", "minilm-l12", "e5-small", "bge-m3", "lfm25", "mdenseon", "mlateon", "bekko", "bekko-a8m", "nomic"],
     )
     args = parser.parse_args()
 
@@ -451,6 +521,11 @@ def main() -> None:
                 "bge-m3": "CLS pooling, L2, 512 tokens (dense only; sparse head not released)",
                 "lfm25": "query:/document: prefixes, CLS pooling, L2, 512 tokens (bidirectional patch; int8)",
                 "mlateon": "[Q]/[D] prefix tokens, MaxSim late interaction, 512 tokens",
+                "bekko": "no prefix, mean pooling, L2, 512 tokens (Matryoshka 384-d)",
+                "bekko-a8m": "no prefix, mean pooling, L2, 512 tokens (Matryoshka 384-d, 8M active)",
+                "nomic": "search_query:/search_document: prefixes, mean pooling, L2, 512 tokens",
+                "minilm-l12": "mean pooling, L2, 256 tokens",
+                "mdenseon": "query:/document: prefixes, CLS pooling, L2, 512 tokens (int8)",
             },
             "note": (
                 "sampled corpora and queries for local CPU feasibility; the upstream "
