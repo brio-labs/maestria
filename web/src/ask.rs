@@ -137,7 +137,8 @@ fn AskPanel(
                 question,
                 busy,
                 agent_id,
-                agent_ready
+                agent_ready,
+                agents: snapshot.model.agents.clone()
             }
             AskAnswer { answer }
             AskCoverage { context: ask_context }
@@ -172,6 +173,7 @@ fn AskControls(
     mut busy: Signal<bool>,
     agent_id: String,
     agent_ready: bool,
+    agents: Vec<crate::api::Agent>,
 ) -> Element {
     let can_ask = agent_ready && !question.read().trim().is_empty() && !*busy.read();
     let ask_api = api.clone();
@@ -183,56 +185,85 @@ fn AskControls(
             oninput: move |event| question.set(event.value()),
             placeholder: "What should we investigate?"
         }
-        div { class: "mt-3 flex gap-3",
-            button {
-                class: "rounded bg-accent px-4 py-2 text-white disabled:opacity-50",
-                disabled: !can_ask,
-                onclick: move |_| {
-                    let text = question.read().trim().to_owned();
-                    let (history, request) = {
-                        let mut state = context.write();
-                        let request = state.model.begin_ask(notebook_id);
-                        let history = if state.model.ask_notebook == Some(notebook_id) {
-                            state
-                                .model
-                                .ask_history
-                                .messages()
-                                .iter()
-                                .map(|message| AskTurn {
-                                    role: message.role.clone(),
-                                    markdown: message.markdown.clone()
-                                })
-                                .collect()
-                        } else {
-                            Vec::new()
-                        };
-                        (history, request)
-                    };
-                    let api = ask_api.clone();
-                    let request_agent_id = agent_id.clone();
-                    busy.set(true);
-                    spawn(async move {
-                        run_ask(
-                            api,
-                            notebook_id,
-                            context,
-                            text,
-                            history,
-                            request_agent_id,
-                            request
-                        )
-                        .await;
-                        busy.set(false);
-                    });
-                },
-                {if *busy.read() { "Asking…" } else { "Ask" }}
+        if agents.is_empty() {
+            p {
+                class: "mt-3 rounded border border-line bg-muted p-3 text-sm text-ink-muted",
+                "No agent configured — add an ACP v1 profile (any CLI backed by a cloud LLM) to <instance>/system/studio-agents.toml, then restart Studio."
             }
-            button {
-                class: "rounded border border-line px-4 py-2",
-                onclick: move |_| {
-                    context.write().model.clear_ask(notebook_id, notebook_id);
-                },
-                "Clear"
+        } else {
+            div { class: "mt-3 flex flex-wrap items-center gap-3",
+                select {
+                    class: "rounded border border-line bg-input px-3 py-2 text-sm",
+                    aria_label: "Agent",
+                    value: agent_id.clone(),
+                    onchange: move |event| {
+                        let id = event.value();
+                        let mut value = context.write();
+                        if let Some(agent) = value
+                            .model
+                            .agents
+                            .iter()
+                            .find(|agent| agent.id == id)
+                            .cloned()
+                        {
+                            value.agent = Some(agent);
+                        }
+                        crate::session::Session::remember_agent(id);
+                    },
+                    for agent in agents {
+                        option { value: "{agent.id}", "{agent.label} ({agent.status})" }
+                    }
+                }
+                button {
+                    class: "rounded bg-accent px-4 py-2 text-white disabled:opacity-50",
+                    disabled: !can_ask,
+                    onclick: move |_| {
+                        let text = question.read().trim().to_owned();
+                        let (history, request) = {
+                            let mut state = context.write();
+                            let request = state.model.begin_ask(notebook_id);
+                            let history = if state.model.ask_notebook == Some(notebook_id) {
+                                state
+                                    .model
+                                    .ask_history
+                                    .messages()
+                                    .iter()
+                                    .map(|message| AskTurn {
+                                        role: message.role.clone(),
+                                        markdown: message.markdown.clone()
+                                    })
+                                    .collect()
+                            } else {
+                                Vec::new()
+                            };
+                            (history, request)
+                        };
+                        let api = ask_api.clone();
+                        let request_agent_id = agent_id.clone();
+                        busy.set(true);
+                        spawn(async move {
+                            run_ask(
+                                api,
+                                notebook_id,
+                                context,
+                                text,
+                                history,
+                                request_agent_id,
+                                request
+                            )
+                            .await;
+                            busy.set(false);
+                        });
+                    },
+                    {if *busy.read() { "Asking…" } else { "Ask" }}
+                }
+                button {
+                    class: "rounded border border-line px-4 py-2",
+                    onclick: move |_| {
+                        context.write().model.clear_ask(notebook_id, notebook_id);
+                    },
+                    "Clear"
+                }
             }
         }
     }

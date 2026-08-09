@@ -58,6 +58,14 @@ impl Session {
             let _ = value.remove_item("maestria.studio.notebook");
         }
     }
+    pub fn remembered_agent() -> Option<String> {
+        storage().and_then(|value| value.get_item("maestria.studio.agent").ok().flatten())
+    }
+    pub fn remember_agent(id: String) {
+        if let Some(value) = storage() {
+            let _ = value.set_item("maestria.studio.agent", &id);
+        }
+    }
     pub fn remembered_query() -> String {
         option_string(
             storage().and_then(|value| value.get_item("maestria.studio.query").ok().flatten()),
