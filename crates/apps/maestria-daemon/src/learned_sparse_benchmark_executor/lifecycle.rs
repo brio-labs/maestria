@@ -11,7 +11,7 @@ use maestria_ports::{
     SparseDocument, SparseIdentity, SparseInputKind,
 };
 use maestria_retrieval::{
-    LearnedSparseOperationMeasurement, LearnedSparseRoute, Measurement, MonotonicInstant,
+    LearnedSparseOperationMeasurement, LearnedSparseRoute, MonotonicInstant,
 };
 
 use super::LearnedSparseBenchmarkExecutor;
@@ -66,80 +66,6 @@ impl LearnedSparseBenchmarkExecutor {
                 }
             }
         }
-    }
-
-    fn unavailable_operation(
-        route: LearnedSparseRoute,
-        operation: &str,
-        reason: String,
-    ) -> LearnedSparseOperationMeasurement {
-        LearnedSparseOperationMeasurement {
-            elapsed_ms: Measurement::unavailable(format!(
-                "{operation} on the {route:?} projection: {reason}"
-            )),
-            throughput_items_per_second: Measurement::unavailable(format!(
-                "{operation} on the {route:?} projection: {reason}"
-            )),
-            cost_micros: Measurement::unavailable(format!(
-                "{operation} on the {route:?} projection: {reason}"
-            )),
-            energy_millijoules: Measurement::unavailable(format!(
-                "{operation} on the {route:?} projection: {reason}"
-            )),
-        }
-    }
-
-    /// Converts a timed operation into the typed measurement.
-    fn finish_measurement(
-        route: LearnedSparseRoute,
-        operation: &str,
-        items: usize,
-        started: MonotonicInstant,
-        energy_before: Option<EnergySample>,
-        result: Result<(), anyhow::Error>,
-    ) -> LearnedSparseOperationMeasurement {
-        let elapsed = started.elapsed();
-        let elapsed_us = elapsed.as_micros() as u64;
-        let energy_after = EnergySample::capture();
-        match result {
-            Ok(()) => LearnedSparseOperationMeasurement {
-                elapsed_ms: Measurement::measured(elapsed_us.saturating_div(1_000)),
-                throughput_items_per_second: Measurement::measured(
-                    match (items as u128)
-                        .saturating_mul(1_000_000)
-                        .checked_div(elapsed.as_micros().max(1))
-                    {
-                        Some(value) => value as u64,
-                        None => 0,
-                    },
-                ),
-                cost_micros: Measurement::measured(elapsed_us),
-                energy_millijoules: EnergySample::delta_uj_pair(energy_before, energy_after),
-            },
-            Err(error) => {
-                let reason = format!("{operation} on the {route:?} projection failed: {error}");
-                LearnedSparseOperationMeasurement {
-                    elapsed_ms: Measurement::unavailable(reason.clone()),
-                    throughput_items_per_second: Measurement::unavailable(reason.clone()),
-                    cost_micros: Measurement::unavailable(reason.clone()),
-                    energy_millijoules: EnergySample::delta_uj_pair(energy_before, energy_after),
-                }
-            }
-        }
-    }
-
-    /// Measures one lifecycle operation on the route's projection.
-    fn measure_operation(
-        &self,
-        route: LearnedSparseRoute,
-        operation: &str,
-        items: usize,
-        op: impl Fn() -> Result<(), anyhow::Error>,
-    ) -> LearnedSparseOperationMeasurement {
-        let started = MonotonicInstant::now();
-        let energy_before = EnergySample::capture();
-        let result = op();
-        Self::finish_measurement(route, operation, items, started, energy_before, result)
     }
 
     fn encode_documents(
@@ -254,7 +180,7 @@ impl LearnedSparseBenchmarkExecutor {
     ///
     /// Both transitions run against one state clone so the second transition
     /// validates against the first transition's outcome.
-    fn generation_transition_ops(
+    pub(super) fn generation_transition_ops(
         &self,
         route: LearnedSparseRoute,
     ) -> (
@@ -276,7 +202,13 @@ impl LearnedSparseBenchmarkExecutor {
         // Rollback first: the evaluated generation is active, so the measured
         // rollback is the real Active -> Retired transition and the measured
         // activation is the Retired -> Active path the registry rollback uses.
-        let mut state = self.state.clone();
+        // Reload the durable state: the prepare-time snapshot's event
+        // counters are stale after earlier observations persisted events,
+        // and the registry's sequence validation would reject transitions.
+        let mut state = match crate::load_kernel_state(&self.layout) {
+            Ok(state) => state,
+            Err(_) => self.state.clone(),
+        };
         let transition = |state: &mut maestria_domain::KernelState, to: IndexLifecycle| {
             crate::vector_startup::persist_input(
                 state,
@@ -314,28 +246,6 @@ impl LearnedSparseBenchmarkExecutor {
         (activation, rollback)
     }
 
-    fn empty_chunk_ops(
-        &self,
-        route: LearnedSparseRoute,
-    ) -> (
-        LearnedSparseOperationMeasurement,
-        LearnedSparseOperationMeasurement,
-        LearnedSparseOperationMeasurement,
-        LearnedSparseOperationMeasurement,
-        LearnedSparseOperationMeasurement,
-        LearnedSparseOperationMeasurement,
-    ) {
-        let reason = "the evaluated instance has no indexed chunks".to_string();
-        (
-            Self::unavailable_operation(route, "initial indexing", reason.clone()),
-            Self::unavailable_operation(route, "incremental update", reason.clone()),
-            Self::unavailable_operation(route, "deletion", reason.clone()),
-            Self::unavailable_operation(route, "rebuild", reason.clone()),
-            Self::unavailable_operation(route, "activation", reason.clone()),
-            Self::unavailable_operation(route, "rollback", reason),
-        )
-    }
-
     /// Lifecycle operations for one route, measured on its projection.
     ///
     /// The sparse projection's evaluated lifecycle is already active, so the
@@ -354,9 +264,14 @@ impl LearnedSparseBenchmarkExecutor {
         LearnedSparseOperationMeasurement,
     ) {
         match (route, &self.sparse) {
-            (LearnedSparseRoute::Lexical | LearnedSparseRoute::Hybrid, _) => {
-                self.lexical_lifecycle_operations(route)
+            (LearnedSparseRoute::Lexical, _) => self.lexical_lifecycle_operations(route),
+            (LearnedSparseRoute::Hybrid, _)
+                if self.runtime.vector_index.is_some()
+                    && self.runtime.embedding_provider.is_some() =>
+            {
+                self.dense_lifecycle_operations(route)
             }
+            (LearnedSparseRoute::Hybrid, _) => self.lexical_lifecycle_operations(route),
             (LearnedSparseRoute::SparseOnly | LearnedSparseRoute::SparseFused, Some(lane)) => {
                 self.sparse_lifecycle_operations(route, lane)
             }
@@ -382,9 +297,8 @@ impl LearnedSparseBenchmarkExecutor {
         let identity = lane.identity.clone();
         let provider = lane.provider.clone();
         let chunks = self.chunks.clone();
-        let one_chunk = match chunks.first() {
-            Some(chunk) => chunk.id,
-            None => return self.empty_chunk_ops(route),
+        let Some(one_chunk) = chunks.first().map(|chunk| chunk.id) else {
+            return self.empty_chunk_ops(route);
         };
         let initial = self.measure_operation(route, "initial indexing", chunks.len(), || {
             let documents = Self::encode_documents(provider.as_ref(), &identity, &chunks)?;

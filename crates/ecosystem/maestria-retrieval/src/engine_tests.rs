@@ -20,7 +20,10 @@ fn descriptor(id: &str, modality: &str) -> RetrieverDescriptor {
 }
 
 fn active_hybrid_policy() -> Result<HybridExecutionPolicy, &'static str> {
-    let Some(record) = HybridPromotionRecord::new("hybrid".to_string(), "2026-07-18".to_string())
+    let mut served = std::collections::BTreeSet::new();
+    served.insert(crate::LearnedSparseQueryClass::DomainTerminology);
+    let Some(record) =
+        HybridPromotionRecord::new("hybrid".to_string(), "2026-07-18".to_string(), served)
     else {
         return Err("valid test promotion record was rejected");
     };
@@ -31,8 +34,8 @@ fn active_hybrid_policy() -> Result<HybridExecutionPolicy, &'static str> {
 fn repository_code_lane_is_shadowed_until_promoted_for_query_class() -> Result<(), &'static str> {
     let code = descriptor("code_intel_symbols", "code");
     let hybrid = active_hybrid_policy()?;
-    assert!(!batch_is_eligible(&code, &hybrid, false));
-    assert!(batch_is_eligible(&code, &hybrid, true));
+    assert!(!batch_is_eligible(&code, &hybrid, false, "needle"));
+    assert!(batch_is_eligible(&code, &hybrid, true, "needle"));
     Ok(())
 }
 
@@ -42,9 +45,15 @@ fn dense_shadow_filter_remains_independent_of_repository_policy() -> Result<(), 
     assert!(!batch_is_eligible(
         &dense,
         &HybridExecutionPolicy::Shadow,
-        true
+        true,
+        "needle"
     ));
-    assert!(batch_is_eligible(&dense, &active_hybrid_policy()?, true));
+    assert!(batch_is_eligible(
+        &dense,
+        &active_hybrid_policy()?,
+        true,
+        "needle"
+    ));
     Ok(())
 }
 

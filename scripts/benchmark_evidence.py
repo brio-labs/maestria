@@ -28,6 +28,7 @@ REQUIRED_MILESTONES = (
     "v1.0 — Python Repository Intelligence",
     "v1.1 — Web Repository Intelligence",
     "v1.2 — Learned-Sparse Four-Profile Evaluation",
+    "v1.3 — Dense-Lane Promotion (re-justified judgment set v2)",
 )
 REQUIRED_RESULT_KEYS = ("quality", "resource", "security")
 REQUIRED_ENVIRONMENT_KEYS = ("os", "rust_toolchain", "cpu_arch")

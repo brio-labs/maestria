@@ -2,7 +2,7 @@
 
 use anyhow::{Result, anyhow};
 use maestria_domain::{SearchOutcome, SearchPlan};
-use maestria_ports::SearchQuery;
+use maestria_ports::{SearchQuery, SparseIdentity};
 use maestria_retrieval::{
     LearnedSparseBenchmarkCase, LearnedSparseBenchmarkError, LearnedSparseRoute, MonotonicInstant,
     RetrievalEngine,
@@ -11,6 +11,11 @@ use maestria_retrieval::{
 use super::LearnedSparseBenchmarkExecutor;
 
 impl LearnedSparseBenchmarkExecutor {
+    /// The evaluated sparse identity, for report fingerprint binding.
+    pub fn sparse_identity_for_report(&self) -> Option<SparseIdentity> {
+        self.sparse.as_ref().map(|lane| lane.identity.clone())
+    }
+
     pub(super) fn plan_for(
         &self,
         engine: &RetrievalEngine,

@@ -51,6 +51,30 @@ pub struct EmbeddingConfig {
     pub preprocessing_version: String,
     pub remote_provider: bool,
     pub retention_policy: RetentionPolicy,
+    /// Query/document templates applied by the provider; the model's
+    /// reference convention (e.g. empty for bekko, "query: "/"document: "
+    /// for LFM2.5-class models). Defaults preserve the historical values.
+    pub query_template: String,
+    pub document_template: String,
+}
+
+impl Default for EmbeddingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: String::new(),
+            model: String::new(),
+            dimensions: 0,
+            provider: String::new(),
+            revision: String::new(),
+            artifact_hash: String::new(),
+            preprocessing_version: String::new(),
+            remote_provider: false,
+            retention_policy: RetentionPolicy::NoRetention,
+            query_template: "query: {{text}}".to_string(),
+            document_template: "document: {{text}}".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -42,6 +42,7 @@ pub(super) async fn evaluate_batches(
         authorization,
         source_filter,
     } = request;
+    let original_query = plan.original_query();
     let lanes = engine_pipeline::trace_lanes(batches)?;
     let repository_specialized = engine
         .repository_execution_policy
@@ -56,6 +57,7 @@ pub(super) async fn evaluate_batches(
         visual_enabled,
         sparse_enabled,
         repository_specialized,
+        original_query,
     );
     let ranked = if let Some(fusion) = &engine.fusion {
         fusion
@@ -113,6 +115,7 @@ fn prepare_fusion_batches(
     visual_enabled: bool,
     sparse_enabled: bool,
     repository_specialized: bool,
+    original_query: &str,
 ) -> (Vec<crate::types::CandidateBatch>, bool) {
     let has_non_code_evidence = batches
         .iter()
@@ -150,6 +153,7 @@ fn prepare_fusion_batches(
                 &batch.descriptor,
                 &engine.hybrid_policy,
                 repository_specialized,
+                original_query,
             )
         })
         .filter_map(|batch| {

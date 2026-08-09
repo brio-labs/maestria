@@ -202,6 +202,20 @@ impl LearnedSparseBenchmarkComparison {
         })
     }
 
+    /// Classes where the hybrid (lexical + dense) route beats the lexical
+    /// route with complete telemetry. The dense lane's promotion is global
+    /// (v0.5 semantics): the daemon serves the dense fusion when at least
+    /// one class is eligible and no eligible class regresses.
+    pub fn hybrid_winning_classes(&self) -> Vec<LearnedSparseQueryClass> {
+        self.classes
+            .iter()
+            .filter(|(class, comparison)| {
+                super::metrics::hybrid_serving_eligible(**class, &comparison.routes)
+            })
+            .map(|(class, _)| *class)
+            .collect()
+    }
+
     pub fn classes(&self) -> &BTreeMap<LearnedSparseQueryClass, LearnedSparseClassComparison> {
         &self.classes
     }

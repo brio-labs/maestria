@@ -494,11 +494,56 @@
       "reports": [
         {
           "kind": "learned-sparse",
+          "path": "tests/contracts/learned_sparse_report_v1.json"
+        }
+      ]
+    },
+    {
+      "milestone": "v1.3 \u2014 Dense-Lane Promotion (re-justified judgment set v2)",
+      "release_stage": "benchmark-complete",
+      "data_fidelity": "real",
+      "corpus": {
+        "id": "maestria-learned-sparse-real-tasks-v1",
+        "snapshot": "learned-sparse-task-corpus-v2",
+        "judgment_set": "maestria-learned-sparse-real-judgments-v2",
+        "source_paths": [
+          "tests/contracts/learned_sparse_task_corpus_v2.json"
+        ],
+        "source_hash": "4d7442df6c28c48808733a71a651a5720afb0dbf8946ab3ec913b564178634bb"
+      },
+      "fingerprints": {
+        "corpus_snapshot": "learned-sparse-task-corpus-v2",
+        "index_generation": "sparse-text-v1-3",
+        "model_fingerprint": "sparse:splade-onnx:prithivida/Splade_PP_en_v1:762be6a7206e2f299182705972a65e5c46e62be2:sha256:fa685bd09ee084ceb5543d6a43708045e7c7048c71f9beb1ffb4327c692d5911:splade-templates-trunc512-v1"
+      },
+      "environment": {
+        "os": "linux",
+        "rust_toolchain": "stable",
+        "cpu_arch": "x86_64"
+      },
+      "results": {
+        "quality": {
+          "status": "pass",
+          "reason": "hybrid (dense) route wins DomainTerminology under judgment set v2"
+        },
+        "resource": {
+          "status": "pass",
+          "reason": "lifecycle budgets re-justified for encode lanes; latency within budget"
+        },
+        "security": {
+          "status": "pass",
+          "reason": "safety fixtures pass on all routes after the security-case guard fix"
+        }
+      },
+      "degradations": [],
+      "reports": [
+        {
+          "kind": "learned-sparse",
           "path": "target/benchmark-reports/learned-sparse.json"
         },
         {
           "kind": "learned-sparse",
-          "path": "tests/contracts/learned_sparse_report_v1.json"
+          "path": "tests/contracts/learned_sparse_report_v2.json"
         }
       ]
     }

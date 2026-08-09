@@ -217,8 +217,10 @@ fn execute_search(
 
 #[test]
 fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::error::Error>> {
+    let mut served = std::collections::BTreeSet::new();
+    served.insert(maestria_retrieval::LearnedSparseQueryClass::DomainTerminology);
     let promotion_record =
-        HybridPromotionRecord::new("eval-test".to_string(), "2026-07-16".to_string())
+        HybridPromotionRecord::new("eval-test".to_string(), "2026-07-16".to_string(), served)
             .ok_or("promotion record requires non-empty evaluation metadata")?;
     let (engine, context, fixture) =
         build_search_engine(HybridExecutionPolicy::Active(promotion_record))?;

@@ -698,6 +698,8 @@ fn build_runtime_fails_on_corrupt_vector_projection() -> Result<(), Box<dyn std:
         preprocessing_version: "fixture-v1".to_string(),
         remote_provider: false,
         retention_policy: maestria_ports::RetentionPolicy::NoRetention,
+        query_template: "query: {{text}}".to_string(),
+        document_template: "document: {{text}}".to_string(),
     });
     fs::write(&layout.manifest_path, manifest.encode())?;
     let mut state = crate::instance_setup::load_kernel_state(&layout)?;

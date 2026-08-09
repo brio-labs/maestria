@@ -217,8 +217,11 @@ fn shadow_executes_dense_lane_but_suppresses_fusion() -> Result<(), Box<dyn std:
 
 #[test]
 fn active_mode_serves_dense_fusion() -> Result<(), Box<dyn std::error::Error>> {
-    let record = HybridPromotionRecord::new("eval-test".to_string(), "2026-07-16".to_string())
-        .ok_or("promotion record must be non-empty")?;
+    let mut served = std::collections::BTreeSet::new();
+    served.insert(maestria_retrieval::LearnedSparseQueryClass::DomainTerminology);
+    let record =
+        HybridPromotionRecord::new("eval-test".to_string(), "2026-07-16".to_string(), served)
+            .ok_or("promotion record must be non-empty")?;
     let (engine, context) = build_search_engine(HybridExecutionPolicy::Active(record), true)?;
     let plan = engine.plan("unrelated query", 5, &context)?;
     let output = execute_search(&engine, &plan)?;

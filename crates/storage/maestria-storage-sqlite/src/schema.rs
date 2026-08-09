@@ -191,6 +191,16 @@ const BASE_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS schema_version (
      );
      CREATE INDEX IF NOT EXISTS idx_learned_sparse_promotion_records_order
          ON learned_sparse_promotion_records(created_at DESC);
+     CREATE TABLE IF NOT EXISTS hybrid_promotion_records (
+         evaluation_id TEXT NOT NULL PRIMARY KEY,
+         corpus_id TEXT NOT NULL,
+         evaluation_date TEXT NOT NULL,
+         report_hash TEXT NOT NULL,
+         record_json TEXT NOT NULL,
+         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+     );
+     CREATE INDEX IF NOT EXISTS idx_hybrid_promotion_records_order
+         ON hybrid_promotion_records(created_at DESC);
      CREATE TABLE IF NOT EXISTS learned_sparse_projections (
          identity_json TEXT NOT NULL PRIMARY KEY,
          generation_id INTEGER NOT NULL,
