@@ -18,11 +18,15 @@ mod auth;
 mod bootstrap;
 mod drafts;
 mod error;
+mod evidence;
 mod extract;
 mod notebooks;
+mod retrieval;
 mod router;
+mod search;
 mod sources;
 mod state;
+mod tasks;
 
 use anyhow::{Context, Result};
 use tokio::net::TcpListener;

@@ -15,8 +15,9 @@ use tower_http::{
 use super::{
     ask, assets, auth, bootstrap, drafts,
     error::{ProblemCode, StudioError},
-    notebooks, sources,
+    evidence, notebooks, retrieval, search, sources,
     state::StudioState,
+    tasks,
 };
 
 pub fn build_router(state: StudioState) -> Router {
@@ -49,6 +50,10 @@ pub fn build_router(state: StudioState) -> Router {
             "/notebooks/{notebook_id}/evidence/{evidence_id}",
             get(evidence),
         )
+        .route("/search", get(search::search))
+        .route("/evidence/{evidence_id}", get(evidence::evidence_global))
+        .route("/retrieval", get(retrieval::status))
+        .route("/tasks", get(tasks::list))
         .fallback(api_not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state.clone());
@@ -238,6 +243,22 @@ mod tests {
             origin_json["type"],
             "urn:maestria:studio:problem:origin-denied"
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn retrieval_status_requires_authentication() -> Result<(), Box<dyn std::error::Error>> {
+        let (router, token_path) = test_router()?;
+        for path in ["/api/retrieval", "/api/tasks", "/api/search?query=test"] {
+            let unauthorized =
+                send(router.clone(), Request::get(path).body(Body::empty())?).await?;
+            assert_eq!(
+                unauthorized.status(),
+                StatusCode::UNAUTHORIZED,
+                "expected 401 for GET {path}"
+            );
+        }
+        std::fs::remove_file(token_path)?;
         Ok(())
     }
 
