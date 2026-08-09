@@ -23,6 +23,21 @@ pub(crate) fn NotebookDrafts(notebook_id: u64) -> Element {
 }
 
 #[component]
+pub(crate) fn Search() -> Element {
+    rsx! { crate::search::SearchWorkspace {} }
+}
+
+#[component]
+pub(crate) fn Retrieval() -> Element {
+    rsx! { crate::retrieval::RetrievalWorkspace {} }
+}
+
+#[component]
+pub(crate) fn Tasks() -> Element {
+    rsx! { crate::tasks::TasksWorkspace {} }
+}
+
+#[component]
 pub(crate) fn NotFound(segments: Vec<String>) -> Element {
     let _ = segments;
     rsx! {

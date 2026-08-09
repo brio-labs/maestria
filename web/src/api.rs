@@ -248,6 +248,35 @@ impl ApiClient {
         )?)
         .await
     }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn search(&self, query: &str, limit: usize) -> Result<SearchResponse, ClientError> {
+        self.send(self.empty(
+            "GET",
+            &format!(
+                "/api/search?query={}&limit={limit}",
+                encode_source_key(query)
+            ),
+        )?)
+        .await
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn retrieval(&self) -> Result<RetrievalStatus, ClientError> {
+        self.send(self.empty("GET", "/api/retrieval")?).await
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn tasks(&self) -> Result<Vec<TaskSummaryWire>, ClientError> {
+        let response: Envelope<TaskListWire> = self.send(self.empty("GET", "/api/tasks")?).await?;
+        Ok(response.data.tasks)
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn evidence_global(&self, evidence_id: u64) -> Result<Evidence, ClientError> {
+        self.send(self.empty("GET", &format!("/api/evidence/{evidence_id}"))?)
+            .await
+    }
 }
 fn encode_source_key(key: &str) -> String {
     js_sys::encode_uri_component(key).into()

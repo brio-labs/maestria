@@ -58,6 +58,16 @@ impl Session {
             let _ = value.remove_item("maestria.studio.notebook");
         }
     }
+    pub fn remembered_query() -> String {
+        option_string(
+            storage().and_then(|value| value.get_item("maestria.studio.query").ok().flatten()),
+        )
+    }
+    pub fn remember_query(query: &str) {
+        if let Some(value) = storage() {
+            let _ = value.set_item("maestria.studio.query", query);
+        }
+    }
 }
 fn location_string(value: Result<String, wasm_bindgen::JsValue>) -> String {
     let mut result = String::new();

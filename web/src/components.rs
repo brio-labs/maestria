@@ -3,7 +3,10 @@ use dioxus::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::{
-    api::{Agent, ApiClient, Citation, ClientError, Draft, DraftSummary, Evidence, Notebook},
+    api::{
+        Agent, ApiClient, BootstrapStatus, Citation, ClientError, Draft, DraftSummary, Evidence,
+        Notebook,
+    },
     route::Route,
     session::Session,
     state::{LoadState, StudioStateModel},
@@ -16,6 +19,7 @@ pub struct WorkspaceContext {
     pub agent: Option<Agent>,
     pub evidence: Option<Evidence>,
     pub invoking_citation: Option<u64>,
+    pub bootstrap_status: Option<BootstrapStatus>,
 }
 
 pub fn alert(error: &ClientError) -> Element {
@@ -41,7 +45,6 @@ pub fn Shell(title: String, active_notebook: Option<u64>, children: Element) -> 
         .agent
         .as_ref()
         .is_some_and(|agent| agent.status == "ready");
-    let navigator = use_navigator();
     let selected_notebook = active_notebook.map_or_else(String::new, |id| id.to_string());
     rsx! {
         div { class: "min-h-screen bg-page text-ink",
@@ -60,35 +63,13 @@ pub fn Shell(title: String, active_notebook: Option<u64>, children: Element) -> 
                 }
             }
                 div { class: "mb-4 lg:hidden",
-                    label { class: "sr-only", r#for: "notebook-selector", "Select notebook" }
-                    select {
-                        id: "notebook-selector",
-                        class: "w-full rounded border border-line bg-input px-3 py-2",
-                        value: selected_notebook,
-                        onchange: move |event| {
-                            if let Ok(id) = event.value().parse::<u64>() {
-                                navigator.push(Route::NotebookOverview { notebook_id: id });
-                            }
-                        },
-                        option { value: "", "Select notebook" }
-                        for notebook in notebooks.clone() {
-                            option { value: "{notebook.notebook_id}", "{notebook.title}" }
-                        }
+                    crate::nav::NotebookSelector {
+                        notebooks: notebooks.clone(),
+                        selected_notebook: selected_notebook.clone()
                     }
                 }
             div { class: "mx-auto flex max-w-7xl gap-6 p-4 md:p-8",
-                aside { class: "hidden w-60 shrink-0 lg:block", aria_label: "Notebooks",
-                    h2 {
-                        class: "mb-3 text-sm font-semibold uppercase tracking-wide text-ink-muted",
-                        "Notebooks"
-                    }
-                    for notebook in notebooks {
-                        a {
-                            href: "/notebooks/{notebook.notebook_id}",
-                            "{notebook.title}"
-                        }
-                    }
-                }
+                crate::nav::GlobalNav { notebooks }
                 main {
                     class: "min-w-0 flex-1",
                     h1 {
