@@ -164,6 +164,51 @@ cases and judged spans (the corpus format has no language restriction), and
 pin multilingual-e5-small (budget-fitting, MIT) or LFM2.5-Embedding-350M
 (highest quality) in the dense lane.
 
+### 2.1.0b. Cross-model retrieval quality benchmark (BEIR/MTEB-style, dated 2026-08-09)
+
+A standard retrieval benchmark compares the candidate models on standard
+datasets with standard metrics, following the BEIR/MTEB methodology:
+`scripts/retrieval_model_benchmark.py` (ir_datasets, the loader behind BEIR),
+MS MARCO passage dev (English) and mMARCO dev (French), nDCG@10 / MRR@10 /
+Recall@10 / Recall@100 with binary gains, and each model's reference encoding
+convention (SPLADE templates, e5 "query:"/"passage:" prefixes, mLateOn
+[Q]/[D] prefix tokens with MaxSim late interaction, BGE-M3/LFM2.5/MiniLM
+CLS or mean pooling). The corpus sample keeps every judged relevant passage
+plus seeded random fillers (200 queries, 5000 passages, seed 42); a purely
+random sample would drop the qrels. The sampled corpora inflate absolute
+values (relevant docs are ~2.5% of the sample, so BM25's 0.79 English nDCG@10
+is far above its ~0.30 full-corpus reference); the relative ranking is the
+reliable signal. Full report: `tests/contracts/model_retrieval_report_v1.json`.
+
+| Model | EN nDCG@10 | FR nDCG@10 | EN MRR@10 | FR MRR@10 | Languages |
+| --- | --- | --- | --- | --- | --- |
+| mLateOn (ColBERT 307M) | **0.984** | 0.906 | 0.981 | 0.890 | multilingual, generalizes |
+| LFM2.5-Embedding-350M | 0.982 | **0.917** | 0.976 | **0.905** | 11 incl. French |
+| e5-small (118M) | 0.980 | 0.852 | 0.976 | 0.843 | 100+ |
+| BGE-M3 dense (560M) | 0.973 | 0.895 | 0.964 | 0.881 | 100+ |
+| BM25 (tantivy defaults) | 0.788 | 0.590 | 0.753 | 0.554 | language-agnostic |
+| SPLADE pinned (110M) | 0.109 | 0.012 | 0.085 | 0.011 | English only |
+| all-MiniLM-L6-v2 (66M) | 0.077 | 0.009 | 0.072 | 0.009 | English only |
+
+Findings: (1) the dense/late cluster (mLateOn, LFM2.5, e5, BGE-M3) dominates
+both languages; (2) LFM2.5-Embedding-350M is the top multilingual dense on
+French, and mLateOn the top overall (its late interaction generalizes to
+unseen languages, per its card); (3) SPLADE and MiniLM collapse on French —
+the English-only limitation is now measured, not assumed; (4) BM25 is the
+language-agnostic baseline and beats SPLADE on English in this sample (the
+sample inflation noted above favors exact-match models). The lifecycle
+budget analysis (previous section) still governs what can be served: among
+the top-quality candidates only e5-small is near the frozen 5 s budget
+(~5.8-6.6 s at 6-8 workers); mLateOn/LFM2.5/BGE-M3 need the #427 budget
+re-justification or a smaller multilingual candidate.
+
+Model-engineering notes recorded along the way: the official BGE-M3 sparse
+head is a stub (see §2.1.0a); the LFM2.5 ONNX export requires the repo's
+bidirectional modeling patch (`trust_remote_code` + a small `seq_idx`
+compatibility wrapper) — without it the embeddings are constant vectors; the
+same patch was verified end-to-end (torch vs ONNX cosine 1.0 on the correct
+export, distinct-text cosine -0.11 vs 0.43-0.47 for relevant pairs).
+
 ### 2.1.1. Frozen learned-sparse task corpus
 
 The representative real-task freeze is `tests/contracts/learned_sparse_task_corpus_v1.json`.

@@ -1,0 +1,139 @@
+{
+  "methodology": {
+    "datasets": {
+      "en": "msmarco-passage/dev",
+      "fr": "mmarco/fr/dev"
+    },
+    "sampling": {
+      "queries": 200,
+      "passages": 5000,
+      "seed": 42
+    },
+    "metrics": [
+      "nDCG@10",
+      "MRR@10",
+      "Recall@10",
+      "Recall@100"
+    ],
+    "encoding": {
+      "bm25": "reference BM25 k1=1.2 b=0.75 (tantivy defaults), unicode word tokens",
+      "splade": "query:/document: templates, log1p(ReLU), top-256",
+      "minilm": "mean pooling, L2, 256 tokens",
+      "e5-small": "query:/passage: prefixes, mean pooling, L2, 512 tokens",
+      "bge-m3": "CLS pooling, L2, 512 tokens (dense only; sparse head not released)",
+      "lfm25": "query:/document: prefixes, CLS pooling, L2, 512 tokens (bidirectional patch; int8)",
+      "mlateon": "[Q]/[D] prefix tokens, MaxSim late interaction, 512 tokens"
+    },
+    "note": "sampled corpora and queries for local CPU feasibility; the upstream standard (BEIR/MTEB) uses full corpora with the same metrics"
+  },
+  "results": {
+    "en": {
+      "n_queries": 200,
+      "n_passages": 5000,
+      "n_qrels": 123,
+      "bm25": {
+        "nDCG@10": 0.788398985033843,
+        "MRR@10": 0.7530514504652435,
+        "Recall@10": 0.910919540229885,
+        "Recall@100": 0.9655172413793104,
+        "encode_seconds": 0.5
+      },
+      "splade": {
+        "nDCG@10": 0.10871040472531188,
+        "MRR@10": 0.08541666666666667,
+        "Recall@10": 0.1810344827586207,
+        "Recall@100": 0.3793103448275862,
+        "encode_seconds": 91.0
+      },
+      "minilm": {
+        "nDCG@10": 0.07727813005952405,
+        "MRR@10": 0.07163382594417078,
+        "Recall@10": 0.09482758620689655,
+        "Recall@100": 0.23132183908045975,
+        "encode_seconds": 22.4
+      },
+      "e5-small": {
+        "nDCG@10": 0.9795769806342366,
+        "MRR@10": 0.9755747126436781,
+        "Recall@10": 0.9913793103448276,
+        "Recall@100": 0.9913793103448276,
+        "encode_seconds": 28.4
+      },
+      "bge-m3": {
+        "nDCG@10": 0.9727804445754811,
+        "MRR@10": 0.9638888888888889,
+        "Recall@10": 1.0,
+        "Recall@100": 1.0,
+        "encode_seconds": 276.2
+      },
+      "lfm25": {
+        "nDCG@10": 0.9819876881165549,
+        "MRR@10": 0.9758620689655173,
+        "Recall@10": 1.0,
+        "Recall@100": 1.0,
+        "encode_seconds": 242.3
+      },
+      "mlateon": {
+        "nDCG@10": 0.9838873254618229,
+        "MRR@10": 0.9813218390804599,
+        "Recall@10": 0.9913793103448276,
+        "Recall@100": 1.0,
+        "encode_seconds": 248.1
+      }
+    },
+    "fr": {
+      "n_queries": 200,
+      "n_passages": 5000,
+      "n_qrels": 123,
+      "bm25": {
+        "nDCG@10": 0.5903247944536392,
+        "MRR@10": 0.5537698412698414,
+        "Recall@10": 0.7255747126436781,
+        "Recall@100": 0.8793103448275862,
+        "encode_seconds": 0.6
+      },
+      "splade": {
+        "nDCG@10": 0.012333418604080975,
+        "MRR@10": 0.010775862068965518,
+        "Recall@10": 0.017241379310344827,
+        "Recall@100": 0.017241379310344827,
+        "encode_seconds": 124.4
+      },
+      "minilm": {
+        "nDCG@10": 0.008620689655172414,
+        "MRR@10": 0.008620689655172414,
+        "Recall@10": 0.008620689655172414,
+        "Recall@100": 0.05172413793103448,
+        "encode_seconds": 22.6
+      },
+      "e5-small": {
+        "nDCG@10": 0.8523821118701471,
+        "MRR@10": 0.8433908045977012,
+        "Recall@10": 0.8836206896551724,
+        "Recall@100": 0.9655172413793104,
+        "encode_seconds": 33.2
+      },
+      "bge-m3": {
+        "nDCG@10": 0.8947141255801,
+        "MRR@10": 0.8808292282430213,
+        "Recall@10": 0.9396551724137931,
+        "Recall@100": 0.9913793103448276,
+        "encode_seconds": 322.4
+      },
+      "lfm25": {
+        "nDCG@10": 0.9165556771567049,
+        "MRR@10": 0.9048132183908046,
+        "Recall@10": 0.9568965517241379,
+        "Recall@100": 0.9827586206896551,
+        "encode_seconds": 302.3
+      },
+      "mlateon": {
+        "nDCG@10": 0.9064929813436485,
+        "MRR@10": 0.8899904214559387,
+        "Recall@10": 0.9612068965517241,
+        "Recall@100": 0.9827586206896551,
+        "encode_seconds": 346.4
+      }
+    }
+  }
+}
