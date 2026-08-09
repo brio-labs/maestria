@@ -47,6 +47,8 @@ fn embedding_configuration_round_trips() -> Result<(), Box<dyn std::error::Error
             preprocessing_version: "v1".to_string(),
             remote_provider: false,
             retention_policy: RetentionPolicy::NoRetention,
+            query_template: "query: {{text}}".to_string(),
+            document_template: "document: {{text}}".to_string(),
         }),
         ocr: None,
         visual: None,

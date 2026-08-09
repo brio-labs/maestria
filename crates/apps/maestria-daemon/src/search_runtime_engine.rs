@@ -13,11 +13,11 @@ use maestria_retrieval::{CandidateRetriever, FixedKRrf, HybridExecutionPolicy, R
 use super::{SearchRuntime, reconcile_active_versions};
 
 impl SearchRuntime {
-    /// The production engine: shadow hybrid, the loaded sparse policy, and
-    /// the registered sparse lane.
+    /// The production engine: the loaded hybrid policy (dense lane), the
+    /// loaded sparse policy, and the registered sparse lane.
     pub(crate) fn retrieval_engine(&self) -> Result<RetrievalEngine> {
         self.retrieval_engine_with_policies(
-            HybridExecutionPolicy::Shadow,
+            self.hybrid_execution_policy.clone(),
             self.learned_sparse_execution_policy.clone(),
             self.sparse_retriever.clone(),
             true,

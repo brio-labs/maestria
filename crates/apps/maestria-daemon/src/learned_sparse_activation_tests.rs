@@ -539,6 +539,7 @@ fn runtime_with(
             dense_generation: None,
             repository_code_index: None,
             repository_execution_policy: maestria_retrieval::RepositoryExecutionPolicy::Shadow,
+            hybrid_execution_policy: maestria_retrieval::HybridExecutionPolicy::Shadow,
             learned_sparse_execution_policy: policy,
             sparse_retriever: retriever,
             corpus_snapshot: maestria_domain::DEFAULT_CORPUS_SNAPSHOT_ID,

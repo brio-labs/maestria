@@ -1,6 +1,6 @@
 #[path = "learned_sparse_benchmark_gate.rs"]
 mod gate;
-pub(super) use gate::winning_sparse_route;
+pub(super) use gate::{hybrid_serving_eligible, winning_sparse_route};
 
 use super::measurements::{CheckStatus, LearnedSparseOperationMeasurement, Measurement};
 use super::{

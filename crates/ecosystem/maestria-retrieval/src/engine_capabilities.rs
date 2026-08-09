@@ -89,6 +89,7 @@ pub(crate) fn batch_is_eligible(
     descriptor: &crate::types::RetrieverDescriptor,
     hybrid_policy: &crate::types::HybridExecutionPolicy,
     repository_specialized: bool,
+    query: &str,
 ) -> bool {
     let id = descriptor.id.to_ascii_lowercase();
     let is_dense = id.contains("dense") || id.contains("vector") || id.contains("semantic");
@@ -97,7 +98,9 @@ pub(crate) fn batch_is_eligible(
         || id.contains("code_intel");
     let hybrid_allowed = match hybrid_policy {
         crate::types::HybridExecutionPolicy::Shadow => !is_dense,
-        crate::types::HybridExecutionPolicy::Active(_) => true,
+        crate::types::HybridExecutionPolicy::Active(record) => {
+            !is_dense || record.serves_class(&crate::learned_sparse_policy::classify_query(query))
+        }
     };
     hybrid_allowed && (repository_specialized || !is_code)
 }

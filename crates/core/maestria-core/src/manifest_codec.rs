@@ -27,6 +27,8 @@ pub(super) struct ManifestFields {
     embedding_preprocessing_version: Option<String>,
     embedding_remote_provider: Option<bool>,
     embedding_retention_policy: Option<String>,
+    embedding_query_template: Option<String>,
+    embedding_document_template: Option<String>,
     ocr_enabled: Option<bool>,
     ocr_endpoint: Option<String>,
     ocr_model: Option<String>,
@@ -200,6 +202,14 @@ pub(super) fn parse_embedding_config(
                         .as_deref()
                         .map_or("no_retention", |value| value),
                 )?,
+                query_template: match &fields.embedding_query_template {
+                    Some(template) => template.clone(),
+                    None => "query: {{text}}".to_string(),
+                },
+                document_template: match &fields.embedding_document_template {
+                    Some(template) => template.clone(),
+                    None => "document: {{text}}".to_string(),
+                },
             }))
         }
         _ => Err(CoreError::InvalidManifest {
@@ -229,7 +239,10 @@ pub(super) fn parse_manifest_fields(contents: &str) -> CoreResult<ManifestFields
                 key: "line".to_string(),
                 reason: format!("invalid format: {line}"),
             })?;
-        if value.is_empty() {
+        if value.is_empty()
+            && key != "embedding_query_template"
+            && key != "embedding_document_template"
+        {
             return Err(CoreError::InvalidManifest {
                 key: key.to_string(),
                 reason: "value is empty".to_string(),
@@ -257,6 +270,8 @@ fn empty_manifest_fields() -> ManifestFields {
         embedding_preprocessing_version: None,
         embedding_remote_provider: None,
         embedding_retention_policy: None,
+        embedding_query_template: None,
+        embedding_document_template: None,
         ocr_enabled: None,
         ocr_endpoint: None,
         ocr_model: None,
@@ -310,6 +325,10 @@ fn parse_manifest_field(fields: &mut ManifestFields, key: &str, value: &str) -> 
         }
         "embedding_retention_policy" => {
             fields.embedding_retention_policy = Some(value.to_string());
+        }
+        "embedding_query_template" => fields.embedding_query_template = Some(value.to_string()),
+        "embedding_document_template" => {
+            fields.embedding_document_template = Some(value.to_string());
         }
         "ocr_enabled" => fields.ocr_enabled = Some(parse_value(value, key)?),
         "ocr_endpoint" => fields.ocr_endpoint = Some(value.to_string()),

@@ -27,9 +27,32 @@ use maestria_daemon::{
 };
 
 const TASK_CORPUS: &str =
-    include_str!("../../../../tests/contracts/learned_sparse_task_corpus_v1.json");
+    include_str!("../../../../tests/contracts/learned_sparse_task_corpus_v2.json");
 const ROUTE_CONFIGURATIONS: &str =
     include_str!("../../../../tests/contracts/learned_sparse_benchmark_v2.json");
+
+const EMBEDDINGS_PROFILE: &[(&str, &str)] = &[
+    ("embedding_enabled", "true"),
+    ("embedding_endpoint", "http://127.0.0.1:10003/v1/embeddings"),
+    ("embedding_model", "bekko-embedding-v1-a25m"),
+    ("embedding_dimensions", "384"),
+    ("embedding_provider", "bekko-onnx"),
+    (
+        "embedding_revision",
+        "44f0b8af0f487acd0ccf1a7cb7ae7a29a6dfc09c",
+    ),
+    (
+        "embedding_artifact_hash",
+        "sha256:63aef5a5e0648b833c266940cb49a00b89d24fa2be00fe042ea3bbe389d39a99",
+    ),
+    ("embedding_preprocessing_version", "bekko-embeddings-v1"),
+    ("embedding_remote_provider", "false"),
+    ("embedding_retention_policy", "no_retention"),
+    // The pinned candidate needs no prefixes: the identity template
+    // ({{text}} alone) passes the text through unchanged.
+    ("embedding_query_template", "{{text}}"),
+    ("embedding_document_template", "{{text}}"),
+];
 
 const SPARSE_PROFILE: &[(&str, &str)] = &[
     ("sparse_enabled", "true"),
@@ -110,6 +133,21 @@ fn route_configurations()
     }
     let document: ConfigDocument = serde_json::from_str(ROUTE_CONFIGURATIONS)?;
     Ok(document.route_configurations)
+}
+
+/// Enables the pinned embedding profile on the instance manifest.
+fn enable_embeddings_profile(
+    layout: &maestria_core::InstanceLayout,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut contents = fs::read_to_string(&layout.manifest_path)?;
+    if !contents.ends_with('\n') {
+        contents.push('\n');
+    }
+    for (key, value) in EMBEDDINGS_PROFILE {
+        contents.push_str(&format!("{key}={value}\n"));
+    }
+    fs::write(&layout.manifest_path, contents)?;
+    Ok(())
 }
 
 /// Enables the pinned sparse profile on the instance manifest.
@@ -273,6 +311,45 @@ fn decisions_from_comparison(
         .collect()
 }
 
+/// Persists the hybrid promotion record when the dense lane wins for at
+/// least one eligible class (per-class served set; protected classes stay
+/// lexical).
+fn record_hybrid_decision(
+    layout: &maestria_core::InstanceLayout,
+    corpus: &LearnedSparseBenchmarkCorpus,
+    comparison: &LearnedSparseBenchmarkComparison,
+    report_hash: &maestria_domain::ContentHash,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let hybrid_winners = comparison.hybrid_winning_classes();
+    println!("== hybrid (dense lane) winning classes ==");
+    for class in &hybrid_winners {
+        println!("{class:?}");
+    }
+    if hybrid_winners.is_empty() {
+        return Ok(());
+    }
+    let served_classes = hybrid_winners.iter().copied().collect();
+    let record = maestria_retrieval::HybridPromotionRecord::new(
+        "hybrid-dense-four-profile-2026-08-09".to_string(),
+        corpus.evaluation_date.clone(),
+        served_classes,
+    )
+    .ok_or("hybrid promotion record construction failed")?;
+    let store = maestria_storage_sqlite::SqliteStore::open(&layout.database_path)
+        .map_err(|error| format!("open sqlite store: {error}"))?;
+    store
+        .save_hybrid_promotion_record(
+            &corpus.corpus_id,
+            "hybrid-dense-four-profile-2026-08-09",
+            &corpus.evaluation_date,
+            report_hash.as_str(),
+            &serde_json::to_string(&record).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| format!("save hybrid promotion record: {error}"))?;
+    println!("== hybrid promotion record saved to the instance store ==");
+    Ok(())
+}
+
 #[tokio::test]
 #[ignore = "requires the pinned SPLADE sidecar and a prepared real instance"]
 async fn learned_sparse_four_profile_real_evaluation() -> Result<(), Box<dyn std::error::Error>> {
@@ -283,8 +360,21 @@ async fn learned_sparse_four_profile_real_evaluation() -> Result<(), Box<dyn std
     let root = repo_root()?;
     let temp = TempDir::create()?;
     let prepared = prepare_evaluation_instance(&root, temp.path()).await?;
-    let (_layout, state, _manifest, benchmark_corpus, executor, sparse_generation) = prepared;
+    let (layout, state, _manifest, benchmark_corpus, mut executor, sparse_generation) = prepared;
     let _ = state;
+    // The evaluated fusion for the fused routes: normalized score blend with
+    // the lexical lane weighted at 0.7 (re-justified judgment set v2), so
+    // lexical first hits keep the top while dense/sparse lanes contribute
+    // coverage below them.
+    executor.set_fusion(std::sync::Arc::new(
+        maestria_retrieval::NormalizedBlend::new(
+            0.7,
+            vec![
+                maestria_domain::RetrievalScoreKind::DenseSimilarity,
+                maestria_domain::RetrievalScoreKind::LearnedSparse,
+            ],
+        ),
+    ));
 
     let observations = run_learned_sparse_benchmark(&benchmark_corpus, &executor)?;
     let comparison = LearnedSparseBenchmarkComparison::evaluate(&benchmark_corpus, &observations)?;
@@ -314,6 +404,10 @@ async fn learned_sparse_four_profile_real_evaluation() -> Result<(), Box<dyn std
         report_path.display(),
         report_hash.as_str()
     );
+    // The dense lane decision: the hybrid (lexical + dense) route beats the
+    // lexical route with complete telemetry for these classes; the record is
+    // bound to the report hash.
+    record_hybrid_decision(&layout, &benchmark_corpus, &comparison, &report_hash)?;
     let identity = executor
         .sparse_identity_for_report()
         .ok_or("sparse identity is unavailable for the report")?;
@@ -336,7 +430,7 @@ async fn learned_sparse_four_profile_real_evaluation() -> Result<(), Box<dyn std
                 .map(|generation| generation.id)
                 .ok_or("primary lexical generation is missing")?,
         },
-        report_hash,
+        report_hash.clone(),
     )?;
     if won {
         assert!(
@@ -451,6 +545,7 @@ async fn prepare_evaluation_instance(
     fs::create_dir_all(&sources_dir)?;
     let layout =
         prepare_instance_with_roots(instance_dir.to_path_buf(), vec![sources_dir.clone()])?;
+    enable_embeddings_profile(&layout)?;
     enable_sparse_profile(&layout)?;
 
     // C1: index the frozen corpus source inputs with verified hashes. The
@@ -504,8 +599,9 @@ async fn prepare_evaluation_instance(
         chunks,
     )?;
     let sparse_generation = executor
-        .sparse_generation_id()
+        .sparse_identity_for_report()
         .ok_or("sparse generation missing")?
+        .generation_id
         .value();
     Ok((
         layout,

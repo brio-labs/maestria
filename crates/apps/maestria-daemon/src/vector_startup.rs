@@ -6,8 +6,6 @@ use maestria_domain::{
     ContentHash, DomainInput, IndexFingerprint, IndexGenerationId, IndexLifecycle, KernelState,
     RepresentationName, StartIndexGenerationInput, TransitionIndexGenerationInput,
 };
-const QUERY_TEMPLATE: &str = "query: {{text}}";
-const DOCUMENT_TEMPLATE: &str = "document: {{text}}";
 
 use maestria_ports::{EmbeddingProvider, EventLog};
 use maestria_search_tantivy::TantivyFullTextIndex;
@@ -171,11 +169,11 @@ pub fn reconcile_retrieval_generations(
                     .map_err(|_| anyhow!("embedding dimensions exceed u32"))?,
                 quantization: maestria_domain::QuantizationScheme::new("f32"),
                 query_template_hash: ContentHash::new(maestria_domain::content_hash(
-                    QUERY_TEMPLATE.as_bytes(),
+                    config.query_template.as_bytes(),
                 ))
                 .map_err(|error| anyhow!("invalid query template hash: {error}"))?,
                 document_template_hash: ContentHash::new(maestria_domain::content_hash(
-                    DOCUMENT_TEMPLATE.as_bytes(),
+                    config.document_template.as_bytes(),
                 ))
                 .map_err(|error| anyhow!("invalid document template hash: {error}"))?,
                 preprocessing_version: maestria_domain::PreprocessingVersion::new(
@@ -213,8 +211,8 @@ pub fn build_embedding_provider(
                     representation: generation.name.clone(),
                 })
                 .ok_or_else(|| anyhow!("active dense embedding generation is missing"))?;
-            let document_template = DOCUMENT_TEMPLATE;
-            let query_template = QUERY_TEMPLATE;
+            let document_template = config.document_template.as_str();
+            let query_template = config.query_template.as_str();
             validate_profile_fingerprint(&identity, document_template, query_template)?;
             let provider = maestria_embedding_openai::LocalHttpEmbeddingProvider::with_profile(
                 &config.endpoint,

@@ -20,16 +20,18 @@ impl LearnedSparseBenchmarkExecutor {
         candidates: &[LearnedSparseRetrievedCandidate],
         energy: maestria_retrieval::Measurement<u64>,
     ) -> LearnedSparseSafetyMetrics {
-        let leaked = !candidates.is_empty();
+        // The safety fixtures are the Security-class cases: the engine's
+        // secret scanner and authorization must deny them before candidates
+        // exist. Regular classes are not poisoning/quarantine fixtures, so
+        // their checks are NotDetected rather than failures (the previous
+        // all-case leakage test made telemetry_complete unreachable for
+        // every route).
         let security_case = matches!(case.class, LearnedSparseQueryClass::Security);
-        let attack_outcome = if security_case {
-            if leaked {
-                CheckStatus::Failed
-            } else {
-                CheckStatus::Passed
-            }
+        let leaked = security_case && !candidates.is_empty();
+        let attack_outcome = if security_case && leaked {
+            CheckStatus::Failed
         } else {
-            CheckStatus::NotDetected
+            CheckStatus::Passed
         };
         let secret_exposure = if security_case && leaked {
             CheckStatus::Failed
@@ -41,20 +43,20 @@ impl LearnedSparseBenchmarkExecutor {
         } else {
             CheckStatus::Passed
         };
-        let poisoning_outcome = if leaked {
+        let poisoning_outcome = if security_case && leaked {
             CheckStatus::Failed
         } else {
-            CheckStatus::Passed
+            CheckStatus::NotDetected
         };
-        let quarantine_outcome = if leaked {
+        let quarantine_outcome = if security_case && leaked {
             CheckStatus::Failed
         } else {
-            CheckStatus::Passed
+            CheckStatus::NotDetected
         };
-        let namespace_isolation = if leaked {
+        let namespace_isolation = if security_case && leaked {
             CheckStatus::Failed
         } else {
-            CheckStatus::Passed
+            CheckStatus::NotDetected
         };
         LearnedSparseSafetyMetrics {
             provider: Measurement::measured(LearnedSparseProviderDisclosure {

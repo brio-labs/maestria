@@ -91,18 +91,30 @@ pub struct RankedCandidate {
     pub rank: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HybridPromotionRecord {
     evaluation_id: String,
     evaluation_date: String,
+    /// Query classes served by the dense lane; all other classes keep the
+    /// lexical route (per-class protection mirrors the sparse policy).
+    served_classes: std::collections::BTreeSet<crate::LearnedSparseQueryClass>,
 }
 
 impl HybridPromotionRecord {
-    pub fn new(evaluation_id: String, evaluation_date: String) -> Option<Self> {
+    pub fn new(
+        evaluation_id: String,
+        evaluation_date: String,
+        served_classes: std::collections::BTreeSet<crate::LearnedSparseQueryClass>,
+    ) -> Option<Self> {
         (!evaluation_id.trim().is_empty() && !evaluation_date.trim().is_empty()).then_some(Self {
             evaluation_id,
             evaluation_date,
+            served_classes,
         })
+    }
+
+    pub fn serves_class(&self, class: &crate::LearnedSparseQueryClass) -> bool {
+        self.served_classes.contains(class)
     }
 }
 
@@ -111,6 +123,19 @@ pub enum HybridExecutionPolicy {
     #[default]
     Shadow,
     Active(HybridPromotionRecord),
+}
+
+impl HybridExecutionPolicy {
+    /// Whether the dense lane may serve the query's class. Protected
+    /// classes (ExactLiteral, NoEvidence, Security) are never served by
+    /// the dense lane: the record's served classes come from the gate.
+    pub fn allows_dense(&self, query: &str) -> bool {
+        let class = crate::learned_sparse_policy::classify_query(query);
+        match self {
+            Self::Active(record) => record.serves_class(&class),
+            Self::Shadow => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

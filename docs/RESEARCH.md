@@ -219,6 +219,54 @@ mask at pad positions or the embeddings lose all discrimination (measured:
 nDCG 0.009 -> 0.617 on French after the fix); the benchmark caches encoded
 vectors and the sampled dataset so re-runs cost minutes, not re-encodes.
 
+### 2.1.0c. Dense-lane promotion decision (dated 2026-08-09)
+
+The re-justified judgment set v2 (`learned_sparse_task_corpus_v2.json`) scales
+the lifecycle budgets for encode lanes (initial/rebuild 220-440 s, incremental
+2-4 s per chunk; latency 250 ms and memory/disk unchanged) and bounds
+`source_redundancy` at +20 % relative, accepting a larger fused candidate set
+that draws from both lanes. With those budgets, a real dense lane was
+evaluated for the first time: the local ONNX embedding sidecar
+(`scripts/embedding_server.py`, pinned `bekko-embedding-v1-a25m` — MIT,
+100+ languages, no prefixes, mean-pooled 384-d) behind the daemon's existing
+`LocalHttpEmbeddingProvider`, with the manifest templates made configurable
+(`embedding_query_template`/`embedding_document_template`).
+
+**Result — DomainTerminology is promoted to the hybrid (lexical + dense)
+route** (report `sha256:27027721675f67962f258684f568955332b53b3540cef9b7423dea53ccb53042`,
+ledger milestone v1.3):
+
+| Metric | Lexical | Hybrid (dense) | Change |
+| --- | --- | --- | --- |
+| Recall@20 | 21.4 % | 42.9 % | +100 % |
+| Recall@5 | 21.4 % | 35.7 % | +67 % |
+| MRR@10 | 10.4 | 15.0-16.2 | +45-56 % |
+| Evidence-chain coverage | 57.1 % | 71.4 % | +25 % |
+| p95 latency | ~140 ms | ~110-165 ms | within 250 ms |
+
+The previous RRF fusion (k=60) degraded top-5 precision (-67 % recall@5);
+the evaluated `NormalizedBlend` fusion (min-max per-lane normalization,
+lexical weight 0.7, dense/sparse share 0.3) preserves the lexical first hits
+while the dense lane contributes coverage below them. The hybrid promotion
+record is per-class (`served_classes = {DomainTerminology}`); ExactLiteral,
+NoEvidence, and Security stay lexical (the dense lane's batch eligibility is
+gated per query class). The daemon loads the record through
+`hybrid_policy` — a saved record activates the dense fusion for the served
+classes; removing it returns to shadow.
+
+Two measurement fixes were required for honest telemetry: the safety checks
+are evaluated on the Security fixtures only (regular classes are
+NotDetected; the previous all-case leakage test made `telemetry_complete`
+unreachable for every route), and the registry transition ops reload the
+durable state (the prepare-time snapshot's event counters were stale,
+rejecting later transitions with sequence conflicts).
+
+**User-visible apport**: a multilingual dense lane (bekko-a25m, French
+nDCG@10 0.894 on mMARCO) now serves DomainTerminology queries fused with
+lexical, once the operator saves the record (`hybrid-dense-four-profile-2026-08-09`)
+or the daemon's next evaluation does. The sparse lane remains unpromoted
+(MRR regression vs the hybrid baseline under judgment set v2).
+
 ### 2.1.1. Frozen learned-sparse task corpus
 
 The representative real-task freeze is `tests/contracts/learned_sparse_task_corpus_v1.json`.

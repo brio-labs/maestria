@@ -127,6 +127,31 @@ pub(crate) fn learned_sparse_policy(
     }
 }
 
+/// The dense lane's execution policy: a valid hybrid promotion record
+/// activates the lexical+dense fusion; otherwise the dense lane stays
+/// shadowed. Fail-closed on unparsable records.
+pub(crate) fn hybrid_policy(store: &SqliteStore) -> maestria_retrieval::HybridExecutionPolicy {
+    use maestria_retrieval::HybridExecutionPolicy;
+    match store.load_latest_hybrid_promotion_record() {
+        Ok(Some(record)) => {
+            match serde_json::from_str::<maestria_retrieval::HybridPromotionRecord>(
+                &record.record_json,
+            ) {
+                Ok(record) => HybridExecutionPolicy::Active(record),
+                Err(error) => {
+                    eprintln!("hybrid promotion record is unparsable; serving shadow: {error}");
+                    HybridExecutionPolicy::Shadow
+                }
+            }
+        }
+        Ok(None) => HybridExecutionPolicy::Shadow,
+        Err(error) => {
+            eprintln!("hybrid promotion record is unreadable; serving shadow: {error}");
+            HybridExecutionPolicy::Shadow
+        }
+    }
+}
+
 /// Builds the registered learned-sparse retriever for the active generation.
 ///
 /// Degrades to no lane (hybrid serving) when the generation is not active or
@@ -229,6 +254,7 @@ fn build_search_executor(
 ) -> Result<Arc<dyn SearchKnowledgeExecutor + Send + Sync>> {
     let (primary_generation, corpus_snapshot, dense_generation) = resolve_index_generations(state)?;
     let learned_sparse_execution_policy = learned_sparse_policy(&storage.sqlite_store, manifest);
+    let hybrid_execution_policy = hybrid_policy(&storage.sqlite_store);
     let sparse_retriever = build_sparse_retriever(
         state,
         manifest,
@@ -251,6 +277,7 @@ fn build_search_executor(
                 dense_generation,
                 repository_code_index: ecosystem.repository_code_index.clone(),
                 repository_execution_policy,
+                hybrid_execution_policy,
                 learned_sparse_execution_policy,
                 sparse_retriever,
                 corpus_snapshot,

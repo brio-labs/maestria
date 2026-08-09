@@ -36,10 +36,14 @@ use maestria_retrieval::{
 };
 use maestria_storage_sqlite::{SqliteLearnedSparseIndex, SqliteStore};
 
+#[path = "learned_sparse_benchmark_executor/dense.rs"]
+mod dense;
 #[path = "learned_sparse_benchmark_executor/energy.rs"]
 pub(super) mod energy;
 #[path = "learned_sparse_benchmark_executor/lifecycle.rs"]
 mod lifecycle;
+#[path = "learned_sparse_benchmark_executor/measure.rs"]
+mod measure;
 #[path = "learned_sparse_benchmark_executor/record.rs"]
 mod record;
 #[path = "learned_sparse_benchmark_executor/safety.rs"]
@@ -89,6 +93,9 @@ pub struct LearnedSparseBenchmarkExecutor {
     pub(super) store: Arc<SqliteStore>,
     /// Kernel state snapshot used to validate registry transitions.
     pub(super) state: KernelState,
+    /// Optional fusion override for the fused routes; the daemon default
+    /// (FixedKRrf 60) applies when unset.
+    fusion: Option<std::sync::Arc<dyn maestria_retrieval::RankFusion + Send + Sync>>,
 }
 
 impl LearnedSparseBenchmarkExecutor {
@@ -164,15 +171,22 @@ impl LearnedSparseBenchmarkExecutor {
         } else {
             (None, None)
         };
+        // The ablation measures the full dense fusion: every class is served
+        // by the dense lane; the gate's per-class eligibility decides what a
+        // saved promotion record may activate.
         let hybrid_record = HybridPromotionRecord::new(
             HYBRID_RECORD_VERSION.to_string(),
             HYBRID_RECORD_DATE.to_string(),
+            maestria_retrieval::LearnedSparseQueryClass::all()
+                .into_iter()
+                .collect(),
         )
         .ok_or_else(|| anyhow!("hybrid promotion record is unavailable"))?;
         let expected_by_case = convert_expected_spans(&corpus, &source_ids)?;
         Ok(Self {
             corpus,
             runtime,
+            fusion: None,
             sparse,
             sparse_generation_id,
             hybrid_record,
@@ -191,18 +205,13 @@ impl LearnedSparseBenchmarkExecutor {
         self.sparse_generation_id
     }
 
-    /// The evaluated sparse identity, for report fingerprint binding.
-    pub fn sparse_identity_for_report(&self) -> Option<SparseIdentity> {
-        self.sparse.as_ref().map(|lane| lane.identity.clone())
-    }
-
     fn engine_for(
         &self,
         route: LearnedSparseRoute,
         class: LearnedSparseQueryClass,
     ) -> Result<RetrievalEngine> {
         let sparse_retriever = self.sparse.as_ref().map(|lane| lane.retriever.clone());
-        match route {
+        let mut engine = match route {
             LearnedSparseRoute::Lexical => self.runtime.retrieval_engine_with_policies(
                 HybridExecutionPolicy::Shadow,
                 LearnedSparseExecutionPolicy::Disabled,
@@ -233,7 +242,15 @@ impl LearnedSparseBenchmarkExecutor {
                     true,
                 )
             }
+        }?;
+        if matches!(
+            route,
+            LearnedSparseRoute::Hybrid | LearnedSparseRoute::SparseFused
+        ) && let Some(fusion) = &self.fusion
+        {
+            engine = engine.with_fusion(fusion.clone());
         }
+        Ok(engine)
     }
 }
 

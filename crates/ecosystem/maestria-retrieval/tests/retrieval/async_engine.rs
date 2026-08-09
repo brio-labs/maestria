@@ -485,11 +485,14 @@ async fn specialized_generation_is_served_while_primary_stale_lane_is_rejected()
     let plan = plan.with_authorization(authorization)?;
     let specialized_calls = Arc::new(AtomicUsize::new(0));
     let stale_calls = Arc::new(AtomicUsize::new(0));
-    let promotion =
-        HybridPromotionRecord::new("dense-generation-test".to_string(), "test".to_string())
-            .ok_or_else(|| {
-                RetrievalError::Internal("invalid hybrid promotion fixture".to_string())
-            })?;
+    let mut served = std::collections::BTreeSet::new();
+    served.insert(maestria_retrieval::LearnedSparseQueryClass::DomainTerminology);
+    let promotion = HybridPromotionRecord::new(
+        "dense-generation-test".to_string(),
+        "test".to_string(),
+        served,
+    )
+    .ok_or_else(|| RetrievalError::Internal("invalid hybrid promotion fixture".to_string()))?;
     let engine = RetrievalEngine::new(
         vec![
             Arc::new(SpecializedGenerationLane {

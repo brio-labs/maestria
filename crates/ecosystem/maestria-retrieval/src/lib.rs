@@ -39,7 +39,7 @@ pub use engine::{
     LearnedSparseShadowObservation, LearnedSparseShadowRoute, LearnedSparseShadowStore,
     LearnedSparseShadowStoreError, RetrievalEngine, SearchPlannerContext,
 };
-pub use fusion::FixedKRrf;
+pub use fusion::{FixedKRrf, NormalizedBlend};
 pub use learned_sparse_benchmark::{
     CheckStatus, LearnedSparseAcceptedSpan, LearnedSparseBenchmarkBudget,
     LearnedSparseBenchmarkCase, LearnedSparseBenchmarkComparison, LearnedSparseBenchmarkCorpus,
