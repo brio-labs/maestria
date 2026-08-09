@@ -19,7 +19,8 @@ KERNEL_ROOTS = (
 )
 SCAN_EXTS = {".rs", ".toml", ".py", ".yml", ".yaml", ".md"}
 SKIP_DIRS = {".git", "target", "node_modules", "dist", ".direnv", ".venv"}
-SKIP_FILES = {"maestria_brioche_informed_code_architecture_report.md"}
+# Files exempted from the doctrine scan (e.g. vendored or legacy artifacts).
+SKIP_FILES = set()
 FORBIDDEN_MARKERS = [r"\bTODO\b", r"\bFIXME\b"]
 FORBIDDEN_KERNEL_DEPENDENCIES = {
     "tokio",

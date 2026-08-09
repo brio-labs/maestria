@@ -6,13 +6,6 @@
 This document tracks experimental candidates for the Maestria search architecture.
 **Crucially, no model, backend, or specific algorithm listed here is a permanent default.** All candidates are treated as hypotheses.
 
-## Legacy Report Status
-
-`maestria_brioche_informed_code_architecture_report.md` is retained as historical
-input and is **non-normative**. Its backend, model, and algorithm examples are
-research candidates only. Canonical contracts are the documents listed in
-[`SPECS.md`](SPECS.md); this document contains dated candidates only.
-
 ## 1. Evaluation Framework
 
 Candidates are evaluated strictly against the Maestria internal corpora. A candidate is eligible for promotion to the [ROADMAP.md](./ROADMAP.md) only if it demonstrates superior performance across the following budgets:
