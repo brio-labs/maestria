@@ -7,6 +7,19 @@ pub(super) struct SparseEncodePayload {
     pub(super) kind: SparseKindWire,
 }
 
+/// Wire payload for a batched sparse encoding request.
+#[derive(Debug, Serialize)]
+pub(super) struct SparseEncodeBatchPayload {
+    pub(super) texts: Vec<String>,
+    pub(super) kind: SparseKindWire,
+}
+
+/// Wire response for a batched sparse encoding request.
+#[derive(Debug, Deserialize)]
+pub(super) struct SparseBatchApiResponse {
+    pub(super) vectors: Vec<SparseApiResponse>,
+}
+
 /// Wire kind selector for a sparse encoding request.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "lowercase")]

@@ -55,7 +55,7 @@ A concrete learned-sparse route is eligible for activation only for a frozen que
 
 Removing or invalidating the promotion record restores the existing lexical/hybrid route. The presence of a provider or index adapter never activates sparse retrieval by itself.
 
-### 2.1.0. Four-profile evaluation decision (dated 2026-08-07)
+### 2.1.0. Four-profile evaluation decision (dated 2026-08-08)
 
 The frozen corpus (`tests/contracts/learned_sparse_task_corpus_v1.json`, revision
 2026-07-30) was evaluated on a real instance against the pinned SPLADE ONNX sidecar
@@ -63,11 +63,14 @@ The frozen corpus (`tests/contracts/learned_sparse_task_corpus_v1.json`, revisio
 SparseFused — with 31 timed runs per case per route, RAPL-measured energy, and the real
 lifecycle operations measured on the durable projections. The candidate was re-pinned
 on 2026-08-07 to the int8-quantized ONNX export with 512-token truncation (standard
-SPLADE preprocessing), which halved the lifecycle encode cost while retaining the
-quality signal. The dated report is
-`tests/contracts/learned_sparse_report_v1.json` (report hash
-`sha256:858f2331e03d8a54b5add4927c7a7b98ddddbd00a411c4524d478613b2406a69`), pinned in
-the benchmark evidence ledger milestone `v1.2` with index generation
+SPLADE preprocessing), and the lane itself was optimized before the terminal run:
+the projection gained an in-memory vector cache with term postings (searches
+authorize and score only term-sharing chunks), the retriever gained per-request
+artifact/evidence prefetch and per-artifact snapshot verification, and the sidecar
+gained a parallel batch endpoint (bounded intra-op threads with a worker pool). The
+dated report is `tests/contracts/learned_sparse_report_v1.json` (report hash
+`sha256:c6a9017b5c1526dfe8403c09e537cfdc56551ab9fadb6b9e09219f505a668c88`), pinned
+in the benchmark evidence ledger milestone `v1.2` with index generation
 `sparse-text-v1-2` and the splade-onnx model fingerprint.
 
 | Query class | Decision | Winning route | Rollback target |
@@ -79,20 +82,142 @@ the benchmark evidence ledger milestone `v1.2` with index generation
 | NoEvidence | RetainLexical | none | — |
 | Security | RetainLexical | none | — |
 
-No class won, on measured data: telemetry is complete (energy measured from RAPL on all
-72 observations), but the sparse-fused candidate still violates the frozen budgets — the
-int8+truncated lifecycle initial-indexing/rebuild measure ~7.7 s against the 5 s
-`ingest_update_budget_ms` (down from ~17 s for the fp32 candidate) and the fused route's
-p95 latency reaches ~500 ms against the 250 ms budget — so the promotion gate records
-budget violations and yields no winning route. No promotion record exists; the daemon
-serves the lexical and hybrid routes.
+No class won, on measured data, and the reasons are now precise:
 
-The quality signal is real, reproducible, and survives the quantization: sparse fusion
-improves DomainTerminology (recall@20 28.6% → 35.7%, evidence-chain coverage 60.7% →
-67.9%) while exact, no-evidence, and security classes stay protected at zero across
-routes. The lane remains benchmark-gated: a future candidate must meet the lifecycle and
-latency budgets (faster encoding, batched inference, or a re-justified judgment set)
-before the gate can promote.
+- **Lifecycle passes**: initial indexing and rebuild of the 147-chunk corpus through
+  the optimized lane measure ~3.2 s, under the 5 s `ingest_update_budget_ms` (down
+  from ~17 s for the fp32 candidate and ~9 s for the first batch attempt).
+- **Latency budget passes for every eligible class**: fused p95 mean is 191 ms
+  (down from ~393 ms); the only two violations (274 ms, 303 ms) are ExactLiteral and
+  Security cases, which are ineligible by design.
+- **The promotion gate still refuses**, for two measured reasons. First, the gate's
+  lifecycle-within-factor criterion compares the sparse lane's encode-based
+  operations against the lexical route's tantivy projection (3.2 s vs 82 ms × 2):
+  an HTTP-encode lane cannot meet a 2× factor over a local index at this corpus
+  size, regardless of latency. Second, fused DomainTerminology quality regresses on
+  MRR@10 (10.5 vs 11.3) even while recall@20 (35.7% vs 28.6%) and evidence-chain
+  coverage (67.9% vs 60.7%) improve: the fusion re-ranks the first correct hit
+  below the lexical baseline's.
+
+The quality signal is real, reproducible, and survives the quantization and the
+optimizations; exact, no-evidence, and security classes stay protected at zero across
+routes. The lane remains benchmark-gated. The measured evidence says the remaining
+blockers are a gate criterion that encode-based lanes cannot satisfy and a fusion
+ranking regression — either a re-justified judgment set (documented budgets and
+lifecycle factors) or a fusion change that preserves first-hit ranking would be the
+next candidates for a new dated evaluation.
+
+### 2.1.0a. Multilingual candidate evaluation (dated 2026-08-08)
+
+The sparse lane is English-only today (`prithivida/Splade_PP_en_v1`, BERT
+tokenizer). For multilingual contexts (e.g. French users), BGE-M3 was
+investigated as the leading candidate (MIT license, 100+ languages, explicit
+sparse output). Verdict: **not evaluable and not budget-feasible**:
+
+- **The trained sparse head is not released.** The official `BAAI/bge-m3`
+  checkpoint contains only the backbone (391 keys); the published
+  `sparse_linear.pt` is a 3.5 KB stub holding a `[1, 1024]` tensor, not the
+  trained `[250002, 1024]` projection. FlagEmbedding's own loader falls back
+  to a *randomly initialized* head when the `.pt` is missing or unusable, so
+  even the reference library cannot serve the real sparse model from the
+  release. Community ONNX exports either omit the head or export a broken
+  `sparse_vecs` output (vocab dimension collapsed to 1, verified in
+  `aapot/bge-m3-onnx`).
+- **Throughput excludes it from the frozen budgets.** Measured on this
+  machine (2-thread ONNX session): fp32 2.13 s and int8 0.79 s per 512-token
+  encode; the 147-chunk corpus re-encode with 6 parallel workers measures
+  164.6 s fp32 and 65.8 s int8 — 13× over the 5 s `ingest_update_budget_ms`
+  and ~15× over the gate's lifecycle-within-factor allowance against the
+  lexical route.
+
+The lexical lane itself is language-agnostic (tantivy's Unicode-aware default
+tokenizer: no stemming, no stopword language, accents preserved), so a
+non-English user already gets working exact-term retrieval today; the sparse
+lane being unpromoted means no English-model noise is injected. A dense
+embedding comparison was measured alongside BGE-M3 (2026-08-08), all in int8
+ONNX on the same machine (2-thread session, 6 parallel workers, 147-chunk
+corpus, 512-token texts):
+
+| Candidate | Size | Languages | License | Per-text int8 | Corpus re-encode | Budget |
+| --- | --- | --- | --- | --- | --- | --- |
+| all-MiniLM-L6-v2 | 66M | English | Apache-2.0 | 13 ms | ~0.6 s | fits (8× under) |
+| SPLADE (pinned) | 110M | English | Apache-2.0 | 57 ms | ~4.2 s | fits (marginal) |
+| multilingual-e5-small | 118M | 100+ | MIT | 105 ms | ~5.8-6.6 s | 1.2-1.3× over |
+| LFM2.5-Embedding-350M | 350M | 11 incl. French | LFM Open v1.0 (revenue-capped at $10M) | 637 ms | ~50.6 s | 10× over |
+| BGE-M3 | 560M | 100+ | MIT | 793 ms | ~65.8 s | 13× over |
+
+The dense throughput floor is proven by all-MiniLM-L6-v2 (66M, 6 layers):
+13 ms/text int8 and ~0.6 s for the corpus — 8× under the budget — so dense
+lanes *can* fit the frozen budgets; the budget simply scales with encode
+size. For the multilingual need, multilingual-e5-small (118M, 100+ languages,
+MIT) is the closest budget-fitting dense candidate at ~5.8-6.6 s int8
+(1.2-1.3× over; 8 parallel workers nearly close the gap). all-MiniLM-L6-v2
+itself is English-only and serves as the throughput reference, not the
+French-user answer. LFM2.5-Embedding-350M remains the strongest
+quality-per-cost multilingual profile (350M, 11 languages including French,
+best-in-class multilingual retrieval per its card, 3.3× faster than BGE-M3
+fp32) under its documented revenue-capped license, and BGE-M3 the widest
+language coverage — both well outside the frozen budget. The principled
+multilingual path is therefore: (1) extend the frozen corpus with non-English
+cases and judged spans (the corpus format has no language restriction), and
+(2) re-justify the lifecycle budget for encode-based lanes (issue #427), then
+pin multilingual-e5-small (budget-fitting, MIT) or LFM2.5-Embedding-350M
+(highest quality) in the dense lane.
+
+### 2.1.0b. Cross-model retrieval quality benchmark (BEIR/MTEB-style, dated 2026-08-09)
+
+A standard retrieval benchmark compares the candidate models on standard
+datasets with standard metrics, following the BEIR/MTEB methodology:
+`scripts/retrieval_model_benchmark.py` (ir_datasets, the loader behind BEIR),
+MS MARCO passage dev (English) and mMARCO dev (French), nDCG@10 / MRR@10 /
+Recall@10 / Recall@100 with binary gains, and each model's reference encoding
+convention (SPLADE templates, e5 "query:"/"passage:" prefixes, mLateOn
+[Q]/[D] prefix tokens with MaxSim late interaction, BGE-M3/LFM2.5/MiniLM
+CLS or mean pooling). The corpus sample keeps every judged relevant passage
+plus seeded random fillers (200 queries, 5000 passages, seed 42); a purely
+random sample would drop the qrels. The sampled corpora inflate absolute
+values (relevant docs are ~2.5% of the sample, so BM25's 0.79 English nDCG@10
+is far above its ~0.30 full-corpus reference); the relative ranking is the
+reliable signal. Full report: `tests/contracts/model_retrieval_report_v1.json`.
+
+| Model | EN nDCG@10 | FR nDCG@10 | EN MRR@10 | FR MRR@10 | Languages |
+| --- | --- | --- | --- | --- | --- |
+| all-MiniLM-L12-v2 | **0.987** | 0.707 | 0.983 | 0.680 | English |
+| mLateOn (ColBERT 307M) | 0.984 | 0.906 | 0.981 | 0.890 | multilingual, generalizes |
+| bekko-embedding-v1-a25m | 0.984 | 0.894 | 0.978 | 0.880 | 100+ |
+| LFM2.5-Embedding-350M | 0.982 | 0.917 | 0.976 | **0.905** | 11 incl. French |
+| bekko-embedding-v1-a8m | 0.982 | 0.881 | 0.978 | 0.866 | 100+ |
+| e5-small (118M) | 0.980 | 0.852 | 0.976 | 0.843 | 100+ |
+| mDenseOn (307M) | 0.979 | **0.919** | 0.973 | 0.904 | 8 target + English |
+| nomic-embed-text-v1.5 | 0.978 | 0.740 | 0.974 | 0.720 | English (MTEB) |
+| BGE-M3 dense (560M) | 0.973 | 0.895 | 0.964 | 0.881 | 100+ |
+| all-MiniLM-L6-v2 (66M) | 0.973 | 0.617 | 0.970 | 0.586 | English |
+| BM25 (tantivy defaults) | 0.788 | 0.590 | 0.753 | 0.554 | language-agnostic |
+| SPLADE pinned (110M) | 0.109 | 0.012 | 0.085 | 0.011 | English only |
+
+Findings: (1) the dense/late cluster dominates both languages; (2) on
+French, mDenseOn and LFM2.5 lead (0.919/0.917), mLateOn leads overall when
+both languages are weighted, and the bekko pair delivers near-top quality at
+25M/8M active parameters; (3) the small English models are outstanding on
+English (MiniLM-L12 0.987 — top of the table) and degrade gracefully on
+French (0.61-0.74), while SPLADE collapses (0.012) — the difference between
+"English-only" and "English-first with a multilingual tokenizer"; (4) BM25
+is the language-agnostic baseline and beats SPLADE on English in this sample
+(the sample inflation noted above favors exact-match models). The lifecycle
+budget analysis still governs what can be served: bekko-a8m (~10 ms/text),
+MiniLM (~13 ms), SPLADE (~57 ms), bekko-a25m and e5-small (~100-130 ms) fit
+or nearly fit the frozen 5 s budget; mLateOn/LFM2.5/BGE-M3/mDenseOn need the
+#427 budget re-justification.
+
+Model-engineering notes recorded along the way: the official BGE-M3 sparse
+head is a stub (see §2.1.0a); the LFM2.5 ONNX export requires the repo's
+bidirectional modeling patch (`trust_remote_code` + a small `seq_idx`
+compatibility wrapper) — without it the embeddings are constant vectors; the
+sentence-transformers ONNX tokenizers (MiniLM-L6/L12) pad to a fixed 128
+tokens and count pads as real in the attention mask — pooling must zero the
+mask at pad positions or the embeddings lose all discrimination (measured:
+nDCG 0.009 -> 0.617 on French after the fix); the benchmark caches encoded
+vectors and the sampled dataset so re-runs cost minutes, not re-encodes.
 
 ### 2.1.1. Frozen learned-sparse task corpus
 
@@ -264,7 +389,11 @@ sparse_retention_policy=no_retention
 
 The sidecar applies the `query: {text}` / `document: {text}` templates, caps
 term vectors at 256 terms, accepts loopback traffic only, performs CPU
-inference, and retains no inputs. Unlike the embedding/visual profiles, a
+inference, and retains no inputs. It also serves `POST /v1/sparse/batch`
+(`{"texts": [...], "kind": "document"}` → one vector per text, input order
+preserved) with a bounded worker pool over a two-thread ONNX session, which is
+what the daemon's projection reconciliation and the benchmark lifecycle
+operations use. Unlike the embedding/visual profiles, a
 remote provider or retained retention policy is a manifest error, not a
 deferred rejection. Sparse activation additionally requires a matching
 fingerprinted `sparse_text_v1` generation and a passing benchmark; otherwise

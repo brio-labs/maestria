@@ -59,4 +59,17 @@ pub trait ProviderTransport: Send + Sync {
     fn endpoint(&self) -> &ProviderEndpoint;
     fn disclosure(&self) -> &ProviderDisclosure;
     fn post(&self, body: Vec<u8>) -> Result<Vec<u8>, PortError>;
+
+    /// Posts to a sibling protocol path on the same canonical loopback
+    /// authority; `path_suffix` is appended to the canonical endpoint path.
+    ///
+    /// The default rejects sibling paths; providers without batch endpoints
+    /// keep the single-path contract.
+    fn post_to(&self, path_suffix: &'static str, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
+        let _ = (path_suffix, body);
+        Err(PortError::InternalContext {
+            context: "provider transport sibling path",
+            source: "batch posting is unsupported by this transport".to_string(),
+        })
+    }
 }

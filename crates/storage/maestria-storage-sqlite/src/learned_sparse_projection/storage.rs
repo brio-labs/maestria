@@ -132,6 +132,7 @@ pub(super) fn replace_documents(
     for document in documents {
         upsert_document(&transaction, &identity_json, document)?;
     }
+    bump_version(&transaction, &identity_json)?;
     transaction.commit().map_err(to_port_error)
 }
 
@@ -153,6 +154,7 @@ pub(super) fn tombstone_documents(
             )
             .map_err(to_port_error)?;
     }
+    bump_version(&transaction, &identity_json)?;
     transaction.commit().map_err(to_port_error)
 }
 
@@ -170,7 +172,96 @@ pub(super) fn clear_documents(
             params![identity_json],
         )
         .map_err(to_port_error)?;
+    bump_version(&transaction, &identity_json)?;
     transaction.commit().map_err(to_port_error)
+}
+
+/// Advances the durable projection version inside the caller's transaction.
+///
+/// The version lets read caches detect any write to this projection and
+/// reload instead of serving stale vectors.
+fn bump_version(transaction: &Transaction<'_>, identity_json: &str) -> Result<(), PortError> {
+    transaction
+        .execute(
+            "INSERT INTO learned_sparse_projection_meta (identity_json, version)
+             VALUES (?1, 1)
+             ON CONFLICT(identity_json) DO UPDATE SET version = version + 1",
+            params![identity_json],
+        )
+        .map_err(to_port_error)?;
+    Ok(())
+}
+
+/// The durable projection version, or `None` for projections written before
+/// the version row was introduced (the cache then falls back to per-document
+/// reads).
+pub(super) fn read_version(
+    store: &SqliteStore,
+    identity_json: &str,
+) -> Result<Option<i64>, PortError> {
+    let connection = store.lock()?;
+    let version = connection
+        .query_row(
+            "SELECT version FROM learned_sparse_projection_meta WHERE identity_json = ?1",
+            params![identity_json],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(to_port_error)?;
+    Ok(version)
+}
+
+/// Loads every live document of the projection in one query, decoded.
+///
+/// This is the cold path behind the in-memory search cache: the search then
+/// scores the decoded vectors without touching SQLite again.
+pub(super) fn load_all_documents(
+    store: &SqliteStore,
+    identity: &SparseIdentity,
+) -> Result<Vec<super::search_storage::CachedDocument>, PortError> {
+    let identity_json = identity_json(identity)?;
+    let connection = store.lock()?;
+    let mut statement = connection
+        .prepare(
+            "SELECT chunk_id, vector_json
+             FROM learned_sparse_projection_documents
+             WHERE identity_json = ?1 AND tombstoned = 0
+             ORDER BY chunk_id",
+        )
+        .map_err(to_port_error)?;
+    let rows = statement
+        .query_map(params![identity_json], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(to_port_error)?;
+    let mut documents = Vec::new();
+    for row in rows {
+        let (chunk_id, vector_json) = row.map_err(to_port_error)?;
+        let encoded_bytes =
+            u64::try_from(vector_json.len()).map_err(|_| PortError::Downstream {
+                message: "SQLite sparse vector length exceeds platform range".to_string(),
+            })?;
+        if encoded_bytes > MAX_SPARSE_VECTOR_BYTES as u64 {
+            return Err(PortError::InvalidInputContext {
+                context: "sparse vector persistence",
+                source: "serialized vector exceeds the durable byte limit".to_string(),
+            });
+        }
+        let vector = decode_vector(&vector_json)?;
+        if vector.identity() != identity {
+            return Err(PortError::Conflict {
+                message: "stored sparse vector identity does not match projection".to_string(),
+            });
+        }
+        documents.push(super::search_storage::CachedDocument {
+            encoded_bytes,
+            document: StoredDocument {
+                chunk_id: maestria_domain::ChunkId::new(i64_to_u64(chunk_id)?),
+                vector,
+            },
+        });
+    }
+    Ok(documents)
 }
 
 fn ensure_mutable_transaction(

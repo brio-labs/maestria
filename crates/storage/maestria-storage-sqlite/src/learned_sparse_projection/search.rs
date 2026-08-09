@@ -11,6 +11,17 @@ use maestria_ports::{
 use super::{lifecycle, search_storage, storage};
 use crate::SqliteStore;
 
+/// The decoded projection resident in memory, valid only while the durable
+/// version matches the one it was loaded at. `postings` maps each term to the
+/// document indices sharing it, so a search only authorizes and scores the
+/// chunks that can actually contribute.
+#[derive(Clone)]
+pub(super) struct SearchCache {
+    pub(super) version: i64,
+    pub(super) documents: std::sync::Arc<Vec<search_storage::CachedDocument>>,
+    pub(super) postings: std::sync::Arc<std::collections::BTreeMap<u32, Vec<usize>>>,
+}
+
 struct Meter {
     budget: SearchExecutionBudget,
     usage: SearchExecutionUsage,
@@ -196,6 +207,63 @@ pub(super) fn execute(
         stopped: None,
     };
     search_storage::visit_documents(store, identity, max_candidates, &mut visitor)?;
+    visitor.finish()
+}
+
+/// Document indices sharing at least one query term, in document order.
+fn matching_document_indices(
+    postings: &std::collections::BTreeMap<u32, Vec<usize>>,
+    query: &SparseSearchQuery,
+) -> Vec<usize> {
+    let mut selected = std::collections::BTreeSet::new();
+    for term in query.vector.terms() {
+        if let Some(indices) = postings.get(&term.term_id()) {
+            selected.extend(indices.iter().copied());
+        }
+    }
+    selected.into_iter().collect()
+}
+
+/// Executes a search over the cached projection documents, visiting only the
+/// documents that share at least one query term.
+pub(super) fn execute_cached(
+    documents: &[search_storage::CachedDocument],
+    postings: &std::collections::BTreeMap<u32, Vec<usize>>,
+    identity: &SparseIdentity,
+    store: &SqliteStore,
+    query: SparseSearchQuery,
+    filter: &dyn Fn(maestria_domain::ChunkId) -> Result<bool, PortError>,
+) -> Result<BoundedSearch<SparseSearchHit>, PortError> {
+    validate_query(identity, &query)?;
+    let lifecycle = lifecycle::read(store, identity)?;
+    if !matches!(
+        lifecycle,
+        maestria_domain::IndexLifecycle::Shadow | maestria_domain::IndexLifecycle::Active
+    ) {
+        return Err(PortError::Conflict {
+            message: "sparse projection is not searchable in its current lifecycle".to_string(),
+        });
+    }
+    let contribution_cap =
+        usize::try_from(query.max_contributions).map_err(|_| PortError::InvalidInputContext {
+            context: "sparse contribution cap",
+            source: "contribution cap exceeds platform range".to_string(),
+        })?;
+    let execution_budget = query.execution_budget;
+    let mut visitor = SearchVisitor {
+        filter,
+        contribution_cap,
+        meter: Meter::new(execution_budget),
+        hits: Vec::new(),
+        stopped: None,
+        query,
+    };
+    let visited = matching_document_indices(postings, &visitor.query);
+    let visited = visited
+        .into_iter()
+        .filter_map(|index| documents.get(index).cloned())
+        .collect::<Vec<_>>();
+    search_storage::visit_cached_documents(&visited, &mut visitor)?;
     visitor.finish()
 }
 

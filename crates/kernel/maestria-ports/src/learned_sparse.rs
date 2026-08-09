@@ -230,6 +230,22 @@ pub trait LearnedSparseProvider: Send + Sync {
         kind: SparseInputKind,
         identity: SparseIdentity,
     ) -> Result<SparseVector, PortError>;
+
+    /// Encodes many texts in one provider call.
+    ///
+    /// The default implementation loops [`Self::encode`]; loopback providers
+    /// with a batch endpoint override it to amortize the per-request cost.
+    fn encode_batch(
+        &self,
+        texts: &[String],
+        kind: SparseInputKind,
+        identity: SparseIdentity,
+    ) -> Result<Vec<SparseVector>, PortError> {
+        texts
+            .iter()
+            .map(|text| self.encode(text, kind, identity.clone()))
+            .collect()
+    }
 }
 pub trait LearnedSparseIndex: Send + Sync {
     fn identity(&self) -> Option<SparseIdentity>;

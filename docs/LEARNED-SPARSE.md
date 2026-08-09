@@ -14,16 +14,19 @@ per-query-class decision is **retain all**:
 | NoEvidence | RetainLexical | none | `learned_sparse_report_v1.json` |
 | Security | RetainLexical | none | `learned_sparse_report_v1.json` |
 
-No class was promoted on measured data: telemetry is complete (RAPL energy measured on
-all 72 observations), but the sparse-fused candidate violates the frozen budgets — the
-int8-quantized + 512-token-truncated encode path measures ~7.7 s lifecycle
-initial-indexing/rebuild against the 5 s `ingest_update_budget_ms` (down from ~17 s for
-the fp32 candidate) and fused p95 latency reaches ~500 ms against the 250 ms budget — so
-the promotion gate records budget violations and yields no winning route. The sparse
-lane measurably improves DomainTerminology recall and evidence-chain coverage, and that
-signal survives the quantization (see `docs/RESEARCH.md` §2.1.0), which is exactly why
-it stays benchmark-gated: promotion requires meeting the frozen budgets. No promotion
-record exists and the daemon serves the lexical/hybrid routes.
+No class was promoted on measured data (report hash
+`sha256:c6a9017b5c1526dfe8403c09e537cfdc56551ab9fadb6b9e09219f505a668c88`,
+2026-08-08). The optimized lane — in-memory vector cache with term postings,
+per-request artifact/evidence prefetch, per-artifact snapshot verification, and
+the parallel batch encode endpoint — brings the lifecycle ops under budget
+(~3.2 s vs the 5 s `ingest_update_budget_ms`) and fused p95 latency to a 191 ms
+mean (only ExactLiteral/Security cases exceed 250 ms, and they are ineligible by
+design). The promotion gate still refuses on two measured grounds: the fused
+DomainTerminology route regresses MRR@10 (10.5 vs 11.3) while improving recall@20
+and evidence-chain coverage, and the gate's lifecycle-within-factor criterion
+(2× the lexical route's tantivy operations) cannot be met by an encode-based
+lane at this corpus size. See `docs/RESEARCH.md` §2.1.0 for the full decision;
+the lane stays benchmark-gated and the daemon serves the lexical/hybrid routes.
 
 The lane remains implemented and benchmark-gated:
 
