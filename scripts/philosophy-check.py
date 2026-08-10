@@ -500,7 +500,6 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "blocked_patterns",
         "db_retry",
         "evidence_open",
-        "ingestion_policy",
         "source_identity",
         "notebook_draft_open",
         "projection_open",

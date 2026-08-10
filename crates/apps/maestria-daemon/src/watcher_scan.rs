@@ -95,7 +95,7 @@ pub(super) fn scan_manifest(manifest: &InstanceManifest) -> Result<Vec<Observati
                 continue;
             }
 
-            if !crate::ingestion_policy::is_supported_source_file(&path) {
+            if !maestria_index_selection::is_supported_source_file(&path) {
                 continue;
             }
 

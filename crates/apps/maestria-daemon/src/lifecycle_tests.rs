@@ -59,7 +59,7 @@ async fn secret_bearing_artifact_is_quarantined_and_runtime_continues()
     // Secret-bearing content is a per-artifact privacy outcome: the artifact
     // must reach the quarantined terminal state instead of killing the
     // runtime (per-artifact quarantine / failure isolation).
-    let quarantined = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
         loop {
             let store =
                 maestria_storage_sqlite::SqliteStore::open_read_only(&layout.database_path)?;

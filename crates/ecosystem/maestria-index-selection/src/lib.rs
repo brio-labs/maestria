@@ -12,10 +12,10 @@
 /// - `classify`: deterministic Recommended / Maybe / Noise rules.
 /// - `candidates`: the candidate tree with per-directory policies.
 /// - `profile`: persisted selection profiles.
-mod candidates;
+pub mod candidates;
 mod classify;
 mod policy;
-mod profile;
+pub mod profile;
 mod scan;
 #[cfg(test)]
 mod tests;
