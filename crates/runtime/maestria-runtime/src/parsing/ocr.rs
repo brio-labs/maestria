@@ -309,9 +309,7 @@ impl EffectExecutionContext {
         }
         Self::send_input_blocking(
             &self.input_tx,
-            DomainInput::StartFullTextIndex(maestria_domain::StartFullTextIndex {
-                artifact_id,
-            }),
+            DomainInput::StartFullTextIndex(maestria_domain::StartFullTextIndex { artifact_id }),
             "start full-text index",
         )
         .await

@@ -18,9 +18,7 @@ pub(crate) fn IndexWorkspace() -> Element {
     let context = use_context::<Signal<WorkspaceContext>>();
     let api = use_hook(ApiClient::new);
     let root = use_signal(|| match context.read().bootstrap_status.as_ref() {
-        Some(status) if status.instance_root.starts_with('/') => {
-            status.instance_root.clone()
-        }
+        Some(status) if status.instance_root.starts_with('/') => status.instance_root.clone(),
         _ => String::new(),
     });
     let candidates: Signal<LoadState<IndexCandidatesWire>> = use_signal(|| LoadState::Empty);

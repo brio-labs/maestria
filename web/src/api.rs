@@ -290,11 +290,10 @@ impl ApiClient {
     }
     /// # Cancellation
     /// Dropping the future cancels the browser request.
-    pub async fn index_selection(
-        &self,
-    ) -> Result<Option<IndexSelectionProfileWire>, ClientError> {
-        let response: Envelope<IndexSelectionResponseWire> =
-            self.send(self.empty("GET", "/api/index/selection")?).await?;
+    pub async fn index_selection(&self) -> Result<Option<IndexSelectionProfileWire>, ClientError> {
+        let response: Envelope<IndexSelectionResponseWire> = self
+            .send(self.empty("GET", "/api/index/selection")?)
+            .await?;
         Ok(response.data.profile)
     }
     /// # Cancellation

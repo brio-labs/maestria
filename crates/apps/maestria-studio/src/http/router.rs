@@ -55,7 +55,10 @@ pub fn build_router(state: StudioState) -> Router {
         .route("/retrieval", get(retrieval::status))
         .route("/tasks", get(tasks::list))
         .route("/index/candidates/{root}", get(index::candidates))
-        .route("/index/selection", get(index::selection_get).put(index::selection_save))
+        .route(
+            "/index/selection",
+            get(index::selection_get).put(index::selection_save),
+        )
         .route("/index/run", post(index::run))
         .fallback(api_not_found)
         .method_not_allowed_fallback(method_not_allowed)
