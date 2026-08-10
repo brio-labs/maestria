@@ -1,9 +1,9 @@
 //! Behavior-defining unit tests for the choice layer.
 
 use crate::candidates::scan_candidates;
-use crate::classify::{classify, default_policy, Class};
-use crate::policy::{group_by_child, select_source, IndexPolicy, Selection};
-use crate::profile::{load_profile, save_profile, IndexSelectionProfile};
+use crate::classify::{Class, classify, default_policy};
+use crate::policy::{IndexPolicy, Selection, group_by_child, select_source};
+use crate::profile::{IndexSelectionProfile, load_profile, save_profile};
 use crate::scan::{
     collect_files, dir_features, is_privacy_excluded_path, is_supported_source_file,
 };
@@ -211,12 +211,14 @@ fn display_exact_strings() {
 fn is_filtered_requires_any_switch() {
     assert!(!IndexPolicy::everything().is_filtered());
     assert!(IndexPolicy::filtered().is_filtered());
-    assert!(!IndexPolicy {
-        max_file_bytes: 0,
-        skip_generated: false,
-        skip_minified: false,
-    }
-    .is_filtered());
+    assert!(
+        !IndexPolicy {
+            max_file_bytes: 0,
+            skip_generated: false,
+            skip_minified: false,
+        }
+        .is_filtered()
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -374,10 +376,11 @@ fn scan_candidates_classifies_fixture_tree() -> Result<(), Box<dyn std::error::E
     // own decision covers the whole subtree, so the leaves are never
     // prompted individually.
     assert_eq!(dump.children.len(), 300);
-    assert!(dump
-        .children
-        .iter()
-        .all(|leaf| leaf.children.is_empty() && leaf.file_count == 1));
+    assert!(
+        dump.children
+            .iter()
+            .all(|leaf| leaf.children.is_empty() && leaf.file_count == 1)
+    );
     Ok(())
 }
 
@@ -451,8 +454,8 @@ fn exclusion_policy_covers_sensitive_and_build_paths() {
 }
 
 #[test]
-fn collecting_single_env_file_is_rejected_by_privacy_policy(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn collecting_single_env_file_is_rejected_by_privacy_policy()
+-> Result<(), Box<dyn std::error::Error>> {
     let directory = TestDirectory::create()?;
     let env_file = directory.path().join(".env");
     write_file(&env_file, "TOKEN=secret")?;
@@ -529,8 +532,8 @@ fn recursive_collection_includes_pdf_files() -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
-fn collecting_single_symlink_is_rejected_and_recursive_collection_skips_it(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn collecting_single_symlink_is_rejected_and_recursive_collection_skips_it()
+-> Result<(), Box<dyn std::error::Error>> {
     let directory = TestDirectory::create()?;
     let sensitive_target = directory.path().join(".env");
     let benign_link = directory.path().join("public.md");
@@ -603,8 +606,8 @@ fn collecting_path_with_symlinked_parent_is_rejected() -> Result<(), Box<dyn std
 }
 
 #[test]
-fn recursive_collection_skips_unsupported_files_and_keeps_supported_markdown(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn recursive_collection_skips_unsupported_files_and_keeps_supported_markdown()
+-> Result<(), Box<dyn std::error::Error>> {
     let directory = TestDirectory::create()?;
     write_file(&directory.path().join("note.md"), "# Normal note")?;
     write_file(
@@ -630,8 +633,8 @@ fn recursive_collection_skips_unsupported_files_and_keeps_supported_markdown(
 }
 
 #[test]
-fn recursive_collection_skips_excluded_entries_and_keeps_markdown(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn recursive_collection_skips_excluded_entries_and_keeps_markdown()
+-> Result<(), Box<dyn std::error::Error>> {
     let directory = TestDirectory::create()?;
     write_file(&directory.path().join("note.md"), "# Normal note")?;
     write_file(&directory.path().join("docs/guide.md"), "# Normal guide")?;
@@ -693,8 +696,8 @@ fn recursive_collection_propagates_ignore_file_errors() -> Result<(), Box<dyn st
 }
 
 #[test]
-fn recursive_collection_skips_hidden_files_and_directories(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn recursive_collection_skips_hidden_files_and_directories()
+-> Result<(), Box<dyn std::error::Error>> {
     let directory = TestDirectory::create()?;
     write_file(&directory.path().join("note.md"), "# Normal note")?;
     write_file(&directory.path().join(".hidden_file.md"), "hidden")?;

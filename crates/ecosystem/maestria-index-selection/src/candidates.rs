@@ -1,8 +1,8 @@
 //! The candidate tree: every directory below a root, classified, with its
 //! default policy, and its direct children.
 
-use crate::classify::{classify, default_policy, Class};
-use crate::policy::{group_by_child, IndexPolicy};
+use crate::classify::{Class, classify, default_policy};
+use crate::policy::{IndexPolicy, group_by_child};
 use crate::scan::{collect_files, dir_features, is_home_root};
 use anyhow::Result;
 use std::path::{Path, PathBuf};

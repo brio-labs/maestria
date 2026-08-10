@@ -20,11 +20,11 @@ mod scan;
 #[cfg(test)]
 mod tests;
 
-pub use candidates::{scan_candidates, CandidateDir};
-pub use classify::{classify, default_policy, Class};
-pub use policy::{group_by_child, is_notable_group, select_source, IndexPolicy, Selection};
-pub use profile::{load_profile, save_profile, IndexSelectionProfile};
+pub use candidates::{CandidateDir, scan_candidates};
+pub use classify::{Class, classify, default_policy};
+pub use policy::{IndexPolicy, Selection, group_by_child, is_notable_group, select_source};
+pub use profile::{IndexSelectionProfile, load_profile, save_profile};
 pub use scan::{
-    collect_files, dir_features, is_home_root, is_privacy_excluded_path, is_supported_source_file,
-    DirFeatures,
+    DirFeatures, collect_files, dir_features, is_home_root, is_privacy_excluded_path,
+    is_supported_source_file,
 };
