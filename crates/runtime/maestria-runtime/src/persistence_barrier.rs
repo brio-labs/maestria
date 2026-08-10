@@ -25,11 +25,14 @@ use tokio_util::sync::CancellationToken;
 /// `timeout` elapses, or `shutdown_token` is cancelled.
 ///
 /// The predicate is invoked for every envelope of each scan; the scan is
-/// repeated on a fixed 5ms poll interval. Scan errors are logged and treated
-/// as a failed barrier (the caller must not continue on an unobservable
-/// durability check).
+/// repeated on a fixed 5ms poll interval. Callers must pass the narrowest
+/// [`EventFilter`] they can: a filterless scan reads and decodes the whole
+/// event log on every poll, which dominates runtime cost as the log grows.
+/// Scan errors are logged and treated as a failed barrier (the caller must
+/// not continue on an unobservable durability check).
 pub(crate) async fn wait_for_event(
     event_log: &dyn EventLog,
+    filter: EventFilter,
     timeout: Duration,
     shutdown_token: &CancellationToken,
     context: &str,
@@ -40,7 +43,7 @@ pub(crate) async fn wait_for_event(
             if shutdown_token.is_cancelled() {
                 return false;
             }
-            match event_log.scan(EventFilter { artifact_id: None }) {
+            match event_log.scan(filter.clone()) {
                 Ok(events) => {
                     if events.iter().any(&matches) {
                         return true;

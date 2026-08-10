@@ -630,6 +630,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     "crates/ecosystem/maestria-parsers/src/lib.rs": (
         "cargo_toml",
         "chunking",
+        "generic_text",
         "markdown",
         "pdf",
         "pdf_geometry",

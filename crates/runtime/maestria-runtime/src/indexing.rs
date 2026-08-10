@@ -32,7 +32,7 @@ impl EffectExecutionContext {
                 artifact_id = %request.artifact_id,
                 "refusing full-text indexing for denied artifact"
             );
-            return false;
+            return self.quarantine_and_complete(&request).await;
         }
         let chunk_scan = scan_secrets(&chunk.text);
         if !chunk_scan.is_clean() {
@@ -41,7 +41,7 @@ impl EffectExecutionContext {
                 findings = chunk_scan.findings.len(),
                 "refusing full-text indexing for secret-bearing chunk"
             );
-            return false;
+            return self.quarantine_and_complete(&request).await;
         }
         // Cards belong to the artifact, not to individual chunks; index them
         // only on the first chunk so they are registered once per artifact.
@@ -84,6 +84,50 @@ impl EffectExecutionContext {
             return false;
         }
         true
+    }
+
+    /// Terminalize a refused artifact without failing the effect.
+    ///
+    /// The chunk is deliberately never written to the search index; the
+    /// artifact is marked `Quarantined` (idempotent — the domain emits no
+    /// duplicate events once the status is recorded) and the chunk's
+    /// indexing pipeline completes so the artifact reaches a terminal
+    /// state and the batch continues. A refusal is a per-artifact privacy
+    /// outcome, not a runtime failure.
+    async fn quarantine_and_complete(&self, request: &IndexFullTextRequest) -> bool {
+        if let Some(artifact) = self.state.read().await.artifacts.get(&request.artifact_id) {
+            let Some(hash) = artifact.content_hash.clone() else {
+                return false;
+            };
+            if Self::send_input_blocking(
+                &self.input_tx,
+                DomainInput::ParserCompleted(maestria_domain::ParserResult {
+                    artifact_id: request.artifact_id,
+                    artifact_version_id: maestria_domain::ArtifactVersionId::new(
+                        request.artifact_id.value(),
+                    ),
+                    content_hash: hash,
+                    status: maestria_domain::ParseStatus::Quarantined,
+                    tree_root_id: None,
+                    tree_nodes: Vec::new(),
+                    chunks: Vec::new(),
+                    cards: Vec::new(),
+                }),
+                "quarantine artifact",
+            )
+            .await
+            .is_err()
+            {
+                return false;
+            }
+        } else {
+            return false;
+        }
+        let completion = FullTextIndexCompleted {
+            artifact_id: request.artifact_id,
+            chunk_id: request.chunk_id,
+        };
+        Self::deliver_full_text_completion(&self.input_tx, completion).is_ok()
     }
 
     /// Deliver a committed full-text completion to the domain input loop.

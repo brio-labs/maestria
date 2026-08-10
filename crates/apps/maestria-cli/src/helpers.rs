@@ -15,5 +15,5 @@ pub(crate) use evidence_format::source_label;
 pub(crate) use index_files::collect_index_files;
 pub(crate) use instance_access::{ensure_instance, load_manifest, validated_instance};
 pub(crate) use state_polling::{
-    load_kernel_state_with_retry, retry_db_busy, wait_for_kernel_state,
+    load_kernel_state_with_retry, retry_db_busy, wait_for_artifact_state, wait_for_kernel_state,
 };

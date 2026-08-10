@@ -92,7 +92,9 @@ async fn dispatch(command: Commands) -> Result<()> {
             instance_dir,
             path,
             recursive,
-        } => dispatch_index(command, instance_dir, path, recursive).await?,
+            mode,
+            yes,
+        } => dispatch_index(command, instance_dir, path, recursive, mode, yes).await?,
         Commands::Search {
             command,
             instance_dir,
@@ -141,6 +143,8 @@ async fn dispatch_index(
     instance_dir: std::path::PathBuf,
     path: Option<std::path::PathBuf>,
     recursive: bool,
+    mode: commands::index_policy::IndexMode,
+    yes: bool,
 ) -> Result<()> {
     match command {
         Some(IndexCommands::Generations {
@@ -154,7 +158,7 @@ async fn dispatch_index(
         }
         None => {
             let path = path.ok_or_else(|| anyhow::anyhow!("index requires a path"))?;
-            commands::index::run(instance_dir, path, recursive).await
+            commands::index::run(instance_dir, path, recursive, mode, yes).await
         }
     }
 }

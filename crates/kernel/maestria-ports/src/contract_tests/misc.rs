@@ -26,19 +26,34 @@ pub fn assert_parser_round_trip(
         supported.path
     );
 
+    let artifact_id = context.artifact_id;
+    let next_artifact_id = ArtifactId::new(artifact_id.value().wrapping_add(1));
+
     let unsupported = FileMetadata {
         path: PathBuf::from("archive.bin"),
         size: 5,
         extension: Some("bin".to_string()),
     };
-    assert!(
-        !parser.supports(&unsupported),
-        "parser must not support {:?}",
-        unsupported.path
-    );
+    // Extension-based parsers decline unknown archives outright; content-based
+    // parsers may claim them but must reject binary bytes. Either way binary
+    // archives never become indexable content.
+    if parser.supports(&unsupported) {
+        let rejected = parser.parse(
+            FileHandle {
+                path: unsupported.path.clone(),
+                bytes: vec![0x00, 0x01, 0x02, 0x03, 0x04],
+            },
+            ParseContext {
+                artifact_id: next_artifact_id,
+            },
+        );
+        assert!(
+            matches!(rejected, Err(PortError::InvalidInputContext { .. })),
+            "parser claiming {:?} must reject binary content",
+            unsupported.path
+        );
+    }
 
-    let artifact_id = context.artifact_id;
-    let next_artifact_id = ArtifactId::new(artifact_id.value().wrapping_add(1));
     let parsed = parser.parse(sample.clone(), context)?;
     assert_eq!(parsed.artifact_id, artifact_id);
     assert_eq!(parsed.status, ParseStatus::Parsed);

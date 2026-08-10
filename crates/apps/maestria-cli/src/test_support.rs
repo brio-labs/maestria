@@ -111,7 +111,7 @@ pub fn assert_init_ok(
     Ok(())
 }
 pub fn assert_index_ok(instance_path: &str, file: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let stdout = assert_ok_lines(&["index", "-i", instance_path, file], 1)?;
+    let stdout = assert_ok_lines(&["index", "-i", instance_path, file], 2)?;
     assert!(
         stdout.contains("indexed"),
         "index stdout missing 'indexed': {stdout}"

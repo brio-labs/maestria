@@ -94,6 +94,30 @@ impl EffectExecutionContext {
         })
     }
 
+    /// Ordered send into the domain input channel that awaits capacity.
+    ///
+    /// The artifact pipeline emits correlated inputs (ParserCompleted →
+    /// RecordEvidence → StartFullTextIndex) that must reach the domain in
+    /// order. Under parallel effect load `try_send` overflows the bounded
+    /// channel and failing the effect would retry-storm; awaiting capacity
+    /// applies backpressure while preserving order.
+    pub(crate) async fn send_input_blocking(
+        input_tx: &mpsc::Sender<DomainInput>,
+        input: DomainInput,
+        context: &'static str,
+    ) -> Result<(), crate::FeedbackError> {
+        match input_tx.try_send(input) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(pending)) => {
+                input_tx.send(pending).await.map_err(|error| {
+                    tracing::error!(%error, context, "failed to send domain input (shutdown)");
+                    crate::FeedbackError::RuntimeShutdown
+                })
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(crate::FeedbackError::RuntimeShutdown),
+        }
+    }
+
     // ── lightweight handlers ──────────────────────────────────────────
 
     pub(crate) async fn handle_search_knowledge(&self, request: SearchKnowledgeRequest) -> bool {

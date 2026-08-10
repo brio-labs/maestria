@@ -28,6 +28,13 @@ pub enum Commands {
         path: Option<PathBuf>,
         #[arg(short, long)]
         recursive: bool,
+        /// Source-selection policy: simple (everything), lazy (skip large),
+        /// or smart (also skip high-confidence generated content).
+        #[arg(long, value_enum, default_value = "simple")]
+        mode: crate::commands::index_policy::IndexMode,
+        /// Accept every directory prompt (non-interactive).
+        #[arg(long)]
+        yes: bool,
     },
     Search {
         #[command(subcommand)]

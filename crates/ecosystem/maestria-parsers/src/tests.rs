@@ -104,12 +104,18 @@ fn cargo_toml_chunks_by_table_sections() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 #[test]
-fn registry_rejects_unsupported_extension() {
+fn registry_rejects_binary_content_by_sniffing() -> Result<(), Box<dyn Error>> {
     let registry = ParserRegistry::with_defaults();
 
-    assert!(!registry.supports(&metadata("image.bin", Some("bin"))));
-    let res = registry.parse(handle("image.bin", b"alpha"), context(13));
+    // Content decides, not the extension: binary bytes are rejected even
+    // under a text-looking name, while ASCII text parses under a binary
+    // extension.
+    let binary = [0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d, 0x0a, 0x1a];
+    let res = registry.parse(handle("image.bin", &binary), context(13));
     assert!(matches!(res, Err(PortError::InvalidInputContext { .. })));
+    let parsed = registry.parse(handle("image.bin", b"alpha"), context(14))?;
+    assert_eq!(parsed.chunks[0].text, "alpha");
+    Ok(())
 }
 
 #[test]

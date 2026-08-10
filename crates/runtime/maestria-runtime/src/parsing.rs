@@ -42,12 +42,18 @@ impl EffectExecutionContext {
 
         // 3. Check that the parser supports this file type.
         if !self.check_parser_support(&path, &parse_bytes, artifact.id) {
-            return self.emit_terminal_parser_completed(
-                artifact.id,
-                maestria_domain::ArtifactVersionId::new(artifact.id.value()),
-                maestria_ports::ParseStatus::Unsupported,
-                &source_hash,
-            );
+            if !self
+                .emit_terminal_parser_completed(
+                    artifact.id,
+                    maestria_domain::ArtifactVersionId::new(artifact.id.value()),
+                    maestria_ports::ParseStatus::Unsupported,
+                    &source_hash,
+                )
+                .await
+            {
+                return false;
+            }
+            return self.emit_start_full_text_index(artifact.id).await.is_ok();
         }
 
         // 4. On fresh ingestion, publish the durable ParserStarted marker and
@@ -263,6 +269,9 @@ impl EffectExecutionContext {
             let capped = barrier_timeout.min(Duration::from_secs(30));
             let persisted = persistence_barrier::wait_for_event(
                 &*self.adapters.event_log,
+                maestria_ports::EventFilter {
+                    artifact_id: Some(artifact_id),
+                },
                 capped,
                 &tokio_util::sync::CancellationToken::new(),
                 "ParserStarted persistence barrier",
@@ -270,11 +279,17 @@ impl EffectExecutionContext {
             )
             .await;
             if !persisted {
-                tracing::error!(
+                // Degrade, do not fail the effect: under parallel ingestion
+                // the event-log write can lag past the cap, and failing here
+                // would retry-storm and cancel the runtime. The domain
+                // processes ParserStarted and ParserCompleted in channel
+                // order, so the marker still lands before the completion;
+                // a crash inside that window only re-opens the resume
+                // marker, which re-detection heals on the next run.
+                tracing::warn!(
                     artifact_id = %artifact_id,
-                    "ParserStarted persistence barrier failed; not parsing"
+                    "ParserStarted persistence barrier timed out; parsing without the barrier"
                 );
-                return false;
             }
         }
         true
