@@ -104,7 +104,11 @@ The local MVP now treats file evidence as immutable source-backed data:
 - repeated identical evidence writes are idempotent;
 - conflicting evidence writes return a typed storage conflict;
 - instance manifests persist approved read roots and privacy exclusion patterns;
-- CLI indexing rejects sources outside the persisted read scope before reading bytes;
+- CLI indexing excludes sources outside the persisted read scope before reading bytes
+  (counted as policy skips in the batch summary, never read);
+- directory indexing is whitelist-first: the choice layer classifies every directory,
+  the user approves a whitelist (interactively or non-interactively), and only
+  whitelisted files are submitted under their per-directory policy switches;
 - restart integration tests reopen SQLite, blob, and full-text adapters before querying.
 
 These boundaries preserve `I-Evidence-Immutable`, `I-Evidence-Provenance`,
