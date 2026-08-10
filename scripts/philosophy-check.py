@@ -643,6 +643,13 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "tree_builder",
         "typescript_source",
     ),
+    "crates/ecosystem/maestria-index-selection/src/lib.rs": (
+        "policy",
+        "scan",
+        "classify",
+        "candidates",
+        "profile",
+    ),
     "crates/ecosystem/maestria-validation/src/lib.rs": (
         "runner",
         "search_provenance",

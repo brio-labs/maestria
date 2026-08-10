@@ -18,6 +18,7 @@ members = [
      "crates/ecosystem/maestria-memory",
      "crates/ecosystem/maestria-code-intel",
      "crates/ecosystem/maestria-parsers",
+     "crates/ecosystem/maestria-index-selection",
      "crates/ecosystem/maestria-validation",
      "crates/ecosystem/maestria-web-evidence",
      "crates/harness/maestria-harness",

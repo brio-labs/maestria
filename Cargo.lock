@@ -2966,6 +2966,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "maestria-index-selection"
+version = "0.6.1"
+dependencies = [
+ "anyhow",
+ "ignore",
+ "maestria-governance",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "maestria-memory"
 version = "0.6.1"
 dependencies = [
