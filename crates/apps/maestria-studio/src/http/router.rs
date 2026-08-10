@@ -15,7 +15,7 @@ use tower_http::{
 use super::{
     ask, assets, auth, bootstrap, drafts,
     error::{ProblemCode, StudioError},
-    evidence, notebooks, retrieval, search, sources,
+    evidence, index, notebooks, retrieval, search, sources,
     state::StudioState,
     tasks,
 };
@@ -54,6 +54,9 @@ pub fn build_router(state: StudioState) -> Router {
         .route("/evidence/{evidence_id}", get(evidence::evidence_global))
         .route("/retrieval", get(retrieval::status))
         .route("/tasks", get(tasks::list))
+        .route("/index/candidates/{root}", get(index::candidates))
+        .route("/index/selection", get(index::selection_get).put(index::selection_save))
+        .route("/index/run", post(index::run))
         .fallback(api_not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state.clone());

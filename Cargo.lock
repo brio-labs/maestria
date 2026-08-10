@@ -3094,6 +3094,7 @@ dependencies = [
  "axum",
  "maestria-core",
  "maestria-daemon",
+ "maestria-index-selection",
  "mime_guess",
  "rust-embed",
  "serde",

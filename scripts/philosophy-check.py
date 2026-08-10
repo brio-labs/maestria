@@ -337,6 +337,8 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "app",
         "components",
         "drafts",
+        "index",
+        "index_types",
         "markdown",
         "nav",
         "pages",

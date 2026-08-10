@@ -1,6 +1,6 @@
 use crate::{
-    Dashboard, NotFound, NotebookAsk, NotebookDrafts, NotebookOverview, NotebookSources, Retrieval,
-    Search, Tasks,
+    Dashboard, Index, NotFound, NotebookAsk, NotebookDrafts, NotebookOverview, NotebookSources,
+    Retrieval, Search, Tasks,
 };
 use dioxus::prelude::*;
 
@@ -14,6 +14,8 @@ pub enum Route {
     Retrieval {},
     #[route("/tasks")]
     Tasks {},
+    #[route("/index")]
+    Index {},
     #[route("/notebooks/:notebook_id")]
     NotebookOverview { notebook_id: u64 },
     #[route("/notebooks/:notebook_id/sources")]

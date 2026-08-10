@@ -22,6 +22,11 @@ pub(crate) fn GlobalNav(notebooks: Vec<NotebookSummary>) -> Element {
     } else {
         idle_class
     };
+    let index_class = if matches!(&route, Route::Index { .. }) {
+        active_class
+    } else {
+        idle_class
+    };
     let notebooks_class = if matches!(
         &route,
         Route::Dashboard { .. }
@@ -56,6 +61,11 @@ pub(crate) fn GlobalNav(notebooks: Vec<NotebookSummary>) -> Element {
                     class: "block rounded px-3 py-2 {tasks_class}",
                     href: "/tasks",
                     "Tasks"
+                }
+                a {
+                    class: "block rounded px-3 py-2 {index_class}",
+                    href: "/index",
+                    "Index"
                 }
             }
             h2 {
@@ -97,6 +107,9 @@ pub(crate) fn NotebookSelector(
                     "tasks" => {
                         navigator.push(Route::Tasks {});
                     }
+                    "index" => {
+                        navigator.push(Route::Index {});
+                    }
                     _ => {
                         if let Ok(id) = value.parse::<u64>() {
                             navigator.push(Route::NotebookOverview { notebook_id: id });
@@ -108,6 +121,7 @@ pub(crate) fn NotebookSelector(
             option { value: "search", "Search" }
             option { value: "retrieval", "Retrieval" }
             option { value: "tasks", "Tasks" }
+            option { value: "index", "Index" }
             for notebook in notebooks {
                 option { value: "{notebook.notebook_id}", "{notebook.title}" }
             }

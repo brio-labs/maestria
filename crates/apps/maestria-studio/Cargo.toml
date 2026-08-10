@@ -13,6 +13,7 @@ anyhow = "1.0"
 axum = "0.8.9"
 maestria-core = { path = "../../core/maestria-core" }
 maestria-daemon = { path = "../maestria-daemon" }
+maestria-index-selection = { path = "../../ecosystem/maestria-index-selection" }
 mime_guess = "2.0.5"
 rust-embed = "8.7"
 serde = { version = "1.0", features = ["derive"] }

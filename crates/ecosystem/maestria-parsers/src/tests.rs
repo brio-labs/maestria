@@ -2,7 +2,7 @@ use std::error::Error;
 use std::path::PathBuf;
 
 use maestria_domain::ArtifactId;
-use maestria_ports::{FileHandle, FileMetadata, ParseContext, Parser, PortError};
+use maestria_ports::{FileHandle, ParseContext, Parser, PortError};
 
 use super::*;
 
@@ -16,14 +16,6 @@ fn handle(path: &str, bytes: &[u8]) -> FileHandle {
 fn context(id: u64) -> ParseContext {
     ParseContext {
         artifact_id: ArtifactId::new(id),
-    }
-}
-
-fn metadata(path: &str, extension: Option<&str>) -> FileMetadata {
-    FileMetadata {
-        path: PathBuf::from(path),
-        size: 0,
-        extension: extension.map(str::to_string),
     }
 }
 

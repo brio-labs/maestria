@@ -11,6 +11,7 @@
 //! - `sources`: source catalog and selection handlers.
 //! - `drafts`: draft CRUD handlers.
 //! - `ask`: grounded Ask validation and agent protocol boundary.
+//! - `index`: index choice workspace handlers.
 
 mod ask;
 mod assets;
@@ -20,6 +21,7 @@ mod drafts;
 mod error;
 mod evidence;
 mod extract;
+mod index;
 mod notebooks;
 mod retrieval;
 mod router;

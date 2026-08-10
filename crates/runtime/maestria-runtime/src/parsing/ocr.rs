@@ -170,21 +170,7 @@ impl EffectExecutionContext {
         blob_id: BlobId,
         source_hash: &maestria_domain::ContentHash,
     ) -> bool {
-        if parsed.artifact_id != artifact_id {
-            tracing::error!(
-                requested_artifact_id = %artifact_id.value(),
-                parsed_artifact_id = %parsed.artifact_id.value(),
-                "parser returned a result for a different artifact; rejecting"
-            );
-            return false;
-        }
-        if parsed.content_hash.as_str() != source_hash.as_str() {
-            tracing::error!(
-                artifact_id = %artifact_id.value(),
-                expected = %source_hash.as_str(),
-                actual = %parsed.content_hash.as_str(),
-                "parsed artifact content hash does not match source hash; rejecting"
-            );
+        if !self.validate_parsed_identity(artifact_id, &parsed, source_hash) {
             return false;
         }
         let parser_status = parsed.status.clone();
@@ -228,6 +214,57 @@ impl EffectExecutionContext {
             }
             (Vec::new(), Vec::new(), Vec::new())
         };
+        let artifact_id_for_pipeline = parsed.artifact_id;
+        if !self
+            .emit_parser_completion(parsed, status, chunks, cards)
+            .await
+        {
+            return false;
+        }
+        if !indexable {
+            return true;
+        }
+        self.emit_index_pipeline(evidence_inputs, artifact_id_for_pipeline)
+            .await
+    }
+
+    /// Reject a parser result that does not belong to the requested
+    /// artifact or does not match the source content hash.
+    fn validate_parsed_identity(
+        &self,
+        artifact_id: ArtifactId,
+        parsed: &maestria_ports::ParsedArtifact,
+        source_hash: &maestria_domain::ContentHash,
+    ) -> bool {
+        if parsed.artifact_id != artifact_id {
+            tracing::error!(
+                requested_artifact_id = %artifact_id.value(),
+                parsed_artifact_id = %parsed.artifact_id.value(),
+                "parser returned a result for a different artifact; rejecting"
+            );
+            return false;
+        }
+        if parsed.content_hash.as_str() != source_hash.as_str() {
+            tracing::error!(
+                artifact_id = %artifact_id.value(),
+                expected = %source_hash.as_str(),
+                actual = %parsed.content_hash.as_str(),
+                "parsed artifact content hash does not match source hash; rejecting"
+            );
+            return false;
+        }
+        true
+    }
+
+    /// Deliver the `ParserCompleted` input for a parsed artifact; the
+    /// pipeline only continues when the input is accepted.
+    async fn emit_parser_completion(
+        &self,
+        parsed: maestria_ports::ParsedArtifact,
+        status: maestria_domain::ParseStatus,
+        chunks: Vec<maestria_domain::RegisterChunkInput>,
+        cards: Vec<maestria_domain::CreateCardInput>,
+    ) -> bool {
         let tree_nodes = parsed.tree.nodes().to_vec();
         if Self::send_input_blocking(
             &self.input_tx,
@@ -248,9 +285,16 @@ impl EffectExecutionContext {
         {
             return false;
         }
-        if !indexable {
-            return true;
-        }
+        true
+    }
+
+    /// Deliver the evidence and full-text index inputs that follow a
+    /// successful parser completion.
+    async fn emit_index_pipeline(
+        &self,
+        evidence_inputs: Vec<maestria_domain::RecordEvidenceInput>,
+        artifact_id: ArtifactId,
+    ) -> bool {
         for evidence in evidence_inputs {
             if Self::send_input_blocking(
                 &self.input_tx,
@@ -266,7 +310,7 @@ impl EffectExecutionContext {
         Self::send_input_blocking(
             &self.input_tx,
             DomainInput::StartFullTextIndex(maestria_domain::StartFullTextIndex {
-                artifact_id: parsed.artifact_id,
+                artifact_id,
             }),
             "start full-text index",
         )
