@@ -13,6 +13,7 @@ use cli_types::{
 };
 use maestria_core::InstanceLayout;
 use maestria_daemon::{ClientOperation, ClientResponse, DaemonClient};
+use maestria_index_selection::IndexPolicy;
 use maestria_studio::StudioServer;
 
 fn daemon_unavailable(instance_dir: &std::path::Path) -> anyhow::Error {
@@ -92,9 +93,27 @@ async fn dispatch(command: Commands) -> Result<()> {
             instance_dir,
             path,
             recursive,
-            mode,
+            max_file_bytes,
+            skip_generated,
+            skip_minified,
             yes,
-        } => dispatch_index(command, instance_dir, path, recursive, mode, yes).await?,
+            save_selection,
+        } => {
+            dispatch_index(
+                command,
+                instance_dir,
+                path,
+                recursive,
+                IndexBatchFlags {
+                    max_file_bytes,
+                    skip_generated,
+                    skip_minified,
+                },
+                yes,
+                save_selection,
+            )
+            .await?
+        }
         Commands::Search {
             command,
             instance_dir,
@@ -138,13 +157,44 @@ fn dispatch_promotion(command: PromotionCommands) -> Result<()> {
     }
 }
 
+/// Batch-level policy flags for the index command.
+struct IndexBatchFlags {
+    max_file_bytes: Option<u64>,
+    skip_generated: bool,
+    skip_minified: bool,
+}
+
+/// `max_file_bytes` value meaning "no limit".
+const UNLIMITED: u64 = 0;
+
+impl IndexBatchFlags {
+    /// The forced batch policy, or `None` when no flag is set (the
+    /// classification defaults then apply).
+    fn batch_policy(&self) -> Option<IndexPolicy> {
+        if self.max_file_bytes.is_some() || self.skip_generated || self.skip_minified {
+            Some(IndexPolicy {
+                max_file_bytes: if let Some(bytes) = self.max_file_bytes {
+                    bytes
+                } else {
+                    UNLIMITED
+                },
+                skip_generated: self.skip_generated,
+                skip_minified: self.skip_minified,
+            })
+        } else {
+            None
+        }
+    }
+}
+
 async fn dispatch_index(
     command: Option<IndexCommands>,
     instance_dir: std::path::PathBuf,
     path: Option<std::path::PathBuf>,
     recursive: bool,
-    mode: commands::index_policy::IndexMode,
+    flags: IndexBatchFlags,
     yes: bool,
+    save_selection: bool,
 ) -> Result<()> {
     match command {
         Some(IndexCommands::Generations {
@@ -158,7 +208,15 @@ async fn dispatch_index(
         }
         None => {
             let path = path.ok_or_else(|| anyhow::anyhow!("index requires a path"))?;
-            commands::index::run(instance_dir, path, recursive, mode, yes).await
+            commands::index::run(
+                instance_dir,
+                path,
+                recursive,
+                flags.batch_policy(),
+                yes,
+                save_selection,
+            )
+            .await
         }
     }
 }

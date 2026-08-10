@@ -28,13 +28,21 @@ pub enum Commands {
         path: Option<PathBuf>,
         #[arg(short, long)]
         recursive: bool,
-        /// Source-selection policy: simple (everything), lazy (skip large),
-        /// or smart (also skip high-confidence generated content).
-        #[arg(long, value_enum, default_value = "simple")]
-        mode: crate::commands::index_policy::IndexMode,
+        /// Skip files larger than N bytes; 0 disables.
+        #[arg(long)]
+        max_file_bytes: Option<u64>,
+        /// Skip generated asset dumps (single-extension dumps).
+        #[arg(long)]
+        skip_generated: bool,
+        /// Skip minified single-line bundles.
+        #[arg(long)]
+        skip_minified: bool,
         /// Accept every directory prompt (non-interactive).
         #[arg(long)]
         yes: bool,
+        /// Write the approved selection to system/index-selection.json.
+        #[arg(long)]
+        save_selection: bool,
     },
     Search {
         #[command(subcommand)]

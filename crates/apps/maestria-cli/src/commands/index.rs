@@ -4,12 +4,15 @@ use maestria_domain::{
     ArtifactDetected, ArtifactId, DomainInput, IndexStatus, KernelState, TaskId,
 };
 use maestria_governance::{PrivacyExclusions, Scope};
+use maestria_index_selection::{IndexPolicy, Selection};
 use std::{
     fs,
+    io::IsTerminal,
     path::{Path, PathBuf},
     time::Duration,
 };
 
+use super::index_selection::{SelectionPlan, approve_interactively, approve_scripted, record_skip};
 use crate::helpers;
 
 // ---------------------------------------------------------------------------
@@ -36,103 +39,6 @@ enum FileOutcome {
     Indexed,
     Unchanged,
     Skipped(String),
-}
-
-/// Count one policy skip under its reason, preserving insertion order.
-fn record_skip(skipped: &mut Vec<(&'static str, usize)>, reason: &'static str) {
-    if let Some((_, count)) = skipped.iter_mut().find(|(name, _)| *name == reason) {
-        *count += 1;
-    } else {
-        skipped.push((reason, 1));
-    }
-}
-
-/// Ask the user how to treat the subtree `dir`, bounded so a batch never
-/// becomes a questionnaire:
-/// - only notable children (many files or large total size) are asked
-///   about; everything else inherits the parent decision;
-/// - `l` drills one level deeper (up to [`MAX_PROMPT_DEPTH`]);
-/// - at most [`MAX_PROMPT_CHILDREN`] children are listed per level;
-/// - the answers are recorded as exclusions: `n` disables exactly that
-///   subtree, everything else stays indexed.
-fn prompt_directory(
-    dir: &Path,
-    files: &[PathBuf],
-    depth: usize,
-    approval: &mut super::index_policy::Approval,
-    accept_all: &mut bool,
-) -> Result<()> {
-    let groups = super::index_policy::group_by_child(dir, files);
-    let mut prompted = 0usize;
-    for (child, count, total_bytes) in groups {
-        if *accept_all || !super::index_policy::is_notable_group(count, total_bytes) {
-            continue;
-        }
-        prompted += 1;
-        if prompted > MAX_PROMPT_CHILDREN {
-            continue;
-        }
-        let size_mb = total_bytes as f64 / (1024.0 * 1024.0);
-        loop {
-            let options = if depth < MAX_PROMPT_DEPTH {
-                "[Y/n/l/a/q]"
-            } else {
-                "[Y/n/a/q]"
-            };
-            println!(
-                "Index everything under {}? ({count} files, {size_mb:.1} MB) {options}",
-                child.display()
-            );
-            print!("> ");
-            let _ = std::io::Write::flush(&mut std::io::stdout());
-            let mut answer = String::new();
-            if std::io::stdin().read_line(&mut answer).is_err() {
-                return Err(anyhow!("failed to read approval answer"));
-            }
-            match answer.trim().to_ascii_lowercase().as_str() {
-                "" | "y" | "yes" => break,
-                "n" | "no" => {
-                    approval.add_skip(child.clone());
-                    break;
-                }
-                "l" | "list" if depth < MAX_PROMPT_DEPTH => {
-                    let child_files: Vec<PathBuf> = files
-                        .iter()
-                        .filter(|file| file.starts_with(&child))
-                        .cloned()
-                        .collect();
-                    prompt_directory(&child, &child_files, depth + 1, approval, accept_all)?;
-                    break;
-                }
-                "l" | "list" => {
-                    println!("This directory is already at the deepest drill-down level.");
-                }
-                "a" | "all" => {
-                    *accept_all = true;
-                    break;
-                }
-                "q" | "quit" => return Err(anyhow!("aborted by user")),
-                _ => {}
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Deepest drill-down level (root group = 1, so level 4 reaches folders
-/// inside a repository).
-const MAX_PROMPT_DEPTH: usize = 4;
-const MAX_PROMPT_CHILDREN: usize = 6;
-
-/// Offer the collected sources for approval with bounded drill-down.
-fn approve_groups_interactively(
-    root: &Path,
-    files: &[PathBuf],
-) -> Result<super::index_policy::Approval> {
-    let mut approval = super::index_policy::Approval::all();
-    let mut accept_all = false;
-    prompt_directory(root, files, 1, &mut approval, &mut accept_all)?;
-    Ok(approval)
 }
 
 /// Process one file, or return the error that prevented it from reaching a
@@ -282,6 +188,11 @@ async fn drain_validation_recovery(
 
 /// Index files into the instance under the mutation session.
 ///
+/// A single file is indexed directly under the batch policy (or no
+/// filtering). A directory is first classified by the choice layer; the
+/// user approves a whitelist interactively (or it is built automatically
+/// on a non-TTY run / `--yes`), and only whitelisted files are submitted.
+///
 /// # Cancellation
 /// Dropping this future tears down the CLI-side session (instance lock
 /// released, runtime shutdown requested). Files already accepted by the
@@ -291,8 +202,9 @@ pub async fn run(
     instance_dir: PathBuf,
     path: PathBuf,
     recursive: bool,
-    mode: super::index_policy::IndexMode,
+    batch_policy: Option<IndexPolicy>,
     yes: bool,
+    save_selection: bool,
 ) -> Result<()> {
     let layout = helpers::ensure_instance(instance_dir)?;
     let manifest = helpers::load_manifest(&layout)?;
@@ -304,7 +216,10 @@ pub async fn run(
         false,
     );
     let privacy = PrivacyExclusions::default();
-    let files = helpers::collect_index_files(&path, recursive)?;
+
+    let plan = plan_selection(&path, recursive, batch_policy, yes, save_selection, &layout)?;
+
+    let files = maestria_index_selection::collect_files(&path, recursive)?;
     if files.is_empty() {
         return Err(anyhow!(
             "no files selected for indexing at {}",
@@ -312,45 +227,17 @@ pub async fn run(
         ));
     }
 
-    // Approval pass: in `Lazy` and `Smart` modes, notable top-level groups
-    // (many files or large total size) are offered to the user for approval
-    // before anything is submitted. `Simple` never prompts — it indexes
-    // everything, by contract. Scripted runs (no terminal) and `--yes`
-    // approve everything; the mode policy then decides what is skipped.
-    let approval = if mode == super::index_policy::IndexMode::Simple || yes {
-        super::index_policy::Approval::all()
-    } else if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-        approve_groups_interactively(&path, &files)?
-    } else {
-        super::index_policy::Approval::all()
-    };
-
-    // Policy pass: the chosen mode decides which collected sources are
-    // indexed. Skipped sources are counted by reason and never submitted,
-    // so `Smart` and `Lazy` avoid paying parse and index cost on content
-    // the user opted out of.
-    let mut policy_skipped: Vec<(&'static str, usize)> = Vec::new();
-    let mut selected_files = Vec::with_capacity(files.len());
-    for file in &files {
-        if !approval.allows(file) {
-            record_skip(&mut policy_skipped, "unapproved");
-            continue;
-        }
-        if !manifest.allows_source(file) || privacy.is_excluded(file) {
-            record_skip(&mut policy_skipped, "excluded");
-            continue;
-        }
-        let size = fs::metadata(file).map_or(0, |metadata| metadata.len());
-        match super::index_policy::select_source(file, size, mode) {
-            super::index_policy::Selection::Index => selected_files.push(file.clone()),
-            super::index_policy::Selection::Skip(reason) => {
-                record_skip(&mut policy_skipped, reason);
-            }
-        }
-    }
+    // Selection pass: the whitelist decides which collected sources are
+    // indexed; the per-file policy is the deepest approved ancestor's
+    // override (or the batch policy). Skipped sources are counted by
+    // reason and never submitted, so filtered directories avoid paying
+    // parse and index cost on content the user opted out of.
+    let (selected_files, policy_skipped) =
+        select_batch(&files, &plan, batch_policy, &manifest, &privacy);
     for (reason, count) in &policy_skipped {
         println!("policy skipped {count} sources ({reason})");
     }
+    let policy_skipped_total: usize = policy_skipped.iter().map(|(_, count)| count).sum();
 
     let session = maestria_daemon::MutationSession::start(
         layout.clone(),
@@ -408,7 +295,10 @@ pub async fn run(
             )
             .await?;
         }
-        println!("indexed {indexed} · unchanged {unchanged} · skipped {skipped} · failed {failed}");
+        println!(
+            "indexed {indexed} · unchanged {unchanged} · skipped {skipped} · failed {failed}",
+            skipped = skipped + policy_skipped_total,
+        );
         if failed > 0 {
             Err(anyhow!(
                 "{failed} of {} selected files failed to index",
@@ -421,4 +311,94 @@ pub async fn run(
     .await;
 
     session.finish(result).await
+}
+
+/// Build the whitelist plan for `path`.
+///
+/// A direct file target is approved under the batch policy (all switches
+/// off when no flags are given) with no classification or prompts. A
+/// directory is classified by the choice layer, then the user approves
+/// the candidates interactively (or the plan is built automatically on a
+/// non-TTY run / `--yes`); `--save-selection` persists the result.
+fn plan_selection(
+    path: &Path,
+    recursive: bool,
+    batch_policy: Option<IndexPolicy>,
+    yes: bool,
+    save_selection: bool,
+    layout: &InstanceLayout,
+) -> Result<SelectionPlan> {
+    if path.is_file() {
+        let policy = if let Some(policy) = batch_policy {
+            policy
+        } else {
+            IndexPolicy::everything()
+        };
+        let mut plan = SelectionPlan::default();
+        plan.approve_path(path, policy);
+        return Ok(plan);
+    }
+    if !recursive {
+        return Err(anyhow!(
+            "{} is a directory; pass --recursive to index contained files",
+            path.display()
+        ));
+    }
+    // Whitelist-first selection: classify the tree, then let the user
+    // approve (or auto-approve) the candidate directories. The root node
+    // itself is a container, not a candidate — the walk starts at the
+    // top-level groups so the whitelist can exclude subtrees.
+    let tree = maestria_index_selection::scan_candidates(path)?;
+    let plan = if IsTerminal::is_terminal(&std::io::stdin()) && !yes {
+        approve_interactively(&tree, batch_policy)?
+    } else {
+        let mut plan = SelectionPlan::default();
+        for child in &tree.children {
+            approve_scripted(child, batch_policy, yes, &mut plan);
+        }
+        plan
+    };
+    if save_selection {
+        let profile = maestria_index_selection::IndexSelectionProfile {
+            root: path.to_path_buf(),
+            includes: plan.includes().to_vec(),
+            policies: plan.policies().clone(),
+        };
+        maestria_index_selection::save_profile(
+            &layout.system_dir.join("index-selection.json"),
+            &profile,
+        )?;
+    }
+    Ok(plan)
+}
+
+/// Apply the whitelist and the per-file policies to the collected files.
+fn select_batch(
+    files: &[PathBuf],
+    plan: &SelectionPlan,
+    batch_policy: Option<IndexPolicy>,
+    manifest: &InstanceManifest,
+    privacy: &PrivacyExclusions,
+) -> (Vec<PathBuf>, Vec<(&'static str, usize)>) {
+    let mut policy_skipped: Vec<(&'static str, usize)> = Vec::new();
+    let mut selected_files = Vec::with_capacity(files.len());
+    for file in files {
+        if !plan.allows(file) {
+            record_skip(&mut policy_skipped, "unapproved");
+            continue;
+        }
+        if !manifest.allows_source(file) || privacy.is_excluded(file) {
+            record_skip(&mut policy_skipped, "excluded");
+            continue;
+        }
+        let size = fs::metadata(file).map_or(0, |metadata| metadata.len());
+        let policy = plan.file_policy(file, batch_policy);
+        match maestria_index_selection::select_source(file, size, policy) {
+            Selection::Index => selected_files.push(file.clone()),
+            Selection::Skip(reason) => {
+                record_skip(&mut policy_skipped, reason);
+            }
+        }
+    }
+    (selected_files, policy_skipped)
 }

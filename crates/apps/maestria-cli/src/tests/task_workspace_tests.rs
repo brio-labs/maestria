@@ -1,7 +1,7 @@
 use maestria_core::InstanceLayout;
 use maestria_domain::TaskId;
 
-use super::collection_tests::TestDirectory;
+use super::TestDirectory;
 use crate::commands::task::{
     TASK_WORKSPACE_SUBDIRECTORIES, create_task_workspace_directories, task_workspace_directory,
 };
