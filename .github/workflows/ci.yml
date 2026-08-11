@@ -91,12 +91,6 @@ jobs:
         env:
           RUSTC_WRAPPER: ""
         run: corepack pnpm@9.15.9 --dir web build
-      - name: Upload built dist (temporary diagnostic)
-        uses: actions/upload-artifact@v4
-        with:
-          name: studio-dist-ci
-          path: web/dist
-          if-no-files-found: error
       - name: Verify deterministic Studio assets
         run: bash scripts/verify-studio-assets.sh
       - name: Run Studio browser tests
