@@ -114,6 +114,27 @@ fn close_dialog(id: &str) {
     }
 }
 
+/// Whether the user is actively editing one of the draft editor fields.
+///
+/// On native targets (unit tests) no DOM exists, so the answer is `false`
+/// and the signal-comparison guard remains the only protection.
+fn editor_field_focused() -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        false
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()
+            .and_then(|window| window.document())
+            .and_then(|document| document.active_element())
+            .is_some_and(|element| {
+                let id = element.id();
+                id == "draft-title" || id == "draft-markdown"
+            })
+    }
+}
+
 #[component]
 pub fn NotebookNav(notebook: Notebook) -> Element {
     let id = notebook.notebook_id;
@@ -354,11 +375,19 @@ pub fn DraftButton(
                 spawn(async move {
                     match api.draft(notebook_id, draft_id).await {
                         Ok(value) => {
-                            if title.read().as_str() == prior_title.as_str()
-                                && markdown.read().as_str() == prior_markdown.as_str()
-                            {
-                                title.set(value.title.clone());
-                                markdown.set(value.markdown.clone());
+                            // Apply the fetched draft only when the user is
+                            // not actively editing a field (the active
+                            // element check) and has not changed the editor
+                            // state since the click. A mid-fill rewrite by
+                            // the controlled input would corrupt the value
+                            // being typed.
+                            if !editor_field_focused() {
+                                if title.read().as_str() == prior_title.as_str()
+                                    && markdown.read().as_str() == prior_markdown.as_str()
+                                {
+                                    title.set(value.title.clone());
+                                    markdown.set(value.markdown.clone());
+                                }
                             }
                             selected.set(Some(value));
                         }
