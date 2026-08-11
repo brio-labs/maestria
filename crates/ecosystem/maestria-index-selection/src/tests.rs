@@ -1,6 +1,6 @@
 //! Behavior-defining unit tests for the choice layer.
 
-use crate::candidates::scan_candidates;
+use crate::candidates::{bound_candidate_tree, scan_candidates};
 use crate::classify::{Class, classify, default_policy};
 use crate::policy::{IndexPolicy, Selection, group_by_child, select_source};
 use crate::profile::{IndexSelectionProfile, load_profile, save_profile};
@@ -380,6 +380,43 @@ fn scan_candidates_classifies_fixture_tree() -> Result<(), Box<dyn std::error::E
         dump.children
             .iter()
             .all(|leaf| leaf.children.is_empty() && leaf.file_count == 1)
+    );
+    Ok(())
+}
+
+#[test]
+fn bound_candidate_tree_keeps_two_levels_and_largest_groups()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = TestDirectory::create()?;
+    // 20 top-level groups, each with 20 sub-groups (depth 3 below root).
+    for group in 0..20 {
+        for subgroup in 0..20 {
+            write_file(
+                &directory
+                    .path()
+                    .join(format!("g{group:02}/s{subgroup:02}/f.md")),
+                "# x",
+            )?;
+        }
+    }
+    let mut tree = scan_candidates(directory.path())?;
+    assert_eq!(tree.children.len(), 20);
+    assert!(
+        tree.children.iter().all(|child| child.children.len() == 20),
+        "unbounded tree must keep every level"
+    );
+
+    bound_candidate_tree(&mut tree);
+    assert_eq!(tree.children.len(), 12);
+    assert!(
+        tree.children.iter().all(|child| child.children.len() == 12),
+        "bound must cap children per node at 12"
+    );
+    assert!(
+        tree.children
+            .iter()
+            .all(|child| child.children.iter().all(|leaf| leaf.children.is_empty())),
+        "bound must drop the third level"
     );
     Ok(())
 }

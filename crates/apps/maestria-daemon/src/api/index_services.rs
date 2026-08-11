@@ -17,10 +17,14 @@ pub(super) async fn candidates(
     validate_scope_root(context, &root)?;
     let root_path = std::path::PathBuf::from(&root);
     let home_root = maestria_index_selection::is_home_root(&root_path);
-    let tree =
+    let mut tree =
         tokio::task::spawn_blocking(move || maestria_index_selection::scan_candidates(&root_path))
             .await
             .map_err(|error| anyhow!("candidate scan task failed: {error}"))??;
+    // Bound the wire tree: a scan of a large root (a home directory) must
+    // fit the protocol response cap, so deeper levels are dropped and each
+    // node keeps at most its largest groups.
+    maestria_index_selection::bound_candidate_tree(&mut tree);
     Ok(IndexCandidatesResponse {
         root,
         home_root,

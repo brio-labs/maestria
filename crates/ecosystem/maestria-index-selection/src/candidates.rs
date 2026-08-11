@@ -63,3 +63,24 @@ fn build_node(dir: &Path, files: &[PathBuf], home_root: bool) -> Result<Candidat
         children,
     })
 }
+
+/// At most this many children per node survive the wire bound.
+const MAX_TREE_CHILDREN: usize = 12;
+
+/// Bound the candidate tree for the wire: keep the root, its children, and
+/// their children (depth 2), with at most [`MAX_TREE_CHILDREN`] children
+/// per node. Deeper levels are dropped.
+///
+/// A scan of a large root (a home directory) otherwise produces a response
+/// that exceeds the daemon protocol's message cap. Children are already
+/// sorted by (count desc, bytes desc), so truncation deterministically
+/// keeps the largest groups.
+pub fn bound_candidate_tree(tree: &mut CandidateDir) {
+    for child in tree.children.iter_mut() {
+        for grandchild in child.children.iter_mut() {
+            grandchild.children.clear();
+        }
+        child.children.truncate(MAX_TREE_CHILDREN);
+    }
+    tree.children.truncate(MAX_TREE_CHILDREN);
+}

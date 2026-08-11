@@ -20,7 +20,7 @@ mod scan;
 #[cfg(test)]
 mod tests;
 
-pub use candidates::{CandidateDir, scan_candidates};
+pub use candidates::{CandidateDir, bound_candidate_tree, scan_candidates};
 pub use classify::{Class, classify, default_policy};
 pub use policy::{IndexPolicy, Selection, group_by_child, is_notable_group, select_source};
 pub use profile::{IndexSelectionProfile, load_profile, save_profile};

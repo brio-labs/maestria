@@ -36,6 +36,28 @@ pub async fn run_instance(instance_dir: std::path::PathBuf) -> Result<()> {
     }
 }
 
+/// The autonomy profile the daemon runtime runs under.
+///
+/// The default is `ReadOnly`: a background daemon must not take
+/// medium-risk actions (vector indexing, validations, graph updates)
+/// without an approval flow, so those effects are rejected at admission.
+/// Operators who run the daemon as the trusted primary ingestion path for
+/// large roots (e.g. a home directory) can opt into the permissive
+/// profile explicitly via `MAESTRIA_DAEMON_PROFILE=trusted-workspace`.
+fn daemon_profile() -> AutonomyProfile {
+    match std::env::var("MAESTRIA_DAEMON_PROFILE").as_deref() {
+        Ok("trusted-workspace") => AutonomyProfile::TrustedWorkspace,
+        Ok(other) => {
+            tracing::warn!(
+                profile = %other,
+                "unknown MAESTRIA_DAEMON_PROFILE; falling back to read-only"
+            );
+            AutonomyProfile::ReadOnly
+        }
+        _ => AutonomyProfile::ReadOnly,
+    }
+}
+
 /// Runs an instance until the provided shutdown token is cancelled.
 ///
 /// Cancellation: cancelling `shutdown` triggers graceful teardown of the
@@ -48,7 +70,8 @@ pub async fn run_instance_with_shutdown(
 ) -> Result<()> {
     let layout = crate::instance_setup::prepare_instance(instance_dir)
         .with_context(|| "prepare instance layout")?;
-    let lifecycle = InstanceLifecycle::start(layout.clone(), AutonomyProfile::ReadOnly).await?;
+    let profile = daemon_profile();
+    let lifecycle = InstanceLifecycle::start(layout.clone(), profile).await?;
     let runtime = lifecycle.runtime_handle();
     let api = crate::api::ApiServer::start(layout, runtime).await?;
     println!("daemon_api_socket={}", api.socket_path().display());
