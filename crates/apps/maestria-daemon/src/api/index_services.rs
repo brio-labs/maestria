@@ -51,31 +51,11 @@ pub(super) async fn selection_save(
     profile: maestria_index_selection::IndexSelectionProfile,
 ) -> Result<()> {
     validate_scope_root(context, &profile.root.display().to_string())?;
-    let inside_root = |path: &std::path::Path| -> Result<()> {
-        if path
-            .components()
-            .any(|component| component == std::path::Component::ParentDir)
-        {
-            return Err(anyhow!(
-                "selection path {} escapes the selection root {}",
-                path.display(),
-                profile.root.display()
-            ));
-        }
-        if !path.starts_with(&profile.root) {
-            return Err(anyhow!(
-                "selection path {} is outside the selection root {}",
-                path.display(),
-                profile.root.display()
-            ));
-        }
-        Ok(())
-    };
     for include in &profile.includes {
-        inside_root(include)?;
+        validate_within_root(include, &profile.root)?;
     }
     for key in profile.policies.keys() {
-        inside_root(key)?;
+        validate_within_root(key, &profile.root)?;
     }
     let profile_path = context.layout.system_dir.join("index-selection.json");
     tokio::task::spawn_blocking(move || {
@@ -101,10 +81,19 @@ pub(super) async fn run(
     policies: std::collections::BTreeMap<String, maestria_index_selection::IndexPolicy>,
 ) -> Result<IndexRunResponse> {
     validate_scope_root(context, &root)?;
+    let root_path = std::path::PathBuf::from(&root);
+    // Client-supplied whitelist entries are untrusted boundary data: every
+    // include and policy key must stay within the validated root (the same
+    // containment rule the selection-save op enforces).
+    for include in &includes {
+        validate_within_root(std::path::Path::new(include), &root_path)?;
+    }
+    for key in policies.keys() {
+        validate_within_root(std::path::Path::new(key), &root_path)?;
+    }
     let Some(runtime) = context.runtime.clone() else {
         return Err(anyhow!("index run requires the live runtime"));
     };
-    let root_path = std::path::PathBuf::from(&root);
     let files = tokio::task::spawn_blocking(move || {
         maestria_index_selection::collect_files(&root_path, true)
     })
@@ -130,7 +119,8 @@ pub(super) async fn run(
         };
         let bytes = match std::fs::read(file) {
             Ok(bytes) => bytes,
-            Err(_) => {
+            Err(error) => {
+                tracing::warn!(path = %file.display(), %error, "index run: unreadable source counted as skipped");
                 skipped += 1;
                 continue;
             }
@@ -138,7 +128,8 @@ pub(super) async fn run(
         let artifact_id = artifact_id_for(file, &bytes);
         let hash = match ContentHash::new(content_hash(&bytes)) {
             Ok(hash) => hash,
-            Err(_) => {
+            Err(error) => {
+                tracing::warn!(path = %file.display(), %error, "index run: invalid content hash counted as skipped");
                 skipped += 1;
                 continue;
             }
@@ -199,6 +190,32 @@ fn validate_scope_root(context: &ApiContext, root: &str) -> Result<()> {
     });
     if !in_scope {
         return Err(anyhow!("root is outside the instance read scope: {root}"));
+    }
+    Ok(())
+}
+
+/// Reject a client-supplied path that is not contained in `root`.
+///
+/// Component-wise (`Path::starts_with` is not lexical): a `ParentDir`
+/// component can name a path that lexically escapes the root, so it is
+/// rejected before the prefix check.
+fn validate_within_root(path: &std::path::Path, root: &std::path::Path) -> Result<()> {
+    if path
+        .components()
+        .any(|component| component == std::path::Component::ParentDir)
+    {
+        return Err(anyhow!(
+            "selection path {} escapes the selection root {}",
+            path.display(),
+            root.display()
+        ));
+    }
+    if !path.starts_with(root) {
+        return Err(anyhow!(
+            "selection path {} is outside the selection root {}",
+            path.display(),
+            root.display()
+        ));
     }
     Ok(())
 }

@@ -215,3 +215,31 @@ async fn run_rejects_out_of_scope_root() -> Result<()> {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn run_rejects_out_of_root_include() -> Result<()> {
+    let fixture = fixture()?;
+    let context = status_context(fixture.layout)?;
+    let escaping = fixture
+        .read_root
+        .join("..")
+        .join("outside.md")
+        .display()
+        .to_string();
+    let error = match run(
+        &context,
+        fixture.read_root.display().to_string(),
+        vec![escaping],
+        std::collections::BTreeMap::new(),
+    )
+    .await
+    {
+        Err(error) => error,
+        Ok(_) => return Err(anyhow!("out-of-root include must be rejected")),
+    };
+    assert!(
+        error.to_string().contains("escapes the selection root"),
+        "unexpected include error: {error}"
+    );
+    Ok(())
+}

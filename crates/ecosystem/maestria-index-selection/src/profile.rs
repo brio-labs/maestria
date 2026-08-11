@@ -18,11 +18,14 @@ pub struct IndexSelectionProfile {
     pub policies: BTreeMap<PathBuf, IndexPolicy>,
 }
 
-/// Load the profile at `path`; `Ok(None)` when the file does not exist.
-/// Malformed content propagates as an error.
+/// Load the profile at `path`; `Ok(None)` only when the file does not
+/// exist. Any other read failure propagates so it is not mistaken for an
+/// absent profile; malformed content propagates as an error.
 pub fn load_profile(path: &Path) -> Result<Option<IndexSelectionProfile>> {
-    let Ok(contents) = std::fs::read_to_string(path) else {
-        return Ok(None);
+    let contents = match std::fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
     };
     let profile = serde_json::from_str(&contents)?;
     Ok(Some(profile))
