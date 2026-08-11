@@ -42,7 +42,7 @@ pub struct ProblemDetails {
     pub type_uri: String,
     pub title: &'static str,
     pub status: u16,
-    pub detail: &'static str,
+    pub detail: String,
 }
 
 impl ProblemCode {
@@ -177,11 +177,17 @@ impl From<AgentHostError> for StudioError {
 
 impl IntoResponse for StudioError {
     fn into_response(self) -> Response {
+        // Surface the underlying cause (e.g. the daemon's error message)
+        // when one exists; the static per-code detail is only the fallback.
+        let detail = match &self._source {
+            Some(source) => source.to_string(),
+            None => self.code.detail().to_string(),
+        };
         let details = ProblemDetails {
             type_uri: format!("{PROBLEM_PREFIX}{}", self.code.as_str()),
             title: self.code.title(),
             status: self.code.status().as_u16(),
-            detail: self.code.detail(),
+            detail,
         };
         let mut response = (self.code.status(), Json(details)).into_response();
         response.headers_mut().insert(

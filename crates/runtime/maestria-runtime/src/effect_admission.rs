@@ -281,6 +281,18 @@ impl EffectExecutionContext {
             };
         }
 
+        // A vector effect without an embedding provider can never execute;
+        // the executor's permanent per-artifact degradation path (traced)
+        // is the runtime outcome. Admitting it here keeps the effect on
+        // that path instead of producing a per-chunk governance denial
+        // under restrictive profiles — a guaranteed denial storm at home
+        // scale (issue #434).
+        if matches!(effect, MaestriaEffect::IndexVector(_))
+            && self.adapters.embedding_provider.is_none()
+        {
+            return EffectAdmission::Execute { risk, claim: None };
+        }
+
         let decision = self
             .governance
             .approval_gate

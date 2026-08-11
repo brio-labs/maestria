@@ -45,7 +45,7 @@ pub async fn run_instance(instance_dir: std::path::PathBuf) -> Result<()> {
 /// large roots (e.g. a home directory) can opt into the permissive
 /// profile explicitly via `MAESTRIA_DAEMON_PROFILE=trusted-workspace`.
 fn daemon_profile() -> AutonomyProfile {
-    match std::env::var("MAESTRIA_DAEMON_PROFILE").as_deref() {
+    let profile = match std::env::var("MAESTRIA_DAEMON_PROFILE").as_deref() {
         Ok("trusted-workspace") => AutonomyProfile::TrustedWorkspace,
         Ok(other) => {
             tracing::warn!(
@@ -55,7 +55,9 @@ fn daemon_profile() -> AutonomyProfile {
             AutonomyProfile::ReadOnly
         }
         _ => AutonomyProfile::ReadOnly,
-    }
+    };
+    tracing::info!(?profile, "daemon runtime profile");
+    profile
 }
 
 /// Runs an instance until the provided shutdown token is cancelled.
