@@ -243,7 +243,12 @@ impl EffectExecutionContext {
                 .get(&artifact_id)
                 .map_or_else(|| artifact_title.to_owned(), |p| p.title.clone())
         };
-        if Self::send_input(
+        // Await capacity instead of failing on a full channel: under
+        // parallel ingestion the bounded input channel backs up, and a
+        // Failed parse effect would cancel the runtime (the ParserStarted
+        // feedback is correlated with the parse, so ordering is preserved
+        // by the blocking send).
+        if Self::send_input_blocking(
             &self.input_tx,
             DomainInput::ParserStarted(ParserStarted {
                 artifact_id,
@@ -254,6 +259,7 @@ impl EffectExecutionContext {
             }),
             "parser started",
         )
+        .await
         .is_err()
         {
             return false;
