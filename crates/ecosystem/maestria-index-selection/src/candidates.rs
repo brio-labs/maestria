@@ -68,8 +68,8 @@ fn build_node(dir: &Path, files: &[PathBuf], home_root: bool) -> Result<Candidat
 const MAX_TREE_CHILDREN: usize = 12;
 
 /// Bound the candidate tree for the wire: keep the root, its children, and
-/// their children (depth 2), with at most [`MAX_TREE_CHILDREN`] children
-/// per node. Deeper levels are dropped.
+/// their children (depth 2), with at most 12 children per node. Deeper
+/// levels are dropped.
 ///
 /// A scan of a large root (a home directory) otherwise produces a response
 /// that exceeds the daemon protocol's message cap. Children are already
