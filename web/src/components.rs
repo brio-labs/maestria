@@ -340,16 +340,26 @@ pub fn DraftButton(
     context: Signal<WorkspaceContext>,
 ) -> Element {
     let draft_id = draft.draft_id;
+    // Snapshot the editor state at click time; a slower draft fetch must
+    // not clobber edits the user makes while it is in flight.
+    let prior_title = title.read().clone();
+    let prior_markdown = markdown.read().clone();
     rsx! {
         button {
             class: "mb-2 block w-full rounded border border-line p-3 text-left",
             onclick: move |_| {
                 let api = api.clone();
+                let prior_title = prior_title.clone();
+                let prior_markdown = prior_markdown.clone();
                 spawn(async move {
                     match api.draft(notebook_id, draft_id).await {
                         Ok(value) => {
-                            title.set(value.title.clone());
-                            markdown.set(value.markdown.clone());
+                            if title.read().as_str() == prior_title.as_str()
+                                && markdown.read().as_str() == prior_markdown.as_str()
+                            {
+                                title.set(value.title.clone());
+                                markdown.set(value.markdown.clone());
+                            }
                             selected.set(Some(value));
                         }
                         Err(error) => {
