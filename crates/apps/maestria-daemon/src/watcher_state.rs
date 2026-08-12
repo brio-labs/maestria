@@ -11,6 +11,20 @@ pub(super) struct WatchState {
     pub(super) files: BTreeMap<String, String>,
     pub(super) removed: BTreeMap<String, String>,
     pub(super) artifact_ids: BTreeMap<String, ArtifactIdEntry>,
+    /// Lightweight per-file change signatures (mtime, size) used to skip
+    /// re-reading unchanged files on every scan (issue #440). Absent in
+    /// state persisted by older versions; the first scan after an upgrade
+    /// re-reads everything once.
+    #[serde(default)]
+    pub(super) signatures: BTreeMap<String, FileSignature>,
+}
+
+/// Change signature of an observed file: re-reading is only needed when
+/// either component differs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct FileSignature {
+    pub(super) mtime: i64,
+    pub(super) size: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

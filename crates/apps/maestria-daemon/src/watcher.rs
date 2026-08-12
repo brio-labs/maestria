@@ -120,8 +120,19 @@ impl Watcher {
         let permits = self.scan_permits.clone();
         let _permit = permits.acquire().await.context("acquire scan permit")?;
 
-        let observations = scan_manifest(&self.manifest)?;
-        let current = self.phase_detect_additions(&observations).await?;
+        let (observations, signatures) =
+            scan_manifest(&self.manifest, &self.state.signatures, &self.state.files)?;
+        let mut current = self.phase_detect_additions(&observations).await?;
+        // Unchanged files produced no observation; keep their recorded
+        // hash so the removal/acceptance views stay complete.
+        for key in signatures.keys() {
+            if !current.contains_key(key)
+                && let Some(hash) = self.state.files.get(key)
+            {
+                current.insert(key.clone(), hash.clone());
+            }
+        }
+        self.state.signatures = signatures;
         self.pending.retain(|key, pending| {
             current
                 .get(key)

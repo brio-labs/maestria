@@ -136,7 +136,13 @@ async fn dispatch(command: Commands) -> Result<()> {
             instance_dir,
             no_open,
         } => run_studio(instance_dir, no_open).await?,
-        Commands::Start { instance_dir } => maestria_daemon::run_instance(instance_dir).await?,
+        Commands::Start {
+            instance_dir,
+            profile,
+        } => {
+            maestria_daemon::run_instance_with_profile(instance_dir, profile.governance_profile())
+                .await?
+        }
         Commands::Task { command } => dispatch_task(command).await?,
         Commands::Memory { command } => dispatch_memory(command).await?,
         Commands::Approval { command } => dispatch_approval(command).await?,

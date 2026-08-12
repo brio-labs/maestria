@@ -86,6 +86,12 @@ pub enum Commands {
     Start {
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
+        /// Autonomy profile for the daemon runtime: read-only (default,
+        /// denies medium-risk effects such as vector indexing, validations,
+        /// and graph updates) or trusted-workspace (allows them; required
+        /// when the daemon is the primary ingestion path).
+        #[arg(long, value_enum, default_value = "read-only")]
+        profile: DaemonProfile,
     },
     /// Launch the local authenticated Studio frontend
     Studio {
@@ -440,6 +446,22 @@ pub enum CliTaskPriority {
     Low,
     Normal,
     High,
+}
+
+/// Daemon autonomy profiles selectable via `maestria start --profile`.
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum DaemonProfile {
+    ReadOnly,
+    TrustedWorkspace,
+}
+
+impl DaemonProfile {
+    pub fn governance_profile(self) -> maestria_governance::AutonomyProfile {
+        match self {
+            Self::ReadOnly => maestria_governance::AutonomyProfile::ReadOnly,
+            Self::TrustedWorkspace => maestria_governance::AutonomyProfile::TrustedWorkspace,
+        }
+    }
 }
 
 impl std::fmt::Display for CliTaskPriority {

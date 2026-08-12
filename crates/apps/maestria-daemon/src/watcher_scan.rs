@@ -1,9 +1,13 @@
 use anyhow::{Context, Result};
 use maestria_core::{InstanceManifest, content_hash};
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Component, Path, PathBuf},
 };
+
+use super::watcher_state::FileSignature;
+use crate::source_identity::source_key;
 
 #[derive(Debug, Clone)]
 pub(super) struct Observation {
@@ -48,8 +52,13 @@ fn is_instance_internal_path(path: &Path, normalized_instance_root: &Path) -> bo
     )
 }
 
-pub(super) fn scan_manifest(manifest: &InstanceManifest) -> Result<Vec<Observation>> {
+pub(super) fn scan_manifest(
+    manifest: &InstanceManifest,
+    previous: &BTreeMap<String, FileSignature>,
+    recorded: &BTreeMap<String, String>,
+) -> Result<(Vec<Observation>, BTreeMap<String, FileSignature>)> {
     let mut observations = Vec::new();
+    let mut signatures = BTreeMap::new();
     let instance_root = manifest.root.clone();
     let normalized_instance_root = normalize_path(&instance_root);
 
@@ -99,6 +108,30 @@ pub(super) fn scan_manifest(manifest: &InstanceManifest) -> Result<Vec<Observati
                 continue;
             }
 
+            // Change detection: unchanged files (same mtime and size) are
+            // not re-read; their recorded content hash is reused by the
+            // caller. A file is only skipped when a recorded hash exists:
+            // sources that were never durably accepted (e.g. pending at
+            // shutdown) must be re-read so they are delivered after a
+            // restart (issue #440).
+            let key = source_key(&path);
+            let metadata = fs::metadata(&path)
+                .with_context(|| format!("stat watched file {}", path.display()))?;
+            let signature = FileSignature {
+                mtime: match metadata.modified() {
+                    Ok(time) => match time.duration_since(std::time::UNIX_EPOCH) {
+                        Ok(duration) => duration.as_nanos() as i64,
+                        Err(_) => 0,
+                    },
+                    Err(_) => 0,
+                },
+                size: metadata.len(),
+            };
+            if previous.get(&key) == Some(&signature) && recorded.contains_key(&key) {
+                signatures.insert(key, signature);
+                continue;
+            }
+
             let bytes =
                 fs::read(&path).with_context(|| format!("read watched file {}", path.display()))?;
             observations.push(Observation {
@@ -106,8 +139,9 @@ pub(super) fn scan_manifest(manifest: &InstanceManifest) -> Result<Vec<Observati
                 hash: content_hash(&bytes),
                 bytes,
             });
+            signatures.insert(key, signature);
         }
     }
     observations.sort_by(|left, right| left.path.cmp(&right.path));
-    Ok(observations)
+    Ok((observations, signatures))
 }

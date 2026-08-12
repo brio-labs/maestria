@@ -459,6 +459,7 @@ async fn vertical_slice_run_instance_restart_rebuilds_projections()
     let daemon = tokio::spawn(maestria_daemon::run_instance_with_shutdown(
         env.layout.root.clone(),
         shutdown.clone(),
+        maestria_governance::AutonomyProfile::ReadOnly,
     ));
     // The API server starts only after instance setup and startup recovery,
     // so API readiness means the projection rebuild has run before we shut
@@ -778,11 +779,13 @@ async fn federation_search_is_bounded_and_revocable() -> Result<(), Box<dyn std:
     let provider_daemon = tokio::spawn(maestria_daemon::run_instance_with_shutdown(
         provider.layout.root.clone(),
         provider_shutdown.clone(),
+        maestria_governance::AutonomyProfile::ReadOnly,
     ));
     let consumer_shutdown = CancellationToken::new();
     let consumer_daemon = tokio::spawn(maestria_daemon::run_instance_with_shutdown(
         consumer_layout.root.clone(),
         consumer_shutdown.clone(),
+        maestria_governance::AutonomyProfile::ReadOnly,
     ));
     let result = exercise_federation(&provider, &indexed, &consumer_layout, &consumer_realm).await;
 
@@ -806,6 +809,7 @@ async fn model_agent_proposal_round_trips_through_running_daemon()
     let daemon = tokio::spawn(maestria_daemon::run_instance_with_shutdown(
         layout.root.clone(),
         shutdown.clone(),
+        maestria_governance::AutonomyProfile::ReadOnly,
     ));
 
     let client = wait_for_daemon_client(&layout).await?;

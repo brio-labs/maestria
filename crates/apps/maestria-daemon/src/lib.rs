@@ -75,7 +75,7 @@ pub use instance_setup::{
 pub use learned_sparse_benchmark_executor::LearnedSparseBenchmarkExecutor;
 pub(crate) use lifecycle::InstanceLifecycle;
 pub use lifecycle::RecoveryQueue;
-pub use lifecycle_entry::{run_instance, run_instance_with_shutdown};
+pub use lifecycle_entry::{run_instance, run_instance_with_profile, run_instance_with_shutdown};
 pub use lock::{
     InstanceWriteLock, acquire as acquire_instance_write_lock,
     try_acquire as try_acquire_instance_write_lock,
