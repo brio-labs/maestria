@@ -28,6 +28,21 @@ pub enum Commands {
         path: Option<PathBuf>,
         #[arg(short, long)]
         recursive: bool,
+        /// Skip files larger than N bytes; 0 disables.
+        #[arg(long)]
+        max_file_bytes: Option<u64>,
+        /// Skip generated asset dumps (single-extension dumps).
+        #[arg(long)]
+        skip_generated: bool,
+        /// Skip minified single-line bundles.
+        #[arg(long)]
+        skip_minified: bool,
+        /// Accept every directory prompt (non-interactive).
+        #[arg(long)]
+        yes: bool,
+        /// Write the approved selection to system/index-selection.json.
+        #[arg(long)]
+        save_selection: bool,
     },
     Search {
         #[command(subcommand)]
@@ -71,6 +86,12 @@ pub enum Commands {
     Start {
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
+        /// Autonomy profile for the daemon runtime: read-only (default,
+        /// denies medium-risk effects such as vector indexing, validations,
+        /// and graph updates) or trusted-workspace (allows them; required
+        /// when the daemon is the primary ingestion path).
+        #[arg(long, value_enum, default_value = "read-only")]
+        profile: DaemonProfile,
     },
     /// Launch the local authenticated Studio frontend
     Studio {
@@ -425,6 +446,22 @@ pub enum CliTaskPriority {
     Low,
     Normal,
     High,
+}
+
+/// Daemon autonomy profiles selectable via `maestria start --profile`.
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum DaemonProfile {
+    ReadOnly,
+    TrustedWorkspace,
+}
+
+impl DaemonProfile {
+    pub fn governance_profile(self) -> maestria_governance::AutonomyProfile {
+        match self {
+            Self::ReadOnly => maestria_governance::AutonomyProfile::ReadOnly,
+            Self::TrustedWorkspace => maestria_governance::AutonomyProfile::TrustedWorkspace,
+        }
+    }
 }
 
 impl std::fmt::Display for CliTaskPriority {

@@ -60,6 +60,7 @@ impl EffectExecutionContext {
             .min(std::time::Duration::from_secs(30));
         let persisted = persistence_barrier::wait_for_event(
             &*self.adapters.event_log,
+            maestria_ports::EventFilter { artifact_id: None },
             timeout,
             &CancellationToken::new(),
             "notebook draft persistence barrier",

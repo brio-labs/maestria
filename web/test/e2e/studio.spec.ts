@@ -165,7 +165,7 @@ test('creates a notebook and completes the workspace flow', async ({ page }) => 
   await page.getByRole('link', { name: 'Sources', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Sources' })).toBeVisible();
   await page.getByRole('button', { name: 'Attach' }).click();
-  await page.getByRole('link', { name: 'Ask' }).click();
+  await page.getByRole('link', { name: 'Ask', exact: true }).click();
   await page.getByLabel('Question').fill('How are routes configured?');
   await page.getByRole('button', { name: 'Ask' }).click();
   await expect(page.getByText('Grounded answer')).toBeVisible();

@@ -1,0 +1,13 @@
+[package]
+name = "maestria-index-selection"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow = "1.0"
+ignore = "0.4.28"
+maestria-governance = { path = "../../kernel/maestria-governance" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0"

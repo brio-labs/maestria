@@ -33,7 +33,16 @@ impl EffectExecutionContext {
                 {
                     Ok(()) => return Ok(()),
                     Err(error) => {
-                        tracing::error!(%error, "effect execution did not complete");
+                        // Denied and degraded effects are expected,
+                        // governed outcomes already reported by the
+                        // admission and handler paths; logging them as
+                        // execution errors at ERROR level would flood the
+                        // log for every chunk of a large batch.
+                        if matches!(error, EffectFailure::Denied(_) | EffectFailure::Degraded(_)) {
+                            tracing::warn!(%error, "effect execution did not complete");
+                        } else {
+                            tracing::error!(%error, "effect execution did not complete");
+                        }
                         if !error.retryable() || non_idempotent || attempts >= self.max_retries {
                             return Err(error);
                         }
@@ -86,12 +95,36 @@ impl EffectExecutionContext {
         context: &'static str,
     ) -> Result<(), crate::FeedbackError> {
         input_tx.try_send(input).map_err(|e| {
-            tracing::error!(error = %e, context, "failed to send domain input (backpressure)");
+            tracing::warn!(error = %e, context, "failed to send domain input (backpressure)");
             match e {
                 mpsc::error::TrySendError::Full(_) => crate::FeedbackError::CapacityFull,
                 mpsc::error::TrySendError::Closed(_) => crate::FeedbackError::RuntimeShutdown,
             }
         })
+    }
+
+    /// Ordered send into the domain input channel that awaits capacity.
+    ///
+    /// The artifact pipeline emits correlated inputs (ParserCompleted →
+    /// RecordEvidence → StartFullTextIndex) that must reach the domain in
+    /// order. Under parallel effect load `try_send` overflows the bounded
+    /// channel and failing the effect would retry-storm; awaiting capacity
+    /// applies backpressure while preserving order.
+    pub(crate) async fn send_input_blocking(
+        input_tx: &mpsc::Sender<DomainInput>,
+        input: DomainInput,
+        context: &'static str,
+    ) -> Result<(), crate::FeedbackError> {
+        match input_tx.try_send(input) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(pending)) => {
+                input_tx.send(pending).await.map_err(|error| {
+                    tracing::error!(%error, context, "failed to send domain input (shutdown)");
+                    crate::FeedbackError::RuntimeShutdown
+                })
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(crate::FeedbackError::RuntimeShutdown),
+        }
     }
 
     // ── lightweight handlers ──────────────────────────────────────────

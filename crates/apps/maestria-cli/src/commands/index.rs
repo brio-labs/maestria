@@ -4,12 +4,15 @@ use maestria_domain::{
     ArtifactDetected, ArtifactId, DomainInput, IndexStatus, KernelState, TaskId,
 };
 use maestria_governance::{PrivacyExclusions, Scope};
+use maestria_index_selection::{IndexPolicy, Selection};
 use std::{
     fs,
+    io::IsTerminal,
     path::{Path, PathBuf},
     time::Duration,
 };
 
+use super::index_selection::{SelectionPlan, approve_interactively, approve_scripted, record_skip};
 use crate::helpers;
 
 // ---------------------------------------------------------------------------
@@ -31,9 +34,17 @@ struct ProcessContext<'a> {
 /// runtime submission, and wait-for-indexing.
 ///
 /// Returns an error for scope violations, I/O failures, runtime submission errors,
-/// indexing errors, or timeouts. The caller is responsible for finishing the
-/// mutation session on error.
-async fn process_file(file: &Path, ctx: &ProcessContext<'_>) -> Result<()> {
+/// Terminal per-file outcome for the batch summary.
+enum FileOutcome {
+    Indexed,
+    Unchanged,
+    Skipped(String),
+}
+
+/// Process one file, or return the error that prevented it from reaching a
+/// terminal state. The caller continues the batch on error; the summary
+/// reports the failure.
+async fn process_file(file: &Path, ctx: &ProcessContext<'_>) -> Result<FileOutcome> {
     let file = file
         .canonicalize()
         .with_context(|| format!("canonicalize index path {}", file.display()))?;
@@ -57,7 +68,7 @@ async fn process_file(file: &Path, ctx: &ProcessContext<'_>) -> Result<()> {
         && artifact.index_status == IndexStatus::Indexed
     {
         println!("unchanged artifact={} path={}", artifact.id, file.display());
-        return Ok(());
+        return Ok(FileOutcome::Unchanged);
     }
 
     let title = match file.file_name().and_then(|n| n.to_str()) {
@@ -76,21 +87,54 @@ async fn process_file(file: &Path, ctx: &ProcessContext<'_>) -> Result<()> {
         .await
         .context("failed to submit artifact to runtime")?;
 
-    // Wait for the artifact to reach terminal persisted state.
-    helpers::wait_for_kernel_state(
+    // Wait for the artifact to reach terminal persisted state. Unsupported,
+    // failed, and quarantined parses carry no indexable content, so the
+    // artifact never becomes `Indexed`; a terminal non-`Parsed` parse status
+    // is done and reported as skipped. The predicate records the outcome.
+    // Polls the artifact row directly — replaying the full event log per
+    // poll would dominate batch time as the log grows.
+    let outcome = std::cell::RefCell::new(None);
+    helpers::wait_for_artifact_state(
         ctx.layout,
+        artifact_id,
         ctx.index_timeout,
         format!("waiting for artifact indexing: {}", file.display()),
-        |state| {
-            state
-                .artifacts
-                .get(&artifact_id)
-                .is_some_and(|artifact| artifact.index_status == IndexStatus::Indexed)
+        |artifact| {
+            if artifact.index_status == IndexStatus::Indexed {
+                outcome.replace(Some(FileOutcome::Indexed));
+                return true;
+            }
+            let skipped = match artifact.parse_status {
+                Some(maestria_domain::ParseStatus::Unsupported) => Some("unsupported"),
+                Some(maestria_domain::ParseStatus::Failed) => Some("failed"),
+                Some(maestria_domain::ParseStatus::Quarantined) => Some("quarantined"),
+                _ => None,
+            };
+            if let Some(reason) = skipped {
+                outcome.replace(Some(FileOutcome::Skipped(reason.to_string())));
+                true
+            } else {
+                false
+            }
         },
     )
     .await?;
-    println!("indexed artifact={artifact_id} path={}", file.display());
-    Ok(())
+    let outcome = outcome
+        .into_inner()
+        .ok_or_else(|| anyhow!("artifact {artifact_id} has no terminal outcome"))?;
+    match &outcome {
+        FileOutcome::Indexed => {
+            println!("indexed artifact={artifact_id} path={}", file.display());
+        }
+        FileOutcome::Unchanged => {}
+        FileOutcome::Skipped(reason) => {
+            println!(
+                "skipped artifact={artifact_id} path={} ({reason})",
+                file.display()
+            );
+        }
+    }
+    Ok(outcome)
 }
 
 /// Wait until every artifact in `recovery_artifact_ids` has reached
@@ -144,12 +188,24 @@ async fn drain_validation_recovery(
 
 /// Index files into the instance under the mutation session.
 ///
+/// A single file is indexed directly under the batch policy (or no
+/// filtering). A directory is first classified by the choice layer; the
+/// user approves a whitelist interactively (or it is built automatically
+/// on a non-TTY run / `--yes`), and only whitelisted files are submitted.
+///
 /// # Cancellation
 /// Dropping this future tears down the CLI-side session (instance lock
 /// released, runtime shutdown requested). Files already accepted by the
 /// runtime may still be indexed to durable state; inspect the index before
 /// retrying an interrupted command.
-pub async fn run(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Result<()> {
+pub async fn run(
+    instance_dir: PathBuf,
+    path: PathBuf,
+    recursive: bool,
+    batch_policy: Option<IndexPolicy>,
+    yes: bool,
+    save_selection: bool,
+) -> Result<()> {
     let layout = helpers::ensure_instance(instance_dir)?;
     let manifest = helpers::load_manifest(&layout)?;
     let scope = Scope::new(
@@ -160,13 +216,28 @@ pub async fn run(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Resul
         false,
     );
     let privacy = PrivacyExclusions::default();
-    let files = helpers::collect_index_files(&path, recursive)?;
+
+    let plan = plan_selection(&path, recursive, batch_policy, yes, save_selection, &layout)?;
+
+    let files = maestria_index_selection::collect_files(&path, recursive)?;
     if files.is_empty() {
         return Err(anyhow!(
             "no files selected for indexing at {}",
             path.display()
         ));
     }
+
+    // Selection pass: the whitelist decides which collected sources are
+    // indexed; the per-file policy is the deepest approved ancestor's
+    // override (or the batch policy). Skipped sources are counted by
+    // reason and never submitted, so filtered directories avoid paying
+    // parse and index cost on content the user opted out of.
+    let (selected_files, policy_skipped) =
+        select_batch(&files, &plan, batch_policy, &manifest, &privacy);
+    for (reason, count) in &policy_skipped {
+        println!("policy skipped {count} sources ({reason})");
+    }
+    let policy_skipped_total: usize = policy_skipped.iter().map(|(_, count)| count).sum();
 
     let session = maestria_daemon::MutationSession::start(
         layout.clone(),
@@ -194,8 +265,23 @@ pub async fn run(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Resul
             index_timeout,
         };
 
-        for file in &files {
-            process_file(file, &ctx).await?;
+        // Per-file supervision: one unindexable or failing file must not
+        // abort the batch. Outcomes are counted; failures are reported in
+        // the summary and reflected in the exit status.
+        let mut indexed = 0usize;
+        let mut unchanged = 0usize;
+        let mut skipped = 0usize;
+        let mut failed = 0usize;
+        for file in &selected_files {
+            match process_file(file, &ctx).await {
+                Ok(FileOutcome::Indexed) => indexed += 1,
+                Ok(FileOutcome::Unchanged) => unchanged += 1,
+                Ok(FileOutcome::Skipped(_)) => skipped += 1,
+                Err(error) => {
+                    failed += 1;
+                    eprintln!("failed artifact path={} error={error}", file.display());
+                }
+            }
         }
 
         if !recovery.artifact_ids.is_empty() {
@@ -209,9 +295,110 @@ pub async fn run(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Resul
             )
             .await?;
         }
-        Ok::<(), anyhow::Error>(())
+        println!(
+            "indexed {indexed} · unchanged {unchanged} · skipped {skipped} · failed {failed}",
+            skipped = skipped + policy_skipped_total,
+        );
+        if failed > 0 {
+            Err(anyhow!(
+                "{failed} of {} selected files failed to index",
+                selected_files.len()
+            ))
+        } else {
+            Ok(())
+        }
     }
     .await;
 
     session.finish(result).await
+}
+
+/// Build the whitelist plan for `path`.
+///
+/// A direct file target is approved under the batch policy (all switches
+/// off when no flags are given) with no classification or prompts. A
+/// directory is classified by the choice layer, then the user approves
+/// the candidates interactively (or the plan is built automatically on a
+/// non-TTY run / `--yes`); `--save-selection` persists the result.
+fn plan_selection(
+    path: &Path,
+    recursive: bool,
+    batch_policy: Option<IndexPolicy>,
+    yes: bool,
+    save_selection: bool,
+    layout: &InstanceLayout,
+) -> Result<SelectionPlan> {
+    if path.is_file() {
+        let policy = if let Some(policy) = batch_policy {
+            policy
+        } else {
+            IndexPolicy::everything()
+        };
+        let mut plan = SelectionPlan::default();
+        plan.approve_path(path, policy);
+        return Ok(plan);
+    }
+    if !recursive {
+        return Err(anyhow!(
+            "{} is a directory; pass --recursive to index contained files",
+            path.display()
+        ));
+    }
+    // Whitelist-first selection: classify the tree, then let the user
+    // approve (or auto-approve) the candidate directories. The root node
+    // itself is a container, not a candidate — the walk starts at the
+    // top-level groups so the whitelist can exclude subtrees.
+    let tree = maestria_index_selection::scan_candidates(path)?;
+    let plan = if IsTerminal::is_terminal(&std::io::stdin()) && !yes {
+        approve_interactively(&tree, batch_policy)?
+    } else {
+        let mut plan = SelectionPlan::default();
+        for child in &tree.children {
+            approve_scripted(child, batch_policy, yes, &mut plan);
+        }
+        plan
+    };
+    if save_selection {
+        let profile = maestria_index_selection::IndexSelectionProfile {
+            root: path.to_path_buf(),
+            includes: plan.includes().to_vec(),
+            policies: plan.policies().clone(),
+        };
+        maestria_index_selection::save_profile(
+            &layout.system_dir.join("index-selection.json"),
+            &profile,
+        )?;
+    }
+    Ok(plan)
+}
+
+/// Apply the whitelist and the per-file policies to the collected files.
+fn select_batch(
+    files: &[PathBuf],
+    plan: &SelectionPlan,
+    batch_policy: Option<IndexPolicy>,
+    manifest: &InstanceManifest,
+    privacy: &PrivacyExclusions,
+) -> (Vec<PathBuf>, Vec<(&'static str, usize)>) {
+    let mut policy_skipped: Vec<(&'static str, usize)> = Vec::new();
+    let mut selected_files = Vec::with_capacity(files.len());
+    for file in files {
+        if !plan.allows(file) {
+            record_skip(&mut policy_skipped, "unapproved");
+            continue;
+        }
+        if !manifest.allows_source(file) || privacy.is_excluded(file) {
+            record_skip(&mut policy_skipped, "excluded");
+            continue;
+        }
+        let size = fs::metadata(file).map_or(0, |metadata| metadata.len());
+        let policy = plan.file_policy(file, batch_policy);
+        match maestria_index_selection::select_source(file, size, policy) {
+            Selection::Index => selected_files.push(file.clone()),
+            Selection::Skip(reason) => {
+                record_skip(&mut policy_skipped, reason);
+            }
+        }
+    }
+    (selected_files, policy_skipped)
 }

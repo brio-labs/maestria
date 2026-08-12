@@ -5,9 +5,11 @@ use maestria_domain::{
     EvidenceCandidate, EvidenceSpan, RetrievalLaneScore, RetrievalRawRank, RetrievalScoreKind,
     RetrievalScoreScale, SearchOutcome,
 };
+use maestria_storage_sqlite::SqliteStore;
 
 use super::super::protocol::{
-    CoverageResponse, SearchEvidenceResponse, SearchRawRankResponse, SearchResponse,
+    CoverageResponse, RetrievalLaneStatus, RetrievalPromotionRecordWire, RetrievalPromotionRecords,
+    RetrievalStatusResponse, SearchEvidenceResponse, SearchRawRankResponse, SearchResponse,
     SearchScoreResponse, SearchScoreScaleResponse,
 };
 use super::super::server::ApiContext;
@@ -69,6 +71,105 @@ async fn prepare_read_only_search_runtime(
     })
     .await
     .map_err(|error| anyhow!("prepare search runtime task failed: {error}"))?
+}
+
+/// Assemble the retrieval status read: lane execution states, the promotion
+/// records backing them, and instance model configuration.
+///
+/// Lane states come from the same fail-closed derivations the live runtime
+/// applies at construction (`runtime_construction::{hybrid_policy,
+/// learned_sparse_policy}`), so the reported states are the policies that
+/// actually govern retrieval. The repository-code and visual lanes have no
+/// promotion path in runtime construction today and always serve shadow.
+/// Any error fails the whole read closed; no partial status is fabricated.
+pub(super) async fn retrieval_status(context: &ApiContext) -> Result<RetrievalStatusResponse> {
+    let layout = context.layout.clone();
+    let (state, manifest) =
+        tokio::task::spawn_blocking(move || super::support::load_state_and_manifest(&layout))
+            .await
+            .map_err(|error| anyhow!("load retrieval status task failed: {error}"))??;
+    let store = SqliteStore::open_read_only(&context.layout.database_path)?;
+    let (primary_generation, corpus_snapshot, dense_generation) =
+        crate::projection_open::resolve_index_generations(&state)?;
+    let hybrid = crate::runtime_construction::hybrid_policy(&store);
+    let learned_sparse = crate::runtime_construction::learned_sparse_policy(&store, &manifest);
+    let sparse_record = store.load_latest_promotion_record()?;
+    let hybrid_record = store.load_latest_hybrid_promotion_record()?;
+    // Mirrors `SearchRuntime::from_parts`, the one construction path for the
+    // runtime's model fingerprint.
+    let fingerprint = maestria_domain::RetrievalModelFingerprint::new(
+        "maestria-core:deterministic-v1".to_string(),
+    )
+    .map_err(|error| anyhow!("retrieval model fingerprint: {error}"))?;
+
+    let (hybrid_state, hybrid_served_classes, hybrid_evaluation_id, hybrid_evaluation_date) =
+        match &hybrid {
+            maestria_retrieval::HybridExecutionPolicy::Shadow => {
+                ("Shadow".to_string(), Vec::new(), None, None)
+            }
+            maestria_retrieval::HybridExecutionPolicy::Active(record) => (
+                "Active".to_string(),
+                record
+                    .served_classes()
+                    .iter()
+                    .map(|class| format!("{class:?}"))
+                    .collect(),
+                Some(record.evaluation_id().to_string()),
+                Some(record.evaluation_date().to_string()),
+            ),
+        };
+    let lanes = RetrievalLaneStatus {
+        hybrid_state,
+        hybrid_served_classes,
+        hybrid_evaluation_id,
+        hybrid_evaluation_date,
+        hybrid_report_hash: hybrid_record
+            .as_ref()
+            .map(|record| record.report_hash.clone()),
+        learned_sparse_state: format!("{learned_sparse:?}"),
+        learned_sparse_model: manifest
+            .sparse
+            .as_ref()
+            .filter(|profile| profile.enabled)
+            .map(|profile| profile.model.clone()),
+        dense_enabled: dense_generation.is_some(),
+        dense_model: manifest
+            .embeddings
+            .as_ref()
+            .filter(|config| config.enabled)
+            .map(|config| config.model.clone()),
+        repository_code_state: format!(
+            "{:?}",
+            maestria_retrieval::RepositoryExecutionPolicy::Shadow
+        ),
+        visual_state: format!("{:?}", maestria_retrieval::VisualExecutionPolicy::Shadow),
+    };
+    Ok(RetrievalStatusResponse {
+        index_generation: primary_generation.value(),
+        corpus_snapshot: corpus_snapshot.value(),
+        fingerprint: fingerprint.as_str().to_string(),
+        lanes,
+        promotion_records: RetrievalPromotionRecords {
+            learned_sparse: sparse_record
+                .as_ref()
+                .map(|record| RetrievalPromotionRecordWire {
+                    evaluation_id: record.evaluation_id.clone(),
+                    corpus_id: record.corpus_id.clone(),
+                    evaluation_date: record.evaluation_date.clone(),
+                    report_hash: record.report_hash.clone(),
+                    created_at: record.created_at.clone(),
+                }),
+            hybrid: hybrid_record
+                .as_ref()
+                .map(|record| RetrievalPromotionRecordWire {
+                    evaluation_id: record.evaluation_id.clone(),
+                    corpus_id: record.corpus_id.clone(),
+                    evaluation_date: record.evaluation_date.clone(),
+                    report_hash: record.report_hash.clone(),
+                    created_at: record.created_at.clone(),
+                }),
+        },
+    })
 }
 
 pub(super) fn search_response(

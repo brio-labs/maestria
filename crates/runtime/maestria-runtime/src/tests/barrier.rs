@@ -78,11 +78,14 @@ async fn parse_artifact_barrier_blocks_parse_until_persistence_observable()
 }
 
 #[tokio::test]
-async fn parse_artifact_barrier_timeout_without_persistence_returns_failure()
+async fn parse_artifact_barrier_timeout_degrades_and_parses()
 -> Result<(), Box<dyn std::error::Error>> {
     // Empty event log — nobody reads the input channel, so the sent
-    // ParserStarted input is never persisted. The barrier must time out
-    // and parsing must be skipped.
+    // ParserStarted input is never persisted. The barrier times out and
+    // parsing degrades (proceeds without the marker) instead of failing
+    // the effect: the domain persists ParserStarted and ParserCompleted
+    // in channel order, and a crash inside the window is healed by
+    // re-detection on the next run.
     let event_log = Arc::new(InMemoryEventLog::new());
     let artifact_id = ArtifactId::new(42);
 
@@ -126,8 +129,8 @@ async fn parse_artifact_barrier_timeout_without_persistence_returns_failure()
     .await;
 
     assert!(
-        !result,
-        "ParseArtifact with persistence barrier must fail when ParserStarted is never persisted"
+        result,
+        "ParseArtifact must degrade and parse when ParserStarted is never persisted"
     );
     Ok(())
 }

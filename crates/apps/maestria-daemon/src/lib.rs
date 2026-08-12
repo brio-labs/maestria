@@ -25,15 +25,13 @@
 /// - `db_retry`: shared database-busy retry policy.
 /// - `evidence_open`: shared read-only evidence store assembly.
 /// - `notebook_draft_open`: draft blob persistence and opening.
-/// - `ingestion_policy`: shared source-file and privacy exclusion policy.
 /// - `source_identity`: canonical source-path identity keys for watcher and recovery.
 pub mod api;
 mod approval_recovery;
 pub mod blocked_patterns;
 pub mod db_retry;
 pub mod evidence_open;
-mod full_text_recovery;
-pub mod ingestion_policy;
+pub mod full_text_recovery;
 mod instance_setup;
 #[cfg(test)]
 #[path = "learned_sparse_activation_tests.rs"]
@@ -77,7 +75,7 @@ pub use instance_setup::{
 pub use learned_sparse_benchmark_executor::LearnedSparseBenchmarkExecutor;
 pub(crate) use lifecycle::InstanceLifecycle;
 pub use lifecycle::RecoveryQueue;
-pub use lifecycle_entry::{run_instance, run_instance_with_shutdown};
+pub use lifecycle_entry::{run_instance, run_instance_with_profile, run_instance_with_shutdown};
 pub use lock::{
     InstanceWriteLock, acquire as acquire_instance_write_lock,
     try_acquire as try_acquire_instance_write_lock,

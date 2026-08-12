@@ -118,6 +118,191 @@ fn open_evidence_rejects_file_span_outside_current_manifest_roots() -> Result<()
     Ok(())
 }
 
+/// Writes a manifest with both the embedding and the sparse profile enabled
+/// so the lane status read reports the configured models and shadow states.
+fn write_manifest_with_profiles(layout: &InstanceLayout) -> Result<()> {
+    let mut manifest =
+        InstanceManifest::default_for_root(layout.root.clone(), RealmId::try_from("a".repeat(64))?);
+    manifest.embeddings = Some(maestria_core::EmbeddingConfig {
+        enabled: true,
+        endpoint: "http://127.0.0.1/v1/embeddings".to_string(),
+        model: "test-embedding-model".to_string(),
+        dimensions: 384,
+        provider: "test-embedding-provider".to_string(),
+        revision: "rev-1".to_string(),
+        artifact_hash: "sha256:".to_owned() + &"a".repeat(64),
+        preprocessing_version: "v1".to_string(),
+        ..maestria_core::EmbeddingConfig::default()
+    });
+    manifest.sparse = Some(maestria_core::SparseProfileConfig {
+        enabled: true,
+        endpoint: "http://127.0.0.1/v1/sparse".to_string(),
+        provider: "test-sparse-provider".to_string(),
+        revision: "rev-1".to_string(),
+        artifact_hash: "sha256:".to_owned() + &"b".repeat(64),
+        preprocessing_version: "v1".to_string(),
+        model: "test-sparse-model".to_string(),
+        vocabulary_size: 1000,
+        term_cap: 100,
+        remote_provider: false,
+        retention_policy: maestria_ports::RetentionPolicy::NoRetention,
+    });
+    std::fs::write(&layout.manifest_path, manifest.encode())?;
+    Ok(())
+}
+
+/// Registers and activates a lexical generation so generation resolution
+/// succeeds for the read-only status path.
+fn seed_lexical_generation(layout: &InstanceLayout) -> Result<()> {
+    let mut state = crate::instance_setup::load_kernel_state(layout)?;
+    let store = SqliteStore::open(&layout.database_path)?;
+    let id = maestria_domain::IndexGenerationId::new(1);
+    crate::vector_startup::persist_input(
+        &mut state,
+        &store,
+        maestria_domain::DomainInput::StartIndexGeneration(
+            maestria_domain::StartIndexGenerationInput {
+                id,
+                name: maestria_domain::RepresentationName::new("lexical_text_v1"),
+                corpus_snapshot: maestria_domain::DEFAULT_CORPUS_SNAPSHOT_ID,
+                fingerprint: maestria_domain::IndexFingerprint {
+                    provider: maestria_domain::ProviderName::new("test-provider"),
+                    model: maestria_domain::ModelName::new("test-model"),
+                    revision: maestria_domain::FingerprintRevision::new("rev-1"),
+                    artifact_hash: ContentHash::new("sha256:".to_owned() + &"1".repeat(64))?,
+                    dimensions: 384,
+                    quantization: maestria_domain::QuantizationScheme::new("f32"),
+                    query_template_hash: ContentHash::new("sha256:".to_owned() + &"2".repeat(64))?,
+                    document_template_hash: ContentHash::new(
+                        "sha256:".to_owned() + &"3".repeat(64),
+                    )?,
+                    preprocessing_version: maestria_domain::PreprocessingVersion::new("v1"),
+                },
+                sparse_namespace: None,
+            },
+        ),
+    )?;
+    crate::vector_startup::advance_generation(&mut state, &store, id)?;
+    Ok(())
+}
+
+fn status_context(layout: InstanceLayout) -> Result<crate::api::server::ApiContext> {
+    Ok(crate::api::server::ApiContext {
+        layout,
+        token: "test-token".to_string(),
+        socket_path: PathBuf::new(),
+        runtime: None,
+        realm_id: maestria_domain::RealmId::try_from("a".repeat(64))?,
+    })
+}
+
+#[tokio::test]
+async fn retrieval_status_reflects_active_hybrid_record() -> Result<()> {
+    let fixture = fixture()?;
+    write_manifest_with_profiles(&fixture.layout)?;
+    seed_lexical_generation(&fixture.layout)?;
+    let store = SqliteStore::open(&fixture.layout.database_path)?;
+    let hybrid_record = maestria_retrieval::HybridPromotionRecord::new(
+        "hybrid-dense-2026-08-09".to_string(),
+        "2026-08-09".to_string(),
+        BTreeSet::from([maestria_retrieval::LearnedSparseQueryClass::DomainTerminology]),
+    )
+    .ok_or_else(|| anyhow::anyhow!("hybrid promotion record"))?;
+    let record_json = serde_json::to_string(&hybrid_record)?;
+    store.save_hybrid_promotion_record(
+        "corpus-1",
+        "hybrid-dense-2026-08-09",
+        "2026-08-09",
+        "report-hash-hybrid",
+        &record_json,
+    )?;
+    store.save_promotion_record(
+        "corpus-1",
+        "sparse-2026-08-09",
+        "2026-08-09",
+        "report-hash-sparse",
+        "{}",
+    )?;
+    drop(store);
+
+    let context = status_context(fixture.layout)?;
+    let response = super::super::search_services::retrieval_status(&context).await?;
+
+    assert_eq!(response.index_generation, 1);
+    assert_eq!(response.lanes.hybrid_state, "Active");
+    assert_eq!(
+        response.lanes.hybrid_served_classes,
+        vec!["DomainTerminology".to_string()]
+    );
+    assert_eq!(
+        response.lanes.hybrid_evaluation_id.as_deref(),
+        Some("hybrid-dense-2026-08-09")
+    );
+    assert_eq!(
+        response.lanes.hybrid_evaluation_date.as_deref(),
+        Some("2026-08-09")
+    );
+    assert_eq!(
+        response.lanes.hybrid_report_hash.as_deref(),
+        Some("report-hash-hybrid")
+    );
+    assert_eq!(
+        response.lanes.dense_model.as_deref(),
+        Some("test-embedding-model")
+    );
+    assert_eq!(
+        response.lanes.learned_sparse_model.as_deref(),
+        Some("test-sparse-model")
+    );
+    assert!(!response.lanes.dense_enabled);
+    let hybrid_wire = response
+        .promotion_records
+        .hybrid
+        .ok_or_else(|| anyhow::anyhow!("hybrid record wire"))?;
+    assert_eq!(hybrid_wire.evaluation_id, "hybrid-dense-2026-08-09");
+    assert_eq!(hybrid_wire.corpus_id, "corpus-1");
+    assert_eq!(hybrid_wire.evaluation_date, "2026-08-09");
+    assert_eq!(hybrid_wire.report_hash, "report-hash-hybrid");
+    assert!(!hybrid_wire.created_at.is_empty());
+    let sparse_wire = response
+        .promotion_records
+        .learned_sparse
+        .ok_or_else(|| anyhow::anyhow!("sparse record wire"))?;
+    assert_eq!(sparse_wire.evaluation_id, "sparse-2026-08-09");
+    assert_eq!(sparse_wire.report_hash, "report-hash-sparse");
+    Ok(())
+}
+
+#[tokio::test]
+async fn retrieval_status_shadows_without_records() -> Result<()> {
+    let fixture = fixture()?;
+    write_manifest_with_profiles(&fixture.layout)?;
+    seed_lexical_generation(&fixture.layout)?;
+
+    let context = status_context(fixture.layout)?;
+    let response = super::super::search_services::retrieval_status(&context).await?;
+
+    assert_eq!(response.lanes.hybrid_state, "Shadow");
+    assert!(response.lanes.hybrid_served_classes.is_empty());
+    assert!(response.lanes.hybrid_evaluation_id.is_none());
+    assert!(response.lanes.hybrid_evaluation_date.is_none());
+    assert!(response.lanes.hybrid_report_hash.is_none());
+    assert_eq!(response.lanes.learned_sparse_state, "Shadow");
+    assert_eq!(response.lanes.repository_code_state, "Shadow");
+    assert_eq!(response.lanes.visual_state, "Shadow");
+    assert!(response.promotion_records.learned_sparse.is_none());
+    assert!(response.promotion_records.hybrid.is_none());
+    assert_eq!(
+        response.lanes.dense_model.as_deref(),
+        Some("test-embedding-model")
+    );
+    assert_eq!(
+        response.lanes.learned_sparse_model.as_deref(),
+        Some("test-sparse-model")
+    );
+    Ok(())
+}
+
 #[test]
 fn open_evidence_rejects_indexed_non_file_evidence_from_other_scope() -> Result<()> {
     let fixture = fixture()?;

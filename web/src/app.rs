@@ -23,6 +23,26 @@ pub(crate) fn NotebookDrafts(notebook_id: u64) -> Element {
 }
 
 #[component]
+pub(crate) fn Search() -> Element {
+    rsx! { crate::search::SearchWorkspace {} }
+}
+
+#[component]
+pub(crate) fn Retrieval() -> Element {
+    rsx! { crate::retrieval::RetrievalWorkspace {} }
+}
+
+#[component]
+pub(crate) fn Tasks() -> Element {
+    rsx! { crate::tasks::TasksWorkspace {} }
+}
+
+#[component]
+pub(crate) fn Index() -> Element {
+    rsx! { crate::index::IndexWorkspace {} }
+}
+
+#[component]
 pub(crate) fn NotFound(segments: Vec<String>) -> Element {
     let _ = segments;
     rsx! {
@@ -35,6 +55,24 @@ pub(crate) fn NotFound(segments: Vec<String>) -> Element {
             }
         }
     }
+}
+
+/// Pick the agent that answers notebook questions: the remembered agent when
+/// it is still configured, else the first ready agent, else the first agent.
+fn preferred_agent(
+    agents: &[crate::api::Agent],
+    remembered: Option<String>,
+) -> Option<crate::api::Agent> {
+    if let Some(id) = remembered
+        && let Some(agent) = agents.iter().find(|agent| agent.id == id)
+    {
+        return Some(agent.clone());
+    }
+    agents
+        .iter()
+        .find(|agent| agent.status == "ready")
+        .or_else(|| agents.first())
+        .cloned()
 }
 
 #[component]
@@ -64,7 +102,11 @@ pub fn App() -> Element {
                         crate::state::LoadState::Ready(notebooks)
                     };
                     value.model.agents = bootstrap.agents.clone();
-                    value.agent = bootstrap.agents.into_iter().next();
+                    value.agent = preferred_agent(
+                        &bootstrap.agents,
+                        crate::session::Session::remembered_agent(),
+                    );
+                    value.bootstrap_status = bootstrap.status.clone();
                     value.model.status = "Studio ready".into();
                     value.active_notebook = remembered;
                 }

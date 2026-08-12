@@ -23,7 +23,7 @@ fn scan_skips_instance_state_when_root_contains_instance() -> Result<(), Box<dyn
         visual: None,
         sparse: None,
     };
-    let observations = scan_manifest(&manifest)?;
+    let observations = scan_manifest(&manifest, &BTreeMap::new(), &BTreeMap::new())?.0;
 
     assert_eq!(observations.len(), 1);
     assert!(observations[0].path.ends_with("research.md"));
@@ -39,7 +39,7 @@ fn scan_preserves_relative_manifest_scope() -> Result<(), Box<dyn std::error::Er
     fs::write(root.join("note.md"), "relative note")?;
 
     let manifest = test_manifest(root.clone())?;
-    let observations = scan_manifest(&manifest)?;
+    let observations = scan_manifest(&manifest, &BTreeMap::new(), &BTreeMap::new())?.0;
 
     assert_eq!(observations.len(), 1);
     assert!(observations[0].path.ends_with("note.md"));
@@ -67,7 +67,7 @@ fn scan_allows_read_root_nested_in_instance() -> Result<(), Box<dyn std::error::
         visual: None,
         sparse: None,
     };
-    let observations = scan_manifest(&manifest)?;
+    let observations = scan_manifest(&manifest, &BTreeMap::new(), &BTreeMap::new())?.0;
 
     assert_eq!(observations.len(), 1);
     assert!(observations[0].path.ends_with("note.md"));
@@ -98,7 +98,7 @@ fn scan_excludes_instance_manifest_and_preserves_alias_scope()
         visual: None,
         sparse: None,
     };
-    let observations = scan_manifest(&manifest)?;
+    let observations = scan_manifest(&manifest, &BTreeMap::new(), &BTreeMap::new())?.0;
 
     assert_eq!(observations.len(), 1);
     assert!(observations[0].path.ends_with("workspace/note.md"));
@@ -114,13 +114,19 @@ fn scan_is_deterministic_and_skips_sensitive_files() -> Result<(), Box<dyn std::
     fs::write(root.join("note.md"), "note")?;
     fs::write(root.join(".env"), "secret")?;
     let manifest = test_manifest(root.clone())?;
-    let first = scan_manifest(&manifest)?;
-    let second = scan_manifest(&manifest)?;
-    assert_eq!(
-        first.iter().map(|item| &item.path).collect::<Vec<_>>(),
-        second.iter().map(|item| &item.path).collect::<Vec<_>>()
-    );
+    let (first, signatures) = scan_manifest(&manifest, &BTreeMap::new(), &BTreeMap::new())?;
+    let recorded: std::collections::BTreeMap<String, String> = first
+        .iter()
+        .map(|observation| (source_key(&observation.path), observation.hash.clone()))
+        .collect();
+    let (second, _) = scan_manifest(&manifest, &signatures, &recorded)?;
     assert_eq!(first.len(), 1);
+    // Unchanged files are not re-read on the next scan (issue #440).
+    assert!(
+        second.is_empty(),
+        "unchanged files must not be re-read, got {:?}",
+        second
+    );
     fs::remove_dir_all(root)?;
     Ok(())
 }
@@ -134,13 +140,53 @@ fn scan_respects_gitignore() -> Result<(), Box<dyn std::error::Error>> {
     fs::write(root.join("ignored.md"), "ignored content")?;
     fs::write(root.join(".gitignore"), "ignored.md")?;
     let manifest = test_manifest(root.clone())?;
-    let observations = scan_manifest(&manifest)?;
+    let observations = scan_manifest(&manifest, &BTreeMap::new(), &BTreeMap::new())?.0;
     assert_eq!(observations.len(), 1);
     assert!(
         observations[0].path.ends_with("tracked.md"),
         "only tracked.md should appear, got: {:?}",
         observations[0].path
     );
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[test]
+fn scan_re_reads_only_changed_files() -> Result<(), Box<dyn std::error::Error>> {
+    let root = env::temp_dir().join(format!("maestria-watcher-change-{}", process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root)?;
+    fs::write(root.join("stable.md"), "stable content")?;
+    let manifest = test_manifest(root.clone())?;
+    let (first, signatures) = scan_manifest(&manifest, &BTreeMap::new(), &BTreeMap::new())?;
+    assert_eq!(first.len(), 1);
+    let recorded: std::collections::BTreeMap<String, String> = first
+        .iter()
+        .map(|observation| (source_key(&observation.path), observation.hash.clone()))
+        .collect();
+
+    // Touch the file: the mtime changes, so the next scan must re-read it.
+    let stable = root.join("stable.md");
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(2);
+    let file = fs::File::options().write(true).open(&stable)?;
+    file.set_modified(later)?;
+
+    let (second, second_signatures) = scan_manifest(&manifest, &signatures, &recorded)?;
+    assert_eq!(second.len(), 1, "changed file must be re-read");
+    assert_ne!(second_signatures, signatures);
+
+    // No changes: nothing is re-read.
+    let recorded2: std::collections::BTreeMap<String, String> = second
+        .iter()
+        .map(|observation| (source_key(&observation.path), observation.hash.clone()))
+        .chain(
+            recorded
+                .iter()
+                .map(|(key, hash)| (key.clone(), hash.clone())),
+        )
+        .collect();
+    let (third, _) = scan_manifest(&manifest, &second_signatures, &recorded2)?;
+    assert!(third.is_empty(), "unchanged files must not be re-read");
     fs::remove_dir_all(root)?;
     Ok(())
 }
@@ -154,7 +200,7 @@ fn scan_respects_ignore_file() -> Result<(), Box<dyn std::error::Error>> {
     fs::write(root.join("ignored.md"), "should be ignored")?;
     fs::write(root.join(".ignore"), "ignored.md")?;
     let manifest = test_manifest(root.clone())?;
-    let observations = scan_manifest(&manifest)?;
+    let observations = scan_manifest(&manifest, &BTreeMap::new(), &BTreeMap::new())?.0;
     assert_eq!(observations.len(), 1);
     assert!(
         observations[0].path.ends_with("ok.md"),

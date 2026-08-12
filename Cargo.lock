@@ -2817,13 +2817,13 @@ dependencies = [
  "anyhow",
  "clap",
  "getrandom 0.2.17",
- "ignore",
  "maestria-blob-fs",
  "maestria-code-intel",
  "maestria-core",
  "maestria-daemon",
  "maestria-domain",
  "maestria-governance",
+ "maestria-index-selection",
  "maestria-parsers",
  "maestria-ports",
  "maestria-retrieval",
@@ -2885,6 +2885,7 @@ dependencies = [
  "maestria-governance",
  "maestria-graph-sqlite",
  "maestria-harness",
+ "maestria-index-selection",
  "maestria-ocr-local",
  "maestria-parsers",
  "maestria-ports",
@@ -2963,6 +2964,17 @@ dependencies = [
  "maestria-ports",
  "tokio",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "maestria-index-selection"
+version = "0.6.1"
+dependencies = [
+ "anyhow",
+ "ignore",
+ "maestria-governance",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3082,6 +3094,7 @@ dependencies = [
  "axum",
  "maestria-core",
  "maestria-daemon",
+ "maestria-index-selection",
  "mime_guess",
  "rust-embed",
  "serde",

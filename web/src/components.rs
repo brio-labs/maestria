@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::{
-    api::{Agent, ApiClient, Citation, ClientError, Draft, DraftSummary, Evidence, Notebook},
+    api::{Agent, ApiClient, BootstrapStatus, Citation, ClientError, Evidence, Notebook},
     route::Route,
     session::Session,
     state::{LoadState, StudioStateModel},
@@ -16,6 +16,7 @@ pub struct WorkspaceContext {
     pub agent: Option<Agent>,
     pub evidence: Option<Evidence>,
     pub invoking_citation: Option<u64>,
+    pub bootstrap_status: Option<BootstrapStatus>,
 }
 
 pub fn alert(error: &ClientError) -> Element {
@@ -41,7 +42,6 @@ pub fn Shell(title: String, active_notebook: Option<u64>, children: Element) -> 
         .agent
         .as_ref()
         .is_some_and(|agent| agent.status == "ready");
-    let navigator = use_navigator();
     let selected_notebook = active_notebook.map_or_else(String::new, |id| id.to_string());
     rsx! {
         div { class: "min-h-screen bg-page text-ink",
@@ -60,35 +60,13 @@ pub fn Shell(title: String, active_notebook: Option<u64>, children: Element) -> 
                 }
             }
                 div { class: "mb-4 lg:hidden",
-                    label { class: "sr-only", r#for: "notebook-selector", "Select notebook" }
-                    select {
-                        id: "notebook-selector",
-                        class: "w-full rounded border border-line bg-input px-3 py-2",
-                        value: selected_notebook,
-                        onchange: move |event| {
-                            if let Ok(id) = event.value().parse::<u64>() {
-                                navigator.push(Route::NotebookOverview { notebook_id: id });
-                            }
-                        },
-                        option { value: "", "Select notebook" }
-                        for notebook in notebooks.clone() {
-                            option { value: "{notebook.notebook_id}", "{notebook.title}" }
-                        }
+                    crate::nav::NotebookSelector {
+                        notebooks: notebooks.clone(),
+                        selected_notebook: selected_notebook.clone()
                     }
                 }
             div { class: "mx-auto flex max-w-7xl gap-6 p-4 md:p-8",
-                aside { class: "hidden w-60 shrink-0 lg:block", aria_label: "Notebooks",
-                    h2 {
-                        class: "mb-3 text-sm font-semibold uppercase tracking-wide text-ink-muted",
-                        "Notebooks"
-                    }
-                    for notebook in notebooks {
-                        a {
-                            href: "/notebooks/{notebook.notebook_id}",
-                            "{notebook.title}"
-                        }
-                    }
-                }
+                crate::nav::GlobalNav { notebooks }
                 main {
                     class: "min-w-0 flex-1",
                     h1 {
@@ -133,6 +111,7 @@ fn close_dialog(id: &str) {
     }
 }
 
+/// Whether the user is actively editing one of the draft editor fields.
 #[component]
 pub fn NotebookNav(notebook: Notebook) -> Element {
     let id = notebook.notebook_id;
@@ -349,42 +328,6 @@ fn DeleteNotebookDialog(
     }
 }
 #[component]
-pub fn DraftButton(
-    notebook_id: u64,
-    draft: DraftSummary,
-    api: ApiClient,
-    mut title: Signal<String>,
-    mut markdown: Signal<String>,
-    mut selected: Signal<Option<Draft>>,
-    context: Signal<WorkspaceContext>,
-) -> Element {
-    let draft_id = draft.draft_id;
-    rsx! {
-        button {
-            class: "mb-2 block w-full rounded border border-line p-3 text-left",
-            onclick: move |_| {
-                let api = api.clone();
-                spawn(async move {
-                    match api.draft(notebook_id, draft_id).await {
-                        Ok(value) => {
-                            title.set(value.title.clone());
-                            markdown.set(value.markdown.clone());
-                            selected.set(Some(value));
-                        }
-                        Err(error) => {
-                            let mut state = context.write();
-                            state.model.alert = Some(error);
-                            state.model.status = "Draft load failed".into();
-                        }
-                    }
-                });
-            },
-            "{draft.title}"
-            p { class: "text-sm text-ink-muted", "Revision {draft.revision}" }
-        }
-    }
-}
-
 #[component]
 pub fn CitationList(citations: Vec<Citation>, on_open: EventHandler<u64>) -> Element {
     rsx! {

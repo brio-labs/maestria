@@ -126,6 +126,9 @@ maestria promotion remove -i .maestria-dev
 
 # 11) Start the daemon (or restart after changes)
 maestria start -i .maestria-dev
+# Governance profile: read-only (default) or trusted-workspace; the
+# env var MAESTRIA_DAEMON_PROFILE remains an alias for scripts.
+# maestria start -i .maestria-dev --profile trusted-workspace
 # Stop with Ctrl-C; start again picks up where it left off
 ```
 
@@ -373,6 +376,17 @@ maestria index generations [-i <dir>]
 |------|-------------|
 | `-i, --instance-dir` | Instance root directory |
 | `-r, --recursive` | Recurse into subdirectories |
+| `--max-file-bytes <N>` | Skip files larger than N bytes (0 disables) |
+| `--skip-generated` | Skip generated asset dumps (single-extension dumps) |
+| `--skip-minified` | Skip minified single-line bundles |
+| `--yes` | Accept every directory prompt (non-interactive) |
+| `--save-selection` | Write the approved selection to `system/index-selection.json` |
+
+Directories are classified into Recommended / Maybe / Noise; Recommended
+directories are whitelisted automatically, Noise subtrees are excluded, and
+the rest are offered interactively with bounded drill-down (`Y`/`n`/`l`/`p`/
+`a`/`q`). On a non-TTY run (or with `--yes`) every non-Noise directory is
+whitelisted. Files outside the whitelist are never submitted.
 
 `index generations` reports generation lifecycle, serveability, corpus snapshot,
 and representation fingerprint fields.

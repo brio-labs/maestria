@@ -214,6 +214,8 @@ pub struct Agent {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Bootstrap {
     #[serde(default)]
+    pub status: Option<BootstrapStatus>,
+    #[serde(default)]
     pub notebooks: NotebookListPayload,
     #[serde(default)]
     pub agents: Vec<Agent>,
@@ -270,4 +272,153 @@ pub struct UpdateDraft {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct DeleteDraft {
     pub expected_revision: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct SearchResponse {
+    pub query: String,
+    pub query_id: u64,
+    pub trace_id: u64,
+    pub status: String,
+    pub fingerprint: String,
+    pub index_generation: u64,
+    pub evidence: Vec<SearchEvidence>,
+    pub coverage: CoverageWire,
+    pub conflict_count: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct SearchEvidence {
+    pub evidence_id: u64,
+    pub artifact_version: u64,
+    pub source: String,
+    pub range_start: usize,
+    pub range_end: usize,
+    pub score_schema_version: u16,
+    pub scores: Vec<SearchScore>,
+    pub trust: String,
+    pub freshness: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct SearchScore {
+    pub score_kind: String,
+    pub raw_score: i64,
+    pub raw_rank: SearchRawRank,
+    pub scale: SearchScoreScale,
+    pub representation: String,
+    pub fingerprint: String,
+    #[serde(default)]
+    pub fingerprint_components: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum SearchRawRank {
+    Ranked { rank: u32 },
+    Unavailable { reason: String },
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SearchScoreScale {
+    Binary,
+    Unbounded {
+        name: String,
+        higher_is_better: bool,
+    },
+    FixedPoint {
+        name: String,
+        denominator: u32,
+        minimum: Option<i64>,
+        maximum: Option<i64>,
+        higher_is_better: bool,
+    },
+    RankDerived {
+        name: String,
+        higher_is_better: bool,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CoverageWire {
+    pub percent_covered: u8,
+    #[serde(default)]
+    pub gaps: Vec<String>,
+    pub distinct_sources: usize,
+    pub distinct_documents: usize,
+    pub distinct_sections: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RetrievalStatus {
+    pub index_generation: u64,
+    pub corpus_snapshot: u64,
+    pub fingerprint: String,
+    pub lanes: RetrievalLane,
+    pub promotion_records: RetrievalRecords,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RetrievalLane {
+    pub hybrid_state: String,
+    #[serde(default)]
+    pub hybrid_served_classes: Vec<String>,
+    #[serde(default)]
+    pub hybrid_evaluation_id: Option<String>,
+    #[serde(default)]
+    pub hybrid_evaluation_date: Option<String>,
+    #[serde(default)]
+    pub hybrid_report_hash: Option<String>,
+    pub learned_sparse_state: String,
+    #[serde(default)]
+    pub learned_sparse_model: Option<String>,
+    pub dense_enabled: bool,
+    #[serde(default)]
+    pub dense_model: Option<String>,
+    pub repository_code_state: String,
+    pub visual_state: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RetrievalRecords {
+    #[serde(default)]
+    pub learned_sparse: Option<RetrievalRecord>,
+    #[serde(default)]
+    pub hybrid: Option<RetrievalRecord>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RetrievalRecord {
+    pub evaluation_id: String,
+    pub corpus_id: String,
+    pub evaluation_date: String,
+    pub report_hash: String,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TaskSummaryWire {
+    pub task_id: u64,
+    pub title: String,
+    pub status: String,
+    pub priority: String,
+    #[serde(default)]
+    pub evidence_ids: Vec<u64>,
+    #[serde(default)]
+    pub validation_report_id: Option<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TaskListWire {
+    pub tasks: Vec<TaskSummaryWire>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct BootstrapStatus {
+    pub instance_root: String,
+    pub event_count: usize,
+    pub task_count: usize,
+    #[serde(default)]
+    pub socket_path: Option<String>,
 }

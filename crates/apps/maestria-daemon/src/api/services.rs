@@ -2,6 +2,8 @@
 mod federation_binding;
 #[path = "federation_services.rs"]
 mod federation_services;
+#[path = "index_services.rs"]
+mod index_services;
 #[path = "model_agent_services.rs"]
 mod model_agent_services;
 #[path = "notebook_services.rs"]
@@ -33,6 +35,9 @@ pub(crate) async fn dispatch(
         operation @ (ClientOperation::Status
         | ClientOperation::Task { .. }
         | ClientOperation::Evidence { .. }) => dispatch_read(context, operation).await,
+        ClientOperation::RetrievalStatus => Ok(ClientResponse::RetrievalStatus(Box::new(
+            search_services::retrieval_status(context).await?,
+        ))),
         ClientOperation::Search { query, limit } => {
             if query.trim().is_empty() {
                 return Err(anyhow!("search query must not be empty"));
@@ -106,6 +111,23 @@ pub(crate) async fn dispatch(
             provider_realm,
             evidence_id,
         } => federation_services::evidence(context, &principal, provider_realm, evidence_id).await,
+        ClientOperation::IndexCandidates { root } => Ok(ClientResponse::IndexCandidates(
+            index_services::candidates(context, root).await?,
+        )),
+        ClientOperation::IndexSelectionGet => Ok(ClientResponse::IndexSelection(
+            index_services::selection_get(context).await?,
+        )),
+        ClientOperation::IndexSelectionSave { profile } => {
+            index_services::selection_save(context, profile).await?;
+            Ok(ClientResponse::IndexSelectionSaved)
+        }
+        ClientOperation::IndexRun {
+            root,
+            includes,
+            policies,
+        } => Ok(ClientResponse::IndexRun(
+            index_services::run(context, root, includes, policies).await?,
+        )),
     }
 }
 

@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 mod protocol_client;
 #[path = "protocol_federation.rs"]
 mod protocol_federation;
+#[path = "protocol_index.rs"]
+mod protocol_index;
 #[path = "protocol_notebook.rs"]
 mod protocol_notebook;
 #[path = "protocol_read.rs"]
@@ -16,6 +18,7 @@ pub use protocol_federation::{
     FederationSearchResponse, RealmGrantAccess, RealmGrantCreatedResponse, RealmGrantListResponse,
     RealmGrantResponse, RealmGrantSensitivity,
 };
+pub use protocol_index::{IndexCandidatesResponse, IndexRunResponse, IndexSelectionResponse};
 pub use protocol_notebook::{
     FrozenNotebookCitationResponse, NotebookCitationResponse, NotebookContextResponse,
     NotebookDraftDeletedResponse, NotebookDraftListResponse, NotebookDraftResponse,
@@ -24,9 +27,10 @@ pub use protocol_notebook::{
     NotebookSummary,
 };
 pub use protocol_read::{
-    CoverageResponse, EvidenceResponse, EvidenceSourceResponse, SearchEvidenceResponse,
-    SearchRawRankResponse, SearchResponse, SearchScoreResponse, SearchScoreScaleResponse,
-    StatusResponse, TaskResponse, TaskSummary,
+    CoverageResponse, EvidenceResponse, EvidenceSourceResponse, RetrievalLaneStatus,
+    RetrievalPromotionRecordWire, RetrievalPromotionRecords, RetrievalStatusResponse,
+    SearchEvidenceResponse, SearchRawRankResponse, SearchResponse, SearchScoreResponse,
+    SearchScoreScaleResponse, StatusResponse, TaskResponse, TaskSummary,
 };
 
 const MAX_SEARCH_LIMIT: usize = 100;
@@ -35,6 +39,7 @@ const MAX_SEARCH_LIMIT: usize = 100;
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientOperation {
     Status,
+    RetrievalStatus,
     Search {
         query: String,
         limit: usize,
@@ -139,6 +144,18 @@ pub enum ClientOperation {
         provider_realm: RealmId,
         evidence_id: u64,
     },
+    IndexCandidates {
+        root: String,
+    },
+    IndexSelectionGet,
+    IndexSelectionSave {
+        profile: maestria_index_selection::IndexSelectionProfile,
+    },
+    IndexRun {
+        root: String,
+        includes: Vec<String>,
+        policies: std::collections::BTreeMap<String, maestria_index_selection::IndexPolicy>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,6 +167,7 @@ pub struct ClientRequest {
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum ClientResponse {
     Status(StatusResponse),
+    RetrievalStatus(Box<RetrievalStatusResponse>),
     Search(SearchResponse),
     Evidence(EvidenceResponse),
     Task(TaskResponse),
@@ -170,6 +188,10 @@ pub enum ClientResponse {
     NotebookDraftDeleted(NotebookDraftDeletedResponse),
     NotebookDeleted,
     FederationEvidence(FederationEvidenceResponse),
+    IndexCandidates(IndexCandidatesResponse),
+    IndexSelection(IndexSelectionResponse),
+    IndexSelectionSaved,
+    IndexRun(IndexRunResponse),
 }
 
 /// Untrusted proposal payload submitted to the model agent endpoint.

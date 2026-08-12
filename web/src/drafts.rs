@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::{
     api::{ApiClient, ClientError, CreateDraft, Draft, DraftSummary, UpdateDraft},
-    components::{DraftButton, WorkspaceContext},
+    components::WorkspaceContext,
     state::LoadState,
 };
 
@@ -339,6 +339,81 @@ fn SaveDraftButton(
                 });
             },
             "Save draft"
+        }
+    }
+}
+
+/// Whether the user is actively editing one of the draft editor fields.
+///
+/// On native targets (unit tests) no DOM exists, so the answer is `false`
+/// and the signal-comparison guard remains the only protection.
+fn editor_field_focused() -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        false
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()
+            .and_then(|window| window.document())
+            .and_then(|document| document.active_element())
+            .is_some_and(|element| {
+                let id = element.id();
+                id == "draft-title" || id == "draft-markdown"
+            })
+    }
+}
+
+#[component]
+pub fn DraftButton(
+    notebook_id: u64,
+    draft: DraftSummary,
+    api: ApiClient,
+    mut title: Signal<String>,
+    mut markdown: Signal<String>,
+    mut selected: Signal<Option<Draft>>,
+    context: Signal<WorkspaceContext>,
+) -> Element {
+    let draft_id = draft.draft_id;
+    // Snapshot the editor state at click time; a slower draft fetch must
+    // not clobber edits the user makes while it is in flight.
+    let prior_title = title.read().clone();
+    let prior_markdown = markdown.read().clone();
+    rsx! {
+        button {
+            class: "mb-2 block w-full rounded border border-line p-3 text-left",
+            onclick: move |_| {
+                let api = api.clone();
+                let prior_title = prior_title.clone();
+                let prior_markdown = prior_markdown.clone();
+                spawn(async move {
+                    match api.draft(notebook_id, draft_id).await {
+                        Ok(value) => {
+                            // Apply the fetched draft only when the user is
+                            // not actively editing a field (the active
+                            // element check) and has not changed the editor
+                            // state since the click. A mid-fill rewrite by
+                            // the controlled input would corrupt the value
+                            // being typed.
+                            if !editor_field_focused()
+                                && title.read().as_str() == prior_title.as_str()
+                                && markdown.read().as_str() == prior_markdown.as_str()
+                            {
+                                title.set(value.title.clone());
+                                markdown.set(value.markdown.clone());
+                            }
+                            selected.set(Some(value));
+                        }
+                        Err(error) => {
+                            let mut state = context.write();
+                            state.model.alert = Some(error);
+                            state.model.status = "Draft load failed".into();
+                        }
+                    }
+                });
+            },
+            "{draft.title}"
+            p { class: "text-sm text-ink-muted", "Revision {draft.revision}" }
         }
     }
 }

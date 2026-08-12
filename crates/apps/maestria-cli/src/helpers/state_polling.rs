@@ -41,6 +41,59 @@ pub(crate) fn retry_db_busy<T>(context: &str, operation: impl Fn() -> Result<T>)
 /// ([`is_database_busy`]) and retried at the CLI polling cadence; the last such
 /// error is preserved in the timeout message. The returned state is the one
 /// that satisfied the predicate.
+///
+/// Prefer [`wait_for_artifact_state`] for per-artifact waits: polling the
+/// full replayed kernel state costs a full event-log replay per poll, which
+/// dominates batch ingestion time as the log grows.
+pub(crate) async fn wait_for_artifact_state(
+    layout: &InstanceLayout,
+    artifact_id: maestria_domain::ArtifactId,
+    timeout_budget: Duration,
+    wait_context: String,
+    mut predicate: impl FnMut(&maestria_domain::Artifact) -> bool,
+) -> Result<()> {
+    let last_error = Arc::new(Mutex::new(None::<String>));
+    let result = timeout(timeout_budget, async {
+        loop {
+            let state = retry_db_busy(&wait_context, || {
+                let store =
+                    maestria_storage_sqlite::SqliteStore::open_read_only(&layout.database_path)?;
+                maestria_ports::ArtifactRepository::get(&store, artifact_id)
+                    .with_context(|| format!("load artifact state while {wait_context}"))
+            });
+            match state {
+                Ok(Some(artifact)) => {
+                    if predicate(&artifact) {
+                        return Ok(());
+                    }
+                }
+                Ok(None) => {}
+                Err(error) if is_database_busy(&error) => {
+                    let mut slot = last_error
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("state-poll mutex poisoned"))?;
+                    *slot = Some(error.to_string());
+                }
+                Err(error) => return Err(error),
+            }
+            sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await;
+
+    match result {
+        Ok(inner) => inner,
+        Err(_elapsed) => {
+            let detail = match last_error.lock() {
+                Ok(error) => error
+                    .as_deref()
+                    .map_or_else(String::new, |error| format!(" {error}")),
+                Err(_) => " state-poll mutex poisoned while reading last error".to_string(),
+            };
+            Err(anyhow::anyhow!("timed out while {wait_context}{detail}"))
+        }
+    }
+}
 pub(crate) async fn wait_for_kernel_state(
     layout: &InstanceLayout,
     timeout_budget: Duration,

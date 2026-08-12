@@ -37,45 +37,61 @@ fn recovery_queue_ids_preserve_dependency_groups() -> Result<(), Box<dyn std::er
     Ok(())
 }
 #[tokio::test]
-async fn internal_runtime_fatal_shutdown_does_not_require_external_signal()
+async fn secret_bearing_artifact_is_quarantined_and_runtime_continues()
 -> Result<(), Box<dyn std::error::Error>> {
     let temp_dir = TempDir::create()?;
     let layout = prepare_instance(temp_dir.path().to_path_buf())?;
     let lifecycle = InstanceLifecycle::start(layout.clone(), AutonomyProfile::ReadOnly).await?;
     let external_shutdown = CancellationToken::new();
     let input_tx = lifecycle.runtime_handle().feedback_sender();
-    let source_bytes = b"# injected fatal effect\nAKIA1234567890123456".to_vec();
+    let source_bytes = b"# injected secret\nAKIA1234567890123456".to_vec();
     input_tx
         .send(DomainInput::ArtifactDetected(ArtifactDetected {
             artifact_id: ArtifactId::new(1),
-            title: "fatal.md".to_string(),
-            source_path: temp_dir.path().join("fatal.md").display().to_string(),
+            title: "secret.md".to_string(),
+            source_path: temp_dir.path().join("secret.md").display().to_string(),
             content_hash: ContentHash::new(content_hash(&source_bytes))?,
             source_bytes,
         }))
         .await?;
+    let mut run = tokio::spawn(lifecycle.run_until_shutdown(external_shutdown.clone()));
 
-    let lifecycle_result = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        lifecycle.run_until_shutdown(external_shutdown.clone()),
-    )
-    .await?;
-    let Some(error) = lifecycle_result.err() else {
-        return Err("runtime fatal effect unexpectedly returned success".into());
-    };
+    // Secret-bearing content is a per-artifact privacy outcome: the artifact
+    // must reach the quarantined terminal state instead of killing the
+    // runtime (per-artifact quarantine / failure isolation).
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let store =
+                maestria_storage_sqlite::SqliteStore::open_read_only(&layout.database_path)?;
+            let artifact = maestria_ports::ArtifactRepository::get(&store, ArtifactId::new(1))?;
+            if artifact.and_then(|artifact| artifact.parse_status)
+                == Some(maestria_domain::ParseStatus::Quarantined)
+            {
+                return Ok::<(), Box<dyn std::error::Error>>(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .map_err(|_| "artifact never reached the quarantined terminal state")??;
 
+    // The runtime must still be serving: the lifecycle must not have
+    // terminated on its own after the quarantine.
+    let still_running = tokio::time::timeout(std::time::Duration::from_secs(1), &mut run)
+        .await
+        .is_err();
+    assert!(
+        still_running,
+        "runtime must continue serving after quarantining a secret-bearing artifact"
+    );
     assert!(
         !external_shutdown.is_cancelled(),
-        "runtime failure must not cancel the caller's shutdown token"
+        "quarantine must not cancel the caller's shutdown token"
     );
-    assert!(
-        layout.system_dir.join("watcher-state.json").exists(),
-        "watcher state must be persisted during runtime-failure cleanup"
-    );
-    let message = format!("{error:#}");
-    assert!(
-        message.contains("runtime"),
-        "runtime failure context must be preserved: {message}"
-    );
+
+    external_shutdown.cancel();
+    run.await
+        .map_err(|join| join.to_string())?
+        .map_err(|error| format!("clean external shutdown failed: {error:#}"))?;
     Ok(())
 }

@@ -5,6 +5,7 @@ pub mod code_intel_sources;
 pub mod doctor;
 pub mod evidence;
 pub mod index;
+pub mod index_selection;
 pub mod init;
 pub mod memory;
 pub mod observability;

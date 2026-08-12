@@ -9,8 +9,35 @@ use crate::proposal_workflow::model_agent_denial_result;
 use maestria_domain::{MaestriaEffect, ModelAgentProposalExecution};
 use maestria_governance::RiskClass;
 use maestria_ports::EffectJournalStatus;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Mutex;
 use std::time::Duration;
+
+/// Static counter for throttled effect-denial logging: (effect name,
+/// reason) → occurrences. Identical denials are logged on the first
+/// occurrence and every 100th thereafter.
+static DENIAL_LOG_COUNTS: Mutex<BTreeMap<(&'static str, String), usize>> =
+    Mutex::new(BTreeMap::new());
+
+/// The stable variant name of an effect, for logs.
+fn effect_variant_name(effect: &MaestriaEffect) -> &'static str {
+    match effect {
+        MaestriaEffect::PersistEvent { .. } => "persist_event",
+        MaestriaEffect::PersistNotebookDraftBlob(_) => "persist_notebook_draft_blob",
+        MaestriaEffect::ParseArtifact(_) => "parse_artifact",
+        MaestriaEffect::Ocr(_) => "ocr",
+        MaestriaEffect::IndexFullText(_) => "index_full_text",
+        MaestriaEffect::IndexVector(_) => "index_vector",
+        MaestriaEffect::UpdateGraph(_) => "update_graph",
+        MaestriaEffect::QueryHarness(_) => "query_harness",
+        MaestriaEffect::QueryHarnessProposal(_) => "query_harness_proposal",
+        MaestriaEffect::FetchWeb(_) => "fetch_web",
+        MaestriaEffect::RunValidation(_) => "run_validation",
+        MaestriaEffect::RequestApproval(_) => "request_approval",
+        MaestriaEffect::EmitDiagnostic(_) => "emit_diagnostic",
+        MaestriaEffect::SearchKnowledge(_) => "search_knowledge",
+    }
+}
 
 pub(crate) enum PreparedEffect {
     Dispatch {
@@ -83,6 +110,7 @@ impl EffectExecutionContext {
 
     async fn reject_effect(
         &self,
+        effect: &MaestriaEffect,
         risk: RiskClass,
         cause: RejectionCause,
         handling: RejectionHandling,
@@ -94,7 +122,24 @@ impl EffectExecutionContext {
                 return EffectFailure::ApprovalLookup(error);
             }
         };
-        tracing::warn!(?risk, reason = %reason, "effect rejected");
+        // Throttle identical denials: the first occurrence logs in full,
+        // then every 100th with the running count. The domain can emit a
+        // denied effect per chunk or per evidence (provider-less medium
+        // effects), which would otherwise flood the log at home scale.
+        let name = effect_variant_name(effect);
+        let key = (name, reason.clone());
+        let count = {
+            let mut counts = match DENIAL_LOG_COUNTS.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            let count = counts.entry(key).or_insert(0);
+            *count += 1;
+            *count
+        };
+        if count == 1 || count.is_multiple_of(100) {
+            tracing::warn!(effect = %name, ?risk, reason = %reason, count, "effect rejected");
+        }
         match handling {
             RejectionHandling::ObserveOnly => {}
             RejectionHandling::LegacyHarness(request) => {
@@ -317,7 +362,7 @@ impl EffectExecutionContext {
                 {
                     self.prepare_terminal_rejection(risk, cause, handling)
                 } else {
-                    Err(self.reject_effect(risk, cause, handling).await)
+                    Err(self.reject_effect(&effect, risk, cause, handling).await)
                 }
             }
         }

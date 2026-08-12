@@ -362,6 +362,7 @@ impl MaestriaRuntime {
     ) -> bool {
         crate::persistence_barrier::wait_for_event(
             &*self.adapters.event_log,
+            maestria_ports::EventFilter { artifact_id: None },
             self.config.default_effect_timeout,
             shutdown_token,
             "validation report barrier",
@@ -377,6 +378,7 @@ impl MaestriaRuntime {
     ) -> bool {
         crate::persistence_barrier::wait_for_event(
             &*self.adapters.event_log,
+            maestria_ports::EventFilter { artifact_id: None },
             self.config.default_effect_timeout,
             shutdown_token,
             "event persistence barrier",
@@ -393,6 +395,7 @@ impl MaestriaRuntime {
     ) -> bool {
         crate::persistence_barrier::wait_for_event(
             &*self.adapters.event_log,
+            maestria_ports::EventFilter { artifact_id: None },
             self.config.default_effect_timeout,
             shutdown_token,
             "realm read grant projection barrier",
@@ -414,6 +417,7 @@ impl MaestriaRuntime {
     ) -> bool {
         crate::persistence_barrier::wait_for_event(
             &*self.adapters.event_log,
+            maestria_ports::EventFilter { artifact_id: None },
             self.config.default_effect_timeout,
             shutdown_token,
             "approval persistence barrier",

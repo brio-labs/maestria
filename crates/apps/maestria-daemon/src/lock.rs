@@ -118,7 +118,12 @@ pub async fn acquire(layout: &InstanceLayout) -> Result<InstanceWriteLock> {
         }
     })
     .await
-    .map_err(|_| anyhow!("timed out waiting for instance write lock"))?
+    .map_err(|_| {
+        anyhow!(
+            "timed out waiting for instance write lock (another process, e.g. a running \
+             daemon, owns the instance; stop the daemon or use the Studio)"
+        )
+    })?
 }
 
 fn lock_owner_is_dead(path: &PathBuf) -> bool {

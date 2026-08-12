@@ -85,7 +85,7 @@ fn assert_reindex_unchanged(
     instance_path: &str,
     file: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let stdout = assert_ok_lines(&["index", "-i", instance_path, file], 1)?;
+    let stdout = assert_ok_lines(&["index", "-i", instance_path, file], 2)?;
     assert!(
         stdout.contains("unchanged "),
         "expected 'unchanged' in re-index output: {stdout}"
@@ -140,17 +140,18 @@ fn assert_open_evidence_ok(
     );
     Ok(())
 }
-fn assert_reject_outside(
-    instance_path: &str,
-    file: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let err = assert_err(&["index", "-i", instance_path, file])?;
+/// Out-of-scope sources are skipped, not fatal: the batch must succeed with
+/// the file counted as `excluded` and never indexed.
+fn assert_skip_outside(instance_path: &str, file: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let stdout = assert_ok(&["index", "-i", instance_path, file])?;
     assert!(
-        err.contains("outside the instance read scope") || err.contains("excluded by policy"),
-        "expected scope rejection, got: {err}"
+        stdout.contains("policy skipped 1 sources (excluded)"),
+        "expected excluded-skip for out-of-scope file, got: {stdout}"
     );
     Ok(())
 }
+/// Privacy-excluded direct targets are rejected at collection time: the
+/// command fails with no stdout.
 fn assert_reject_env(instance_path: &str, file: &str) -> Result<(), Box<dyn std::error::Error>> {
     let err = assert_err(&["index", "-i", instance_path, file])?;
     assert!(
@@ -194,7 +195,7 @@ fn durable_cli_workflow() -> Result<(), Box<dyn std::error::Error>> {
         .join("sneaky.md")
         .to_string_lossy()
         .into_owned();
-    assert_reject_outside(ip.as_ref(), &sneaky)?;
+    assert_skip_outside(ip.as_ref(), &sneaky)?;
     write_file(workspace.path(), ".env", "SECRET=do_not_index")?;
     let env_file = workspace.path().join(".env").to_string_lossy().into_owned();
     assert_reject_env(ip.as_ref(), &env_file)?;
@@ -228,7 +229,7 @@ fn recursive_index_skips_default_privacy_paths() -> Result<(), Box<dyn std::erro
             &workspace.path().to_string_lossy(),
             "--recursive",
         ],
-        1,
+        2,
     )?;
     assert!(
         stdout.contains("notes.md"),
@@ -268,7 +269,7 @@ fn pdf_indexing_workflow() -> Result<(), Box<dyn std::error::Error>> {
             &instance.path().to_string_lossy(),
             &workspace.path().join("paper.pdf").to_string_lossy(),
         ],
-        1,
+        2,
     )?;
     assert!(
         stdout.contains("indexed "),
@@ -339,10 +340,12 @@ fn pdf_no_text_is_rejected() -> Result<(), Box<dyn std::error::Error>> {
     let empty_pdf = create_no_text_pdf();
     write_file_bytes(workspace.path(), "scanned.pdf", &empty_pdf)?;
     // A no-text PDF never reaches `IndexStatus::Indexed`, so the CLI burns its
-    // own 30s index budget before reporting a timeout. Run with a larger
-    // harness budget than the default 30s cap so the product's timeout, not
-    // the harness kill, produces the expected error (race-free).
-    let err = assert_err_bounded(
+    // own 30s index budget before reporting a timeout. The batch must fail
+    // (non-zero exit) but still print the summary line to stdout; the failure
+    // detail goes to stderr. Run with a larger harness budget than the
+    // default 30s cap so the product's timeout, not the harness kill,
+    // produces the expected error (race-free).
+    let (code, stdout, stderr) = run_bounded(
         &[
             "index",
             "-i",
@@ -351,9 +354,17 @@ fn pdf_no_text_is_rejected() -> Result<(), Box<dyn std::error::Error>> {
         ],
         Duration::from_secs(60),
     )?;
+    assert_ne!(
+        code, 0,
+        "command unexpectedly succeeded: {stdout}\n{stderr}"
+    );
     assert!(
-        err.contains("timed out") || err.contains("parser failed"),
-        "expected timeout or parser failure for no-text PDF, got: {err}"
+        stdout.contains("failed 1"),
+        "expected failed count in summary, got: {stdout}"
+    );
+    assert!(
+        stderr.contains("failed artifact"),
+        "expected per-artifact failure on stderr, got: {stderr}"
     );
     let stdout = assert_ok(&[
         "search",

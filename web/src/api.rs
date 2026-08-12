@@ -2,6 +2,7 @@ use gloo_net::http::{Request, RequestBuilder};
 use serde::{Serialize, de::DeserializeOwned};
 
 pub use crate::api_types::*;
+pub use crate::index_types::*;
 use crate::session::Session;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -21,6 +22,7 @@ impl ApiClient {
         let builder = match method {
             "GET" => Request::get(path),
             "POST" => Request::post(path),
+            "PUT" => Request::put(path),
             "PATCH" => Request::patch(path),
             "DELETE" => Request::delete(path),
             _ => {
@@ -245,6 +247,80 @@ impl ApiClient {
         self.send(self.empty(
             "GET",
             &format!("/api/notebooks/{notebook_id}/evidence/{evidence_id}"),
+        )?)
+        .await
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn search(&self, query: &str, limit: usize) -> Result<SearchResponse, ClientError> {
+        self.send(self.empty(
+            "GET",
+            &format!(
+                "/api/search?query={}&limit={limit}",
+                encode_source_key(query)
+            ),
+        )?)
+        .await
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn retrieval(&self) -> Result<RetrievalStatus, ClientError> {
+        self.send(self.empty("GET", "/api/retrieval")?).await
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn tasks(&self) -> Result<Vec<TaskSummaryWire>, ClientError> {
+        let response: Envelope<TaskListWire> = self.send(self.empty("GET", "/api/tasks")?).await?;
+        Ok(response.data.tasks)
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn evidence_global(&self, evidence_id: u64) -> Result<Evidence, ClientError> {
+        self.send(self.empty("GET", &format!("/api/evidence/{evidence_id}"))?)
+            .await
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn index_candidates(&self, root: &str) -> Result<IndexCandidatesWire, ClientError> {
+        self.send(self.empty(
+            "GET",
+            &format!("/api/index/candidates/{}", encode_source_key(root)),
+        )?)
+        .await
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn index_selection(&self) -> Result<Option<IndexSelectionProfileWire>, ClientError> {
+        let response: Envelope<IndexSelectionResponseWire> = self
+            .send(self.empty("GET", "/api/index/selection")?)
+            .await?;
+        Ok(response.data.profile)
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn index_selection_save(
+        &self,
+        profile: &IndexSelectionProfileWire,
+    ) -> Result<(), ClientError> {
+        self.send_status(self.json("PUT", "/api/index/selection", profile)?)
+            .await
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn index_run(
+        &self,
+        root: &str,
+        includes: Vec<String>,
+        policies: std::collections::BTreeMap<String, IndexPolicyWire>,
+    ) -> Result<IndexRunWire, ClientError> {
+        self.send(self.json(
+            "POST",
+            "/api/index/run",
+            &IndexRunInputWire {
+                root: root.to_string(),
+                includes,
+                policies,
+            },
         )?)
         .await
     }

@@ -22,6 +22,7 @@ maestria-ocr-local = { path = "../../ecosystem/maestria-ocr-local" }
 maestria-visual-local = { path = "../../ecosystem/maestria-visual-local" }
 maestria-sparse-local = { path = "../../ecosystem/maestria-sparse-local" }
 maestria-parsers = { path = "../../ecosystem/maestria-parsers" }
+maestria-index-selection = { path = "../../ecosystem/maestria-index-selection" }
 maestria-harness = { path = "../../harness/maestria-harness" }
 maestria-ports = { path = "../../kernel/maestria-ports" }
 maestria-retrieval = { path = "../../ecosystem/maestria-retrieval" }

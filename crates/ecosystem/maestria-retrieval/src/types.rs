@@ -116,6 +116,18 @@ impl HybridPromotionRecord {
     pub fn serves_class(&self, class: &crate::LearnedSparseQueryClass) -> bool {
         self.served_classes.contains(class)
     }
+
+    pub fn evaluation_id(&self) -> &str {
+        &self.evaluation_id
+    }
+
+    pub fn evaluation_date(&self) -> &str {
+        &self.evaluation_date
+    }
+
+    pub fn served_classes(&self) -> &std::collections::BTreeSet<crate::LearnedSparseQueryClass> {
+        &self.served_classes
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

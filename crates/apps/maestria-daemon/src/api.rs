@@ -14,16 +14,18 @@ pub use protocol::{
     ClientAuthentication, ClientErrorCode, ClientOperation, ClientRequest, ClientResponse,
     CoverageResponse, DaemonClient, DaemonRequestError, EvidenceResponse, EvidenceSourceResponse,
     FederationCredential, FederationEvidenceResponse, FederationSearchResponse,
-    FrozenNotebookCitationResponse, ModelAgentHarnessOutcome, ModelAgentMemoryCandidateSummary,
+    FrozenNotebookCitationResponse, IndexCandidatesResponse, IndexRunResponse,
+    IndexSelectionResponse, ModelAgentHarnessOutcome, ModelAgentMemoryCandidateSummary,
     ModelAgentProposalPayload, ModelAgentProposalResponse, ModelAgentStatusResponse,
     ModelAgentValidationSummary, NotebookCitationResponse, NotebookContextResponse,
     NotebookDraftDeletedResponse, NotebookDraftListResponse, NotebookDraftResponse,
     NotebookDraftSavedResponse, NotebookDraftSummary, NotebookListResponse, NotebookResponse,
     NotebookSourceCatalogEntry, NotebookSourceCatalogResponse, NotebookSourceSelection,
     NotebookSummary, RealmGrantAccess, RealmGrantCreatedResponse, RealmGrantListResponse,
-    RealmGrantResponse, RealmGrantSensitivity, SearchEvidenceResponse, SearchRawRankResponse,
-    SearchResponse, SearchScoreResponse, SearchScoreScaleResponse, StatusResponse, TaskResponse,
-    TaskSummary,
+    RealmGrantResponse, RealmGrantSensitivity, RetrievalLaneStatus, RetrievalPromotionRecordWire,
+    RetrievalPromotionRecords, RetrievalStatusResponse, SearchEvidenceResponse,
+    SearchRawRankResponse, SearchResponse, SearchScoreResponse, SearchScoreScaleResponse,
+    StatusResponse, TaskResponse, TaskSummary,
 };
 pub use server::ApiServer;
 

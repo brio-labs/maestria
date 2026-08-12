@@ -59,6 +59,31 @@ async fn approval_repository_errors_are_rejected_typed_and_fail_closed()
 }
 
 #[test]
+fn providerless_index_vector_is_admitted_to_degrade_under_read_only()
+-> Result<(), Box<dyn std::error::Error>> {
+    // test_adapters has no embedding provider; the executor's permanent
+    // degradation path is the runtime outcome, so admission must not
+    // produce a per-chunk governance denial under a restrictive profile
+    // (issue #434 — the home-scale denial storm).
+    let calls = Arc::new(AtomicUsize::new(0));
+    let (mut context, _, _) = default_context(Arc::new(InMemoryApprovalRepository::new()), calls);
+    context.profile = AutonomyProfile::ReadOnly;
+    let effect = MaestriaEffect::IndexVector(maestria_domain::IndexVectorRequest {
+        artifact_id: maestria_domain::ArtifactId::new(1),
+        chunk_id: maestria_domain::ChunkId::new(10),
+    });
+    match admit(&context, &effect) {
+        EffectAdmission::Execute { risk, claim: None } => {
+            assert_eq!(risk, maestria_governance::RiskClass::Medium);
+        }
+        other => {
+            return Err(format!("provider-less IndexVector was not admitted: {other:?}").into());
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn fresh_execution_uses_generic_policy_without_authorization_coordinates()
 -> Result<(), Box<dyn std::error::Error>> {
     let calls = Arc::new(AtomicUsize::new(0));
