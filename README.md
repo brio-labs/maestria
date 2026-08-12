@@ -126,6 +126,9 @@ maestria promotion remove -i .maestria-dev
 
 # 11) Start the daemon (or restart after changes)
 maestria start -i .maestria-dev
+# Governance profile: read-only (default) or trusted-workspace; the
+# env var MAESTRIA_DAEMON_PROFILE remains an alias for scripts.
+# maestria start -i .maestria-dev --profile trusted-workspace
 # Stop with Ctrl-C; start again picks up where it left off
 ```
 
