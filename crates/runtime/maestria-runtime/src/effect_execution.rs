@@ -59,7 +59,21 @@ impl EffectExecutionContext {
             Ok(inner) => inner,
             Err(_) => {
                 tracing::error!("Watchdog: effect execution timed out after {:?}", watchdog);
-                Err(EffectFailure::Failed("effect watchdog timeout".to_string()))
+                if non_idempotent {
+                    // No replay path exists for a harness effect: its journal
+                    // entry must pause or fail, never vanish silently. Keep
+                    // these timeouts fatal.
+                    Err(EffectFailure::Failed("effect watchdog timeout".to_string()))
+                } else {
+                    // Idempotent effects (e.g. full-text indexing) are
+                    // replayed by the watcher/recovery paths, so a timeout is
+                    // a throughput degradation, not a corrupting failure;
+                    // failing the whole runtime would kill the daemon on a
+                    // saturated startup backlog.
+                    Err(EffectFailure::Degraded(
+                        "effect watchdog timeout".to_string(),
+                    ))
+                }
             }
         }
     }
