@@ -197,6 +197,31 @@ pub struct IndexFingerprint {
     pub preprocessing_version: PreprocessingVersion,
 }
 
+impl IndexFingerprint {
+    /// Canonical length-prefixed encoding of the fingerprint, used as the
+    /// durable per-embedding identity key in vector projections. Delimiter
+    /// collision is impossible because every field is length-prefixed.
+    pub fn encode(&self) -> String {
+        let mut encoded = String::new();
+        let mut append = |value: &str| {
+            encoded.push_str(&value.len().to_string());
+            encoded.push(':');
+            encoded.push_str(value);
+        };
+        let dimensions = self.dimensions.to_string();
+        append(self.provider.as_str());
+        append(self.model.as_str());
+        append(self.revision.as_str());
+        append(self.artifact_hash.as_str());
+        append(&dimensions);
+        append(self.quantization.as_str());
+        append(self.query_template_hash.as_str());
+        append(self.document_template_hash.as_str());
+        append(self.preprocessing_version.as_str());
+        encoded
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
 pub enum IndexLifecycle {
     Building,

@@ -83,6 +83,38 @@ fn rejects_dimension_mismatch_on_index() -> Result<(), PortError> {
 }
 
 #[test]
+fn counts_persisted_embeddings() -> Result<(), PortError> {
+    let index = SqliteVectorIndex::in_memory()?;
+    assert_eq!(index.embedding_row_count()?, 0);
+    let identity = maestria_ports::contract_tests::fixture_embedding_identity("test-model", 2)?;
+    let provenance = |chunk_id: u64| EmbeddingProvenance {
+        content_hash: format!("hash-{chunk_id}"),
+        identity: identity.clone(),
+        provider_id: "test-provider".into(),
+        model: "test-model".into(),
+        model_version: "v1".into(),
+        disclosure: ProviderDisclosure {
+            remote: false,
+            retention: RetentionPolicy::NoRetention,
+        },
+    };
+    index.index_embeddings(vec![
+        VectorEmbedding {
+            chunk_id: ChunkId::new(1),
+            vector: vec![1.0, 0.5],
+            provenance: provenance(1),
+        },
+        VectorEmbedding {
+            chunk_id: ChunkId::new(2),
+            vector: vec![0.5, 1.0],
+            provenance: provenance(2),
+        },
+    ])?;
+    assert_eq!(index.embedding_row_count()?, 2);
+    Ok(())
+}
+
+#[test]
 fn search_returns_empty_for_zero_norm_vector() -> Result<(), PortError> {
     let index = SqliteVectorIndex::in_memory()?;
     let prov = EmbeddingProvenance {

@@ -15,8 +15,15 @@ fn build_or_update(
     candidates_path: &Path,
     root: &Path,
 ) -> Result<(RepositoryCodeIndex, RepositoryIndexBuildMode), Box<dyn Error>> {
-    let (index, mode) =
-        build_or_update_repository_index(index_path, candidates_path, root, "g1", &[])?;
+    let (index, mode) = build_or_update_repository_index(
+        index_path,
+        candidates_path,
+        root,
+        "g1",
+        &[],
+        &RepositorySelection::everything(),
+        &std::collections::BTreeMap::new(),
+    )?;
     if !matches!(mode, RepositoryIndexBuildMode::Noop) {
         index.save(index_path)?;
     }

@@ -3,7 +3,7 @@
 
 use crate::classify::{Class, classify, default_policy};
 use crate::policy::{IndexPolicy, group_by_child};
-use crate::scan::{collect_files, dir_features, is_home_root};
+use crate::scan::{DirFeatures, collect_files, dir_features, is_home_root};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
@@ -31,7 +31,7 @@ pub fn scan_candidates(root: &Path) -> Result<CandidateDir> {
         .iter()
         .map(|file| std::fs::metadata(file).map_or(0, |metadata| metadata.len()))
         .sum();
-    let node = build_node(root, &files, home_root)?;
+    let node = build_node_generic(root, &files, home_root, dir_features)?;
     Ok(CandidateDir {
         path: root.to_path_buf(),
         class: Class::Recommended,
@@ -42,8 +42,18 @@ pub fn scan_candidates(root: &Path) -> Result<CandidateDir> {
     })
 }
 
-fn build_node(dir: &Path, files: &[PathBuf], home_root: bool) -> Result<CandidateDir> {
-    let features = dir_features(dir, files);
+/// Shared candidate-tree recursion: classify `dir` from its `files` and
+/// recurse into every direct child group, using `features` to compute the
+/// per-directory numerics. Used by both the home-directory scan
+/// ([`scan_candidates`]) and the repository scan (`repo.rs`) — one
+/// recursion, two feature functions.
+pub(crate) fn build_node_generic(
+    dir: &Path,
+    files: &[PathBuf],
+    home_root: bool,
+    features_fn: fn(&Path, &[PathBuf]) -> DirFeatures,
+) -> Result<CandidateDir> {
+    let features = features_fn(dir, files);
     let class = classify(&features, home_root, dir);
     let mut children = Vec::new();
     for (child, _, _) in group_by_child(dir, files) {
@@ -52,7 +62,12 @@ fn build_node(dir: &Path, files: &[PathBuf], home_root: bool) -> Result<Candidat
             .filter(|file| file.starts_with(&child))
             .cloned()
             .collect();
-        children.push(build_node(&child, &child_files, home_root)?);
+        children.push(build_node_generic(
+            &child,
+            &child_files,
+            home_root,
+            features_fn,
+        )?);
     }
     Ok(CandidateDir {
         path: dir.to_path_buf(),

@@ -32,57 +32,24 @@ impl EffectExecutionContext {
                 )
                 .await;
         };
-        let disclosure = provider.disclosure();
-        if disclosure.remote || disclosure.retention != maestria_ports::RetentionPolicy::NoRetention
-        {
-            tracing::warn!(
-                chunk_id = %request.chunk_id,
-                "embedding transport violates local no-retention policy"
-            );
-            return self
-                .degrade_vector_artifact(
-                    request.artifact_id,
-                    request.chunk_id,
-                    "embedding transport violates local no-retention policy",
-                )
-                .await;
-        }
-        let Some(model) = self
-            .embedding_model
-            .clone()
-            .filter(|model| !model.trim().is_empty())
-        else {
-            tracing::warn!(chunk_id = %request.chunk_id, "vector provider configured without model");
-            return self
-                .degrade_vector_artifact(
-                    request.artifact_id,
-                    request.chunk_id,
-                    "embedding model is not configured",
-                )
-                .await;
-        };
+        let (provider, model, identity) = self
+            .resolve_embedding_capability(&request, provider)
+            .await?;
         let (chunk, content_hash) = self.load_vector_chunk(request.chunk_id).await?;
-        let Some(identity) = provider.identity() else {
-            tracing::warn!(chunk_id = %request.chunk_id, "embedding provider has no generation identity");
-            return self
-                .degrade_vector_artifact(
-                    request.artifact_id,
-                    request.chunk_id,
-                    "embedding provider has no generation identity",
-                )
-                .await;
-        };
         let embedding_request = EmbeddingRequest {
             text: chunk.text.clone(),
             model,
             kind: EmbeddingInputKind::Document,
             identity: identity.clone(),
         };
-        let provider = Arc::clone(provider);
         let response = match embed_blocking(provider, embedding_request).await {
             Ok(response) => response,
             Err(error) => {
-                tracing::warn!(chunk_id = %request.chunk_id, %error, "embedding provider failed; preserving fallback");
+                tracing::warn!(
+                    chunk_id = %request.chunk_id,
+                    %error,
+                    "embedding provider failed; preserving fallback"
+                );
                 return self
                     .degraded_after_invalidation(request.chunk_id, "embedding provider failed")
                     .await;
@@ -112,6 +79,86 @@ impl EffectExecutionContext {
             .await
     }
 
+    /// Resolves the embedding provider/model/identity for a chunk request,
+    /// permanently degrading the artifact when a precondition is unmet.
+    async fn resolve_embedding_capability(
+        &self,
+        request: &IndexVectorRequest,
+        provider: &Arc<dyn EmbeddingProvider + Send + Sync>,
+    ) -> Result<
+        (
+            Arc<dyn EmbeddingProvider + Send + Sync>,
+            String,
+            maestria_ports::EmbeddingIdentity,
+        ),
+        EffectFailure,
+    > {
+        let disclosure = provider.disclosure();
+        if disclosure.remote || disclosure.retention != maestria_ports::RetentionPolicy::NoRetention
+        {
+            tracing::warn!(
+                chunk_id = %request.chunk_id,
+                "embedding transport violates local no-retention policy"
+            );
+            return match self
+                .degrade_vector_artifact(
+                    request.artifact_id,
+                    request.chunk_id,
+                    "embedding transport violates local no-retention policy",
+                )
+                .await
+            {
+                Err(failure) => Err(failure),
+                Ok(()) => Err(EffectFailure::Degraded(
+                    "embedding transport violates local no-retention policy".to_string(),
+                )),
+            };
+        }
+        let Some(model) = self
+            .embedding_model
+            .clone()
+            .filter(|model| !model.trim().is_empty())
+        else {
+            tracing::warn!(
+                chunk_id = %request.chunk_id,
+                "vector provider configured without model"
+            );
+            return match self
+                .degrade_vector_artifact(
+                    request.artifact_id,
+                    request.chunk_id,
+                    "embedding model is not configured",
+                )
+                .await
+            {
+                Err(failure) => Err(failure),
+                Ok(()) => Err(EffectFailure::Degraded(
+                    "embedding model is not configured".to_string(),
+                )),
+            };
+        };
+        let Some(identity) = provider.identity() else {
+            tracing::warn!(
+                chunk_id = %request.chunk_id,
+                "embedding provider has no generation identity"
+            );
+            return match self
+                .degrade_vector_artifact(
+                    request.artifact_id,
+                    request.chunk_id,
+                    "embedding provider has no generation identity",
+                )
+                .await
+            {
+                Err(failure) => Err(failure),
+                Ok(()) => Err(EffectFailure::Degraded(
+                    "embedding provider has no generation identity".to_string(),
+                )),
+            };
+        };
+        Ok((Arc::clone(provider), model, identity))
+    }
+
     async fn index_vector_embedding(
         &self,
         chunk_id: ChunkId,
@@ -129,12 +176,20 @@ impl EffectExecutionContext {
         {
             Ok(Ok(())) => Ok(()),
             Ok(Err(error)) => {
-                tracing::warn!(chunk_id = %chunk_id, %error, "vector projection failed; preserving fallback");
+                tracing::warn!(
+                    chunk_id = %chunk_id,
+                    %error,
+                    "vector projection failed; preserving fallback"
+                );
                 self.degraded_after_invalidation(chunk_id, "vector projection failed")
                     .await
             }
             Err(error) => {
-                tracing::warn!(chunk_id = %chunk_id, %error, "vector projection task failed; preserving fallback");
+                tracing::warn!(
+                    chunk_id = %chunk_id,
+                    %error,
+                    "vector projection task failed; preserving fallback"
+                );
                 self.degraded_after_invalidation(chunk_id, "vector projection task failed")
                     .await
             }
@@ -207,7 +262,10 @@ impl EffectExecutionContext {
                     "chunk {chunk_id} is missing"
                 )));
             };
-            let computed =
+            // The embedded-content identity is the chunk text hash; it must
+            // match the identity every projection writer stores, or the
+            // startup reconcile skip re-embeds the whole corpus.
+            let content_hash =
                 match maestria_domain::ContentHash::new(content_hash(chunk.text.as_bytes())) {
                     Ok(hash) => hash,
                     Err(_) => {
@@ -216,23 +274,21 @@ impl EffectExecutionContext {
                         )));
                     }
                 };
-            let (content_hash, security_allowed) = match state.artifacts.get(&chunk.artifact_id) {
-                Some(artifact) => {
-                    let content_hash = match artifact.content_hash.clone() {
-                        Some(hash) => hash,
-                        None => computed,
-                    };
-                    (content_hash, artifact.security.retrieval_allowed())
-                }
-                None => (computed, false),
-            };
+            let security_allowed = state
+                .artifacts
+                .get(&chunk.artifact_id)
+                .is_some_and(|artifact| artifact.security.retrieval_allowed());
             (chunk, content_hash, security_allowed)
         };
         if !security_allowed {
             tracing::warn!(chunk_id = %chunk_id, "refusing vector indexing for denied artifact");
-            return Err(EffectFailure::Failed(
-                "artifact is not allowed for retrieval".to_string(),
-            ));
+            return self
+                .degrade_or_fail(
+                    chunk.artifact_id,
+                    chunk_id,
+                    "artifact is not allowed for retrieval",
+                )
+                .await;
         }
         let secret_scan = scan_secrets(&chunk.text);
         if !secret_scan.is_clean() {
@@ -241,11 +297,35 @@ impl EffectExecutionContext {
                 findings = secret_scan.findings.len(),
                 "refusing embedding for secret-bearing chunk"
             );
-            return Err(EffectFailure::Failed(
-                "chunk contains secret-like content".to_string(),
-            ));
+            return self
+                .degrade_or_fail(
+                    chunk.artifact_id,
+                    chunk_id,
+                    "chunk contains secret-like content",
+                )
+                .await;
         }
         Ok((chunk, content_hash))
+    }
+
+    /// Degrade the vector lane for the artifact, propagating the resulting
+    /// failure; never returns `Ok` (a poisoned degradation lock still
+    /// degrades), so the caller can propagate the `EffectFailure` directly.
+    async fn degrade_or_fail(
+        &self,
+        artifact_id: ArtifactId,
+        chunk_id: ChunkId,
+        reason: &'static str,
+    ) -> Result<(Chunk, maestria_domain::ContentHash), EffectFailure> {
+        Err(
+            match self
+                .degrade_vector_artifact(artifact_id, chunk_id, reason)
+                .await
+            {
+                Err(failure) => failure,
+                Ok(()) => EffectFailure::Degraded(reason.to_string()),
+            },
+        )
     }
 
     async fn invalidate_vector_projection(&self, chunk_id: ChunkId) -> bool {
@@ -262,7 +342,11 @@ impl EffectExecutionContext {
         match result {
             Ok(Ok(())) => true,
             Ok(Err(error)) => {
-                tracing::warn!(chunk_id = %chunk_id, %error, "could not invalidate stale vector projection");
+                tracing::warn!(
+                    chunk_id = %chunk_id,
+                    %error,
+                    "could not invalidate stale vector projection"
+                );
                 false
             }
             Err(error) => {

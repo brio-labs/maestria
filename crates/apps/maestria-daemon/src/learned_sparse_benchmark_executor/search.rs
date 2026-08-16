@@ -4,11 +4,62 @@ use anyhow::{Result, anyhow};
 use maestria_domain::{SearchOutcome, SearchPlan};
 use maestria_ports::{SearchQuery, SparseIdentity};
 use maestria_retrieval::{
-    LearnedSparseBenchmarkCase, LearnedSparseBenchmarkError, LearnedSparseRoute, MonotonicInstant,
+    HybridExecutionPolicy, LearnedSparseBenchmarkCase, LearnedSparseBenchmarkError,
+    LearnedSparseExecutionPolicy, LearnedSparseQueryClass, LearnedSparseRoute, MonotonicInstant,
     RetrievalEngine,
 };
 
 use super::LearnedSparseBenchmarkExecutor;
+
+impl LearnedSparseBenchmarkExecutor {
+    pub(super) fn engine_for(
+        &self,
+        route: LearnedSparseRoute,
+        class: LearnedSparseQueryClass,
+    ) -> Result<RetrievalEngine> {
+        let sparse_retriever = self.sparse.as_ref().map(|lane| lane.retriever.clone());
+        let mut engine = match route {
+            LearnedSparseRoute::Lexical => self.runtime.retrieval_engine_with_policies(
+                HybridExecutionPolicy::Shadow,
+                LearnedSparseExecutionPolicy::Disabled,
+                None,
+                true,
+            ),
+            LearnedSparseRoute::Hybrid => self.runtime.retrieval_engine_with_policies(
+                HybridExecutionPolicy::Active(self.hybrid_record.clone()),
+                LearnedSparseExecutionPolicy::Disabled,
+                None,
+                true,
+            ),
+            LearnedSparseRoute::SparseOnly => {
+                let record = self.active_record(class)?;
+                self.runtime.retrieval_engine_with_policies(
+                    HybridExecutionPolicy::Shadow,
+                    LearnedSparseExecutionPolicy::Active(Box::new(record)),
+                    sparse_retriever,
+                    false,
+                )
+            }
+            LearnedSparseRoute::SparseFused => {
+                let record = self.active_record(class)?;
+                self.runtime.retrieval_engine_with_policies(
+                    HybridExecutionPolicy::Active(self.hybrid_record.clone()),
+                    LearnedSparseExecutionPolicy::Active(Box::new(record)),
+                    sparse_retriever,
+                    true,
+                )
+            }
+        }?;
+        if matches!(
+            route,
+            LearnedSparseRoute::Hybrid | LearnedSparseRoute::SparseFused
+        ) && let Some(fusion) = &self.fusion
+        {
+            engine = engine.with_fusion(fusion.clone());
+        }
+        Ok(engine)
+    }
+}
 
 impl LearnedSparseBenchmarkExecutor {
     /// The evaluated sparse identity, for report fingerprint binding.
@@ -91,7 +142,7 @@ impl LearnedSparseBenchmarkExecutor {
         let plan = match self.plan_for(&engine, LearnedSparseRoute::SparseOnly, query, limit) {
             Ok(plan) => plan,
             Err(error) => {
-                eprintln!("sparse-only plan refused, recording abstention: {error}");
+                tracing::warn!("sparse-only plan refused, recording abstention: {error}");
                 return Ok(None);
             }
         };
@@ -231,8 +282,9 @@ impl LearnedSparseBenchmarkExecutor {
                         // abstention: no evidence is produced or fabricated.
                         // Recorded once per observation, not per run.
                         if run == super::WARMUP_SAMPLES {
-                            eprintln!(
-                                "case {} route {route:?}: plan refused, recording abstention: {error}",
+                            tracing::warn!(
+                                "case {} route {route:?}: plan refused, recording abstention: \
+                                 {error}",
                                 case.case_id
                             );
                         }

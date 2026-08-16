@@ -103,6 +103,13 @@ impl Default for PrivacyExclusions {
     /// `private_key`, `secret_key`, `authorized_keys`, `id_rsa`, `id_ed25519`,
     /// `id_ecdsa`.
     ///
+    /// **Machine-state directories:** the XDG Base Directory defaults
+    /// (`~/.cache`, `~/.config`), tool homes (`~/.cargo`, `~/.rustup`,
+    /// `~/.nvm`, `~/.var`), and dependency/build artifacts (`vendor`,
+    /// `.venv`, `__pycache__`). These are regenerable machine state, never
+    /// user content; per-user bulk directories (downloads, tool dumps) are
+    /// an instance-level policy on top of this set.
+    ///
     /// **Extensions:** `pem`, `key`, `pfx`, `p12`, `jks`, `keystore`, `env`.
     fn default() -> Self {
         Self {
@@ -111,6 +118,15 @@ impl Default for PrivacyExclusions {
                 ".git".into(),
                 ".svn".into(),
                 ".hg".into(),
+                ".cache".into(),
+                ".config".into(),
+                ".cargo".into(),
+                ".rustup".into(),
+                ".nvm".into(),
+                ".var".into(),
+                "vendor".into(),
+                ".venv".into(),
+                "__pycache__".into(),
                 "credentials".into(),
                 "credential".into(),
                 "secrets".into(),

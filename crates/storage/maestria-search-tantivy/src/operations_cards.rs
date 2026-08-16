@@ -252,25 +252,26 @@ impl TantivyFullTextIndex {
         filter: &dyn Fn(CardId, ArtifactId) -> Result<bool, PortError>,
         meter: &mut Meter,
     ) -> Result<(Vec<String>, Option<SearchExecutionResource>), PortError> {
-        let remaining = meter
-            .budget
-            .max_candidates()
-            .saturating_sub(meter.usage.candidates);
-        let limit = budget_usize(remaining);
+        // Same one-past-the-end candidate limit as the chunk walk: a full
+        // AllQuery collection must never carry the truncation marker.
+        let limit = budget_usize(searcher.num_docs());
         if limit == 0 {
             return Ok((Vec::new(), Some(SearchExecutionResource::Candidates)));
         }
-        let collection = collect_bounded(searcher, &AllQuery, 0, limit, limit, meter)?;
+        let collection = collect_bounded(
+            searcher,
+            &AllQuery,
+            0,
+            limit,
+            limit.saturating_add(1),
+            meter,
+        )?;
         if let Some(resource) = collection.stopped {
             return Ok((Vec::new(), Some(resource)));
         }
         let mut allowed = std::collections::BTreeSet::new();
         let mut stopped = None;
         for (_, address) in collection.docs {
-            if let Some(resource) = meter.candidate() {
-                stopped = Some(resource);
-                break;
-            }
             let (artifact_id, card_id) = self.read_card_identity_at(searcher, address)?;
             if let Some(resource) = meter.bytes(crate::documents::INDEXED_IDENTITY_BYTES) {
                 stopped = Some(resource);

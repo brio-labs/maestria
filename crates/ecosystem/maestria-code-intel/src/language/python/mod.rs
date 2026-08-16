@@ -79,8 +79,9 @@ impl LanguageBackend for PythonBackend {
         &self,
         root: &Path,
         excluded_patterns: &[String],
+        selection: Option<&crate::selection::RepositorySelection>,
     ) -> Result<BTreeSet<String>, CodeIntelError> {
-        collect_python_source_files(root, excluded_patterns)
+        collect_python_source_files(root, excluded_patterns, selection)
     }
 
     fn extract(

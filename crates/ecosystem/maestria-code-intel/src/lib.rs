@@ -17,6 +17,7 @@
 //! - `provenance`: canonical per-file content hashing and hash validation.
 //! - `query`: bounded in-memory symbol query execution.
 //! - `references`: cross-file symbol references over persisted relations.
+//! - `selection`: repository selection domain and the per-file policy gate.
 //! - `symbols`: Rust source symbol and relation extraction.
 //! - `types`: serializable index, symbol, relation, and query records.
 //! - `index`: index persistence, querying, and provenance validation.
@@ -40,6 +41,7 @@ mod metadata;
 mod provenance;
 mod query;
 mod references;
+mod selection;
 mod symbols;
 mod types;
 mod walk;
@@ -55,6 +57,7 @@ pub use markers::{
     CodeMarker, CodeMarkerError, CodeMarkerKind, MarkerQueryKind, MarkerQueryKindParseError,
 };
 pub use references::ReferencesDirectionParseError;
+pub use selection::{RepositorySelection, RepositorySelectionError};
 pub use types::{
     CodeIndexSummary, CodeQuery, CodeRelationKind, CodeRelationRecord, CodeRelationSummary,
     CommitSha, DependencyRecord, FileContextRecord, PackageRecord, ParserGeneration, QueryResult,

@@ -185,15 +185,15 @@ impl LearnedSparseBenchmarkCorpus {
             .ok_or_else(|| LearnedSparseBenchmarkError::InvalidCorpus("namespace missing".into()))?
             .validate()
             .map_err(|error| LearnedSparseBenchmarkError::InvalidCorpus(error.to_string()))?;
-        for route in LearnedSparseRoute::all() {
-            self.route_configurations
-                .get(&route)
-                .ok_or_else(|| {
-                    LearnedSparseBenchmarkError::InvalidCorpus(format!(
-                        "route {route:?} configuration missing"
-                    ))
-                })?
-                .validate()?;
+        if self.route_configurations.is_empty() {
+            return Err(LearnedSparseBenchmarkError::InvalidCorpus(
+                "at least one route configuration is required".to_string(),
+            ));
+        }
+        // The corpus declares the routes it evaluates; every declared route
+        // must carry a valid configuration.
+        for configuration in self.route_configurations.values() {
+            configuration.validate()?;
         }
         Ok(())
     }

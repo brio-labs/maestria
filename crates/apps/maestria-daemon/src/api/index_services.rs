@@ -1,10 +1,79 @@
-//! Index choice operations: candidates, selection profile, and runs.
+//! Index choice operations: candidates, selection profile, and runs —
+//! both the document-index flow and the repository code-index flow (the
+//! repository handlers live in `repository_index_services.rs`).
 
+use super::{ClientOperation, ClientResponse};
 use crate::api::server::ApiContext;
 use crate::api::{IndexCandidatesResponse, IndexRunResponse, IndexSelectionResponse};
 use anyhow::{Result, anyhow};
 use maestria_core::artifact_id_for;
 use maestria_domain::{ArtifactDetected, ContentHash, DomainInput, IndexStatus, content_hash};
+
+/// Dispatch the document and repository index choice operations.
+pub(super) async fn dispatch_index_choice(
+    context: &ApiContext,
+    operation: ClientOperation,
+) -> Result<ClientResponse> {
+    match operation {
+        ClientOperation::IndexCandidates { root } => Ok(ClientResponse::IndexCandidates(
+            candidates(context, root).await?,
+        )),
+        ClientOperation::IndexSelectionGet => Ok(ClientResponse::IndexSelection(
+            selection_get(context).await?,
+        )),
+        ClientOperation::IndexSelectionSave { profile } => {
+            selection_save(context, profile).await?;
+            Ok(ClientResponse::IndexSelectionSaved)
+        }
+        ClientOperation::IndexRun {
+            root,
+            includes,
+            policies,
+        } => Ok(ClientResponse::IndexRun(
+            run(context, root, includes, policies).await?,
+        )),
+        ClientOperation::RepositoryIndexCandidates { root } => {
+            Ok(ClientResponse::RepositoryIndexCandidates(
+                super::repository_index_services::candidates(context, root).await?,
+            ))
+        }
+        ClientOperation::RepositoryIndexSelectionGet => {
+            Ok(ClientResponse::RepositoryIndexSelection(
+                super::repository_index_services::selection_get(context).await?,
+            ))
+        }
+        ClientOperation::RepositoryIndexSelectionSave { profile } => {
+            super::repository_index_services::selection_save(context, profile).await?;
+            Ok(ClientResponse::RepositoryIndexSelectionSaved)
+        }
+        ClientOperation::RepositoryIndexRun {
+            root,
+            includes,
+            policies,
+        } => Ok(ClientResponse::RepositoryIndexRun(
+            super::repository_index_services::run(context, root, includes, policies).await?,
+        )),
+        ClientOperation::RepositoryIndexStatus { root } => {
+            Ok(ClientResponse::RepositoryIndexStatus(
+                super::repository_index_services::status(context, root).await?,
+            ))
+        }
+        ClientOperation::RepositoryIndexChildren { root, path } => {
+            Ok(ClientResponse::RepositoryIndexChildren(
+                super::repository_index_browse::children(context, root, path).await?,
+            ))
+        }
+        ClientOperation::RepositoryIndexFiles { root, path } => {
+            Ok(ClientResponse::RepositoryIndexFiles(
+                super::repository_index_browse::files(context, root, path).await?,
+            ))
+        }
+        ClientOperation::RepositoryIndexProgressGet => Ok(ClientResponse::RepositoryIndexProgress(
+            super::repository_index_services::progress(context).await?,
+        )),
+        _ => Err(anyhow!("invalid index choice operation")),
+    }
+}
 
 /// Scan a root and return its classified candidate tree.
 ///
@@ -124,7 +193,11 @@ pub(super) async fn run(
         let bytes = match std::fs::read(file) {
             Ok(bytes) => bytes,
             Err(error) => {
-                tracing::warn!(path = %file.display(), %error, "index run: unreadable source counted as skipped");
+                tracing::warn!(
+                    path = %file.display(),
+                    %error,
+                    "index run: unreadable source counted as skipped"
+                );
                 skipped += 1;
                 continue;
             }
@@ -133,7 +206,11 @@ pub(super) async fn run(
         let hash = match ContentHash::new(content_hash(&bytes)) {
             Ok(hash) => hash,
             Err(error) => {
-                tracing::warn!(path = %file.display(), %error, "index run: invalid content hash counted as skipped");
+                tracing::warn!(
+                    path = %file.display(),
+                    %error,
+                    "index run: invalid content hash counted as skipped"
+                );
                 skipped += 1;
                 continue;
             }
@@ -181,7 +258,7 @@ pub(super) async fn run(
 }
 
 /// Reject roots outside the instance read scope.
-fn validate_scope_root(context: &ApiContext, root: &str) -> Result<()> {
+pub(super) fn validate_scope_root(context: &ApiContext, root: &str) -> Result<()> {
     let (_, manifest) = super::support::load_state_and_manifest(&context.layout)?;
     let root_path = std::path::Path::new(root);
     let canonical_root = root_path
@@ -203,7 +280,7 @@ fn validate_scope_root(context: &ApiContext, root: &str) -> Result<()> {
 /// Component-wise (`Path::starts_with` is not lexical): a `ParentDir`
 /// component can name a path that lexically escapes the root, so it is
 /// rejected before the prefix check.
-fn validate_within_root(path: &std::path::Path, root: &std::path::Path) -> Result<()> {
+pub(super) fn validate_within_root(path: &std::path::Path, root: &std::path::Path) -> Result<()> {
     if path
         .components()
         .any(|component| component == std::path::Component::ParentDir)

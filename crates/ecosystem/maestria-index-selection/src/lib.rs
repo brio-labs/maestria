@@ -11,11 +11,13 @@
 /// - `scan`: directory walker, file policy, and per-directory features.
 /// - `classify`: deterministic Recommended / Maybe / Noise rules.
 /// - `candidates`: the candidate tree with per-directory policies.
+/// - `repo`: repository-mode candidate scan (code/doc population).
 /// - `profile`: persisted selection profiles.
 pub mod candidates;
 mod classify;
 mod policy;
 pub mod profile;
+pub mod repo;
 mod scan;
 #[cfg(test)]
 mod tests;
@@ -24,6 +26,10 @@ pub use candidates::{CandidateDir, bound_candidate_tree, scan_candidates};
 pub use classify::{Class, classify, default_policy};
 pub use policy::{IndexPolicy, Selection, group_by_child, is_notable_group, select_source};
 pub use profile::{IndexSelectionProfile, load_profile, save_profile};
+pub use repo::{
+    REPO_CODE_EXTENSIONS, REPO_DOC_EXTENSIONS, collect_repository_files, repository_features,
+    scan_repository_candidates,
+};
 pub use scan::{
     DirFeatures, collect_files, dir_features, is_home_root, is_privacy_excluded_path,
     is_supported_source_file,

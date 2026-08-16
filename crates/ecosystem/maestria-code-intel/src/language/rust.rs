@@ -69,6 +69,7 @@ impl LanguageBackend for RustBackend {
         &self,
         root: &Path,
         excluded_patterns: &[String],
+        selection: Option<&crate::selection::RepositorySelection>,
     ) -> Result<BTreeSet<String>, CodeIntelError> {
         let mut files = BTreeSet::new();
         walk::collect_source_paths(
@@ -76,6 +77,7 @@ impl LanguageBackend for RustBackend {
             root,
             &mut files,
             excluded_patterns,
+            selection,
             &RUST_SOURCE_EXTENSIONS,
         )?;
         Ok(files)

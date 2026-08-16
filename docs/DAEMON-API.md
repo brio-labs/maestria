@@ -112,6 +112,75 @@ return `source_not_selected` without path or excerpt metadata. Saved drafts
 retain frozen citation metadata so they can be reopened after a source changes
 or disappears.
 
+## Index choice operations
+
+Document indexing (files/directories under a root) and repository code
+indexing (a git repository) share the deterministic selection vocabulary
+(`Recommended`/`Maybe`/`Noise` classes and per-directory `IndexPolicy`
+switches: `max_file_bytes`, `skip_generated`, `skip_minified`) but index
+different populations. Both sets require the root to be inside the instance
+read scope; client-supplied includes and policy keys are validated for
+containment and rejected with `invalid_input` when they escape the root.
+
+### `index_candidates`, `index_selection_get`, `index_selection_save`, `index_run`
+
+`index_candidates` scans a root (a home directory) and returns its bounded
+candidate tree. `index_selection_get` loads the persisted document selection
+profile (`system/index-selection.json`; `profile: null` when absent);
+`index_selection_save` persists a profile after validating every include and
+policy key against the profile root. `index_run` indexes the whitelisted
+files under a root through the live runtime; it requires the runtime and
+reports `submitted`/`skipped` counts.
+
+```json
+{"type": "index_candidates", "root": "/home/you"}
+{"type": "index_selection_get"}
+{"type": "index_selection_save", "profile": {"root": "/home/you", "includes": ["/home/you/docs"], "policies": {}}}
+{"type": "index_run", "root": "/home/you", "includes": ["/home/you/docs"], "policies": {}}
+```
+
+### `repository_index_candidates`, `repository_index_selection_get`, `repository_index_selection_save`, `repository_index_run`, `repository_index_status`
+
+`repository_index_candidates` scans a repository root (code/document/manifest
+population, generated dumps excluded from the walk) and returns its bounded,
+classified candidate tree; the root node is always `Recommended`. The
+selection operations mirror the document ones but persist to
+`system/repository-index-selection.json`, with includes and policy keys
+stored repository-relative. `repository_index_run` builds or incrementally
+updates the repository code index over exactly the selection (identity,
+delta, records, and freshness are all selection-scoped; a selection or policy
+change forces a full rebuild), registers every indexed source as a canonical
+artifact through the runtime, and reports `mode` (`full`/`incremental`/`noop`),
+the full index summary, and `registered`/`skipped` counts. `repository_index_status`
+reports whether an index exists for the root, its summary, and its current
+freshness verdict.
+
+```json
+{"type": "repository_index_candidates", "root": "/home/you/projects/maestria"}
+{"type": "repository_index_selection_get"}
+{"type": "repository_index_selection_save", "profile": {"root": "/home/you/projects/maestria", "includes": ["crates/one"], "policies": {"crates/one": {"max_file_bytes": 1048576, "skip_generated": false, "skip_minified": true}}}}
+{"type": "repository_index_run", "root": "/home/you/projects/maestria", "includes": ["/home/you/projects/maestria/crates/one"], "policies": {}}
+{"type": "repository_index_status", "root": "/home/you/projects/maestria"}
+{"type": "repository_index_children", "root": "/home/you/projects/maestria", "path": "crates/one"}
+{"type": "repository_index_files", "root": "/home/you/projects/maestria", "path": "crates/one"}
+{"type": "repository_index_progress"}
+```
+
+`repository_index_children` returns the bounded candidate subtree of a
+repository-relative directory for lazy expansion of the selection tree;
+`repository_index_files` lists the direct files of a repository-relative
+directory (relative paths, classified by the same policy vocabulary, with a
+`truncated` flag when the listing is capped); both validate the path against
+the root with `invalid_input` on escape. `repository_index_progress` returns
+the live progress of the active run (`{phase: building|registering, total,
+registered}`, `progress: null` when no run is active); the daemon publishes
+it for the status handler while a run is in flight and clears it on
+completion, failure, or cancellation.
+
+`repository_index_run` is long-running by design (like the CLI `index
+repository` command) and runs per-connection, so concurrent runs are
+last-write-wins with consistent snapshots.
+
 ## Realm federation
 
 Realm federation is local Unix-socket transport between two instances. It does

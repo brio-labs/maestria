@@ -28,7 +28,8 @@ fn create_minimal_pdf(text: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>
     let font_obj = b"1 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>\nendobj\n";
     let content_header = format!("2 0 obj\n<< /Length {content_len} >>\nstream\n");
     let content_footer = "\nendstream\nendobj\n";
-    let page_obj       = b"3 0 obj\n<< /Type /Page /Parent 4 0 R /MediaBox [0 0 612 792] /Contents 2 0 R /Resources << /Font << /F1 1 0 R >> >> >>\nendobj\n";
+    let page_obj = b"3 0 obj\n<< /Type /Page /Parent 4 0 R /MediaBox [0 0 612 792] \
+/Contents 2 0 R /Resources << /Font << /F1 1 0 R >> >> >>\nendobj\n";
     let pages_obj = b"4 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
     let catalog_obj = b"5 0 obj\n<< /Type /Catalog /Pages 4 0 R >>\nendobj\n";
     let mut buf = Vec::with_capacity(1024);
@@ -85,10 +86,14 @@ fn assert_reindex_unchanged(
     instance_path: &str,
     file: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let stdout = assert_ok_lines(&["index", "-i", instance_path, file], 2)?;
+    let stdout = assert_ok(&["index", "-i", instance_path, file])?;
     assert!(
         stdout.contains("unchanged "),
         "expected 'unchanged' in re-index output: {stdout}"
+    );
+    assert!(
+        stdout.contains("duration="),
+        "expected run metrics in re-index output: {stdout}"
     );
     Ok(())
 }
@@ -221,16 +226,13 @@ fn recursive_index_skips_default_privacy_paths() -> Result<(), Box<dyn std::erro
         "credentials/leaked.md",
         "# Sensitive note\n",
     )?;
-    let stdout = assert_ok_lines(
-        &[
-            "index",
-            "-i",
-            &instance.path().to_string_lossy(),
-            &workspace.path().to_string_lossy(),
-            "--recursive",
-        ],
-        2,
-    )?;
+    let stdout = assert_ok(&[
+        "index",
+        "-i",
+        &instance.path().to_string_lossy(),
+        &workspace.path().to_string_lossy(),
+        "--recursive",
+    ])?;
     assert!(
         stdout.contains("notes.md"),
         "public note was not indexed: {stdout}"
@@ -262,15 +264,12 @@ fn pdf_indexing_workflow() -> Result<(), Box<dyn std::error::Error>> {
     );
     let pdf_bytes = create_minimal_pdf(b"The system uses a distributed ledger for consensus.")?;
     write_file_bytes(workspace.path(), "paper.pdf", &pdf_bytes)?;
-    let stdout = assert_ok_lines(
-        &[
-            "index",
-            "-i",
-            &instance.path().to_string_lossy(),
-            &workspace.path().join("paper.pdf").to_string_lossy(),
-        ],
-        2,
-    )?;
+    let stdout = assert_ok(&[
+        "index",
+        "-i",
+        &instance.path().to_string_lossy(),
+        &workspace.path().join("paper.pdf").to_string_lossy(),
+    ])?;
     assert!(
         stdout.contains("indexed "),
         "expected 'indexed' in index output: {stdout}"

@@ -143,7 +143,15 @@ pub(crate) async fn run_diversity_stage(
             candidate_usage.candidates = candidate_usage.candidates.saturating_add(1);
             candidate_usage.work_units = candidate_usage.work_units.saturating_add(1);
             candidate_usage.bytes_read = candidate_usage.bytes_read.saturating_add(candidate_bytes);
-            if !super::usage_within_budget(candidate_usage, budget) {
+            // `usage.results` aggregates lane-produced candidates and may
+            // exceed the final-result ceiling by design; only consumable
+            // resources gate expansion candidates here.
+            if candidate_usage.candidates > budget.max_candidates()
+                || candidate_usage.work_units > budget.max_work_units()
+                || budget
+                    .max_bytes_read()
+                    .is_some_and(|limit| candidate_usage.bytes_read > limit.get())
+            {
                 expansion_budget_exhausted = true;
                 continue;
             }

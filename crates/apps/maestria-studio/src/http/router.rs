@@ -15,7 +15,7 @@ use tower_http::{
 use super::{
     ask, assets, auth, bootstrap, drafts,
     error::{ProblemCode, StudioError},
-    evidence, index, notebooks, retrieval, search, sources,
+    evidence, index, notebooks, repository_index, retrieval, search, sources,
     state::StudioState,
     tasks,
 };
@@ -60,6 +60,28 @@ pub fn build_router(state: StudioState) -> Router {
             get(index::selection_get).put(index::selection_save),
         )
         .route("/index/run", post(index::run))
+        .route(
+            "/repository-index/candidates/{root}",
+            get(repository_index::candidates),
+        )
+        .route(
+            "/repository-index/selection",
+            get(repository_index::selection_get).put(repository_index::selection_save),
+        )
+        .route("/repository-index/run", post(repository_index::run))
+        .route(
+            "/repository-index/status/{root}",
+            get(repository_index::status),
+        )
+        .route(
+            "/repository-index/children",
+            post(repository_index::children),
+        )
+        .route("/repository-index/files", post(repository_index::files))
+        .route(
+            "/repository-index/progress",
+            get(repository_index::progress),
+        )
         .fallback(api_not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state.clone());
@@ -77,7 +99,9 @@ pub fn build_router(state: StudioState) -> Router {
         .layer(SetResponseHeaderLayer::overriding(
             header::CONTENT_SECURITY_POLICY,
             HeaderValue::from_static(
-                "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+                "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; \
+                 img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; \
+                 frame-ancestors 'none'",
             ),
         ))
         .layer(SetResponseHeaderLayer::overriding(

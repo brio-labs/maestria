@@ -3,12 +3,18 @@ use serde::{Serialize, de::DeserializeOwned};
 
 pub use crate::api_types::*;
 pub use crate::index_types::*;
+pub use crate::repository_index_types::*;
 use crate::session::Session;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ApiClient {
     session: Session,
 }
+#[path = "api/support.rs"]
+mod support;
+
+use support::{browse_input, encode_source_key};
+
 impl ApiClient {
     pub fn new() -> Self {
         Self {
@@ -324,9 +330,111 @@ impl ApiClient {
         )?)
         .await
     }
-}
-fn encode_source_key(key: &str) -> String {
-    js_sys::encode_uri_component(key).into()
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn repository_index_candidates(
+        &self,
+        root: &str,
+    ) -> Result<RepositoryIndexCandidatesWire, ClientError> {
+        self.send(self.empty(
+            "GET",
+            &format!(
+                "/api/repository-index/candidates/{}",
+                encode_source_key(root)
+            ),
+        )?)
+        .await
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn repository_index_selection(
+        &self,
+    ) -> Result<Option<IndexSelectionProfileWire>, ClientError> {
+        let response: Envelope<RepositoryIndexSelectionResponseWire> = self
+            .send(self.empty("GET", "/api/repository-index/selection")?)
+            .await?;
+        Ok(response.data.profile)
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn repository_index_selection_save(
+        &self,
+        profile: &IndexSelectionProfileWire,
+    ) -> Result<(), ClientError> {
+        self.send_status(self.json("PUT", "/api/repository-index/selection", profile)?)
+            .await
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn repository_index_run(
+        &self,
+        root: &str,
+        includes: Vec<String>,
+        policies: std::collections::BTreeMap<String, IndexPolicyWire>,
+    ) -> Result<RepositoryIndexRunWire, ClientError> {
+        self.send(self.json(
+            "POST",
+            "/api/repository-index/run",
+            &RepositoryIndexRunInputWire {
+                root: root.to_string(),
+                includes,
+                policies,
+            },
+        )?)
+        .await
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn repository_index_status(
+        &self,
+        root: &str,
+    ) -> Result<RepositoryIndexStatusWire, ClientError> {
+        self.send(self.empty(
+            "GET",
+            &format!("/api/repository-index/status/{}", encode_source_key(root)),
+        )?)
+        .await
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn repository_index_children(
+        &self,
+        root: &str,
+        path: &str,
+    ) -> Result<Vec<CandidateDirWire>, ClientError> {
+        let response: RepositoryIndexChildrenWire = self
+            .send(self.json(
+                "POST",
+                "/api/repository-index/children",
+                &browse_input(root, path),
+            )?)
+            .await?;
+        Ok(response.children)
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn repository_index_files(
+        &self,
+        root: &str,
+        path: &str,
+    ) -> Result<RepositoryIndexFilesWire, ClientError> {
+        self.send(self.json(
+            "POST",
+            "/api/repository-index/files",
+            &browse_input(root, path),
+        )?)
+        .await
+    }
+    /// # Cancellation
+    /// Dropping the future cancels the browser request.
+    pub async fn repository_index_progress(
+        &self,
+    ) -> Result<Option<RepositoryIndexProgressWire>, ClientError> {
+        let response: Envelope<RepositoryIndexProgressResponseWire> = self
+            .send(self.empty("GET", "/api/repository-index/progress")?)
+            .await?;
+        Ok(response.data.progress)
+    }
 }
 impl Default for ApiClient {
     fn default() -> Self {
@@ -349,9 +457,7 @@ mod tests {
     }
     #[test]
     fn bootstrap_decodes_typed_notebook_payload() -> Result<(), serde_json::Error> {
-        let bootstrap: Bootstrap = serde_json::from_str(
-            r#"{"status":{"instance_root":"demo","event_count":0,"task_count":0},"notebooks":{"notebooks":[{"notebook_id":1,"title":"Research notes","source_count":0,"updated_at":0}]},"agents":[]}"#,
-        )?;
+        let bootstrap: Bootstrap = serde_json::from_str(super::support::BOOTSTRAP_JSON)?;
         let notebooks = bootstrap.notebooks.into_vec();
         assert_eq!(notebooks.first().map(|item| item.notebook_id), Some(1));
         Ok(())

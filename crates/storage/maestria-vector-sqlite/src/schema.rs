@@ -8,6 +8,12 @@ pub(crate) const SQLITE_VEC_BOOTSTRAP_SQL: &str =
     "CREATE VIRTUAL TABLE IF NOT EXISTS vec_docs USING vec0(chunk_id TEXT, embedding float[1536])";
 
 pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
+    // WAL allows concurrent readers while the projection writer commits
+    // (live CLI progress reporting, read-only search serving beside the
+    // daemon). A no-op for in-memory databases.
+    connection
+        .execute_batch("PRAGMA journal_mode=WAL;")
+        .map_err(to_port_error)?;
     let transaction = connection.transaction().map_err(to_port_error)?;
 
     transaction
@@ -28,54 +34,89 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
         .optional()
         .map_err(to_port_error)?;
 
-    if let Some(v) = version {
-        if !(1..=SCHEMA_VERSION).contains(&v) {
-            return Err(PortError::InternalContext {
-                context: "unsupported vector projection schema version",
-                source: v.to_string(),
-            });
-        }
-        if v == 1 {
-            transaction
-                .execute_batch(
-                    "ALTER TABLE vector_embeddings ADD COLUMN content_hash TEXT NOT NULL DEFAULT '';
-                     ALTER TABLE vector_embeddings ADD COLUMN model_version TEXT NOT NULL DEFAULT '';
-                     UPDATE vector_projection_schema SET version = 2 WHERE id = 1;",
-                )
-                .map_err(to_port_error)?;
-        }
-        if v <= 2 {
-            transaction
-                .execute_batch(
-                    "ALTER TABLE vector_embeddings ADD COLUMN provider_id TEXT NOT NULL DEFAULT '';
-                     ALTER TABLE vector_embeddings ADD COLUMN model TEXT NOT NULL DEFAULT '';
-                     UPDATE vector_projection_schema SET version = 3 WHERE id = 1;",
-                )
-                .map_err(to_port_error)?;
-        }
-        if v <= 3 {
-            transaction
-                .execute_batch(
-                    "ALTER TABLE vector_embeddings ADD COLUMN generation_id TEXT NOT NULL DEFAULT '';
-                     ALTER TABLE vector_embeddings ADD COLUMN representation TEXT NOT NULL DEFAULT '';
-                     ALTER TABLE vector_embeddings ADD COLUMN fingerprint TEXT NOT NULL DEFAULT '';
-                     UPDATE vector_projection_schema SET version = 4 WHERE id = 1;",
-                )
-                .map_err(to_port_error)?;
-        }
-        if v <= 4 {
-            transaction
-                .execute_batch(
-                    "ALTER TABLE vector_embeddings ADD COLUMN disclosure_remote INTEGER;
-                     ALTER TABLE vector_embeddings ADD COLUMN retention_policy TEXT;
-                     UPDATE vector_projection_schema SET version = 5 WHERE id = 1;",
-                )
-                .map_err(to_port_error)?;
-        }
+    if let Some(version) = version {
+        apply_migrations(&transaction, version)?;
     } else {
+        create_fresh_schema(&transaction)?;
+    }
+    // verify the schema
+    transaction
+        .query_row(
+            "SELECT chunk_id, dimension, embedding, content_hash, provider_id, model, \
+             model_version, generation_id, representation, fingerprint, disclosure_remote, \
+             retention_policy
+             FROM vector_embeddings LIMIT 1",
+            [],
+            |_| Ok(()),
+        )
+        .optional()
+        .map_err(to_port_error)?;
+
+    transaction.commit().map_err(to_port_error)?;
+
+    attempt_sqlite_vec_bootstrap(connection)?;
+    Ok(())
+}
+
+/// Applies the stepwise migrations for a pre-existing projection schema.
+fn apply_migrations(
+    transaction: &rusqlite::Transaction<'_>,
+    version: i64,
+) -> Result<(), PortError> {
+    if !(1..=SCHEMA_VERSION).contains(&version) {
+        return Err(PortError::InternalContext {
+            context: "unsupported vector projection schema version",
+            source: version.to_string(),
+        });
+    }
+    if version == 1 {
         transaction
             .execute_batch(
-                "INSERT INTO vector_projection_schema (id, version) VALUES (1, 5);
+                "ALTER TABLE vector_embeddings ADD COLUMN content_hash TEXT NOT NULL DEFAULT '';
+                     ALTER TABLE vector_embeddings ADD COLUMN model_version TEXT NOT NULL \
+                     DEFAULT '';
+                     UPDATE vector_projection_schema SET version = 2 WHERE id = 1;",
+            )
+            .map_err(to_port_error)?;
+    }
+    if version <= 2 {
+        transaction
+            .execute_batch(
+                "ALTER TABLE vector_embeddings ADD COLUMN provider_id TEXT NOT NULL DEFAULT '';
+                     ALTER TABLE vector_embeddings ADD COLUMN model TEXT NOT NULL DEFAULT '';
+                     UPDATE vector_projection_schema SET version = 3 WHERE id = 1;",
+            )
+            .map_err(to_port_error)?;
+    }
+    if version <= 3 {
+        transaction
+            .execute_batch(
+                "ALTER TABLE vector_embeddings ADD COLUMN generation_id TEXT NOT NULL \
+                     DEFAULT '';
+                     ALTER TABLE vector_embeddings ADD COLUMN representation TEXT NOT NULL \
+                     DEFAULT '';
+                     ALTER TABLE vector_embeddings ADD COLUMN fingerprint TEXT NOT NULL DEFAULT '';
+                     UPDATE vector_projection_schema SET version = 4 WHERE id = 1;",
+            )
+            .map_err(to_port_error)?;
+    }
+    if version <= 4 {
+        transaction
+            .execute_batch(
+                "ALTER TABLE vector_embeddings ADD COLUMN disclosure_remote INTEGER;
+                     ALTER TABLE vector_embeddings ADD COLUMN retention_policy TEXT;
+                     UPDATE vector_projection_schema SET version = 5 WHERE id = 1;",
+            )
+            .map_err(to_port_error)?;
+    }
+    Ok(())
+}
+
+/// Creates the current schema version from scratch.
+fn create_fresh_schema(transaction: &rusqlite::Transaction<'_>) -> Result<(), PortError> {
+    transaction
+        .execute_batch(
+            "INSERT INTO vector_projection_schema (id, version) VALUES (1, 5);
                  CREATE TABLE IF NOT EXISTS vector_embeddings (
                      chunk_id INTEGER PRIMARY KEY NOT NULL,
                      dimension INTEGER NOT NULL,
@@ -92,23 +133,8 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
                  );
                  CREATE INDEX IF NOT EXISTS idx_vector_embeddings_dimension
                      ON vector_embeddings(dimension);",
-            )
-            .map_err(to_port_error)?;
-    }
-    // verify the schema
-    transaction
-        .query_row(
-            "SELECT chunk_id, dimension, embedding, content_hash, provider_id, model, model_version, generation_id, representation, fingerprint, disclosure_remote, retention_policy
-             FROM vector_embeddings LIMIT 1",
-            [],
-            |_| Ok(()),
         )
-        .optional()
         .map_err(to_port_error)?;
-
-    transaction.commit().map_err(to_port_error)?;
-
-    attempt_sqlite_vec_bootstrap(connection)?;
     Ok(())
 }
 

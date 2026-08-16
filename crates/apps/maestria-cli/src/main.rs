@@ -209,8 +209,19 @@ async fn dispatch_index(
             instance_dir,
             nested_instance_dir,
         )),
-        Some(IndexCommands::Repository { path }) => {
-            commands::code_intel::run_index(instance_dir, path).await
+        Some(IndexCommands::Repository { path, selection }) => {
+            // The parent-level index flags apply as defaults when the
+            // subcommand does not override them.
+            let selection = commands::repository_index::RepositoryIndexArgs {
+                list: selection.list,
+                yes: selection.yes || yes,
+                include: selection.include,
+                save_selection: selection.save_selection || save_selection,
+                max_file_bytes: selection.max_file_bytes.or(flags.max_file_bytes),
+                skip_minified: selection.skip_minified || flags.skip_minified,
+                all: selection.all,
+            };
+            commands::repository_index::run_index(instance_dir, path, selection).await
         }
         None => {
             let path = path.ok_or_else(|| anyhow::anyhow!("index requires a path"))?;

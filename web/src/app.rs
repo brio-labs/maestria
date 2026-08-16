@@ -43,6 +43,11 @@ pub(crate) fn Index() -> Element {
 }
 
 #[component]
+pub(crate) fn IndexRepositories() -> Element {
+    rsx! { crate::repositories::RepositoryIndexWorkspace {} }
+}
+
+#[component]
 pub(crate) fn NotFound(segments: Vec<String>) -> Element {
     let _ = segments;
     rsx! {

@@ -14,6 +14,10 @@ mod proposal_service;
 mod read_services;
 #[path = "realm_grant_services.rs"]
 mod realm_grant_services;
+#[path = "repository_index_browse.rs"]
+mod repository_index_browse;
+#[path = "repository_index_services.rs"]
+mod repository_index_services;
 #[path = "search_services.rs"]
 mod search_services;
 #[path = "support.rs"]
@@ -111,23 +115,20 @@ pub(crate) async fn dispatch(
             provider_realm,
             evidence_id,
         } => federation_services::evidence(context, &principal, provider_realm, evidence_id).await,
-        ClientOperation::IndexCandidates { root } => Ok(ClientResponse::IndexCandidates(
-            index_services::candidates(context, root).await?,
-        )),
-        ClientOperation::IndexSelectionGet => Ok(ClientResponse::IndexSelection(
-            index_services::selection_get(context).await?,
-        )),
-        ClientOperation::IndexSelectionSave { profile } => {
-            index_services::selection_save(context, profile).await?;
-            Ok(ClientResponse::IndexSelectionSaved)
+        operation @ (ClientOperation::IndexCandidates { .. }
+        | ClientOperation::IndexSelectionGet
+        | ClientOperation::IndexSelectionSave { .. }
+        | ClientOperation::IndexRun { .. }
+        | ClientOperation::RepositoryIndexCandidates { .. }
+        | ClientOperation::RepositoryIndexSelectionGet
+        | ClientOperation::RepositoryIndexSelectionSave { .. }
+        | ClientOperation::RepositoryIndexRun { .. }
+        | ClientOperation::RepositoryIndexStatus { .. }
+        | ClientOperation::RepositoryIndexChildren { .. }
+        | ClientOperation::RepositoryIndexFiles { .. }
+        | ClientOperation::RepositoryIndexProgressGet) => {
+            index_services::dispatch_index_choice(context, operation).await
         }
-        ClientOperation::IndexRun {
-            root,
-            includes,
-            policies,
-        } => Ok(ClientResponse::IndexRun(
-            index_services::run(context, root, includes, policies).await?,
-        )),
     }
 }
 

@@ -14,10 +14,15 @@ use maestria_domain::{
     LogicalTick, ParseStatus, ParserResult, RealmId, RecordEvidenceInput, RegisterChunkInput,
     SnapshotRef, SourceSpan, StructureNode, StructureNodeId, StructureNodeType,
 };
+#[path = "projection_recovery_tests/providers.rs"]
+mod providers;
+
 use maestria_ports::{
-    ArtifactRepository, CardRepository, ChunkRepository, EmbeddingProvider, EmbeddingRequest,
-    EmbeddingResponse, EventFilter, EvidenceRepository, GraphIndex, GraphRelationQuery, PortError,
-    VectorEmbedding, VectorIndex, VectorSearchQuery,
+    ArtifactRepository, CardRepository, ChunkRepository, EventFilter, EvidenceRepository,
+    GraphIndex, GraphRelationQuery, VectorEmbedding, VectorIndex, VectorSearchQuery,
+};
+use providers::{
+    CountingEmbeddingProvider, FlakyRecoveryEmbeddingProvider, RecoveryEmbeddingProvider,
 };
 
 fn search_budget(
@@ -150,39 +155,6 @@ fn build_recovery_domain_state(
         card_id,
         evidence_id,
     })
-}
-
-struct RecoveryEmbeddingProvider;
-
-impl EmbeddingProvider for RecoveryEmbeddingProvider {
-    fn disclosure(&self) -> maestria_ports::ProviderDisclosure {
-        maestria_ports::ProviderDisclosure {
-            remote: false,
-            retention: maestria_ports::RetentionPolicy::NoRetention,
-        }
-    }
-    fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, PortError> {
-        let vector = if request.text.contains("first") {
-            vec![1.0, 0.0]
-        } else {
-            vec![0.0, 1.0]
-        };
-        Ok(EmbeddingResponse {
-            vector,
-            provider_id: "recovery-provider".to_string(),
-            model: request.model,
-            model_version: "recovery-v1".to_string(),
-            identity: request.identity,
-            disclosure: maestria_ports::ProviderDisclosure {
-                remote: false,
-                retention: maestria_ports::RetentionPolicy::NoRetention,
-            },
-        })
-    }
-
-    fn identity(&self) -> Option<maestria_ports::EmbeddingIdentity> {
-        maestria_ports::contract_tests::fixture_embedding_identity("recovery-model", 2).ok()
-    }
 }
 
 /// Assert that every projection repository reports absence for the given
@@ -722,5 +694,117 @@ fn build_runtime_fails_on_corrupt_vector_projection() -> Result<(), Box<dyn std:
         "startup error must preserve vector index context: {message}"
     );
     let _ = fs::remove_dir_all(&root);
+    Ok(())
+}
+
+#[test]
+fn reconcile_vector_projection_keeps_matching_provenance_without_reembedding()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut state = KernelState::new();
+    let fixture = build_recovery_domain_state(&mut state)?;
+    let vector_root = std::env::temp_dir().join(format!(
+        "maestria-vector-recovery-skip-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&vector_root);
+    fs::create_dir_all(&vector_root)?;
+    let vector_path = vector_root.join("projection.db");
+    let index = SqliteVectorIndex::open(&vector_path)?;
+
+    let identity = maestria_ports::contract_tests::fixture_embedding_identity("recovery-model", 2)?;
+    // The indexed provenance identity is the embedded chunk text hash, so a
+    // matching row must carry `content_hash(chunk.text)`.
+    let chunk_a = state
+        .chunks
+        .get(&fixture.chunk_id_a)
+        .ok_or("chunk a is missing")?;
+    let chunk_b = state
+        .chunks
+        .get(&fixture.chunk_id_b)
+        .ok_or("chunk b is missing")?;
+    let content_hash_a =
+        maestria_domain::ContentHash::new(maestria_domain::content_hash(chunk_a.text.as_bytes()))?;
+    let content_hash_b =
+        maestria_domain::ContentHash::new(maestria_domain::content_hash(chunk_b.text.as_bytes()))?;
+    index.index_embeddings(vec![
+        VectorEmbedding {
+            chunk_id: fixture.chunk_id_a,
+            vector: vec![1.0, 0.0],
+            provenance: maestria_ports::EmbeddingProvenance {
+                content_hash: content_hash_a.as_str().to_owned(),
+                identity: identity.clone(),
+                provider_id: "recovery-provider".to_string(),
+                model: "recovery-model".to_string(),
+                model_version: "recovery-v1".to_string(),
+                disclosure: maestria_ports::ProviderDisclosure {
+                    remote: false,
+                    retention: maestria_ports::RetentionPolicy::NoRetention,
+                },
+            },
+        },
+        VectorEmbedding {
+            chunk_id: fixture.chunk_id_b,
+            vector: vec![0.0, 1.0],
+            provenance: maestria_ports::EmbeddingProvenance {
+                content_hash: content_hash_b.as_str().to_owned(),
+                identity,
+                provider_id: "recovery-provider".to_string(),
+                model: "recovery-model".to_string(),
+                model_version: "recovery-v1".to_string(),
+                disclosure: maestria_ports::ProviderDisclosure {
+                    remote: false,
+                    retention: maestria_ports::RetentionPolicy::NoRetention,
+                },
+            },
+        },
+    ])?;
+
+    let provider = CountingEmbeddingProvider::new();
+    reconcile_vector_projection(&state, &index, Some(&provider), Some("recovery-model"))?;
+
+    assert_eq!(
+        provider.calls.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "matching provenance must be kept without re-embedding"
+    );
+    assert_eq!(index.indexed_embedding_keys()?.len(), 2);
+    let _ = fs::remove_dir_all(&vector_root);
+    Ok(())
+}
+
+/// A chunk the provider cannot embed must not fail the vector reconcile:
+/// the embeddable sibling is still indexed and the failing chunk is skipped
+/// (it is retried on the next boot).
+#[test]
+fn reconcile_vector_projection_skips_unembeddable_chunk() -> Result<(), Box<dyn std::error::Error>>
+{
+    let mut state = KernelState::new();
+    let fixture = build_recovery_domain_state(&mut state)?;
+    let vector_root = std::env::temp_dir().join(format!(
+        "maestria-vector-recovery-fail-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&vector_root);
+    fs::create_dir_all(&vector_root)?;
+    let vector_path = vector_root.join("projection.db");
+    let index = SqliteVectorIndex::open(&vector_path)?;
+
+    let provider = FlakyRecoveryEmbeddingProvider;
+    reconcile_vector_projection(&state, &index, Some(&provider), Some("recovery-model"))?;
+
+    let indexed = index
+        .indexed_embedding_keys()?
+        .into_iter()
+        .map(|key| key.chunk_id)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(
+        indexed.contains(&fixture.chunk_id_a),
+        "embeddable chunk must still be indexed"
+    );
+    assert!(
+        !indexed.contains(&fixture.chunk_id_b),
+        "unembeddable chunk must be skipped, not fatal"
+    );
+    let _ = fs::remove_dir_all(&vector_root);
     Ok(())
 }

@@ -160,6 +160,17 @@ const CODE_EXTENSIONS: &[&str] = &["rs", "py", "ts", "tsx"];
 /// Compute the numeric features of the directory `_dir` from `files` (all
 /// collected files under it).
 pub fn dir_features(_dir: &Path, files: &[PathBuf]) -> DirFeatures {
+    dir_features_buckets(_dir, files, DOC_EXTENSIONS, CODE_EXTENSIONS)
+}
+
+/// [`dir_features`] over explicit doc/code extension buckets, shared with
+/// the repository-mode scan (`repo.rs`).
+pub(crate) fn dir_features_buckets(
+    _dir: &Path,
+    files: &[PathBuf],
+    doc_extensions: &[&str],
+    code_extensions: &[&str],
+) -> DirFeatures {
     let mut total_bytes = 0u64;
     let mut max_file_bytes = 0u64;
     let mut doc_count = 0usize;
@@ -180,13 +191,13 @@ pub fn dir_features(_dir: &Path, files: &[PathBuf]) -> DirFeatures {
         }
         if extension
             .as_deref()
-            .is_some_and(|extension| DOC_EXTENSIONS.contains(&extension))
+            .is_some_and(|extension| doc_extensions.contains(&extension))
         {
             doc_count += 1;
         }
         if extension
             .as_deref()
-            .is_some_and(|extension| CODE_EXTENSIONS.contains(&extension))
+            .is_some_and(|extension| code_extensions.contains(&extension))
         {
             code_count += 1;
         }

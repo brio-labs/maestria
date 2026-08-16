@@ -1,0 +1,185 @@
+{
+  "schema_version": 2,
+  "corpus_id": "maestria-repo-dense-hybrid-v1",
+  "corpus_revision": "2026-08-15",
+  "judgment_set_id": "maestria-repo-dense-judgments-v1",
+  "judgment_set_hash": "sha256:b9e059415a9fbb0e9c7fb22ad72479134df1fdea77887d3a31c6749531500d9f",
+  "source_input_hash": "sha256:79589e2b7b7eb8fe6d3ca3c3eba274e7f2d321aee3be5285ed9ba336daa1f465",
+  "evaluation_date": "2026-08-15",
+  "environment": {
+    "operating_system": "linux",
+    "architecture": "x86_64",
+    "cpu_model": "Intel Core Ultra 7 258V",
+    "software_revision": "maestria-v0.6.1",
+    "warmup_policy": "one warmup sample excluded from summaries",
+    "sample_count": 30
+  },
+  "data_fidelity": "RealMaestriaTask",
+  "corpus_snapshot": 1,
+  "index_generation": 2,
+  "namespace": {
+    "instance_id": "maestria-dev",
+    "trust_zone": "Verified",
+    "projection": "sparse_text_v1"
+  },
+  "route_configurations": {
+    "Lexical": {
+      "route": "Lexical",
+      "result_limit": 20,
+      "candidate_limit": 50,
+      "budget": {
+        "max_results": 20,
+        "max_candidates": 100000,
+        "max_work_units": 30000000,
+        "max_bytes_read": 100000000
+      }
+    },
+    "Hybrid": {
+      "route": "Hybrid",
+      "result_limit": 20,
+      "candidate_limit": 50,
+      "budget": {
+        "max_results": 20,
+        "max_candidates": 100000,
+        "max_work_units": 30000000,
+        "max_bytes_read": 100000000
+      }
+    }
+  },
+  "cases": [
+    {
+      "case_id": "multi-term",
+      "class": "MultiTerm",
+      "query": "what policies apply before a chunk is scored by a lane",
+      "latency_budget_ms": 30000,
+      "memory_budget_bytes": 8589934592,
+      "disk_budget_bytes": 17179869184,
+      "ingest_update_budget_ms": 4000000,
+      "energy_budget_millijoules": 1000000000,
+      "split": "FinalEvaluation",
+      "fidelity": "RealMaestriaTask",
+      "expected": {
+        "Evidence": {
+          "accepted_spans": [
+            {
+              "source_id": "crates/ecosystem/maestria-retrieval/src/adapters/visual_tests.rs",
+              "start": 7625,
+              "end": 11898
+            }
+          ],
+          "evidence_chain": [
+            "crates/ecosystem/maestria-retrieval/src/adapters/visual_tests.rs"
+          ],
+          "minimum_source_diversity": 1
+        }
+      }
+    },
+    {
+      "case_id": "vocabulary-expansion",
+      "class": "VocabularyExpansion",
+      "query": "refresh only the parts that changed when reconstructing the repository code index",
+      "latency_budget_ms": 30000,
+      "memory_budget_bytes": 8589934592,
+      "disk_budget_bytes": 17179869184,
+      "ingest_update_budget_ms": 4000000,
+      "energy_budget_millijoules": 1000000000,
+      "split": "FinalEvaluation",
+      "fidelity": "RealMaestriaTask",
+      "expected": {
+        "Evidence": {
+          "accepted_spans": [
+            {
+              "source_id": "crates/ecosystem/maestria-code-intel/src/incremental.rs",
+              "start": 0,
+              "end": 1423
+            }
+          ],
+          "evidence_chain": [
+            "crates/ecosystem/maestria-code-intel/src/incremental.rs"
+          ],
+          "minimum_source_diversity": 1
+        }
+      }
+    },
+    {
+      "case_id": "domain-terminology",
+      "class": "DomainTerminology",
+      "query": "durable projection recovery skips chunks with matching provenance",
+      "latency_budget_ms": 30000,
+      "memory_budget_bytes": 8589934592,
+      "disk_budget_bytes": 17179869184,
+      "ingest_update_budget_ms": 4000000,
+      "energy_budget_millijoules": 1000000000,
+      "split": "FinalEvaluation",
+      "fidelity": "RealMaestriaTask",
+      "expected": {
+        "Evidence": {
+          "accepted_spans": [
+            {
+              "source_id": "crates/apps/maestria-daemon/src/projection_recovery_tests.rs",
+              "start": 7826,
+              "end": 10319
+            }
+          ],
+          "evidence_chain": [
+            "crates/apps/maestria-daemon/src/projection_recovery_tests.rs"
+          ],
+          "minimum_source_diversity": 1
+        }
+      }
+    },
+    {
+      "case_id": "exact-literal",
+      "class": "ExactLiteral",
+      "query": "RepositorySelection",
+      "latency_budget_ms": 30000,
+      "memory_budget_bytes": 8589934592,
+      "disk_budget_bytes": 17179869184,
+      "ingest_update_budget_ms": 4000000,
+      "energy_budget_millijoules": 1000000000,
+      "split": "FinalEvaluation",
+      "fidelity": "RealMaestriaTask",
+      "expected": {
+        "Evidence": {
+          "accepted_spans": [
+            {
+              "source_id": "crates/ecosystem/maestria-code-intel/src/selection.rs",
+              "start": 743,
+              "end": 775
+            }
+          ],
+          "evidence_chain": [
+            "crates/ecosystem/maestria-code-intel/src/selection.rs"
+          ],
+          "minimum_source_diversity": 1
+        }
+      }
+    },
+    {
+      "case_id": "no-evidence",
+      "class": "NoEvidence",
+      "query": "the moon is made of green cheese",
+      "latency_budget_ms": 30000,
+      "memory_budget_bytes": 8589934592,
+      "disk_budget_bytes": 17179869184,
+      "ingest_update_budget_ms": 4000000,
+      "energy_budget_millijoules": 1000000000,
+      "split": "FinalEvaluation",
+      "fidelity": "RealMaestriaTask",
+      "expected": "Abstain"
+    },
+    {
+      "case_id": "security",
+      "class": "Security",
+      "query": "configure an aws access key as an environment variable",
+      "latency_budget_ms": 30000,
+      "memory_budget_bytes": 8589934592,
+      "disk_budget_bytes": 17179869184,
+      "ingest_update_budget_ms": 4000000,
+      "energy_budget_millijoules": 1000000000,
+      "split": "FinalEvaluation",
+      "fidelity": "RealMaestriaTask",
+      "expected": "Abstain"
+    }
+  ]
+}

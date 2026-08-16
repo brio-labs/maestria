@@ -1,12 +1,15 @@
 use super::{CodeIntelError, RepositoryCodeIndex};
 use crate::changes::{build_delta, compute_delta_files};
 use crate::identity::{discover_dirty_paths, discover_repository_identity};
+use crate::incremental::candidate_id_prefix;
 use crate::language::active_backends;
 use crate::language::compose::{
     discover_all_packages, merge_extractions, resolve_merged_relations,
 };
+use crate::selection::{FileGate, RepositorySelection};
 use crate::symbols::RelationCandidate;
-use std::collections::BTreeSet;
+use maestria_index_selection::IndexPolicy;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 impl RepositoryCodeIndex {
@@ -24,23 +27,32 @@ impl RepositoryCodeIndex {
         parser_generation: impl Into<String>,
         excluded_patterns: &[String],
     ) -> Result<Self, CodeIntelError> {
-        Ok(
-            Self::build_with_exclusions_and_candidates(root, parser_generation, excluded_patterns)?
-                .0,
-        )
+        Ok(Self::build_with_exclusions_and_candidates(
+            root,
+            parser_generation,
+            excluded_patterns,
+            &RepositorySelection::everything(),
+            &BTreeMap::new(),
+        )?
+        .0)
     }
 
     /// Build a fresh index, also returning the full relation candidate list
-    /// (persisted to a sidecar by the incremental rebuild).
+    /// (persisted to a sidecar by the incremental rebuild). Only paths under
+    /// `selection` are indexed, with per-directory `policies` applied by the
+    /// [`FileGate`].
     pub(crate) fn build_with_exclusions_and_candidates(
         root: impl AsRef<Path>,
         parser_generation: impl Into<String>,
         excluded_patterns: &[String],
+        selection: &RepositorySelection,
+        policies: &BTreeMap<String, IndexPolicy>,
     ) -> Result<(Self, Vec<RelationCandidate>), CodeIntelError> {
         let root = root.as_ref();
         let parser_generation = parser_generation.into();
         let backends = active_backends(root, excluded_patterns)?;
-        let initial_identity = discover_repository_identity(root, excluded_patterns, &backends)?;
+        let initial_identity =
+            discover_repository_identity(root, excluded_patterns, &backends, selection)?;
         let mut discovery = discover_all_packages(
             &backends,
             Path::new(&initial_identity.root),
@@ -48,7 +60,7 @@ impl RepositoryCodeIndex {
             &parser_generation,
             excluded_patterns,
         )?;
-        let identity = discover_repository_identity(root, excluded_patterns, &backends)?;
+        let identity = discover_repository_identity(root, excluded_patterns, &backends, selection)?;
         if identity.commit != initial_identity.commit
             || identity.worktree_identity != initial_identity.worktree_identity
         {
@@ -60,12 +72,24 @@ impl RepositoryCodeIndex {
                 excluded_patterns,
             )?;
         }
-        let packages = discovery.packages;
+        // Packages and targets outside the selection never participate:
+        // whole-package drops and per-target drops happen before any parse
+        // (bulk skip), and the FileGate additionally applies the
+        // per-directory size/minified policies.
+        let gate = FileGate::new(selection.clone(), policies.clone());
+        let packages = Self::filter_selected_packages(discovery.packages, root, selection, &gate);
         // From-scratch full builds have no prior index to diff against, so the
         // delta is the porcelain dirty set only (git metadata, no content
-        // reads); incremental rebuilds add the baseline..HEAD diff.
-        let dirty = discover_dirty_paths(root)?;
-        let delta_files = compute_delta_files(root, None, &dirty)?;
+        // reads); incremental rebuilds add the baseline..HEAD diff. The sets
+        // are scoped to the selection.
+        let dirty: BTreeSet<String> = discover_dirty_paths(root)?
+            .into_iter()
+            .filter(|path| selection.contains(path))
+            .collect();
+        let delta_files: BTreeSet<String> = compute_delta_files(root, None, &dirty)?
+            .into_iter()
+            .filter(|path| selection.contains(path))
+            .collect();
 
         // Per-backend extraction merged into one index. Relations are
         // re-resolved from the merged candidate set so the deterministic
@@ -85,7 +109,14 @@ impl RepositoryCodeIndex {
                 excluded_patterns,
             )?);
         }
-        let (symbols, candidates, file_contexts) = merge_extractions(extractions);
+        let (mut symbols, mut candidates, mut file_contexts) = merge_extractions(extractions);
+        // Defense filter: no record, context, or candidate survives outside
+        // the selection or gated out by a policy. Relations are re-resolved
+        // from the surviving candidate set, so they only ever connect
+        // records that exist (R49/50).
+        symbols.retain(|symbol| gate.allows(root, &symbol.provenance.file_path));
+        file_contexts.retain(|key, _| gate.allows(root, key));
+        candidates.retain(|candidate| gate.allows(root, &candidate_id_prefix(candidate)));
         let (relations, relation_summary) =
             resolve_merged_relations(&parser_generation, &symbols, &candidates);
 
@@ -112,6 +143,8 @@ impl RepositoryCodeIndex {
                     workspace_warnings: discovery.warnings,
                     relation_summary,
                     changed: build_delta(&delta_files, &symbols),
+                    selected_paths: selection.as_paths().map(str::to_string).collect(),
+                    selection_policies: policies.clone(),
                 },
                 packages,
                 symbols,
@@ -120,5 +153,35 @@ impl RepositoryCodeIndex {
             },
             candidates,
         ))
+    }
+
+    /// Drop packages and targets outside the selection (whole-package and
+    /// per-target drops happen before any parse — bulk skip), with the
+    /// `FileGate` applying the per-directory size/minified policies.
+    fn filter_selected_packages(
+        packages: Vec<crate::types::PackageRecord>,
+        root: &Path,
+        selection: &RepositorySelection,
+        gate: &FileGate,
+    ) -> Vec<crate::types::PackageRecord> {
+        packages
+            .into_iter()
+            .filter_map(|mut package| {
+                // Cargo metadata reports absolute target paths; walk-based
+                // backends (Python, TypeScript) report relative ones.
+                package.targets.retain(|target| {
+                    let relative = Path::new(&target.src_path).strip_prefix(root).map_or_else(
+                        |_| target.src_path.clone(),
+                        |relative| relative.to_string_lossy().into_owned(),
+                    );
+                    selection.contains(&relative) && gate.allows(root, &relative)
+                });
+                if package.targets.is_empty() {
+                    None
+                } else {
+                    Some(package)
+                }
+            })
+            .collect()
     }
 }

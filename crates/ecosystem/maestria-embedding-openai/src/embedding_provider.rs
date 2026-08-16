@@ -8,6 +8,23 @@ use url::Url;
 
 const EMBEDDING_ENDPOINT_PATH: &str = "/v1/embeddings";
 
+/// Safety bound on embedding input length in bytes.
+///
+/// Local serving stacks reject inputs longer than the model context
+/// window instead of truncating. This bound keeps requests under an
+/// 8k-token context window for any text encoding at two or more bytes
+/// per token — the ratio observed on multilingual byte-pair
+/// tokenizers (JSON ~2.5 bytes/token, CJK ~7.5 bytes/token) — and
+/// never splits a character boundary.
+const MAX_INPUT_BYTES: usize = 16_384;
+
+fn truncate_text(text: &str) -> &str {
+    if text.len() <= MAX_INPUT_BYTES {
+        return text;
+    }
+    &text[..text.floor_char_boundary(MAX_INPUT_BYTES)]
+}
+
 #[derive(Clone)]
 pub struct LocalHttpEmbeddingProvider {
     model: String,
@@ -143,7 +160,7 @@ impl EmbeddingProvider for LocalHttpEmbeddingProvider {
             EmbeddingInputKind::Document => &self.document_template,
             EmbeddingInputKind::Query => &self.query_template,
         };
-        let input = template.replace("{{text}}", &request.text);
+        let input = template.replace("{{text}}", truncate_text(&request.text));
         let payload = EmbeddingPayload {
             input,
             model: self.model.clone(),

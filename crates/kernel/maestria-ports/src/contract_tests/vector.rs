@@ -77,6 +77,7 @@ pub fn assert_vector_index_contract(
     assert_eq!(replaced[0].score, 1.0);
     verify_vector_validation(index, &prov)?;
     verify_vector_lifecycle(index, prov)?;
+    verify_vector_recovery_keys(index, prov)?;
     Ok(())
 }
 
@@ -207,6 +208,41 @@ fn verify_vector_lifecycle(
     assert_eq!(
         hits_after_idempotent_delete.hits[0].chunk_id,
         ChunkId::new(11)
+    );
+    Ok(())
+}
+
+fn verify_vector_recovery_keys(
+    index: &impl VectorIndex,
+    prov: impl Fn() -> EmbeddingProvenance,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let embedding = |chunk_id, vector| VectorEmbedding {
+        chunk_id: ChunkId::new(chunk_id),
+        vector,
+        provenance: prov(),
+    };
+    index.clear()?;
+    index.index_embeddings(vec![
+        embedding(21, vec![1.0, 0.0]),
+        embedding(22, vec![0.0, 1.0]),
+    ])?;
+    let keys = index.indexed_embedding_keys()?;
+    assert_eq!(keys.len(), 2);
+    let key = keys
+        .iter()
+        .find(|key| key.chunk_id == ChunkId::new(21))
+        .ok_or("chunk 21 key missing")?;
+    assert_eq!(key.content_hash, "abcd123");
+    assert_eq!(key.representation, "dense_text_v1");
+    let expected = [ChunkId::new(21), ChunkId::new(23)];
+    index.reconcile_projection(vec![embedding(23, vec![1.0, 0.0])], &expected)?;
+    let after = index.indexed_embedding_keys()?;
+    let mut after_ids = after.iter().map(|key| key.chunk_id).collect::<Vec<_>>();
+    after_ids.sort_by_key(|chunk_id| chunk_id.value());
+    assert_eq!(
+        after_ids,
+        vec![ChunkId::new(21), ChunkId::new(23)],
+        "reconcile must keep expected chunks, upsert new ones, and drop stale ones"
     );
     Ok(())
 }

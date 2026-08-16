@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use maestria_domain::{EvidenceKind, KernelState};
+use maestria_domain::{ChunkId, EvidenceKind, KernelState};
 use maestria_governance::scan_secrets;
 use maestria_ports::{
     ArtifactRepository, CardRepository, ChunkRepository, EmbeddingProvider, EmbeddingRequest,
@@ -198,80 +198,40 @@ pub fn reconcile_graph_projection(state: &KernelState, graph: &impl GraphIndex) 
         .context("rebuild graph projection from domain state")?;
     Ok(())
 }
-/// Rebuild the vector projection from replayed chunks and the configured
+/// Reconcile the vector projection from replayed chunks and the configured
 /// embedding provider.
 ///
 /// Vector rows are disposable and never determine domain truth. When
-/// embeddings are disabled, rebuilding with an empty set removes stale rows.
-/// When embeddings are enabled, every replayed chunk is embedded in stable
-/// `ChunkId` order and the provider response supplies its provenance.
+/// embeddings are disabled, reconciling with an empty set removes stale
+/// rows. When embeddings are enabled, chunks whose indexed provenance
+/// (content hash and generation identity) still matches the active profile
+/// are kept without re-embedding, so startup recovery stays bounded even for
+/// large corpora; only missing or stale chunks are embedded in stable
+/// `ChunkId` order.
 pub fn reconcile_vector_projection(
     state: &KernelState,
     vector_index: &(dyn VectorIndex + Send + Sync),
     embedding_provider: Option<&(dyn EmbeddingProvider + Send + Sync)>,
     embedding_model: Option<&str>,
 ) -> Result<()> {
+    let eligible = eligible_chunks(state)?;
+    let expected = eligible
+        .iter()
+        .map(|(chunk_id, _)| *chunk_id)
+        .collect::<Vec<_>>();
     let embeddings = match (embedding_provider, embedding_model) {
         (None, None) => Vec::new(),
         (Some(provider), Some(model)) if !model.trim().is_empty() => {
             let identity = provider.identity().ok_or_else(|| {
                 anyhow::anyhow!("vector projection recovery provider has no identity")
             })?;
-            state
-                .chunks
-                .values()
-                .filter(|chunk| {
-                    let artifact_allowed = state
-                        .artifacts
-                        .get(&chunk.artifact_id)
-                        .is_some_and(|artifact| artifact.security.retrieval_allowed());
-                    artifact_allowed && scan_secrets(&chunk.text).is_clean()
-                })
-                .map(|chunk| {
-                    let content_hash = match state
-                        .artifacts
-                        .get(&chunk.artifact_id)
-                        .and_then(|artifact| artifact.content_hash.clone())
-                    {
-                        Some(content_hash) => content_hash,
-                        None => {
-                            let computed = maestria_domain::content_hash(chunk.text.as_bytes());
-                            maestria_domain::ContentHash::new(computed).map_err(|error| {
-                                anyhow::anyhow!(
-                                    "computed content hash for chunk {} is invalid: {error}",
-                                    chunk.id
-                                )
-                            })?
-                        }
-                    };
-                    let response = provider
-                        .embed(EmbeddingRequest {
-                            text: chunk.text.clone(),
-                            model: model.to_string(),
-                            kind: maestria_ports::EmbeddingInputKind::Document,
-                            identity: identity.clone(),
-                        })
-                        .map_err(|error| anyhow::anyhow!("embed chunk {}: {error}", chunk.id))?;
-                    if response.identity != identity {
-                        return Err(anyhow::anyhow!(
-                            "embed chunk {} returned an incompatible generation identity",
-                            chunk.id
-                        ));
-                    }
-                    Ok(VectorEmbedding {
-                        chunk_id: chunk.id,
-                        vector: response.vector,
-                        provenance: maestria_ports::EmbeddingProvenance {
-                            content_hash: content_hash.as_str().to_owned(),
-                            identity: response.identity,
-                            provider_id: response.provider_id,
-                            model: response.model,
-                            model_version: response.model_version,
-                            disclosure: response.disclosure,
-                        },
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?
+            let existing = vector_index
+                .indexed_embedding_keys()
+                .context("read existing vector projection keys")?
+                .into_iter()
+                .map(|key| (key.chunk_id, key))
+                .collect::<BTreeMap<_, _>>();
+            embed_missing_chunks(state, provider, model, &identity, &eligible, &existing)?
         }
         (Some(_), Some(_)) => {
             return Err(anyhow::anyhow!(
@@ -290,9 +250,104 @@ pub fn reconcile_vector_projection(
         }
     };
     vector_index
-        .rebuild(embeddings)
-        .context("rebuild vector projection from domain state")?;
+        .reconcile_projection(embeddings, &expected)
+        .context("reconcile vector projection from domain state")?;
     Ok(())
+}
+
+/// Chunks eligible for dense projection: retrieval-allowed artifacts with
+/// clean secret scans, paired with their content hash.
+fn eligible_chunks(state: &KernelState) -> Result<Vec<(ChunkId, String)>> {
+    let mut eligible = Vec::new();
+    for chunk in state.chunks.values() {
+        let artifact_allowed = state
+            .artifacts
+            .get(&chunk.artifact_id)
+            .is_some_and(|artifact| artifact.security.retrieval_allowed());
+        if !artifact_allowed || !scan_secrets(&chunk.text).is_clean() {
+            continue;
+        }
+        // The indexed provenance identity is the embedded chunk text, not the
+        // artifact hash: every writer (runtime effect handler and projection
+        // recovery) stores `content_hash(chunk.text)`, so the skip must
+        // compare the same identity or every prepare re-embeds the corpus.
+        let content_hash =
+            maestria_domain::ContentHash::new(maestria_domain::content_hash(chunk.text.as_bytes()))
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "computed content hash for chunk {} is invalid: {error}",
+                        chunk.id
+                    )
+                })?;
+        eligible.push((chunk.id, content_hash.as_str().to_owned()));
+    }
+    eligible.sort_by_key(|(chunk_id, _)| chunk_id.value());
+    Ok(eligible)
+}
+
+/// Embed the eligible chunks whose indexed provenance no longer matches the
+/// active identity; chunks already indexed with the same content hash and
+/// generation identity are skipped.
+fn embed_missing_chunks(
+    state: &KernelState,
+    provider: &(dyn EmbeddingProvider + Send + Sync),
+    model: &str,
+    identity: &maestria_ports::EmbeddingIdentity,
+    eligible: &[(ChunkId, String)],
+    existing: &BTreeMap<ChunkId, maestria_ports::IndexedEmbeddingKey>,
+) -> Result<Vec<VectorEmbedding>> {
+    let fingerprint = identity.fingerprint.encode();
+    let generation_id = identity.generation_id.value().to_string();
+    let mut embeddings = Vec::new();
+    for (chunk_id, content_hash) in eligible {
+        let already_indexed = existing.get(chunk_id).is_some_and(|key| {
+            key.content_hash == *content_hash
+                && key.generation_id == generation_id
+                && key.representation == identity.representation.0
+                && key.fingerprint == fingerprint
+        });
+        if already_indexed {
+            continue;
+        }
+        let chunk = state.chunks.get(chunk_id).ok_or_else(|| {
+            anyhow::anyhow!("chunk {} disappeared during projection recovery", chunk_id)
+        })?;
+        let response = match provider.embed(EmbeddingRequest {
+            text: chunk.text.clone(),
+            model: model.to_string(),
+            kind: maestria_ports::EmbeddingInputKind::Document,
+            identity: identity.clone(),
+        }) {
+            Ok(response) => response,
+            Err(error) => {
+                // The projection is best-effort: one unembeddable chunk
+                // (oversized, provider hiccup, content the model rejects)
+                // must not fail the whole startup reconcile. The chunk stays
+                // unindexed and is retried on the next boot.
+                tracing::warn!("embed chunk {} skipped: {error}", chunk_id);
+                continue;
+            }
+        };
+        if response.identity != *identity {
+            return Err(anyhow::anyhow!(
+                "embed chunk {} returned an incompatible generation identity",
+                chunk_id
+            ));
+        }
+        embeddings.push(VectorEmbedding {
+            chunk_id: *chunk_id,
+            vector: response.vector,
+            provenance: maestria_ports::EmbeddingProvenance {
+                content_hash: content_hash.clone(),
+                identity: response.identity,
+                provider_id: response.provider_id,
+                model: response.model,
+                model_version: response.model_version,
+                disclosure: response.disclosure,
+            },
+        });
+    }
+    Ok(embeddings)
 }
 
 #[cfg(test)]

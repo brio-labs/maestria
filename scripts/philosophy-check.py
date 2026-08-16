@@ -342,6 +342,9 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "markdown",
         "nav",
         "pages",
+        "repositories",
+        "repository_index_types",
+        "repository_tree",
         "retrieval",
         "route",
         "search",
@@ -506,6 +509,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "notebook_draft_open",
         "projection_open",
         "recovery_staging",
+        "repository_source_registration",
     ),
     "crates/apps/maestria-daemon/src/api.rs": (
         "protocol",
@@ -627,6 +631,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "types",
         "index",
         "walk",
+        "selection",
     ),
     "crates/ecosystem/maestria-parsers/src/lib.rs": (
         "cargo_toml",
@@ -649,6 +654,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "scan",
         "classify",
         "candidates",
+        "repo",
         "profile",
     ),
     "crates/ecosystem/maestria-validation/src/lib.rs": (

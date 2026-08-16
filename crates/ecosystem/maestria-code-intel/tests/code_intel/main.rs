@@ -10,4 +10,5 @@ mod nested_workspace_tests;
 mod python_tests;
 mod references_tests;
 mod relation_tests;
+mod selection_tests;
 mod typescript_tests;
