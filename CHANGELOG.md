@@ -66,6 +66,24 @@ intelligence to a reviewed set of directories.
   silently drop Cargo targets).
 - Web selection tree: a file selected individually stays checkable instead of
   being covered by its own selection.
+- Ingestion throughput: the runtime full-text effect now batches every
+  pending chunk of an artifact into one projection commit (one `IndexFullText`
+  effect serialized per artifact), replacing the per-chunk Tantivy commit;
+  a 2,000-file home-scale root drains in minutes instead of stalling for
+  hours under segment flush/fsync churn.
+- Daemon memory on large roots: with the pipeline draining, RSS plateaus once
+  ingestion completes instead of growing monotonically while pending
+  artifacts accumulate (previously the process could be killed externally).
+- The learned-sparse benchmark instrumentation record binds `report_hash` to
+  the frozen corpus content instead of an arbitrary format string, so the
+  record is verifiably tied to its evaluation evidence.
+- The learned-sparse benchmark's `peak_ram_bytes` is now the per-route
+  process RSS delta around the route's run (search plus lifecycle
+  operations), not the process-wide `VmHWM` high-water mark, which the first
+  measured route dominated.
+- Studio Index workspaces pre-fill the instance root path from the daemon
+  bootstrap status instead of requiring the path to be typed by hand (the
+  sanitized display name never looked like an absolute path).
 
 ## [0.6.1] — 2026-07-20
 

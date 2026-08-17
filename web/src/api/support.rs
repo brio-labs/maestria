@@ -18,6 +18,6 @@ pub(super) fn encode_source_key(key: &str) -> String {
 /// Typed notebook bootstrap payload used by the api decode test.
 #[cfg(test)]
 pub(super) const BOOTSTRAP_JSON: &str = concat!(
-    r#"{"status":{"instance_root":"d","event_count":0,"task_count":0},"notebooks":{"notebooks":"#,
+    r#"{"status":{"instance_root":"d","instance_root_path":"/home/d","event_count":0,"task_count":0},"notebooks":{"notebooks":"#,
     r#"[{"notebook_id":1,"title":"Notes","source_count":0,"updated_at":0}]},"agents":[]}"#,
 );

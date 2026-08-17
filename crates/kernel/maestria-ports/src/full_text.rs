@@ -106,6 +106,41 @@ pub trait FullTextIndex: Send + Sync {
         Ok(())
     }
 
+    /// Index a whole artifact's chunks with its cards as one atomic
+    /// projection update.
+    ///
+    /// The runtime emits one `IndexFullText` effect per pending chunk but
+    /// executes them as a per-artifact batch, so ingestion commits once per
+    /// artifact instead of once per chunk (chunk commits dominate the
+    /// ingestion cost: each flushes and fsyncs segments). The default
+    /// implementation falls back to per-chunk [`Self::index_artifact_chunk`]
+    /// calls (cards attached to the first chunk); adapters whose writes are
+    /// costly per commit SHOULD override this to apply the whole artifact
+    /// update in one commit. Operations must stay idempotent
+    /// (delete-then-add per key) so retries and recovery re-drives replace
+    /// rather than duplicate documents.
+    fn index_artifact_chunks(
+        &self,
+        chunks: Vec<IndexedChunk>,
+        cards: Vec<IndexedCard>,
+        lexical_chunks: Vec<IndexedLexicalChunk>,
+        lexical_cards: Vec<IndexedLexicalCard>,
+    ) -> Result<(), PortError> {
+        for (index, chunk) in chunks.into_iter().enumerate() {
+            let lexical = lexical_chunks
+                .iter()
+                .find(|candidate| candidate.chunk_id == chunk.chunk_id)
+                .cloned();
+            let chunk_cards = if index == 0 {
+                cards.clone()
+            } else {
+                Vec::new()
+            };
+            self.index_artifact_chunk(chunk, chunk_cards, lexical, lexical_cards.clone())?;
+        }
+        Ok(())
+    }
+
     /// Execute a typed lexical search for chunks.
     fn search_lexical(
         &self,

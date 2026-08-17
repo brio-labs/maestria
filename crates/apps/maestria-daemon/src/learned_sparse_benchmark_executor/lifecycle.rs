@@ -38,16 +38,18 @@ impl LearnedSparseBenchmarkExecutor {
 }
 
 impl LearnedSparseBenchmarkExecutor {
-    /// Peak resident set size of this process, in bytes, when readable.
+    /// Current resident set size of this process, in bytes, when readable.
     ///
-    /// Returns `None` when the process status is unreadable or the high-water
-    /// marker is absent, so the caller can record the measurement as
-    /// `Unavailable` instead of inferring a zero.
-    pub(super) fn peak_ram_bytes(&self) -> Option<u64> {
+    /// Returns `None` when the process status is unreadable or the marker is
+    /// absent, so the caller can record the measurement as `Unavailable`
+    /// instead of inferring a zero. The per-route memory attribution is the
+    /// delta around a route's run; `VmHWM` would report the process-wide
+    /// monotonic high-water mark and cannot be attributed to one route.
+    pub(super) fn current_rss_bytes() -> Option<u64> {
         let status = std::fs::read_to_string("/proc/self/status").ok()?;
         let kilobytes = status
             .lines()
-            .find_map(|line| line.strip_prefix("VmHWM:"))
+            .find_map(|line| line.strip_prefix("VmRSS:"))
             .and_then(|value| value.trim().strip_suffix(" kB"))
             .and_then(|value| value.trim().parse::<u64>().ok())?;
         Some(kilobytes.saturating_mul(1024))
@@ -368,5 +370,26 @@ impl LearnedSparseBenchmarkExecutor {
             activation,
             rollback,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LearnedSparseBenchmarkExecutor;
+
+    #[test]
+    fn current_rss_bytes_reads_the_process_resident_set() {
+        // The per-route memory attribution is the VmRSS delta around a
+        // route's run; the reader must return a real measurement on the
+        // Linux target the daemon runs on.
+        let rss = LearnedSparseBenchmarkExecutor::current_rss_bytes();
+        assert!(
+            rss.is_some(),
+            "VmRSS must be readable from /proc/self/status"
+        );
+        assert!(
+            rss.is_some_and(|bytes| bytes > 0),
+            "the running process must have a resident set"
+        );
     }
 }
