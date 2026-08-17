@@ -2853,6 +2853,7 @@ dependencies = [
 name = "maestria-code-intel"
 version = "0.6.1"
 dependencies = [
+ "maestria-governance",
  "maestria-index-selection",
  "proc-macro2",
  "regex",

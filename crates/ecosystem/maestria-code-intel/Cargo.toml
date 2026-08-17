@@ -9,6 +9,7 @@ publish = false
 description = "Repository code intelligence index for workspace metadata and Rust symbols"
 
 [dependencies]
+maestria-governance = { path = "../../kernel/maestria-governance" }
 maestria-index-selection = { path = "../maestria-index-selection" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

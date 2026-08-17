@@ -50,6 +50,9 @@ intelligence to a reviewed set of directories.
   reconciliation skips re-embedding of unchanged chunks.
 - The code-intel source registration window constant moved to the daemon
   (`repository_source_registration.rs`); `code_intel_sources.rs` removed.
+- The repository code-intel walk now applies `PrivacyExclusions::default()`
+  (machine-state and credential-shaped paths) so `index repository` enforces
+  the same privacy boundary as the generic whitelist-first indexer.
 
 ### Fixed
 
