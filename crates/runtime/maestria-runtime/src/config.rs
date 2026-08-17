@@ -76,6 +76,15 @@ pub(crate) type JournalRecoveryClaims = Arc<Mutex<BTreeSet<(HarnessRunId, u64)>>
 /// effects short-circuit. Not persisted: a fresh runtime re-probes.
 pub(crate) type DegradedVectorArtifacts = Arc<Mutex<BTreeMap<ArtifactId, String>>>;
 
+/// Per-artifact serialization for the full-text index lane: the first
+/// `IndexFullText` effect for an artifact batches all of its pending chunks
+/// into one projection commit, and the sibling effects of the same artifact
+/// (emitted per chunk) observe the completed chunks and no-op. Without the
+/// serialization, concurrent sibling effects would each re-batch the whole
+/// artifact under a stale state snapshot. Bounded by the artifact
+/// population; entries persist for the runtime lifetime.
+pub(crate) type FullTextLocks = Arc<Mutex<BTreeMap<ArtifactId, Arc<tokio::sync::Mutex<()>>>>>;
+
 /// Bundles everything an effect handler needs at execution time.
 #[derive(Clone)]
 pub struct EffectExecutionContext {
@@ -89,6 +98,7 @@ pub struct EffectExecutionContext {
     pub feedback_acks: HarnessFeedbackAcks,
     pub journal_recovery_claims: JournalRecoveryClaims,
     pub degraded_vector_artifacts: DegradedVectorArtifacts,
+    pub full_text_locks: FullTextLocks,
     pub embedding_model: Option<String>,
     pub default_effect_timeout: Duration,
     pub max_retries: u32,
@@ -114,6 +124,7 @@ impl EffectExecutionContext {
             feedback_acks: Arc::new(Mutex::new(BTreeMap::new())),
             journal_recovery_claims: Arc::new(Mutex::new(BTreeSet::new())),
             degraded_vector_artifacts: Arc::new(Mutex::new(BTreeMap::new())),
+            full_text_locks: Arc::new(Mutex::new(BTreeMap::new())),
             embedding_model: None,
             default_effect_timeout: Duration::from_secs(300),
             max_retries: 3,

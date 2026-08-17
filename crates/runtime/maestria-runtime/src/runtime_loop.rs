@@ -64,6 +64,7 @@ impl MaestriaRuntime {
                 journal_recovery_claims: Arc::new(Mutex::new(BTreeSet::new())),
                 feedback_acks: Arc::new(Mutex::new(BTreeMap::new())),
                 degraded_vector_artifacts: Arc::new(Mutex::new(BTreeMap::new())),
+                full_text_locks: Arc::new(Mutex::new(BTreeMap::new())),
                 pending_applications: Mutex::new(BTreeMap::new()),
                 pending_notebook_drafts: Mutex::new(BTreeMap::new()),
                 next_validation_report_id,

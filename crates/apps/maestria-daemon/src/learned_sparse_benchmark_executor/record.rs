@@ -60,10 +60,16 @@ impl LearnedSparseBenchmarkExecutor {
             &lane.identity,
             super::BACKEND_FINGERPRINT,
         )?;
-        let report_hash = ContentHash::new(maestria_domain::content_hash(
-            format!("learned-sparse-benchmark-{class:?}").as_bytes(),
-        ))
-        .map_err(|error| anyhow!("invalid benchmark report hash: {error}"))?;
+        // The instrumentation record is bound to the evaluation evidence
+        // that justifies it: the frozen corpus content. The emitted report
+        // does not exist yet (observations are still being produced), so
+        // the record cannot reference it; the persisted evaluation record
+        // binds the real report hash via
+        // `LearnedSparseBenchmarkComparison::promotion`.
+        let corpus_bytes = serde_json::to_vec(&self.corpus)
+            .map_err(|error| anyhow!("serialize benchmark corpus for report binding: {error}"))?;
+        let report_hash = ContentHash::new(maestria_domain::content_hash(&corpus_bytes))
+            .map_err(|error| anyhow!("invalid benchmark report hash: {error}"))?;
         let record = LearnedSparsePromotionRecord {
             evaluation_id: format!("benchmark-instrumentation-{class:?}"),
             evaluation_date: self.corpus.evaluation_date.clone(),

@@ -1,6 +1,6 @@
 use crate::config::{
-    Adapters, DegradedVectorArtifacts, Governance, HarnessFeedbackAcks, JournalRecoveryClaims,
-    RuntimeConfig,
+    Adapters, DegradedVectorArtifacts, FullTextLocks, Governance, HarnessFeedbackAcks,
+    JournalRecoveryClaims, RuntimeConfig,
 };
 use maestria_domain::{DomainError, DomainEventEnvelope, DomainInput, HarnessRunId, KernelState};
 use std::collections::BTreeMap;
@@ -38,6 +38,7 @@ pub struct MaestriaRuntime {
     pub(crate) next_validation_report_id: Arc<AtomicU64>,
     pub(crate) feedback_acks: HarnessFeedbackAcks,
     pub(crate) degraded_vector_artifacts: DegradedVectorArtifacts,
+    pub(crate) full_text_locks: FullTextLocks,
     pub(crate) pending_applications: Mutex<BTreeMap<HarnessRunId, PendingApplication>>,
     pub(crate) pending_notebook_drafts: Mutex<BTreeMap<u64, RuntimeCommand>>,
     #[cfg(test)]

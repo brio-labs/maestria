@@ -219,6 +219,7 @@ impl MaestriaRuntime {
             feedback_acks: Arc::clone(&self.feedback_acks),
             journal_recovery_claims: Arc::clone(&self.journal_recovery_claims),
             degraded_vector_artifacts: Arc::clone(&self.degraded_vector_artifacts),
+            full_text_locks: Arc::clone(&self.full_text_locks),
             default_effect_timeout: self.config.default_effect_timeout,
             max_retries: self.config.max_retries,
         }

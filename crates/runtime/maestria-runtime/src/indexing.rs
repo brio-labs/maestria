@@ -1,100 +1,224 @@
 use crate::config::EffectExecutionContext;
 use maestria_domain::{
-    Chunk, DomainInput, EvidenceKind, FullTextIndexCompleted, IndexFullTextRequest,
-    SecurityMetadata, evidence_id_for,
+    Artifact, Chunk, DomainInput, EvidenceKind, FullTextIndexCompleted, IndexFullTextRequest,
+    evidence_id_for,
 };
 use maestria_governance::scan_secrets;
 use maestria_ports::{IndexedCard, IndexedChunk, IndexedLexicalCard, IndexedLexicalChunk};
+use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 impl EffectExecutionContext {
-    /// Index a chunk in the full-text search index.
-    /// On the first chunk (order 0), also indexes all cards belonging
-    /// to the artifact. Sends FullTextIndexCompleted back to the domain
-    /// loop after the chunk is indexed.
+    /// Index one artifact's pending chunks in the full-text search index.
     ///
-    /// The chunk, its cards, and their lexical metadata are written through
-    /// the port's single-commit `index_artifact_chunk` batch: the search
-    /// index commits are the dominant per-artifact cost (segment flush and
-    /// fsync per commit), so one atomic update per artifact chunk replaces
-    /// four separate commits. The delete-then-add pattern keeps re-drives
-    /// idempotent, and the update becomes visible atomically.
+    /// The domain emits one `IndexFullText` effect per chunk, but the search
+    /// index commits are the dominant per-artifact ingestion cost (segment
+    /// flush and fsync per commit). The first effect for an artifact takes a
+    /// per-artifact lock and indexes every still-pending chunk of the
+    /// artifact in one atomic commit, then completes each indexed chunk; the
+    /// sibling effects of the same artifact then observe their chunks
+    /// completed and no-op. A per-chunk effect for a chunk that is no longer
+    /// pending (already covered by an earlier batch, or re-driven after a
+    /// crash) is an idempotent no-op.
     pub(crate) async fn handle_index_full_text(&self, request: IndexFullTextRequest) -> bool {
-        let (chunk, artifact_security, source_path) =
-            match self.extract_index_metadata(&request).await {
-                Ok(meta) => meta,
-                Err(early_return) => return early_return,
+        // Serialize same-artifact effects so exactly one of them runs the
+        // batch; the others observe the completed chunks and no-op.
+        let artifact_lock = {
+            let mut locks = match self.full_text_locks.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
             };
+            locks
+                .entry(request.artifact_id)
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
+        };
+        let _artifact_guard = artifact_lock.lock().await;
 
-        if !artifact_security.retrieval_allowed() {
+        let (artifact, pending) = {
+            let state = self.state.read().await;
+            let Some(artifact) = state.artifacts.get(&request.artifact_id).cloned() else {
+                tracing::warn!(
+                    artifact_id = %request.artifact_id,
+                    "artifact missing for full-text index"
+                );
+                return false;
+            };
+            if !state.pending_full_text.contains(&request.chunk_id) {
+                // Already indexed by an earlier batch of this artifact.
+                return true;
+            }
+            let pending = state
+                .chunks
+                .values()
+                .filter(|chunk| {
+                    chunk.artifact_id == request.artifact_id
+                        && state.pending_full_text.contains(&chunk.id)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            (artifact, pending)
+        };
+        if pending.is_empty() {
+            return true;
+        }
+
+        if !artifact.security.retrieval_allowed() {
             tracing::warn!(
                 artifact_id = %request.artifact_id,
                 "refusing full-text indexing for denied artifact"
             );
-            return self.quarantine_and_complete(&request).await;
+            return self.quarantine_and_complete(&request, &pending).await;
         }
-        let chunk_scan = scan_secrets(&chunk.text);
-        if !chunk_scan.is_clean() {
-            tracing::warn!(
-                chunk_id = %request.chunk_id,
-                findings = chunk_scan.findings.len(),
-                "refusing full-text indexing for secret-bearing chunk"
-            );
-            return self.quarantine_and_complete(&request).await;
-        }
-        // Cards belong to the artifact, not to individual chunks; index them
-        // only on the first chunk so they are registered once per artifact.
-        let cards = if chunk.order == 0 {
-            match self.materialize_artifact_cards(&request).await {
-                Some(cards) => cards,
-                None => return false,
+        // A secret-bearing chunk quarantines the whole artifact before any
+        // of its chunks are written.
+        for chunk in &pending {
+            let chunk_scan = scan_secrets(&chunk.text);
+            if !chunk_scan.is_clean() {
+                tracing::warn!(
+                    chunk_id = %chunk.id,
+                    findings = chunk_scan.findings.len(),
+                    "refusing full-text indexing for secret-bearing chunk"
+                );
+                return self.quarantine_and_complete(&request, &pending).await;
             }
-        } else {
-            Vec::new()
+        }
+        // Cards belong to the artifact, not to individual chunks; they are
+        // registered once per artifact.
+        let cards = match self.materialize_artifact_cards(&request).await {
+            Some(cards) => cards,
+            None => return false,
         };
-        let (lexical_cards, lexical_chunk) =
-            self.lexical_index_views(&request, &cards, &chunk, source_path);
-        if let Err(error) = self.adapters.search_index.index_artifact_chunk(
-            IndexedChunk {
-                artifact_id: request.artifact_id,
-                chunk_id: request.chunk_id,
-                text: chunk.text,
-            },
+        let (indexed_chunks, lexical_chunks, lexical_cards) =
+            self.index_views_for_artifact(&artifact, &pending).await;
+        if let Err(error) = self.adapters.search_index.index_artifact_chunks(
+            indexed_chunks,
             cards,
-            lexical_chunk,
+            lexical_chunks,
             lexical_cards,
         ) {
             tracing::error!(
                 artifact_id = %request.artifact_id,
-                chunk_id = %request.chunk_id,
+                chunks = pending.len(),
                 %error,
-                "failed to index artifact chunk"
+                "failed to index artifact chunks"
             );
             return false;
         }
-        if let Err(error) = Self::deliver_full_text_completion(
-            &self.input_tx,
-            FullTextIndexCompleted {
-                artifact_id: request.artifact_id,
-                chunk_id: request.chunk_id,
-            },
-        ) {
-            tracing::error!(%error, "failed to deliver full-text index completion");
-            return false;
+        for chunk in &pending {
+            if let Err(error) = Self::deliver_full_text_completion(
+                &self.input_tx,
+                FullTextIndexCompleted {
+                    artifact_id: request.artifact_id,
+                    chunk_id: chunk.id,
+                },
+            ) {
+                tracing::error!(%error, "failed to deliver full-text index completion");
+                return false;
+            }
         }
         true
     }
 
+    /// The indexed and lexical views for a whole artifact's pending chunks:
+    /// one `IndexedChunk`/`IndexedLexicalChunk` per chunk and one
+    /// `IndexedLexicalCard` per card, deterministically ordered by chunk id.
+    async fn index_views_for_artifact(
+        &self,
+        artifact: &Artifact,
+        pending: &[Chunk],
+    ) -> (
+        Vec<IndexedChunk>,
+        Vec<IndexedLexicalChunk>,
+        Vec<IndexedLexicalCard>,
+    ) {
+        let source_paths = {
+            let state = self.state.read().await;
+            pending
+                .iter()
+                .map(|chunk| {
+                    let source_path = state
+                        .evidences
+                        .get(&evidence_id_for(artifact.id, chunk.order))
+                        .and_then(|evidence| match &evidence.kind {
+                            EvidenceKind::FileSpan { path, .. } => Some(path.clone()),
+                            _ => None,
+                        });
+                    (chunk.id, source_path)
+                })
+                .collect::<BTreeMap<_, _>>()
+        };
+        let supports_lexical = self.adapters.search_index.supports_lexical_metadata();
+        let mut indexed_chunks = Vec::with_capacity(pending.len());
+        let mut lexical_chunks = Vec::with_capacity(pending.len());
+        let mut lexical_cards = Vec::new();
+        for chunk in pending {
+            let source_path = source_paths.get(&chunk.id).cloned().flatten();
+            indexed_chunks.push(IndexedChunk {
+                artifact_id: artifact.id,
+                chunk_id: chunk.id,
+                text: chunk.text.clone(),
+            });
+            if supports_lexical {
+                lexical_chunks.push(IndexedLexicalChunk {
+                    artifact_id: artifact.id,
+                    chunk_id: chunk.id,
+                    text: chunk.text.clone(),
+                    path: source_path.clone(),
+                    filename: Self::file_name_of(source_path.as_deref()),
+                    symbol: None,
+                });
+            }
+        }
+        if supports_lexical {
+            let cards = {
+                let state = self.state.read().await;
+                state
+                    .cards
+                    .values()
+                    .filter(|card| card.artifact_id == artifact.id)
+                    .cloned()
+                    .collect::<Vec<_>>()
+            };
+            for card in cards {
+                lexical_cards.push(IndexedLexicalCard {
+                    artifact_id: artifact.id,
+                    card_id: card.id,
+                    title: card.title,
+                    body: card.body,
+                    path: None,
+                    filename: None,
+                    symbol: None,
+                });
+            }
+        }
+        (indexed_chunks, lexical_chunks, lexical_cards)
+    }
+
+    fn file_name_of(path: Option<&str>) -> Option<String> {
+        path.and_then(|path| {
+            Path::new(path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_string)
+        })
+    }
+
     /// Terminalize a refused artifact without failing the effect.
     ///
-    /// The chunk is deliberately never written to the search index; the
-    /// artifact is marked `Quarantined` (idempotent — the domain emits no
-    /// duplicate events once the status is recorded) and the chunk's
-    /// indexing pipeline completes so the artifact reaches a terminal
-    /// state and the batch continues. A refusal is a per-artifact privacy
-    /// outcome, not a runtime failure.
-    async fn quarantine_and_complete(&self, request: &IndexFullTextRequest) -> bool {
+    /// The artifact's chunks are deliberately never written to the search
+    /// index; the artifact is marked `Quarantined` (idempotent — the domain
+    /// emits no duplicate events once the status is recorded) and every
+    /// pending chunk's indexing pipeline completes so the artifact reaches a
+    /// terminal state and the batch continues. A refusal is a per-artifact
+    /// privacy outcome, not a runtime failure.
+    async fn quarantine_and_complete(
+        &self,
+        request: &IndexFullTextRequest,
+        pending: &[Chunk],
+    ) -> bool {
         if let Some(artifact) = self.state.read().await.artifacts.get(&request.artifact_id) {
             let Some(hash) = artifact.content_hash.clone() else {
                 return false;
@@ -123,11 +247,16 @@ impl EffectExecutionContext {
         } else {
             return false;
         }
-        let completion = FullTextIndexCompleted {
-            artifact_id: request.artifact_id,
-            chunk_id: request.chunk_id,
-        };
-        Self::deliver_full_text_completion(&self.input_tx, completion).is_ok()
+        for chunk in pending {
+            let completion = FullTextIndexCompleted {
+                artifact_id: request.artifact_id,
+                chunk_id: chunk.id,
+            };
+            if Self::deliver_full_text_completion(&self.input_tx, completion).is_err() {
+                return false;
+            }
+        }
+        true
     }
 
     /// Deliver a committed full-text completion to the domain input loop.
@@ -197,83 +326,5 @@ impl EffectExecutionContext {
             }
         }
         Some(artifact_cards)
-    }
-
-    /// Build the lexical metadata views for the artifact's cards and the
-    /// current chunk, empty when the search index does not support lexical
-    /// metadata.
-    fn lexical_index_views(
-        &self,
-        request: &IndexFullTextRequest,
-        cards: &[IndexedCard],
-        chunk: &Chunk,
-        source_path: Option<String>,
-    ) -> (Vec<IndexedLexicalCard>, Option<IndexedLexicalChunk>) {
-        if !self.adapters.search_index.supports_lexical_metadata() {
-            return (Vec::new(), None);
-        }
-        let filename = source_path
-            .as_deref()
-            .and_then(|path| Path::new(path).file_name())
-            .and_then(|name| name.to_str())
-            .map(str::to_string);
-        let lexical_cards = cards
-            .iter()
-            .map(|card| IndexedLexicalCard {
-                artifact_id: card.artifact_id,
-                card_id: card.card_id,
-                title: card.title.clone(),
-                body: card.body.clone(),
-                path: source_path.clone(),
-                filename: filename.clone(),
-                symbol: None,
-            })
-            .collect();
-        let lexical_chunk = Some(IndexedLexicalChunk {
-            artifact_id: request.artifact_id,
-            chunk_id: request.chunk_id,
-            text: chunk.text.clone(),
-            path: source_path,
-            filename,
-            symbol: None,
-        });
-        (lexical_cards, lexical_chunk)
-    }
-
-    async fn extract_index_metadata(
-        &self,
-        request: &IndexFullTextRequest,
-    ) -> Result<(Chunk, SecurityMetadata, Option<String>), bool> {
-        let state = self.state.read().await;
-        let Some(chunk) = state.chunks.get(&request.chunk_id).cloned() else {
-            tracing::error!(
-                chunk_id = %request.chunk_id,
-                "chunk missing for full-text index; effect cannot complete"
-            );
-            return Err(false);
-        };
-        let Some(artifact) = state.artifacts.get(&request.artifact_id) else {
-            tracing::warn!(
-                artifact_id = %request.artifact_id,
-                "artifact missing for full-text index"
-            );
-            return Err(false);
-        };
-        if chunk.artifact_id != request.artifact_id {
-            tracing::warn!(
-                chunk_id = %request.chunk_id,
-                artifact_id = %request.artifact_id,
-                "chunk belongs to a different artifact"
-            );
-            return Err(false);
-        }
-        let source_path = state
-            .evidences
-            .get(&evidence_id_for(request.artifact_id, chunk.order))
-            .and_then(|evidence| match &evidence.kind {
-                EvidenceKind::FileSpan { path, .. } => Some(path.clone()),
-                _ => None,
-            });
-        Ok((chunk, artifact.security.clone(), source_path))
     }
 }

@@ -221,6 +221,7 @@ async fn vector_effects_admit_while_main_lane_is_saturated()
         chunk_id,
         chunk_fixture(chunk_id, artifact_id, 0, "clean full-text chunk"),
     );
+    state.pending_full_text.insert(chunk_id);
 
     let adapters = Adapters {
         search_index: search_index.clone(),
@@ -334,6 +335,7 @@ async fn executor_consumes_batches_while_lane_is_saturated()
         chunk_id,
         chunk_fixture(chunk_id, artifact_id, 0, "clean full-text chunk"),
     );
+    state.pending_full_text.insert(chunk_id);
 
     let adapters = Adapters {
         search_index: search_index.clone(),
@@ -450,6 +452,7 @@ async fn full_text_effect_completes_while_vector_lane_is_saturated()
             "clean full-text chunk",
         ),
     );
+    state.pending_full_text.insert(full_text_chunk);
 
     let adapters = Adapters {
         vector_index: Some(vector_index),
@@ -595,6 +598,7 @@ async fn full_text_completion_on_full_input_channel_delivers_without_retry()
         chunk_id,
         chunk_fixture(chunk_id, artifact_id, 0, "clean full-text chunk"),
     );
+    state.pending_full_text.insert(chunk_id);
 
     let adapters = Adapters {
         search_index: Arc::new(InMemoryFullTextIndex::new()),

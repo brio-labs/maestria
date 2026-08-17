@@ -19,7 +19,12 @@ pub struct BootstrapResponse {
 
 #[derive(Debug, Serialize)]
 pub struct SanitizedStatus {
+    /// The sanitized display name (last path component) for headers.
     pub instance_root: String,
+    /// The full instance root path, used to pre-fill scan targets. The
+    /// daemon status already carries it; the studio passes it through so
+    /// the Index workspace does not require typing the root by hand.
+    pub instance_root_path: String,
     pub event_count: usize,
     pub task_count: usize,
 }
@@ -52,6 +57,7 @@ fn sanitize_status(status: StatusResponse) -> SanitizedStatus {
         .map_or_else(|| "instance".to_owned(), ToOwned::to_owned);
     SanitizedStatus {
         instance_root,
+        instance_root_path: status.instance_root,
         event_count: status.event_count,
         task_count: status.task_count,
     }

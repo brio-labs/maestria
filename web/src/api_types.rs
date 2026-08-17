@@ -417,6 +417,8 @@ pub struct TaskListWire {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BootstrapStatus {
     pub instance_root: String,
+    #[serde(default)]
+    pub instance_root_path: String,
     pub event_count: usize,
     pub task_count: usize,
     #[serde(default)]
