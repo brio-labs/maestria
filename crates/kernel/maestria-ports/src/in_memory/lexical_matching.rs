@@ -61,8 +61,8 @@ pub(super) fn build_metadata(
 ) -> Option<LexicalHitMetadata> {
     matched_field.map(|field| LexicalHitMetadata {
         retriever: RetrieverIdentity {
-            name: "InMemoryFullText".into(),
-            version: "1.0".into(),
+            name: "InMemoryFullText",
+            version: "1.0",
         },
         raw_score,
         raw_rank: 0,

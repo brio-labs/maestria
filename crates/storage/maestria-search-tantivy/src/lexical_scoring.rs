@@ -1,7 +1,7 @@
 use crate::execution::Meter;
 use crate::{
     error::to_port_error,
-    lexical_helpers::{page_card_hits, page_chunk_hits, score_card, score_chunk},
+    lexical_helpers::{NormalizedNeedle, page_card_hits, page_chunk_hits, score_card, score_chunk},
     tantivy_index::TantivyFullTextIndex,
 };
 use maestria_domain::{SearchExecutionCompletion, SearchExecutionResource};
@@ -79,7 +79,8 @@ impl TantivyFullTextIndex {
         meter: &mut Meter,
     ) -> Result<ScoredLexicalChunks, PortError> {
         let mut stopped = truncated.then_some(SearchExecutionResource::Candidates);
-        let mut scored = Vec::new();
+        let normalized = NormalizedNeedle::new(needle);
+        let mut scored = Vec::with_capacity(top_docs.len());
         for (_, address) in top_docs {
             if let Some(resource) = meter.candidate() {
                 stopped = Some(resource);
@@ -110,7 +111,7 @@ impl TantivyFullTextIndex {
                 stopped = Some(resource);
                 break;
             }
-            if let Some((raw_score, reason)) = score_chunk(&chunk, query, needle) {
+            if let Some((raw_score, reason)) = score_chunk(&chunk, query, &normalized) {
                 scored.push((
                     raw_score,
                     chunk.artifact_id.value(),
@@ -133,7 +134,8 @@ impl TantivyFullTextIndex {
         meter: &mut Meter,
     ) -> Result<ScoredLexicalCards, PortError> {
         let mut stopped = truncated.then_some(SearchExecutionResource::Candidates);
-        let mut scored = Vec::new();
+        let normalized = NormalizedNeedle::new(needle);
+        let mut scored = Vec::with_capacity(top_docs.len());
         for (_, address) in top_docs {
             if let Some(resource) = meter.candidate() {
                 stopped = Some(resource);
@@ -164,7 +166,7 @@ impl TantivyFullTextIndex {
                 stopped = Some(resource);
                 break;
             }
-            if let Some((raw_score, reason)) = score_card(&card, query, needle) {
+            if let Some((raw_score, reason)) = score_card(&card, query, &normalized) {
                 scored.push((
                     raw_score,
                     card.artifact_id.value(),

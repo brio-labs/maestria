@@ -106,7 +106,9 @@ pub(crate) fn discover_repository_identity(
     Ok(RepositoryIdentity {
         root: canonical_root,
         commit: crate::types::CommitSha::new(commit),
-        worktree_identity: crate::types::WorktreeIdentity::new(to_hex(&hasher.finalize())),
+        worktree_identity: crate::types::WorktreeIdentity::new(maestria_domain::hex_digest(
+            &hasher.finalize(),
+        )),
     })
 }
 
@@ -353,14 +355,6 @@ fn canonical_root(path: &Path) -> Result<String, CodeIntelError> {
         .map(|root| root.to_string_lossy().into_owned())
 }
 
-fn to_hex(bytes: &[u8]) -> String {
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        output.push_str(&format!("{byte:02x}"));
-    }
-    output
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -403,7 +397,7 @@ mod tests {
 
         let blobs = git_blob_map(root.path())?;
         let hash = git_output(root.path(), &["hash-object", "a.txt"], "git hash-object")?;
-        assert_eq!(to_hex(&blobs["a.txt"]), hash);
+        assert_eq!(maestria_domain::hex_digest(&blobs["a.txt"]), hash);
         Ok(())
     }
 

@@ -25,3 +25,4 @@ maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-t
 tokio-test = "0.4"
 tracing-subscriber = "0.3"
 parking_lot = "0.12"
+maestria-test-support = { path = "../../test-support/maestria-test-support" }

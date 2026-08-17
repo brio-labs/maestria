@@ -339,11 +339,11 @@ mod tests {
         let credential = FederationCredential::try_from("a".repeat(64))?;
         let request = ClientRequest {
             authentication: ClientAuthentication::FederationGrant {
-                consumer_realm: RealmId::try_from("b".repeat(64))?,
+                consumer_realm: maestria_test_support::realm_id(11)?,
                 credential: credential.clone(),
             },
             operation: ClientOperation::FederationSearch {
-                provider_realm: RealmId::try_from("c".repeat(64))?,
+                provider_realm: maestria_test_support::realm_id(12)?,
                 query: "needle".to_string(),
                 limit: 1,
             },

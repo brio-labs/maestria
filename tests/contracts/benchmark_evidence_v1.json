@@ -150,7 +150,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
         ],
-        "source_hash": "5c8b9a8e1f4b2663cb6793a051b93cc3e4f6324f04db7bc1d559ec6ecf6b05ff"
+        "source_hash": "8d411ebcc6b11b8f46f04c5b0912c32b818cbfe63ddab5dfd4fcfdd7529a29ed"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
@@ -274,7 +274,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
         ],
-        "source_hash": "5c8b9a8e1f4b2663cb6793a051b93cc3e4f6324f04db7bc1d559ec6ecf6b05ff"
+        "source_hash": "8d411ebcc6b11b8f46f04c5b0912c32b818cbfe63ddab5dfd4fcfdd7529a29ed"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
@@ -337,7 +337,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/tests/python_repository_benchmark_tests.rs"
         ],
-        "source_hash": "7ba5c6406fe8b53f8f9f79d850cfef6a48771d1d24dbb2d81a57bbda7b94eadd"
+        "source_hash": "c92046f696a1375b6bc5bcef7e120cc11bcd5134a9aa449f8a02eeab04343527"
       },
       "fingerprints": {
         "corpus_snapshot": "python-repository-frozen-v1",
@@ -401,7 +401,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/tests/web_repository_benchmark_tests.rs"
         ],
-        "source_hash": "86e2852fe9c1c0d99cfe1e22a3937b6038361d998df6d8c30478ba71c03e861b"
+        "source_hash": "fd8aba735823e00bba32f3570123a704be51b3165e3fa0432b438f1db89a5321"
       },
       "fingerprints": {
         "corpus_snapshot": "web-repository-frozen-v1",

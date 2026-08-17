@@ -2,10 +2,10 @@ use std::fs;
 use std::io::BufReader;
 use std::path::{Component, Path};
 
+use maestria_domain::ContentHash;
 use serde_json::{from_reader, to_vec_pretty};
 
 use crate::error::CodeIntelError;
-use crate::provenance::is_well_formed_content_hash;
 use crate::symbols;
 use crate::types::{
     CodeIndexSummary, CodeQuery, QueryResult, RecordProvenance, RepositoryCodeIndex,
@@ -192,7 +192,7 @@ fn validate_record_provenance(
     provenance: &RecordProvenance,
     record_kind: &str,
 ) -> Result<(), CodeIntelError> {
-    if !is_well_formed_content_hash(&provenance.content_hash) {
+    if !ContentHash::is_well_formed(&provenance.content_hash) {
         return Err(CodeIntelError::Integrity {
             context: format!("{record_kind} content hash"),
             details: provenance.content_hash.clone(),

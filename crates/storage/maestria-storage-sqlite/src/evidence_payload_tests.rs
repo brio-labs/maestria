@@ -1,12 +1,10 @@
 use super::*;
-use maestria_domain::{
-    BlobId, ContentHash, EvidenceKind, LogicalTick, SnapshotRef, WebEvidenceMetadata,
-};
+use maestria_domain::{BlobId, EvidenceKind, LogicalTick, SnapshotRef, WebEvidenceMetadata};
 
 #[test]
 fn web_snapshot_metadata_roundtrips_through_storage_payload()
 -> Result<(), Box<dyn std::error::Error>> {
-    let hash = ContentHash::new(format!("sha256:{}", "a".repeat(64)))?;
+    let hash = maestria_test_support::content_hash(10)?;
     let kind = EvidenceKind::WebSnapshot {
         url: "https://example.com/report".to_string(),
         snapshot: SnapshotRef::new(BlobId::new(7), hash),
@@ -54,7 +52,7 @@ fn invalid_file_range_fails_domain_decode() {
         end: 1,
         snapshot: StoredSnapshotRef {
             blob_id: 1,
-            content_hash: format!("sha256:{}", "a".repeat(64)),
+            content_hash: maestria_test_support::content_hash_str(10),
         },
     };
     assert!(stored.try_into_domain().is_err());

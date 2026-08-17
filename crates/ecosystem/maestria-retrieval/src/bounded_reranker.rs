@@ -40,6 +40,7 @@ async fn score_candidates(
     let mut budget_exhausted = false;
     let mut scored = Vec::new();
     let mut skipped = Vec::new();
+    let plan = Arc::new(plan.clone());
 
     for (index, ranked) in candidates.into_iter().enumerate() {
         if index >= score_cap {

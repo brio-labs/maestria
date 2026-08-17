@@ -72,7 +72,7 @@ fn pending_resume_parsers_collects_all_pending() -> Result<(), Box<dyn std::erro
             artifact_id: artifact_a,
             title: "a.md".to_string(),
             source_path: "/tmp/a.md".to_string(),
-            content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
+            content_hash: maestria_test_support::content_hash(10)?,
             blob_id: blob_a,
         },
     );
@@ -82,7 +82,7 @@ fn pending_resume_parsers_collects_all_pending() -> Result<(), Box<dyn std::erro
             artifact_id: artifact_b,
             title: "b.md".to_string(),
             source_path: "/tmp/b.md".to_string(),
-            content_hash: ContentHash::new("sha256:".to_owned() + &"b".repeat(64))?,
+            content_hash: maestria_test_support::content_hash(11)?,
             blob_id: blob_b,
         },
     );
@@ -107,7 +107,7 @@ fn pending_resume_parsers_preserves_all_fields() -> Result<(), Box<dyn std::erro
     let mut state = KernelState::new();
     let artifact_id = ArtifactId::new(42);
     let blob_id = BlobId::new(999);
-    let expected_hash = ContentHash::new("sha256:".to_owned() + &"c".repeat(64))?;
+    let expected_hash = maestria_test_support::content_hash(12)?;
 
     state.pending_parsers.insert(
         artifact_id,
@@ -185,7 +185,7 @@ fn verify_pending_blobs_fails_when_blob_missing() -> Result<(), Box<dyn std::err
         1,
         42,
         "missing.txt",
-        &format!("sha256:{}", "0".repeat(64)),
+        &maestria_test_support::content_hash_str(0),
     )?;
 
     let result = verify_pending_blobs(&layout, &[input]);

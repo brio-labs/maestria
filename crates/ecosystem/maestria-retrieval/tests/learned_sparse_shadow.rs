@@ -1,12 +1,12 @@
 use async_trait::async_trait;
 use maestria_domain::{
-    ArtifactVersionId, ContentHash, ContentRange, CorpusScope, CorpusSnapshotId,
-    DuplicateClusterId, EvidenceCandidate, EvidenceCandidateDto, EvidenceCoverage,
-    EvidenceCoverageDto, EvidenceId, EvidenceRequirements, EvidenceSpan, FreshnessRequirement,
-    FreshnessStatus, IndexGenerationId, LearnedSparseContribution, LearnedSparseReason, Modality,
-    ModalitySet, QueryId, RepresentationName, RetrievalModelFingerprint, RetrievalReason,
-    RetrievalScoreSet, SearchBudget, SearchIntent, SearchOutcome, SearchPlan, SearchStatus,
-    SearchTraceId, SourceLocation, SparseNamespace, StopConditions, TrustLabel, TrustZone,
+    ArtifactVersionId, ContentRange, CorpusScope, CorpusSnapshotId, DuplicateClusterId,
+    EvidenceCandidate, EvidenceCandidateDto, EvidenceCoverage, EvidenceCoverageDto, EvidenceId,
+    EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus, IndexGenerationId,
+    LearnedSparseContribution, LearnedSparseReason, Modality, ModalitySet, QueryId,
+    RepresentationName, RetrievalModelFingerprint, RetrievalReason, RetrievalScoreSet,
+    SearchBudget, SearchIntent, SearchOutcome, SearchPlan, SearchStatus, SearchTraceId,
+    SourceLocation, SparseNamespace, StopConditions, TrustLabel, TrustZone,
 };
 use maestria_retrieval::types::{
     CandidateBatch, CandidateRequest, RetrievalError, RetrievalEvaluationReport,
@@ -76,7 +76,7 @@ fn fixture_scores(
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 fn shadow_identity() -> Option<maestria_ports::SparseIdentity> {
-    let hash = ContentHash::new(format!("sha256:{}", "a".repeat(64))).ok()?;
+    let hash = maestria_test_support::content_hash(10).ok()?;
     let namespace =
         SparseNamespace::new("fixture-instance-a", TrustZone::Verified, "sparse_text_v1").ok()?;
     Some(maestria_ports::SparseIdentity {

@@ -196,6 +196,14 @@ impl CandidateRetriever for LearnedSparseChunkRetriever {
             )
             .map_err(port_error)?;
         let hits = bounded.hits;
+        let score_context = super::score_provenance::LearnedSparseScoreContext::new(
+            &self.identity,
+            self.fingerprint.clone(),
+        );
+        let assembly = super::sparse_records::SparseAssembly {
+            source_filter: request.source_filter.as_ref(),
+            score: &score_context,
+        };
         let mut candidates = Vec::with_capacity(hits.len().min(maestria_domain::saturating_usize(
             request.execution_budget.max_results(),
         )));
@@ -210,7 +218,7 @@ impl CandidateRetriever for LearnedSparseChunkRetriever {
                 hit,
                 one_based_rank(raw_rank)?,
                 &request.authorization,
-                request.source_filter.as_ref(),
+                &assembly,
                 &prescore_cache,
                 &record_cache,
             )?

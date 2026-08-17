@@ -64,8 +64,8 @@ pub struct LexicalQuery<F> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetrieverIdentity {
-    pub name: String,
-    pub version: String,
+    pub name: &'static str,
+    pub version: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

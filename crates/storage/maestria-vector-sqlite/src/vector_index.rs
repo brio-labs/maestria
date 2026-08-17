@@ -12,7 +12,7 @@ use maestria_ports::{
 use rusqlite::{Connection, params};
 
 use crate::encoding::{
-    PreparedEmbedding, cosine_similarity, decode_vector, i64_to_u64, to_port_error, u64_to_i64,
+    PreparedEmbedding, cosine_similarity_bytes, i64_to_u64, to_port_error, u64_to_i64,
     usize_to_i64, validate_vector,
 };
 use crate::operations::{delete_stale_chunks, upsert_embeddings};
@@ -298,11 +298,18 @@ fn collect_hits(
             break;
         }
         let bytes = row.get::<_, Vec<u8>>(2).map_err(to_port_error)?;
-        let vector = decode_vector(&bytes)?;
-        let score = cosine_similarity(query_vector, &vector)?;
+        let score = cosine_similarity_bytes(query_vector, &bytes)?;
         hits.push(VectorSearchHit { chunk_id, score });
     }
     Ok((hits, stopped))
+}
+
+/// Orders hits by descending score with chunk-id tiebreak (total order).
+fn order_hits(left: &VectorSearchHit, right: &VectorSearchHit) -> std::cmp::Ordering {
+    right
+        .score
+        .total_cmp(&left.score)
+        .then_with(|| left.chunk_id.value().cmp(&right.chunk_id.value()))
 }
 
 fn search_impl(
@@ -369,19 +376,18 @@ fn search_impl(
         ])
         .map_err(to_port_error)?;
     let (mut hits, mut stopped) = collect_hits(&mut rows, &query.vector, filter, &mut meter)?;
-    hits.sort_by(|left, right| {
-        right
-            .score
-            .total_cmp(&left.score)
-            .then_with(|| left.chunk_id.value().cmp(&right.chunk_id.value()))
-    });
     let selected_limit =
         usize::try_from(query.limit).map_err(|_| PortError::InvalidInputContext {
             context: "vector search result limit",
             source: "result limit does not fit platform range".to_string(),
         })?;
     let result_exhausted = hits.len() > selected_limit;
-    let selected = hits.into_iter().take(selected_limit).collect::<Vec<_>>();
+    if selected_limit > 0 && hits.len() > selected_limit {
+        hits.select_nth_unstable_by(selected_limit - 1, order_hits);
+        hits.truncate(selected_limit);
+    }
+    hits.sort_by(order_hits);
+    let selected = hits;
     if result_exhausted {
         stopped = Some(SearchExecutionResource::Results);
     }

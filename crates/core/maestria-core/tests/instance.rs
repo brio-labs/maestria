@@ -1,11 +1,10 @@
 use std::path::PathBuf;
 
 use maestria_core::{InitInstanceInput, InstanceService};
-use maestria_domain::RealmId;
 
 #[test]
 fn init_instance_returns_isolated_local_layout() -> Result<(), Box<dyn std::error::Error>> {
-    let realm_id = RealmId::try_from("a".repeat(64))?;
+    let realm_id = maestria_test_support::realm_id(10)?;
     let plan = InstanceService::init_instance(InitInstanceInput {
         root: PathBuf::from("/tmp/maestria/personal"),
         realm_id: realm_id.clone(),

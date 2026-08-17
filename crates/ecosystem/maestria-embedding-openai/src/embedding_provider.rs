@@ -19,10 +19,7 @@ const EMBEDDING_ENDPOINT_PATH: &str = "/v1/embeddings";
 const MAX_INPUT_BYTES: usize = 16_384;
 
 fn truncate_text(text: &str) -> &str {
-    if text.len() <= MAX_INPUT_BYTES {
-        return text;
-    }
-    &text[..text.floor_char_boundary(MAX_INPUT_BYTES)]
+    maestria_ports::truncate_at_char_boundary(text, MAX_INPUT_BYTES)
 }
 
 #[derive(Clone)]
@@ -100,12 +97,7 @@ fn validate_profile(
     document_template: &str,
     query_template: &str,
 ) -> Result<(), PortError> {
-    if model.trim().is_empty() {
-        return Err(PortError::InvalidInputContext {
-            context: "embedding model is empty",
-            source: "model must contain a non-whitespace value".to_string(),
-        });
-    }
+    maestria_ports::validate_model_label(model, "embedding")?;
     if dimensions == Some(0) {
         return Err(PortError::InvalidInputContext {
             context: "embedding dimensions are zero",

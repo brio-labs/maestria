@@ -74,19 +74,66 @@ pub(super) fn build_parsed_query<T>(
     Ok(parsed_query)
 }
 
-fn contains_match(value: &str, needle: &str) -> bool {
-    let normalized = value.to_lowercase();
-    let normalized_needle = needle.replace('"', " ");
-    normalized.contains(&normalized_needle)
-        || normalized_needle
-            .split_whitespace()
-            .all(|term| normalized.contains(term))
+/// A query needle pre-normalized once per search instead of per candidate.
+pub(super) struct NormalizedNeedle {
+    /// Quote-replaced needle used by substring matching.
+    text: String,
+    /// Original needle used by exact-equality matching.
+    raw: String,
+}
+
+impl NormalizedNeedle {
+    pub(super) fn new(needle: &str) -> Self {
+        Self {
+            text: needle.replace('"', " "),
+            raw: needle.to_string(),
+        }
+    }
+
+    fn terms(&self) -> impl Iterator<Item = &str> {
+        self.text.split_whitespace()
+    }
+
+    fn raw(&self) -> &str {
+        &self.raw
+    }
+}
+
+fn contains_match(value: &str, needle: &NormalizedNeedle) -> bool {
+    if value.is_ascii() && needle.text.is_ascii() {
+        let normalized = value.to_ascii_lowercase();
+        normalized.contains(&needle.text) || needle.terms().all(|term| normalized.contains(term))
+    } else {
+        let normalized = value.to_lowercase();
+        normalized.contains(&needle.text) || needle.terms().all(|term| normalized.contains(term))
+    }
+}
+
+fn field_label(field: &ChunkField) -> &'static str {
+    match field {
+        ChunkField::Text => "text",
+        ChunkField::Path => "path",
+        ChunkField::Filename => "filename",
+        ChunkField::Symbol => "symbol",
+        ChunkField::Id => "id",
+    }
+}
+
+fn card_field_label(field: &CardField) -> &'static str {
+    match field {
+        CardField::Title => "title",
+        CardField::Body => "body",
+        CardField::Path => "path",
+        CardField::Filename => "filename",
+        CardField::Symbol => "symbol",
+        CardField::Id => "id",
+    }
 }
 
 pub(super) fn score_chunk(
     chunk: &IndexedLexicalChunk,
     query: &LexicalQuery<ChunkField>,
-    needle: &str,
+    needle: &NormalizedNeedle,
 ) -> Option<(f32, HitReason)> {
     let mut matched_field = None;
     let mut raw_score = 0.0;
@@ -109,8 +156,8 @@ pub(super) fn score_chunk(
             ChunkField::Id => {
                 let key = chunk_key(chunk.artifact_id, chunk.chunk_id);
                 let matches = match query.mode {
-                    MatchMode::Contains => key.to_lowercase().contains(needle),
-                    MatchMode::Exact => key == needle,
+                    MatchMode::Contains => key.contains(&needle.text),
+                    MatchMode::Exact => key == needle.raw(),
                 };
                 if matches {
                     matched_field = Some("id".to_string());
@@ -123,11 +170,11 @@ pub(super) fn score_chunk(
         if let Some(s) = val {
             let matches = match query.mode {
                 MatchMode::Contains => contains_match(s, needle),
-                MatchMode::Exact => *s == needle,
+                MatchMode::Exact => *s == needle.raw(),
             };
             if matches {
                 if matched_field.is_none() {
-                    matched_field = Some(format!("{:?}", f.field).to_lowercase());
+                    matched_field = Some(field_label(&f.field).to_string());
                 }
                 raw_score += (len.min(u32::MAX as usize) as f32) * f.boost;
             }
@@ -146,7 +193,7 @@ pub(super) fn score_chunk(
 pub(super) fn score_card(
     card: &IndexedLexicalCard,
     query: &LexicalQuery<CardField>,
-    needle: &str,
+    needle: &NormalizedNeedle,
 ) -> Option<(f32, HitReason)> {
     let mut matched_field = None;
     let mut raw_score = 0.0;
@@ -170,8 +217,8 @@ pub(super) fn score_card(
             CardField::Id => {
                 let key = card_key(card.artifact_id, card.card_id);
                 let matches = match query.mode {
-                    MatchMode::Contains => key.to_lowercase().contains(needle),
-                    MatchMode::Exact => key == needle,
+                    MatchMode::Contains => key.contains(&needle.text),
+                    MatchMode::Exact => key == needle.raw(),
                 };
                 if matches {
                     matched_field = Some("id".to_string());
@@ -184,11 +231,11 @@ pub(super) fn score_card(
         if let Some(s) = val {
             let matches = match query.mode {
                 MatchMode::Contains => contains_match(s, needle),
-                MatchMode::Exact => *s == needle,
+                MatchMode::Exact => *s == needle.raw(),
             };
             if matches {
                 if matched_field.is_none() {
-                    matched_field = Some(format!("{:?}", f.field).to_lowercase());
+                    matched_field = Some(card_field_label(&f.field).to_string());
                 }
                 raw_score += (len.min(u32::MAX as usize) as f32) * f.boost;
             }
@@ -207,8 +254,8 @@ pub(super) fn score_card(
 fn create_lexical_hit_metadata(score: f32, rank: u32, reason: HitReason) -> LexicalHitMetadata {
     LexicalHitMetadata {
         retriever: RetrieverIdentity {
-            name: "maestria-search-tantivy".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            name: "maestria-search-tantivy",
+            version: env!("CARGO_PKG_VERSION"),
         },
         raw_score: score,
         raw_rank: rank,
@@ -220,15 +267,25 @@ fn create_lexical_hit_metadata(score: f32, rank: u32, reason: HitReason) -> Lexi
 type ScoredChunk = (f32, u64, u64, IndexedLexicalChunk, HitReason);
 type ScoredCard = (f32, u64, u64, IndexedLexicalCard, HitReason);
 
+fn order_scored<T>(
+    left: &(f32, u64, u64, T, HitReason),
+    right: &(f32, u64, u64, T, HitReason),
+) -> std::cmp::Ordering {
+    descending_score(left.0, right.0)
+        .then_with(|| left.1.cmp(&right.1))
+        .then_with(|| left.2.cmp(&right.2))
+}
+
 pub(super) fn page_chunk_hits(
     mut scored: Vec<ScoredChunk>,
     query: &LexicalQuery<ChunkField>,
 ) -> Vec<LexicalChunkHit> {
-    scored.sort_by(|a, b| {
-        descending_score(a.0, b.0)
-            .then_with(|| a.1.cmp(&b.1))
-            .then_with(|| a.2.cmp(&b.2))
-    });
+    let keep = query.offset.saturating_add(query.limit);
+    if keep > 0 && scored.len() > keep {
+        scored.select_nth_unstable_by(keep - 1, order_scored);
+        scored.truncate(keep);
+    }
+    scored.sort_by(order_scored);
     scored
         .into_iter()
         .skip(query.offset)
@@ -245,11 +302,12 @@ pub(super) fn page_card_hits(
     mut scored: Vec<ScoredCard>,
     query: &LexicalQuery<CardField>,
 ) -> Vec<LexicalCardHit> {
-    scored.sort_by(|a, b| {
-        descending_score(a.0, b.0)
-            .then_with(|| a.1.cmp(&b.1))
-            .then_with(|| a.2.cmp(&b.2))
-    });
+    let keep = query.offset.saturating_add(query.limit);
+    if keep > 0 && scored.len() > keep {
+        scored.select_nth_unstable_by(keep - 1, order_scored);
+        scored.truncate(keep);
+    }
+    scored.sort_by(order_scored);
     scored
         .into_iter()
         .skip(query.offset)

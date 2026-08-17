@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use maestria_domain::{
-    Artifact, ArtifactId, ArtifactVersionId, Claim, ClaimId, ClaimStatus, ContentHash,
-    ContentRange, CorpusScope, Evidence, EvidenceCandidate, EvidenceCandidateDto, EvidenceCoverage,
+    Artifact, ArtifactId, ArtifactVersionId, Claim, ClaimId, ClaimStatus, ContentRange,
+    CorpusScope, Evidence, EvidenceCandidate, EvidenceCandidateDto, EvidenceCoverage,
     EvidenceCoverageDto, EvidenceId, EvidenceKind, EvidenceRequirements, EvidenceSpan,
     FreshnessRequirement, FreshnessStatus, IndexGenerationId, IndexStatus, LineRange, LogicalTick,
     Modality, ModalitySet, QueryId, RetrievalModelFingerprint, RetrievalReason, RetrievalScoreSet,
@@ -154,7 +154,7 @@ pub fn evidence() -> Result<Evidence, Box<dyn std::error::Error>> {
             range: LineRange::new(1, 1)?,
             snapshot: SnapshotRef::new(
                 maestria_domain::BlobId::new(13),
-                ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
+                maestria_test_support::content_hash(10)?,
             ),
         },
         excerpt: "evidence excerpt".to_string(),

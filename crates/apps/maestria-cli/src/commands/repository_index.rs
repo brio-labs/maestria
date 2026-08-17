@@ -9,7 +9,7 @@ use maestria_code_intel::{
     REPOSITORY_CODE_PARSER_GENERATION, RepositoryCodeIndex, RepositoryIndexBuildMode,
     RepositorySelection, build_or_update_repository_index,
 };
-use maestria_core::{InstanceLayout, InstanceManifest};
+use maestria_core::{InstanceLayout, InstanceManifest, format_duration};
 use maestria_governance::AutonomyProfile;
 use maestria_index_selection::{
     CandidateDir, Class, IndexPolicy, IndexSelectionProfile, bound_candidate_tree, save_profile,
@@ -152,7 +152,7 @@ async fn build_and_register_sources(
     if !matches!(mode, RepositoryIndexBuildMode::Noop) {
         println!(
             "built repository code index in {} (mode={mode:?})",
-            super::index_metrics::format_duration(build_started.elapsed())
+            format_duration(build_started.elapsed())
         );
         index
             .0

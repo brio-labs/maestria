@@ -1,5 +1,5 @@
 //! Rust symbol extraction from workspace sources.
-use crate::provenance::content_hash;
+use maestria_domain::content_hash;
 
 use crate::identity::RepositoryIdentity;
 use crate::query::execute_query;

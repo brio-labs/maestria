@@ -81,10 +81,7 @@ fn brain_state_round_trips_and_lists_deterministically() -> Result<(), Box<dyn s
         kind: EvidenceKind::FileSpan {
             path: "notes.md".to_string(),
             range: LineRange::new(3, 8)?,
-            snapshot: SnapshotRef::new(
-                BlobId::new(1),
-                ContentHash::new(format!("sha256:{}", "b".repeat(64)))?,
-            ),
+            snapshot: SnapshotRef::new(BlobId::new(1), maestria_test_support::content_hash(11)?),
         },
         excerpt: "grounded excerpt".to_string(),
         observed_at: LogicalTick::new(4),
@@ -343,7 +340,7 @@ fn artifact_index_status_round_trips_through_repository() -> Result<(), Box<dyn 
 
     // Update to Pending with a content_hash
     artifact.index_status = IndexStatus::Pending;
-    artifact.content_hash = Some(ContentHash::new("sha256:".to_owned() + &"d".repeat(64))?);
+    artifact.content_hash = Some(maestria_test_support::content_hash(13)?);
     ArtifactRepository::put(&store, artifact.clone())?;
     assert_eq!(
         ArtifactRepository::get(&store, ArtifactId::new(1))?,

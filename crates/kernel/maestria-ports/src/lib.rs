@@ -16,6 +16,8 @@
 //! - `visual`: visual embedding capability contracts.
 //! - `ocr`: OCR capability contracts.
 //! - `parsing`: parser capability contracts.
+//! - `text`: shared text utilities.
+//! - `validation`: shared input validation helpers.
 //! - `in_memory`: deterministic in-memory adapters.
 //! - `contract_tests`: capability contract test modules.
 //! - `graph_contract_tests`: graph contract test modules.
@@ -77,6 +79,10 @@ pub use parsing::{
     DocumentTree, OcrPageSet, ParseContext, ParseOutcome, ParseStatus, ParsedArtifact, ParsedCard,
     ParsedChunk, ParsedRepresentation, Parser, RepresentationKind, SourceSpan,
 };
+mod text;
+pub use text::truncate_at_char_boundary;
+mod validation;
+pub use validation::validate_model_label;
 
 mod in_memory;
 pub use in_memory::{

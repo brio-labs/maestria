@@ -7,24 +7,12 @@
 use std::time::Duration;
 
 use maestria_core::InstanceLayout;
+use maestria_core::{format_duration, rate_per_second};
 use maestria_retrieval::MonotonicInstant;
 use maestria_vector_sqlite::SqliteVectorIndex;
 
 /// Status lines are emitted at most every five seconds during a run.
 const STATUS_REPORT_INTERVAL: Duration = Duration::from_secs(5);
-
-/// Format an elapsed duration as `M:SS` or `H:MM:SS` below one hour.
-pub(crate) fn format_duration(elapsed: Duration) -> String {
-    let total_seconds = elapsed.as_secs();
-    let hours = total_seconds / 3600;
-    let minutes = (total_seconds % 3600) / 60;
-    let seconds = total_seconds % 60;
-    if hours > 0 {
-        format!("{hours}:{minutes:02}:{seconds:02}")
-    } else {
-        format!("{minutes}:{seconds:02}")
-    }
-}
 
 /// Format a byte count in binary units with one decimal (`12.4 KiB`).
 pub(crate) fn human_bytes(bytes: u64) -> String {
@@ -185,10 +173,6 @@ impl IndexMetrics {
 
 fn files_per_second(done: usize, elapsed: Duration) -> f64 {
     done as f64 / elapsed.as_secs_f64().max(0.001)
-}
-
-fn rate_per_second(count: u64, elapsed: Duration) -> f64 {
-    count as f64 / elapsed.as_secs_f64().max(0.001)
 }
 
 #[cfg(test)]

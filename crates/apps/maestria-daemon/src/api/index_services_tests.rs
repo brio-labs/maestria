@@ -3,7 +3,6 @@
 
 use super::*;
 use maestria_core::{InstanceLayout, InstanceManifest};
-use maestria_domain::RealmId;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -56,8 +55,10 @@ fn fixture() -> Result<Fixture> {
     if let Some(parent) = layout.database_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let manifest =
-        InstanceManifest::default_for_root(layout.root.clone(), RealmId::try_from("a".repeat(64))?);
+    let manifest = InstanceManifest::default_for_root(
+        layout.root.clone(),
+        maestria_test_support::realm_id(10)?,
+    );
     std::fs::write(&layout.manifest_path, manifest.encode())?;
     Ok(Fixture {
         _temp_dir: temp_dir,
@@ -72,7 +73,7 @@ fn status_context(layout: InstanceLayout) -> Result<ApiContext> {
         token: "test-token".to_string(),
         socket_path: PathBuf::new(),
         runtime: None,
-        realm_id: RealmId::try_from("a".repeat(64))?,
+        realm_id: maestria_test_support::realm_id(10)?,
     })
 }
 

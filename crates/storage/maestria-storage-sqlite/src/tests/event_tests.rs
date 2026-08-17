@@ -79,7 +79,7 @@ fn artifact_filter_includes_evidence_and_search_events() -> Result<(), Box<dyn s
                 range: LineRange::new(1, 4)?,
                 snapshot: SnapshotRef::new(
                     BlobId::new(1),
-                    ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
+                    maestria_test_support::content_hash(10)?,
                 ),
             },
             excerpt: "excerpt".to_string(),
@@ -116,7 +116,7 @@ fn artifact_filter_includes_ocr_request_and_terminals() -> Result<(), Box<dyn st
     let request = OcrIntent::new(
         ArtifactId::new(7),
         BlobId::new(11),
-        ContentHash::new(format!("sha256:{}", "0".repeat(64)))?,
+        maestria_test_support::content_hash(0)?,
         [1],
         OcrProviderIdentity::new("fixture", "ocr", "v1", "sha256:provider", "prep-v1")?,
         OcrDisclosure::new(false, OcrRetentionPolicy::NoRetention),
@@ -347,7 +347,7 @@ fn source_became_stale_round_trips_after_restart_and_rebuilds_stale_sources()
         event: DomainEvent::SourceBecameStale {
             artifact_id: ArtifactId::new(7),
             source_path: "notes/source.md".to_string(),
-            content_hash: ContentHash::new("sha256:".to_owned() + &"c".repeat(64))?,
+            content_hash: maestria_test_support::content_hash(12)?,
         },
     };
 
@@ -504,7 +504,7 @@ fn document_tree_captured_event_round_trips() -> Result<(), Box<dyn std::error::
         event: DomainEvent::DocumentTreeCaptured {
             artifact_id: ArtifactId::new(3),
             artifact_version_id: ArtifactVersionId::new(5),
-            content_hash: ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
+            content_hash: maestria_test_support::content_hash(10)?,
             root_id: StructureNodeId::new(42),
             nodes: vec![node],
         },
@@ -635,7 +635,7 @@ fn malformed_evidence_line_range_reports_validation_cause() -> Result<(), Box<dy
 {
     let payload = serde_json::from_str::<crate::payloads::StoredEventPayload>(&format!(
         r#"{{"event_kind":"evidence_recorded","evidence_id":40,"artifact_id":7,"claim_id":null,"evidence_kind":{{"kind":"file_span","path":"notes.md","start":0,"end":1,"snapshot":{{"blob_id":1,"content_hash":"sha256:{}"}}}},"excerpt":"excerpt","observed_at":1,"security":{{"trust_zone":"untrusted","authority":"external","integrity":"unverified","sensitivity":"internal","review_status":"unreviewed","prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}}}}"#,
-        "a".repeat(64)
+        maestria_test_support::realm_id_str(10)
     ))?;
 
     let error = match payload.into_domain() {

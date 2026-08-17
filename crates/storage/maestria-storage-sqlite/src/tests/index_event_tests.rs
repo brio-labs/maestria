@@ -10,7 +10,7 @@ fn pending_index_event_round_trips() -> Result<(), Box<dyn std::error::Error>> {
         sequence: SequenceNumber::new(1),
         event: DomainEvent::PendingIndex {
             artifact_id: ArtifactId::new(7),
-            content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
+            content_hash: maestria_test_support::content_hash(10)?,
         },
     };
     store.append(event.clone())?;
@@ -62,7 +62,7 @@ fn parser_started_event_round_trips() -> Result<(), Box<dyn std::error::Error>> 
             artifact_id: ArtifactId::new(7),
             title: "test.md".to_string(),
             source_path: "/tmp/test.md".to_string(),
-            content_hash: ContentHash::new("sha256:".to_owned() + &"d".repeat(64))?,
+            content_hash: maestria_test_support::content_hash(13)?,
             blob_id: BlobId::new(42),
         },
     };
@@ -82,7 +82,7 @@ fn parser_started_event_filters_by_artifact() -> Result<(), Box<dyn std::error::
             artifact_id: ArtifactId::new(1),
             title: "a.md".to_string(),
             source_path: "/tmp/a.md".to_string(),
-            content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
+            content_hash: maestria_test_support::content_hash(10)?,
             blob_id: BlobId::new(10),
         },
     };
@@ -93,7 +93,7 @@ fn parser_started_event_filters_by_artifact() -> Result<(), Box<dyn std::error::
             artifact_id: ArtifactId::new(2),
             title: "b.md".to_string(),
             source_path: "/tmp/b.md".to_string(),
-            content_hash: ContentHash::new("sha256:".to_owned() + &"b".repeat(64))?,
+            content_hash: maestria_test_support::content_hash(11)?,
             blob_id: BlobId::new(20),
         },
     };
@@ -117,7 +117,7 @@ fn parser_started_event_has_no_source_bytes_in_payload() -> Result<(), Box<dyn s
             artifact_id: ArtifactId::new(7),
             title: "test.md".to_string(),
             source_path: "/tmp/test.md".to_string(),
-            content_hash: ContentHash::new("sha256:".to_owned() + &"d".repeat(64))?,
+            content_hash: maestria_test_support::content_hash(13)?,
             blob_id: BlobId::new(42),
         },
     };
@@ -143,7 +143,7 @@ fn index_events_filter_by_artifact() -> Result<(), Box<dyn std::error::Error>> {
         sequence: SequenceNumber::new(1),
         event: DomainEvent::PendingIndex {
             artifact_id: ArtifactId::new(1),
-            content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
+            content_hash: maestria_test_support::content_hash(10)?,
         },
     };
     let full_text = DomainEventEnvelope {

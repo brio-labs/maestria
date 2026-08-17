@@ -2,7 +2,6 @@ use maestria_code_intel::*;
 use std::error::Error;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 use tempfile::tempdir;
 
 pub fn write_file(path: &Path, contents: &str) -> Result<(), Box<dyn Error>> {
@@ -26,23 +25,14 @@ pub fn init_git(repo_root: &Path) -> Result<(), Box<dyn Error>> {
         "git config user.name",
     )?;
     run_git(repo_root, &["add", "."], "git add")?;
-    run_git(repo_root, &["commit", "-m", "fixture init"], "git commit")
+    Ok(run_git(
+        repo_root,
+        &["commit", "-m", "fixture init"],
+        "git commit",
+    )?)
 }
 
-pub fn run_git(repo_root: &Path, args: &[&str], operation: &str) -> Result<(), Box<dyn Error>> {
-    let status = Command::new("git")
-        .current_dir(repo_root)
-        .args(args)
-        .status()?;
-    if !status.success() {
-        return Err(format!(
-            "{operation} failed in {}: exit {status}",
-            repo_root.display()
-        )
-        .into());
-    }
-    Ok(())
-}
+pub use maestria_test_support::run_git;
 
 pub fn build_index(
     root: &Path,

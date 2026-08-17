@@ -4,20 +4,7 @@ use super::*;
 use crate::test_support::TempDir;
 use maestria_core::InstanceLayout;
 use maestria_domain::RealmId;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-
-fn run_git(repo: &Path, args: &[&str]) -> Result<()> {
-    let status = Command::new("git")
-        .current_dir(repo)
-        .args(args)
-        .status()
-        .map_err(|error| anyhow!("spawn git {args:?}: {error}"))?;
-    if !status.success() {
-        return Err(anyhow!("git {args:?} failed in {}", repo.display()));
-    }
-    Ok(())
-}
+use std::path::PathBuf;
 
 struct Fixture {
     _temp_dir: TempDir,
@@ -41,11 +28,19 @@ fn fixture() -> Result<Fixture> {
     )?;
     std::fs::write(repo.join("crates/two/notes.md"), "# notes\n")?;
     std::fs::write(repo.join("README.md"), "# repo\n")?;
-    run_git(&repo, &["init", "--initial-branch", "main"])?;
-    run_git(&repo, &["config", "user.email", "ci@example.com"])?;
-    run_git(&repo, &["config", "user.name", "CI"])?;
-    run_git(&repo, &["add", "."])?;
-    run_git(&repo, &["commit", "-m", "fixture init"])?;
+    maestria_test_support::run_git(&repo, &["init", "--initial-branch", "main"], "git init")?;
+    maestria_test_support::run_git(
+        &repo,
+        &["config", "user.email", "ci@example.com"],
+        "git config user.email",
+    )?;
+    maestria_test_support::run_git(
+        &repo,
+        &["config", "user.name", "CI"],
+        "git config user.name",
+    )?;
+    maestria_test_support::run_git(&repo, &["add", "."], "git add")?;
+    maestria_test_support::run_git(&repo, &["commit", "-m", "fixture init"], "git commit")?;
     let layout = crate::prepare_instance(root)?;
     Ok(Fixture {
         _temp_dir: temp_dir,

@@ -1,8 +1,8 @@
 use crate::recovery_inputs;
 use maestria_domain::{
-    ArtifactDetected, ArtifactId, ArtifactVersionId, BlobId, ChunkId, ContentHash, ContentRange,
-    DomainInput, KernelState, ParseStatus, ParserResult, ParserStarted, RegisterChunkInput,
-    SourceSpan, StructureNode, StructureNodeId, StructureNodeType,
+    ArtifactDetected, ArtifactId, ArtifactVersionId, BlobId, ChunkId, ContentRange, DomainInput,
+    KernelState, ParseStatus, ParserResult, ParserStarted, RegisterChunkInput, SourceSpan,
+    StructureNode, StructureNodeId, StructureNodeType,
 };
 
 #[test]
@@ -27,7 +27,7 @@ fn recovery_inputs_derives_both_kinds_from_state() -> Result<(), Box<dyn std::er
             artifact_id: artifact_a,
             title: "a.md".to_string(),
             source_path: "/tmp/a.md".to_string(),
-            content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
+            content_hash: maestria_test_support::content_hash(10)?,
             blob_id: BlobId::new(100),
         },
     );
@@ -38,12 +38,12 @@ fn recovery_inputs_derives_both_kinds_from_state() -> Result<(), Box<dyn std::er
         title: "b.md".to_string(),
         source_path: "/tmp/b.md".to_string(),
         source_bytes: vec![1, 2, 3],
-        content_hash: ContentHash::new("sha256:".to_owned() + &"d".repeat(64))?,
+        content_hash: maestria_test_support::content_hash(13)?,
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: artifact_b,
         artifact_version_id: ArtifactVersionId::new(artifact_b.value()),
-        content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?,
+        content_hash: maestria_test_support::content_hash(0)?,
         status: ParseStatus::Parsed,
         tree_root_id: Some(StructureNodeId::new(20)),
         tree_nodes: vec![StructureNode {
@@ -108,12 +108,12 @@ fn recovery_inputs_excludes_parser_pending_from_full_text() -> Result<(), Box<dy
         title: "doc.md".to_string(),
         source_path: "/tmp/doc.md".to_string(),
         source_bytes: vec![1, 2, 3],
-        content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
+        content_hash: maestria_test_support::content_hash(10)?,
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id,
         artifact_version_id: ArtifactVersionId::new(artifact_id.value()),
-        content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?,
+        content_hash: maestria_test_support::content_hash(0)?,
         status: ParseStatus::Parsed,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![StructureNode {
@@ -147,7 +147,7 @@ fn recovery_inputs_excludes_parser_pending_from_full_text() -> Result<(), Box<dy
             artifact_id,
             title: "doc.md".to_string(),
             source_path: "/tmp/doc.md".to_string(),
-            content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
+            content_hash: maestria_test_support::content_hash(10)?,
             blob_id: BlobId::new(100),
         },
     );

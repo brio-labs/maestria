@@ -3,9 +3,9 @@
 
 use crate::types::ValidationContext;
 use maestria_domain::{
-    Artifact, ArtifactId, BlobId, Claim, ClaimId, ClaimStatus, ContentHash, Evidence, EvidenceId,
-    EvidenceKind, LineRange, LogicalTick, MemoryCandidate, MemoryCandidateId, SecurityMetadata,
-    SnapshotRef, Task, TaskId, TaskPriority, TaskStatus,
+    Artifact, ArtifactId, BlobId, Claim, ClaimId, ClaimStatus, Evidence, EvidenceId, EvidenceKind,
+    LineRange, LogicalTick, MemoryCandidate, MemoryCandidateId, SecurityMetadata, SnapshotRef,
+    Task, TaskId, TaskPriority, TaskStatus,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -55,10 +55,7 @@ pub(crate) fn evidence(
         kind: EvidenceKind::FileSpan {
             path: "src/lib.rs".to_string(),
             range: LineRange::new(1, 8)?,
-            snapshot: SnapshotRef::new(
-                BlobId::new(1),
-                ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
-            ),
+            snapshot: SnapshotRef::new(BlobId::new(1), maestria_test_support::content_hash(10)?),
         },
         excerpt: "evidence excerpt".to_string(),
         observed_at: LogicalTick::new(1),

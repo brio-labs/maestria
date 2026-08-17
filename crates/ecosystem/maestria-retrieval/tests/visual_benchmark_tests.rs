@@ -102,10 +102,7 @@ fn observations(
 ) -> Result<Vec<VisualBenchmarkObservation>, Box<dyn std::error::Error>> {
     let corpus_id = corpus.corpus_id.clone();
     let corpus_revision = corpus.corpus_revision.clone();
-    let evaluation_date = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(duration) => duration.as_secs().to_string(),
-        Err(_) => "unknown".into(),
-    };
+    let evaluation_date = maestria_retrieval::benchmark_common::evaluation_date();
     Ok(run_visual_benchmark(corpus, &move |case, route| {
         let profile = profile(&case, route)
             .map_err(|error| VisualBenchmarkError::InvalidCorpus(error.to_string()))?;

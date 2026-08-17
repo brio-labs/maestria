@@ -79,10 +79,7 @@ impl<'a> RepositoryCodeIndexExecutor<'a> {
         corpus_id: impl Into<String>,
         repository_revision: impl Into<String>,
     ) -> Self {
-        let now = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-            Ok(duration) => duration.as_secs().to_string(),
-            Err(_) => "unknown".into(),
-        };
+        let now = crate::benchmark_common::evaluation_date();
         Self {
             index,
             corpus_id: corpus_id.into(),
