@@ -1,9 +1,9 @@
 use crate::test_support::*;
 use crate::tests::FailingEventLog;
 use maestria_domain::{
-    Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, ContentHash, DomainEvent,
-    DomainEventEnvelope, EventId, Evidence, EvidenceId, EvidenceKind, HarnessRunId, IndexStatus,
-    KernelState, LineRange, LogicalTick, SequenceNumber, SnapshotRef, SourceSpan, StructureNodeId,
+    Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, DomainEvent, DomainEventEnvelope,
+    EventId, Evidence, EvidenceId, EvidenceKind, HarnessRunId, IndexStatus, KernelState, LineRange,
+    LogicalTick, SequenceNumber, SnapshotRef, SourceSpan, StructureNodeId,
 };
 use maestria_ports::{
     CardRepository, ChunkRepository, EffectJournal, EffectJournalEntry, EffectJournalIntent,
@@ -288,10 +288,7 @@ fn build_persist_test_state() -> Result<PersistTestState, Box<dyn std::error::Er
         kind: EvidenceKind::FileSpan {
             path: "/test.txt".into(),
             range: LineRange::new(1, 10)?,
-            snapshot: SnapshotRef::new(
-                BlobId::new(1),
-                ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
-            ),
+            snapshot: SnapshotRef::new(BlobId::new(1), maestria_test_support::content_hash(10)?),
         },
         excerpt: "excerpt".into(),
         observed_at: LogicalTick::new(1),
@@ -357,7 +354,7 @@ fn build_persist_test_envelopes(
                     range: LineRange::new(1, 10)?,
                     snapshot: SnapshotRef::new(
                         BlobId::new(1),
-                        ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
+                        maestria_test_support::content_hash(10)?,
                     ),
                 },
                 excerpt: "excerpt".into(),

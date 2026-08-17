@@ -59,7 +59,7 @@ fn setup_layout(
     let plan = InstanceService::init_instance_with_roots(
         root.to_path_buf(),
         vec![notes_dir.to_path_buf()],
-        RealmId::try_from("a".repeat(64))?,
+        maestria_test_support::realm_id(10)?,
     )?;
     for dir in &plan.directories {
         fs::create_dir_all(dir)?;
@@ -574,7 +574,7 @@ fn initialize_federation_consumer(
     let consumer_root = tmp.path().join("consumer");
     let consumer_notes = consumer_root.join("notes");
     fs::create_dir_all(&consumer_notes)?;
-    let consumer_realm = RealmId::try_from("b".repeat(64))?;
+    let consumer_realm = maestria_test_support::realm_id(11)?;
     let consumer_plan = InstanceService::init_instance_with_roots(
         consumer_root,
         vec![consumer_notes],

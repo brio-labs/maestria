@@ -13,6 +13,7 @@
 /// - `instance`: module responsibility.
 /// - `notebook_draft_opening`: validates and opens persisted notebook draft blobs.
 /// - `manifest`: module responsibility.
+/// - `metrics`: shared metric formatting helpers.
 /// - `ports`: module responsibility.
 /// - `provenance`: module responsibility.
 /// - `types`: module responsibility.
@@ -23,6 +24,7 @@ mod evidence_pack_provenance;
 mod ingestion;
 mod instance;
 mod manifest;
+mod metrics;
 mod notebook_draft_opening;
 mod ports;
 mod provenance;
@@ -38,6 +40,7 @@ pub use instance::{InitInstanceInput, InitInstancePlan, InstanceLayout, Instance
 pub use manifest::{
     EmbeddingConfig, InstanceManifest, OcrConfig, SparseProfileConfig, VisualConfig,
 };
+pub use metrics::{format_duration, rate_per_second};
 pub use notebook_draft_opening::open_notebook_draft_body;
 pub use ports::{CorePorts, CoreServices};
 pub use provenance::artifact_id_for;

@@ -74,10 +74,7 @@ impl VisualProviderUnavailableExecutor {
         corpus_revision: impl Into<String>,
         reason: impl Into<String>,
     ) -> Self {
-        let now = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-            Ok(duration) => duration.as_secs().to_string(),
-            Err(_) => "unknown".into(),
-        };
+        let now = crate::benchmark_common::evaluation_date();
         Self {
             corpus_id: corpus_id.into(),
             corpus_revision: corpus_revision.into(),
@@ -145,10 +142,7 @@ pub struct VisualTextLayoutExecutor {
 
 impl VisualTextLayoutExecutor {
     pub fn new(corpus_id: impl Into<String>, corpus_revision: impl Into<String>) -> Self {
-        let now = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-            Ok(duration) => duration.as_secs().to_string(),
-            Err(_) => "unknown".into(),
-        };
+        let now = crate::benchmark_common::evaluation_date();
         Self {
             corpus_id: corpus_id.into(),
             corpus_revision: corpus_revision.into(),

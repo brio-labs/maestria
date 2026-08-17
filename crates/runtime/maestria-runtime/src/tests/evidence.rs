@@ -19,7 +19,7 @@ fn file_kind(
         range: LineRange::new(start, end)?,
         snapshot: SnapshotRef::new(
             BlobId::new(blob_id),
-            ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
+            maestria_test_support::content_hash(10)?,
         ),
     })
 }

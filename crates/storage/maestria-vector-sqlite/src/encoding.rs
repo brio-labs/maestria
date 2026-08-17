@@ -100,30 +100,14 @@ pub(crate) fn encode_vector(vector: &[f32]) -> Result<Vec<u8>, PortError> {
     Ok(bytes)
 }
 
-pub(crate) fn decode_vector(bytes: &[u8]) -> Result<Vec<f32>, PortError> {
+pub(crate) fn cosine_similarity_bytes(query: &[f32], bytes: &[u8]) -> Result<f32, PortError> {
     if !bytes.len().is_multiple_of(F32_BYTES) {
         return Err(PortError::InternalContext {
             context: "stored vector blob has invalid length",
             source: "byte length is not divisible by f32 width".to_string(),
         });
     }
-
-    let mut vector = Vec::with_capacity(bytes.len() / F32_BYTES);
-    for chunk in bytes.chunks_exact(F32_BYTES) {
-        let value = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-        if !value.is_finite() {
-            return Err(PortError::InternalContext {
-                context: "stored vector blob contains non-finite value",
-                source: "decoded value is not finite".to_string(),
-            });
-        }
-        vector.push(value);
-    }
-    Ok(vector)
-}
-
-pub(crate) fn cosine_similarity(left: &[f32], right: &[f32]) -> Result<f32, PortError> {
-    if left.len() != right.len() {
+    if bytes.len() / F32_BYTES != query.len() {
         return Err(PortError::InternalContext {
             context: "stored vector dimension mismatch",
             source: "stored and query dimensions differ".to_string(),
@@ -133,9 +117,16 @@ pub(crate) fn cosine_similarity(left: &[f32], right: &[f32]) -> Result<f32, Port
     let mut dot = 0.0_f64;
     let mut left_norm = 0.0_f64;
     let mut right_norm = 0.0_f64;
-    for (left_value, right_value) in left.iter().zip(right.iter()) {
-        let l = *left_value as f64;
-        let r = *right_value as f64;
+    for (query_value, chunk) in query.iter().zip(bytes.chunks_exact(F32_BYTES)) {
+        let stored = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        if !stored.is_finite() {
+            return Err(PortError::InternalContext {
+                context: "stored vector blob contains non-finite value",
+                source: "decoded value is not finite".to_string(),
+            });
+        }
+        let l = *query_value as f64;
+        let r = stored as f64;
         dot += l * r;
         left_norm += l * l;
         right_norm += r * r;

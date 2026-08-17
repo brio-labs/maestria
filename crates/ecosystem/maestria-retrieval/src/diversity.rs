@@ -46,7 +46,7 @@ pub fn select_candidates(
     let mut covered_keys = BTreeSet::new();
     let mut seen_clusters = BTreeSet::new();
     let mut seen_sources = BTreeSet::new();
-    let mut seen_documents = BTreeSet::new();
+    let mut seen_documents: BTreeSet<u64> = BTreeSet::new();
     let mut seen_sections = BTreeSet::new();
     let mut stop_reason = None;
 
@@ -198,11 +198,11 @@ fn candidate_metrics(
     candidate: &EvidenceCandidate,
     covered_keys: &BTreeSet<String>,
     sources: &BTreeSet<String>,
-    documents: &BTreeSet<String>,
+    documents: &BTreeSet<u64>,
     sections: &BTreeSet<String>,
-) -> (String, String, String, usize, usize) {
+) -> (String, u64, String, usize, usize) {
     let source = source_identity(candidate);
-    let document = format!("artifact:{}", candidate.artifact_version().value());
+    let document = candidate.artifact_version().value();
     let section = section_identity(candidate);
     let marginal_coverage = candidate
         .coverage_keys()

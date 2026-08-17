@@ -26,7 +26,7 @@ fn index_path_recovery_derives_pending_inputs_with_correct_filter()
             artifact_id: artifact_a,
             title: "a.md".to_string(),
             source_path: "/tmp/a.md".to_string(),
-            content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
+            content_hash: maestria_test_support::content_hash(10)?,
             blob_id: BlobId::new(100),
         },
     );
@@ -37,12 +37,12 @@ fn index_path_recovery_derives_pending_inputs_with_correct_filter()
         title: "b.md".to_string(),
         source_path: "/tmp/b.md".to_string(),
         source_bytes: vec![1, 2, 3],
-        content_hash: ContentHash::new("sha256:".to_owned() + &"b".repeat(64))?,
+        content_hash: maestria_test_support::content_hash(11)?,
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: artifact_b,
         artifact_version_id: ArtifactVersionId::new(artifact_b.value()),
-        content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?,
+        content_hash: maestria_test_support::content_hash(0)?,
         status: ParseStatus::Parsed,
         tree_root_id: Some(StructureNodeId::new(20)),
         tree_nodes: vec![maestria_domain::StructureNode {
@@ -130,7 +130,7 @@ fn recovery_artifact_ids_covers_both_input_kinds() -> Result<(), Box<dyn std::er
             artifact_id: ArtifactId::new(10),
             title: "a.md".to_string(),
             source_path: "/tmp/a.md".to_string(),
-            content_hash: ContentHash::new("sha256:".to_owned() + &"c".repeat(64))?,
+            content_hash: maestria_test_support::content_hash(12)?,
             blob_id: BlobId::new(100),
         })],
         start_full_text: vec![
@@ -192,7 +192,7 @@ fn recovery_drain_all_indexed_predicate() -> Result<(), Box<dyn std::error::Erro
         state.apply_input(DomainInput::ParserCompleted(ParserResult {
             artifact_id: id,
             artifact_version_id: ArtifactVersionId::new(id.value()),
-            content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?,
+            content_hash: maestria_test_support::content_hash(0)?,
             status: ParseStatus::Parsed,
             tree_root_id: Some(maestria_domain::StructureNodeId::new(0)),
             tree_nodes: vec![maestria_domain::StructureNode {
@@ -264,7 +264,7 @@ fn index_path_reconcile_projections_succeeds_in_cli_context()
         title: "cli-repair.md".to_string(),
         source_path: "/tmp/cli-repair.md".to_string(),
         source_bytes: vec![9, 8, 7],
-        content_hash: ContentHash::new("sha256:".to_owned() + &"e".repeat(64))?,
+        content_hash: maestria_test_support::content_hash(14)?,
     }))?;
 
     let store = maestria_storage_sqlite::SqliteStore::in_memory()?;

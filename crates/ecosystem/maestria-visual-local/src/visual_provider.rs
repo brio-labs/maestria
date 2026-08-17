@@ -65,12 +65,7 @@ impl LocalHttpVisualProvider {
 }
 
 fn validate_profile(model: &str, identity: &EmbeddingIdentity) -> Result<(), PortError> {
-    if model.trim().is_empty() {
-        return Err(PortError::InvalidInputContext {
-            context: "visual model is empty",
-            source: "model must contain a non-whitespace value".to_string(),
-        });
-    }
+    maestria_ports::validate_model_label(model, "visual")?;
     if identity.representation != RepresentationName::new("visual_page_v1") {
         return Err(PortError::InvalidInputContext {
             context: "visual provider representation is invalid",

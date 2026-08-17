@@ -34,3 +34,4 @@ tempfile = "3"
 maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }
 maestria-retrieval = { path = "../../ecosystem/maestria-retrieval" }
 
+maestria-test-support = { path = "../../test-support/maestria-test-support" }

@@ -5,15 +5,6 @@ use maestria_cli::test_support::{TempDir, assert_init_ok, assert_ok, write_file}
 use std::error::Error;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
-
-fn run_git(repo: &Path, args: &[&str]) -> Result<(), Box<dyn Error>> {
-    let status = Command::new("git").current_dir(repo).args(args).status()?;
-    if !status.success() {
-        return Err(format!("git {args:?} failed in {}", repo.display()).into());
-    }
-    Ok(())
-}
 
 fn search_code_symbol(
     instance_path: &str,
@@ -72,11 +63,15 @@ path = "src/lib.rs"
 "#,
     )?;
     write_file(repo, "crates/two/src/lib.rs", "pub fn two() -> i32 { 2 }\n")?;
-    run_git(repo, &["init", "--initial-branch", "main"])?;
-    run_git(repo, &["config", "user.email", "ci@example.com"])?;
-    run_git(repo, &["config", "user.name", "CI"])?;
-    run_git(repo, &["add", "."])?;
-    run_git(repo, &["commit", "-m", "fixture init"])?;
+    maestria_test_support::run_git(repo, &["init", "--initial-branch", "main"], "git init")?;
+    maestria_test_support::run_git(
+        repo,
+        &["config", "user.email", "ci@example.com"],
+        "git config user.email",
+    )?;
+    maestria_test_support::run_git(repo, &["config", "user.name", "CI"], "git config user.name")?;
+    maestria_test_support::run_git(repo, &["add", "."], "git add")?;
+    maestria_test_support::run_git(repo, &["commit", "-m", "fixture init"], "git commit")?;
     Ok(())
 }
 
@@ -214,8 +209,8 @@ fn repository_index_default_selects_recommended_and_skips_noise() -> Result<(), 
             "{\"k\":1}",
         )?;
     }
-    run_git(repo.path(), &["add", "."])?;
-    run_git(repo.path(), &["commit", "-m", "add dump"])?;
+    maestria_test_support::run_git(repo.path(), &["add", "."], "git add")?;
+    maestria_test_support::run_git(repo.path(), &["commit", "-m", "add dump"], "git commit")?;
     assert_init_ok(&instance_path, &repo_path)?;
 
     // The default (no selection flags) indexes the Recommended directories

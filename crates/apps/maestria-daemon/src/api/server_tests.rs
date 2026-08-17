@@ -8,7 +8,7 @@ use tokio::io::AsyncReadExt;
 static NEXT_TEST_SOCKET: AtomicU64 = AtomicU64::new(0);
 
 fn test_context(socket_path: PathBuf) -> Result<Arc<ApiContext>> {
-    let realm_id = maestria_domain::RealmId::try_from("a".repeat(64))?;
+    let realm_id = maestria_test_support::realm_id(10)?;
     Ok(Arc::new(ApiContext {
         layout: InstanceLayout::for_root(std::env::temp_dir()),
         token: "test-token".to_string(),

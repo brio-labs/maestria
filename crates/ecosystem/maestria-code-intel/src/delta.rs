@@ -211,7 +211,7 @@ mod tests {
                 repository_root: "/work".to_string(),
                 commit_sha: CommitSha::new("c"),
                 worktree_identity: WorktreeIdentity::new("w"),
-                content_hash: format!("sha256:{}", "0".repeat(64)),
+                content_hash: maestria_test_support::content_hash_str(0),
                 file_path: file.to_string(),
                 source_range: SourceRange::new(1, 2)?,
                 parser_generation: ParserGeneration::new("g"),

@@ -1,7 +1,11 @@
 pub mod adapters;
 
+#[doc(hidden)]
+pub mod benchmark_common;
+
 /// Responsibility map:
 /// - `adapters`: module responsibility.
+/// - `benchmark_common`: shared benchmark report helpers.
 /// - `bounded_reranker`: module responsibility.
 /// - `diversity`: module responsibility.
 /// - `engine`: module responsibility.

@@ -2,9 +2,9 @@
 
 use crate::CodeIntelError;
 use crate::language::{DerivedFileContext, backend_for_path};
-use crate::provenance::content_hash;
 use crate::symbols::RelationCandidate;
 use crate::types::FileContextRecord;
+use maestria_domain::content_hash;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;

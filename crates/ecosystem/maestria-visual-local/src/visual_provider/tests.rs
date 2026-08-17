@@ -120,10 +120,8 @@ impl ProviderTransport for StaticTransport {
 }
 fn identity() -> Result<EmbeddingIdentity, PortError> {
     let artifact_hash =
-        ContentHash::new(format!("sha256:{}", "0".repeat(64))).map_err(|error| {
-            PortError::Internal {
-                message: format!("create test artifact hash: {error}"),
-            }
+        maestria_test_support::content_hash(0).map_err(|error| PortError::Internal {
+            message: format!("create test artifact hash: {error}"),
         })?;
     Ok(EmbeddingIdentity {
         generation_id: IndexGenerationId::new(1),

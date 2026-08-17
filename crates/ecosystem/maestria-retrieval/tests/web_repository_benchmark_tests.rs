@@ -20,39 +20,28 @@ fn fixture_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE_DIR)
 }
 
-fn copy_tree(source: &Path, target: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    fs::create_dir_all(target)?;
-    for entry in fs::read_dir(source)? {
-        let entry = entry?;
-        let child = entry.path();
-        let destination = target.join(entry.file_name());
-        if child.is_dir() {
-            copy_tree(&child, &destination)?;
-        } else {
-            fs::copy(&child, &destination)?;
-        }
-    }
-    Ok(())
-}
-
-fn run_git(repo: &Path, args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
-    let status = Command::new("git").current_dir(repo).args(args).status()?;
-    if !status.success() {
-        return Err(format!("git {args:?} failed in {}", repo.display()).into());
-    }
-    Ok(())
-}
-
 /// Copy the frozen fixture into a temp dir, initialize a git repository at
 /// the copied state, and return the temp dir plus the fixture commit.
 fn fixture_repository() -> Result<(tempfile::TempDir, String), Box<dyn std::error::Error>> {
     let tmp = tempdir()?;
-    copy_tree(&fixture_root(), tmp.path())?;
-    run_git(tmp.path(), &["init", "--initial-branch", "main"])?;
-    run_git(tmp.path(), &["config", "user.email", "ci@example.com"])?;
-    run_git(tmp.path(), &["config", "user.name", "CI"])?;
-    run_git(tmp.path(), &["add", "."])?;
-    run_git(tmp.path(), &["commit", "-m", "fixture init"])?;
+    maestria_test_support::copy_tree(&fixture_root(), tmp.path())?;
+    maestria_test_support::run_git(
+        tmp.path(),
+        &["init", "--initial-branch", "main"],
+        "git init",
+    )?;
+    maestria_test_support::run_git(
+        tmp.path(),
+        &["config", "user.email", "ci@example.com"],
+        "git config user.email",
+    )?;
+    maestria_test_support::run_git(
+        tmp.path(),
+        &["config", "user.name", "CI"],
+        "git config user.name",
+    )?;
+    maestria_test_support::run_git(tmp.path(), &["add", "."], "git add")?;
+    maestria_test_support::run_git(tmp.path(), &["commit", "-m", "fixture init"], "git commit")?;
     let output = Command::new("git")
         .current_dir(tmp.path())
         .args(["rev-parse", "HEAD"])

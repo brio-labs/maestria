@@ -248,9 +248,6 @@ pub(crate) fn truncate_output(bytes: &[u8]) -> String {
     if text.len() <= LIMIT {
         return text.into_owned();
     }
-    let mut end = LIMIT - 3;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    format!("{}...", &text[..end])
+    let cut = maestria_ports::truncate_at_char_boundary(&text, LIMIT - 3);
+    format!("{cut}...")
 }

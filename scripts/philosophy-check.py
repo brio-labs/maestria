@@ -324,7 +324,7 @@ def scan_exemption_expiry(current_version: str | None = None) -> list[str]:
 KERNEL_ALLOWED_DEPENDENCIES = {
     "maestria-domain": {"serde", "serde-json", "sha2"},
     "maestria-governance": {"maestria-domain"},
-    "maestria-ports": {"maestria-domain", "serde"},
+    "maestria-ports": {"maestria-domain", "serde", "maestria-test-support"},
 }
 RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     "src/lib.rs": (
@@ -375,6 +375,8 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "visual",
         "ocr",
         "parsing",
+        "text",
+        "validation",
         "in_memory",
         "contract_tests",
         "graph_contract_tests",
@@ -467,6 +469,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "ingestion",
         "instance",
         "manifest",
+        "metrics",
         "notebook_draft_opening",
         "ports",
         "provenance",
@@ -594,6 +597,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     ),
     "crates/ecosystem/maestria-retrieval/src/lib.rs": (
         "adapters",
+        "benchmark_common",
         "bounded_reranker",
         "diversity",
         "engine",
@@ -610,6 +614,12 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "visual_reranker",
         "monotonic",
     ),
+    "crates/test-support/maestria-test-support/src/lib.rs": (
+        "error",
+        "git",
+        "fs",
+        "fixtures",
+    ),
     "crates/ecosystem/maestria-code-intel/src/lib.rs": (
         "builder",
         "changes",
@@ -624,7 +634,6 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "markers",
         "language",
         "metadata",
-        "provenance",
         "query",
         "references",
         "symbols",

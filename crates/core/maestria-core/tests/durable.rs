@@ -49,14 +49,14 @@ fn parser_result_for_cycle(
     artifact_id: maestria_domain::ArtifactId,
 ) -> Result<maestria_domain::ParserResult, Box<dyn std::error::Error>> {
     use maestria_domain::{
-        ArtifactVersionId, ChunkId, ContentHash, ContentRange, CreateCardInput, ParseStatus,
-        RegisterChunkInput, SourceSpan, StructureNode, StructureNodeId, StructureNodeType,
+        ArtifactVersionId, ChunkId, ContentRange, CreateCardInput, ParseStatus, RegisterChunkInput,
+        SourceSpan, StructureNode, StructureNodeId, StructureNodeType,
     };
 
     Ok(maestria_domain::ParserResult {
         artifact_id,
         artifact_version_id: ArtifactVersionId::new(artifact_id.value()),
-        content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?,
+        content_hash: maestria_test_support::content_hash(0)?,
         status: ParseStatus::Parsed,
         tree_root_id: Some(StructureNodeId::new(701)),
         tree_nodes: vec![

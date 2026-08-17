@@ -13,6 +13,12 @@ use crate::types::{CandidateRequest, CandidateSourceFilter, RetrievalError};
 use maestria_domain::EvidenceCandidate;
 use maestria_ports::SparseSearchHit;
 
+/// Per-query inputs threaded through sparse candidate assembly.
+pub(super) struct SparseAssembly<'a> {
+    pub(super) source_filter: Option<&'a CandidateSourceFilter>,
+    pub(super) score: &'a super::score_provenance::LearnedSparseScoreContext,
+}
+
 impl LearnedSparseChunkRetriever {
     pub(super) fn checked_records(
         &self,
@@ -93,10 +99,11 @@ impl LearnedSparseChunkRetriever {
         hit: SparseSearchHit,
         raw_rank: u32,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
-        source_filter: Option<&CandidateSourceFilter>,
+        assembly: &SparseAssembly<'_>,
         prescore_cache: &PrescoreCache<SparseRecords>,
         record_cache: &RecordCache,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
+        let source_filter = assembly.source_filter;
         let records = match prescore_cache.take(hit.chunk_id) {
             Some(records) => Some(records),
             None => {
@@ -123,12 +130,7 @@ impl LearnedSparseChunkRetriever {
             &chunk.source_span,
             &evidence,
             chunk.node_id,
-            super::score_provenance::learned_sparse_score(
-                &self.identity,
-                self.fingerprint.clone(),
-                hit.score_micros,
-                raw_rank,
-            )?,
+            assembly.score.score(hit.score_micros, raw_rank)?,
             vec![maestria_domain::RetrievalReason::LearnedSparse(Box::new(
                 maestria_domain::LearnedSparseReason::new(contributions),
             ))],

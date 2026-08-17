@@ -137,7 +137,7 @@ fn corpus() -> Result<LearnedSparseBenchmarkCorpus, Box<dyn std::error::Error>> 
             "sha256:65e05a858c3b57d96b9e87bbcee11ae5806bd516121d2590b6951005cae44974".to_string(),
         evaluation_date: "2026-07-20".to_string(),
         cases: cases(),
-        judgment_set_hash: Some(ContentHash::new(format!("sha256:{}", "f".repeat(64)))?),
+        judgment_set_hash: Some(maestria_test_support::content_hash(15)?),
         environment: LearnedSparseEnvironment {
             operating_system: "linux".to_string(),
             architecture: "x86_64".to_string(),
@@ -320,7 +320,7 @@ fn benchmark_promotes_only_unprotected_winning_classes() -> Result<(), Box<dyn s
         "evaluation-1".to_string(),
         "2026-07-20".to_string(),
         rollback,
-        ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
+        maestria_test_support::content_hash(10)?,
     )?;
     let routes = promotion.winning_routes();
     assert_eq!(
@@ -365,7 +365,7 @@ fn incomplete_telemetry_cannot_promote_sparse() -> Result<(), Box<dyn std::error
             route: LearnedSparseRoute::Hybrid,
             index_generation: IndexGenerationId::new(6),
         },
-        ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
+        maestria_test_support::content_hash(10)?,
     )?;
     assert!(promotion.winning_routes().is_empty());
     Ok(())
@@ -392,7 +392,7 @@ fn failed_quality_status_cannot_promote_sparse_for_class() -> Result<(), Box<dyn
             route: LearnedSparseRoute::Hybrid,
             index_generation: IndexGenerationId::new(6),
         },
-        ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
+        maestria_test_support::content_hash(10)?,
     )?;
     let routes = promotion.winning_routes();
     assert!(!routes.contains_key(&LearnedSparseQueryClass::VocabularyExpansion));
@@ -421,7 +421,7 @@ fn ineligible_hybrid_baseline_cannot_authorize_sparse_promotion()
             route: LearnedSparseRoute::Hybrid,
             index_generation: IndexGenerationId::new(6),
         },
-        ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
+        maestria_test_support::content_hash(10)?,
     )?;
     assert!(promotion.winning_routes().is_empty());
     Ok(())

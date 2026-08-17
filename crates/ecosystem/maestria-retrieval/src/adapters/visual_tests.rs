@@ -443,7 +443,7 @@ fn visual_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>
 
 #[test]
 fn visual_pdf_prefilter_requires_exact_kind_and_ranges() -> Result<(), Box<dyn std::error::Error>> {
-    let hash = maestria_domain::ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?;
+    let hash = maestria_test_support::content_hash(0)?;
     let snapshot = maestria_domain::SnapshotRef::new(maestria_domain::BlobId::new(1), hash);
     assert!(visual_pdf_prerequisites(
         &SourceSpan::pdf_span(2)?,
@@ -525,7 +525,7 @@ fn visual_evidence_owner_mismatch_is_typed_conflict() -> Result<(), Box<dyn std:
         kind: EvidenceKind::PdfSpan {
             snapshot: maestria_domain::SnapshotRef::new(
                 maestria_domain::BlobId::new(1),
-                maestria_domain::ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?,
+                maestria_test_support::content_hash(0)?,
             ),
             page_start: 1,
             page_end: 1,
@@ -637,7 +637,7 @@ fn assert_visual_evidence_denied_before_score(
 fn visual_denied_secret_and_missing_evidence_never_score() -> Result<(), Box<dyn std::error::Error>>
 {
     let artifact_id = maestria_domain::ArtifactId::new(7);
-    let hash = maestria_domain::ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?;
+    let hash = maestria_test_support::content_hash(0)?;
     let snapshot = maestria_domain::SnapshotRef::new(maestria_domain::BlobId::new(1), hash);
     let denied = maestria_domain::Evidence {
         id: maestria_domain::evidence_id_for(artifact_id, 0),

@@ -2,7 +2,7 @@
 //! default policy, and its direct children.
 
 use crate::classify::{Class, classify, default_policy};
-use crate::policy::{IndexPolicy, group_by_child};
+use crate::policy::{IndexPolicy, partition_by_child};
 use crate::scan::{DirFeatures, collect_files, dir_features, is_home_root};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -22,7 +22,7 @@ pub struct CandidateDir {
 ///
 /// The root node itself is always `Recommended` with an everything policy;
 /// its children are the top-level groups, each with the deterministic
-/// classification. Ordering is deterministic: `group_by_child` sorts by
+/// classification. Ordering is deterministic: `partition_by_child` sorts by
 /// (count desc, bytes desc).
 pub fn scan_candidates(root: &Path) -> Result<CandidateDir> {
     let files = collect_files(root, true)?;
@@ -56,12 +56,7 @@ pub(crate) fn build_node_generic(
     let features = features_fn(dir, files);
     let class = classify(&features, home_root, dir);
     let mut children = Vec::new();
-    for (child, _, _) in group_by_child(dir, files) {
-        let child_files: Vec<PathBuf> = files
-            .iter()
-            .filter(|file| file.starts_with(&child))
-            .cloned()
-            .collect();
+    for (child, _, _, child_files) in partition_by_child(dir, files) {
         children.push(build_node_generic(
             &child,
             &child_files,

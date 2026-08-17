@@ -5,6 +5,7 @@ use maestria_domain::{
 use maestria_ports::SearchQuery;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
+use std::sync::Arc;
 use thiserror::Error;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetrieverDescriptor {
@@ -184,7 +185,7 @@ pub struct RerankConstraintScore {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RerankScorerInput {
-    pub plan: SearchPlan,
+    pub plan: Arc<SearchPlan>,
     pub candidate: EvidenceCandidate,
 }
 

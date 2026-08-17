@@ -7,8 +7,8 @@
 
 use crate::CodeIntelError;
 use crate::identity::RepositoryIdentity;
-use crate::provenance::content_hash;
 use crate::types::{RecordProvenance, SourceRange};
+use maestria_domain::content_hash;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fs;

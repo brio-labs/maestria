@@ -9,10 +9,10 @@ use super::{reconcile_graph_projection, reconcile_projections, reconcile_vector_
 use crate::instance_setup::prepare_instance;
 use crate::runtime_construction::build_runtime;
 use maestria_domain::{
-    ArtifactDetected, ArtifactId, ArtifactVersionId, BlobId, CardId, ChunkId, ContentHash,
-    ContentRange, CreateCardInput, DomainInput, EvidenceId, EvidenceKind, KernelState, LineRange,
-    LogicalTick, ParseStatus, ParserResult, RealmId, RecordEvidenceInput, RegisterChunkInput,
-    SnapshotRef, SourceSpan, StructureNode, StructureNodeId, StructureNodeType,
+    ArtifactDetected, ArtifactId, ArtifactVersionId, BlobId, CardId, ChunkId, ContentRange,
+    CreateCardInput, DomainInput, EvidenceId, EvidenceKind, KernelState, LineRange, LogicalTick,
+    ParseStatus, ParserResult, RecordEvidenceInput, RegisterChunkInput, SnapshotRef, SourceSpan,
+    StructureNode, StructureNodeId, StructureNodeType,
 };
 #[path = "projection_recovery_tests/providers.rs"]
 mod providers;
@@ -50,7 +50,7 @@ fn make_test_parser_result(
     Ok(ParserResult {
         artifact_id,
         artifact_version_id: ArtifactVersionId::new(artifact_id.value()),
-        content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?,
+        content_hash: maestria_test_support::content_hash(0)?,
         status: ParseStatus::Parsed,
         tree_root_id: Some(StructureNodeId::new(chunk_id_a.value())),
         tree_nodes: vec![
@@ -125,7 +125,7 @@ fn build_recovery_domain_state(
         title: "crash-test.md".to_string(),
         source_path: "/tmp/crash-test.md".to_string(),
         source_bytes: vec![4, 5, 6],
-        content_hash: ContentHash::new("sha256:".to_owned() + &"f".repeat(64))?,
+        content_hash: maestria_test_support::content_hash(15)?,
     }))?;
 
     let parser_result = make_test_parser_result(artifact_id, chunk_id_a, chunk_id_b, card_id)?;
@@ -138,10 +138,7 @@ fn build_recovery_domain_state(
         kind: EvidenceKind::FileSpan {
             path: "/tmp/crash-test.md".to_string(),
             range: LineRange::new(1, 10)?,
-            snapshot: SnapshotRef::new(
-                BlobId::new(42),
-                ContentHash::new(format!("sha256:{}", "0".repeat(64)))?,
-            ),
+            snapshot: SnapshotRef::new(BlobId::new(42), maestria_test_support::content_hash(0)?),
         },
         excerpt: "first chu".to_string(),
         observed_at: LogicalTick::new(7),
@@ -381,7 +378,7 @@ fn reconcile_projections_does_not_emit_events() -> Result<(), Box<dyn std::error
         title: "no-events.md".to_string(),
         source_path: "/tmp/no-events.md".to_string(),
         source_bytes: vec![7, 8, 9],
-        content_hash: ContentHash::new("sha256:".to_owned() + &"e".repeat(64))?,
+        content_hash: maestria_test_support::content_hash(14)?,
     }))?;
 
     let store = SqliteStore::in_memory()?;
@@ -421,7 +418,7 @@ fn reconcile_projections_evidence_replace_overwrites_stale_row()
         title: "replace-test.md".to_string(),
         source_path: "/tmp/replace-test.md".to_string(),
         source_bytes: vec![1, 2, 3],
-        content_hash: ContentHash::new("sha256:".to_owned() + &"7".repeat(64))?,
+        content_hash: maestria_test_support::content_hash(7)?,
     }))?;
 
     let stale_evidence = maestria_domain::Evidence {
@@ -431,10 +428,7 @@ fn reconcile_projections_evidence_replace_overwrites_stale_row()
         kind: EvidenceKind::FileSpan {
             path: "/tmp/replace-test.md".to_string(),
             range: LineRange::new(1, 5)?,
-            snapshot: SnapshotRef::new(
-                BlobId::new(42),
-                ContentHash::new(format!("sha256:{}", "0".repeat(64)))?,
-            ),
+            snapshot: SnapshotRef::new(BlobId::new(42), maestria_test_support::content_hash(0)?),
         },
         excerpt: "stale excerpt".to_string(),
         observed_at: LogicalTick::new(1),
@@ -459,7 +453,7 @@ fn reconcile_projections_evidence_replace_overwrites_stale_row()
         title: "replace-test.md".to_string(),
         source_path: "/tmp/replace-test.md".to_string(),
         source_bytes: vec![1, 2, 3],
-        content_hash: ContentHash::new("sha256:".to_owned() + &"7".repeat(64))?,
+        content_hash: maestria_test_support::content_hash(7)?,
     }))?;
 
     let corrected_evidence = maestria_domain::Evidence {
@@ -469,10 +463,7 @@ fn reconcile_projections_evidence_replace_overwrites_stale_row()
         kind: EvidenceKind::FileSpan {
             path: "/tmp/replace-test.md".to_string(),
             range: LineRange::new(1, 5)?,
-            snapshot: SnapshotRef::new(
-                BlobId::new(42),
-                ContentHash::new(format!("sha256:{}", "0".repeat(64)))?,
-            ),
+            snapshot: SnapshotRef::new(BlobId::new(42), maestria_test_support::content_hash(0)?),
         },
         excerpt: "corrected excerpt".to_string(),
         observed_at: LogicalTick::new(2),
@@ -657,7 +648,7 @@ fn build_runtime_fails_on_corrupt_vector_projection() -> Result<(), Box<dyn std:
     // (mirroring the search runtime's provider-gated boundary).
     let mut manifest = maestria_core::InstanceManifest::default_for_root(
         layout.root.clone(),
-        RealmId::try_from("a".repeat(64))?,
+        maestria_test_support::realm_id(10)?,
     );
     manifest.embeddings = Some(maestria_core::EmbeddingConfig {
         enabled: true,
@@ -666,7 +657,7 @@ fn build_runtime_fails_on_corrupt_vector_projection() -> Result<(), Box<dyn std:
         dimensions: 8,
         provider: "fixture-onnx".to_string(),
         revision: "fixture-v1".to_string(),
-        artifact_hash: format!("sha256:{}", "0".repeat(64)),
+        artifact_hash: maestria_test_support::content_hash_str(0),
         preprocessing_version: "fixture-v1".to_string(),
         remote_provider: false,
         retention_policy: maestria_ports::RetentionPolicy::NoRetention,

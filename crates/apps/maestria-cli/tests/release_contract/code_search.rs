@@ -2,15 +2,6 @@ use maestria_cli::test_support::{TempDir, assert_init_ok, assert_ok, run, write_
 use std::error::Error;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
-
-fn run_git(repo: &Path, args: &[&str]) -> Result<(), Box<dyn Error>> {
-    let status = Command::new("git").current_dir(repo).args(args).status()?;
-    if !status.success() {
-        return Err(format!("git {args:?} failed in {}", repo.display()).into());
-    }
-    Ok(())
-}
 
 /// Build a git repo fixture that indexes cleanly with a module file, an impl
 /// block (spanning chunk boundaries), and a newline-sensitive edit target.
@@ -48,11 +39,15 @@ impl Widget {
 "#,
     )?;
     write_file(repo, "src/helpers.rs", "pub fn helper() -> i32 { 1 }\n")?;
-    run_git(repo, &["init", "--initial-branch", "main"])?;
-    run_git(repo, &["config", "user.email", "ci@example.com"])?;
-    run_git(repo, &["config", "user.name", "CI"])?;
-    run_git(repo, &["add", "."])?;
-    run_git(repo, &["commit", "-m", "fixture init"])?;
+    maestria_test_support::run_git(repo, &["init", "--initial-branch", "main"], "git init")?;
+    maestria_test_support::run_git(
+        repo,
+        &["config", "user.email", "ci@example.com"],
+        "git config user.email",
+    )?;
+    maestria_test_support::run_git(repo, &["config", "user.name", "CI"], "git config user.name")?;
+    maestria_test_support::run_git(repo, &["add", "."], "git add")?;
+    maestria_test_support::run_git(repo, &["commit", "-m", "fixture init"], "git commit")?;
     Ok(())
 }
 
@@ -118,11 +113,15 @@ path = "src/lib.rs"
         "rust/tools/tool_x/src/lib.rs",
         "pub fn nested_util() -> i32 { 42 }\n",
     )?;
-    run_git(repo, &["init", "--initial-branch", "main"])?;
-    run_git(repo, &["config", "user.email", "ci@example.com"])?;
-    run_git(repo, &["config", "user.name", "CI"])?;
-    run_git(repo, &["add", "."])?;
-    run_git(repo, &["commit", "-m", "fixture init"])?;
+    maestria_test_support::run_git(repo, &["init", "--initial-branch", "main"], "git init")?;
+    maestria_test_support::run_git(
+        repo,
+        &["config", "user.email", "ci@example.com"],
+        "git config user.email",
+    )?;
+    maestria_test_support::run_git(repo, &["config", "user.name", "CI"], "git config user.name")?;
+    maestria_test_support::run_git(repo, &["add", "."], "git add")?;
+    maestria_test_support::run_git(repo, &["commit", "-m", "fixture init"], "git commit")?;
     Ok(())
 }
 
@@ -190,11 +189,23 @@ fn repository_index_on_non_rust_repo_is_empty_and_fresh() -> Result<(), Box<dyn 
     let repo_path = repo.path().to_string_lossy().into_owned();
     write_file(repo.path(), "app.py", "def main():\n    return 42\n")?;
     write_file(repo.path(), "README.md", "# non-rust fixture\n")?;
-    run_git(repo.path(), &["init", "--initial-branch", "main"])?;
-    run_git(repo.path(), &["config", "user.email", "ci@example.com"])?;
-    run_git(repo.path(), &["config", "user.name", "CI"])?;
-    run_git(repo.path(), &["add", "."])?;
-    run_git(repo.path(), &["commit", "-m", "fixture init"])?;
+    maestria_test_support::run_git(
+        repo.path(),
+        &["init", "--initial-branch", "main"],
+        "git init",
+    )?;
+    maestria_test_support::run_git(
+        repo.path(),
+        &["config", "user.email", "ci@example.com"],
+        "git config user.email",
+    )?;
+    maestria_test_support::run_git(
+        repo.path(),
+        &["config", "user.name", "CI"],
+        "git config user.name",
+    )?;
+    maestria_test_support::run_git(repo.path(), &["add", "."], "git add")?;
+    maestria_test_support::run_git(repo.path(), &["commit", "-m", "fixture init"], "git commit")?;
     assert_init_ok(&instance_path, &repo_path)?;
 
     // A repository without a Rust workspace indexes to a valid, fresh empty
@@ -438,10 +449,11 @@ fn broken_nested_workspace_warns_on_stderr_and_indexes_healthy() -> Result<(), B
         "rust/broken/Cargo.toml",
         "[workspace]\nmembers = [\"does_not_exist\"]\n",
     )?;
-    run_git(repo.path(), &["add", "."])?;
-    run_git(
+    maestria_test_support::run_git(repo.path(), &["add", "."], "git add")?;
+    maestria_test_support::run_git(
         repo.path(),
         &["commit", "-m", "add broken nested workspace"],
+        "git commit",
     )?;
     assert_init_ok(&instance_path, &repo_path)?;
 
@@ -495,8 +507,8 @@ fn repository_code_changed_query_flow() -> Result<(), Box<dyn Error>> {
     let mut source = fs::read_to_string(&lib)?;
     source.push_str("\npub fn changed_fn() -> i32 { 4 }\n");
     fs::write(&lib, source)?;
-    run_git(repo.path(), &["add", "."])?;
-    run_git(repo.path(), &["commit", "-m", "edit"])?;
+    maestria_test_support::run_git(repo.path(), &["add", "."], "git add")?;
+    maestria_test_support::run_git(repo.path(), &["commit", "-m", "edit"], "git commit")?;
     let stdout = assert_ok(&["index", "-i", &instance_path, "repository", &repo_path])?;
     assert!(
         stdout.contains("mode=incremental"),
@@ -588,11 +600,15 @@ fn make_python_repo(repo: &Path) -> Result<(), Box<dyn Error>> {
         "src/wishlist/items.py",
         "class Item:\n    def __init__(self, name):\n        self.name = name\n\n    def total(self):\n        return 1\n",
     )?;
-    run_git(repo, &["init", "--initial-branch", "main"])?;
-    run_git(repo, &["config", "user.email", "ci@example.com"])?;
-    run_git(repo, &["config", "user.name", "CI"])?;
-    run_git(repo, &["add", "."])?;
-    run_git(repo, &["commit", "-m", "fixture init"])?;
+    maestria_test_support::run_git(repo, &["init", "--initial-branch", "main"], "git init")?;
+    maestria_test_support::run_git(
+        repo,
+        &["config", "user.email", "ci@example.com"],
+        "git config user.email",
+    )?;
+    maestria_test_support::run_git(repo, &["config", "user.name", "CI"], "git config user.name")?;
+    maestria_test_support::run_git(repo, &["add", "."], "git add")?;
+    maestria_test_support::run_git(repo, &["commit", "-m", "fixture init"], "git commit")?;
     Ok(())
 }
 
@@ -666,11 +682,15 @@ fn make_web_repo(repo: &Path) -> Result<(), Box<dyn Error>> {
         "src/components/Button.tsx",
         "export function Button({ label }: { label: string }) {\n  return <button>{label}</button>;\n}\n",
     )?;
-    run_git(repo, &["init", "--initial-branch", "main"])?;
-    run_git(repo, &["config", "user.email", "ci@example.com"])?;
-    run_git(repo, &["config", "user.name", "CI"])?;
-    run_git(repo, &["add", "."])?;
-    run_git(repo, &["commit", "-m", "fixture init"])?;
+    maestria_test_support::run_git(repo, &["init", "--initial-branch", "main"], "git init")?;
+    maestria_test_support::run_git(
+        repo,
+        &["config", "user.email", "ci@example.com"],
+        "git config user.email",
+    )?;
+    maestria_test_support::run_git(repo, &["config", "user.name", "CI"], "git config user.name")?;
+    maestria_test_support::run_git(repo, &["add", "."], "git add")?;
+    maestria_test_support::run_git(repo, &["commit", "-m", "fixture init"], "git commit")?;
     Ok(())
 }
 
@@ -750,11 +770,23 @@ fn repository_index_with_empty_source_files_succeeds() -> Result<(), Box<dyn Err
         "src/empty_pkg/mod.py",
         "def probe():\n    return 1\n",
     )?;
-    run_git(repo.path(), &["init", "-q"])?;
-    run_git(repo.path(), &["config", "user.email", "ci@example.com"])?;
-    run_git(repo.path(), &["config", "user.name", "CI"])?;
-    run_git(repo.path(), &["add", "."])?;
-    run_git(repo.path(), &["commit", "-m", "add empty source"])?;
+    maestria_test_support::run_git(repo.path(), &["init", "-q"], "git init")?;
+    maestria_test_support::run_git(
+        repo.path(),
+        &["config", "user.email", "ci@example.com"],
+        "git config user.email",
+    )?;
+    maestria_test_support::run_git(
+        repo.path(),
+        &["config", "user.name", "CI"],
+        "git config user.name",
+    )?;
+    maestria_test_support::run_git(repo.path(), &["add", "."], "git add")?;
+    maestria_test_support::run_git(
+        repo.path(),
+        &["commit", "-m", "add empty source"],
+        "git commit",
+    )?;
     assert_init_ok(&instance_path, &repo_path)?;
 
     let (code, stdout, stderr) = run(&["index", "-i", &instance_path, "repository", &repo_path])?;

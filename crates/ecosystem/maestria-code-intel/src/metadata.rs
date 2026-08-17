@@ -2,9 +2,9 @@
 
 use crate::CodeIntelError;
 use crate::identity::RepositoryIdentity;
-use crate::provenance::content_hash;
 use crate::types::{DependencyRecord, PackageRecord, RecordProvenance, SourceRange, TargetRecord};
 use crate::walk::{discover_manifests, is_excluded_path};
+use maestria_domain::content_hash;
 use serde::Deserialize;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

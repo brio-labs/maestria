@@ -358,12 +358,5 @@ fn denied<T>() -> Result<T> {
 }
 
 fn truncate_utf8(value: &mut String, max_bytes: usize) {
-    if value.len() <= max_bytes {
-        return;
-    }
-    let mut end = max_bytes;
-    while !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    value.truncate(end);
+    *value = maestria_ports::truncate_at_char_boundary(value, max_bytes).to_owned();
 }
