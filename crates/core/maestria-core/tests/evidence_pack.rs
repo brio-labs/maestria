@@ -3,11 +3,11 @@ use maestria_core::{
     EvidencePackError, EvidencePackReproducibility, SourceGroundedSearchHit,
 };
 use maestria_domain::{
-    Artifact, ArtifactId, ArtifactVersionId, BlobId, Chunk, ChunkId, ConflictSet, ContentHash,
-    ContentRange, CorpusScope, CorpusSnapshotId, Evidence, EvidenceCandidate, EvidenceCandidateDto,
-    EvidenceId, EvidenceKind, EvidenceRequirements, EvidenceSpan, FreshnessRequirement,
-    FreshnessStatus, IndexGenerationId, IndexStatus, LineRange, LogicalTick, Modality, ModalitySet,
-    QueryId, RetrievalLaneScore, RetrievalModelFingerprint, RetrievalRawRank, RetrievalReason,
+    Artifact, ArtifactId, ArtifactVersionId, BlobId, Chunk, ChunkId, ConflictSet, ContentRange,
+    CorpusScope, CorpusSnapshotId, Evidence, EvidenceCandidate, EvidenceCandidateDto, EvidenceId,
+    EvidenceKind, EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus,
+    IndexGenerationId, IndexStatus, LineRange, LogicalTick, Modality, ModalitySet, QueryId,
+    RetrievalLaneScore, RetrievalModelFingerprint, RetrievalRawRank, RetrievalReason,
     RetrievalScoreFingerprint, RetrievalScoreKind, RetrievalScoreScale, RetrievalScoreSet,
     SearchBudget, SearchIntent, SearchPlan, SearchStage, SearchStopReason, SearchTrace,
     SearchTraceCandidate, SearchTraceCandidateDto, SnapshotRef, SourceLocation, SourceSpan,
@@ -108,10 +108,7 @@ fn file_hit(snapshot: Option<BlobId>) -> Result<SourceGroundedSearchHit, Box<dyn
         Some(snapshot) => snapshot,
         None => BlobId::new(7),
     };
-    let snapshot = SnapshotRef::new(
-        blob_id,
-        ContentHash::new(format!("sha256:{}", "0".repeat(64)))?,
-    );
+    let snapshot = SnapshotRef::new(blob_id, maestria_test_support::content_hash(0)?);
     Ok(SourceGroundedSearchHit {
         artifact: Artifact {
             id: artifact_id,
@@ -121,7 +118,7 @@ fn file_hit(snapshot: Option<BlobId>) -> Result<SourceGroundedSearchHit, Box<dyn
             claim_ids: Default::default(),
             evidence_ids: [evidence_id].into(),
             index_status: IndexStatus::Indexed,
-            content_hash: Some(ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?),
+            content_hash: Some(maestria_test_support::content_hash(0)?),
             parse_status: None,
             security: Default::default(),
         },

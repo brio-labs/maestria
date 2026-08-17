@@ -136,8 +136,8 @@ pub use crate::ocr::{
 };
 pub use crate::provenance::{
     ParseStatus, ParsedRepresentation, RepresentationKind, SourceSpan, SourceSpanError,
-    content_hash, evidence_id_for, excerpt_for, line_range_for_chunk, web_artifact_id_for,
-    web_evidence_id_for,
+    content_hash, evidence_id_for, excerpt_for, hex_digest, line_range_for_chunk,
+    web_artifact_id_for, web_evidence_id_for,
 };
 pub use crate::realm_identity::{RealmId, RealmIdError};
 pub use crate::replay::{replay_events, replay_inputs};

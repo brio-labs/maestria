@@ -14,7 +14,6 @@
 //!   reconcile, and state submodules).
 //! - `markers`: validated code-marker records and the marker query surface.
 //! - `metadata`: bounded Cargo workspace metadata extraction.
-//! - `provenance`: canonical per-file content hashing and hash validation.
 //! - `query`: bounded in-memory symbol query execution.
 //! - `references`: cross-file symbol references over persisted relations.
 //! - `selection`: repository selection domain and the per-file policy gate.
@@ -38,7 +37,6 @@ mod incremental;
 mod language;
 mod markers;
 mod metadata;
-mod provenance;
 mod query;
 mod references;
 mod selection;

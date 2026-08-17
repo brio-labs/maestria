@@ -66,12 +66,7 @@ impl LocalHttpSparseProvider {
 }
 
 fn validate_profile(model: &str, identity: &SparseIdentity) -> Result<(), PortError> {
-    if model.trim().is_empty() {
-        return Err(PortError::InvalidInputContext {
-            context: "sparse model is empty",
-            source: "model must contain a non-whitespace value".to_string(),
-        });
-    }
+    maestria_ports::validate_model_label(model, "sparse")?;
     if identity.representation != RepresentationName::new(SPARSE_REPRESENTATION_V1) {
         return Err(PortError::InvalidInputContext {
             context: "sparse provider representation is invalid",
@@ -165,7 +160,7 @@ impl LearnedSparseProvider for LocalHttpSparseProvider {
             });
         }
         let payload = SparseEncodeBatchPayload {
-            texts: texts.to_vec(),
+            texts,
             kind: match kind {
                 SparseInputKind::Query => SparseKindWire::Query,
                 SparseInputKind::Document => SparseKindWire::Document,

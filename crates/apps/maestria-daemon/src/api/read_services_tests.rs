@@ -1,8 +1,8 @@
 use super::*;
 use maestria_core::InstanceManifest;
 use maestria_domain::{
-    Artifact, ArtifactId, BlobId, ContentHash, Evidence, EvidenceId, EvidenceKind, IndexStatus,
-    LineRange, RealmId, ScopeId, SecurityMetadata, SnapshotRef, ValidationReportId,
+    Artifact, ArtifactId, BlobId, Evidence, EvidenceId, EvidenceKind, IndexStatus, LineRange,
+    ScopeId, SecurityMetadata, SnapshotRef, ValidationReportId,
 };
 use maestria_ports::{ArtifactRepository, EvidenceRepository};
 use maestria_storage_sqlite::SqliteStore;
@@ -49,7 +49,7 @@ fn fixture() -> Result<Fixture> {
     if let Some(parent) = layout.database_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let manifest = InstanceManifest::default_for_root(root, RealmId::try_from("a".repeat(64))?);
+    let manifest = InstanceManifest::default_for_root(root, maestria_test_support::realm_id(10)?);
     std::fs::write(&layout.manifest_path, manifest.encode())?;
 
     Ok(Fixture {
@@ -74,7 +74,7 @@ fn open_evidence_rejects_file_span_outside_current_manifest_roots() -> Result<()
             claim_ids: BTreeSet::new(),
             evidence_ids: BTreeSet::new(),
             index_status: IndexStatus::Indexed,
-            content_hash: Some(ContentHash::new("sha256:".to_owned() + &"6".repeat(64))?),
+            content_hash: Some(maestria_test_support::content_hash(6)?),
             parse_status: None,
             security: maestria_domain::SecurityMetadata::default(),
         },
@@ -89,10 +89,7 @@ fn open_evidence_rejects_file_span_outside_current_manifest_roots() -> Result<()
             kind: EvidenceKind::FileSpan {
                 path: outside_path.display().to_string(),
                 range: LineRange::new(1, 1)?,
-                snapshot: SnapshotRef::new(
-                    BlobId::new(1),
-                    ContentHash::new(format!("sha256:{}", "0".repeat(64)))?,
-                ),
+                snapshot: SnapshotRef::new(BlobId::new(1), maestria_test_support::content_hash(0)?),
             },
             excerpt: "outside".to_string(),
             observed_at: maestria_domain::LogicalTick::new(1),
@@ -121,8 +118,10 @@ fn open_evidence_rejects_file_span_outside_current_manifest_roots() -> Result<()
 /// Writes a manifest with both the embedding and the sparse profile enabled
 /// so the lane status read reports the configured models and shadow states.
 fn write_manifest_with_profiles(layout: &InstanceLayout) -> Result<()> {
-    let mut manifest =
-        InstanceManifest::default_for_root(layout.root.clone(), RealmId::try_from("a".repeat(64))?);
+    let mut manifest = InstanceManifest::default_for_root(
+        layout.root.clone(),
+        maestria_test_support::realm_id(10)?,
+    );
     manifest.embeddings = Some(maestria_core::EmbeddingConfig {
         enabled: true,
         endpoint: "http://127.0.0.1/v1/embeddings".to_string(),
@@ -130,7 +129,7 @@ fn write_manifest_with_profiles(layout: &InstanceLayout) -> Result<()> {
         dimensions: 384,
         provider: "test-embedding-provider".to_string(),
         revision: "rev-1".to_string(),
-        artifact_hash: "sha256:".to_owned() + &"a".repeat(64),
+        artifact_hash: maestria_test_support::content_hash_str(10),
         preprocessing_version: "v1".to_string(),
         ..maestria_core::EmbeddingConfig::default()
     });
@@ -139,7 +138,7 @@ fn write_manifest_with_profiles(layout: &InstanceLayout) -> Result<()> {
         endpoint: "http://127.0.0.1/v1/sparse".to_string(),
         provider: "test-sparse-provider".to_string(),
         revision: "rev-1".to_string(),
-        artifact_hash: "sha256:".to_owned() + &"b".repeat(64),
+        artifact_hash: maestria_test_support::content_hash_str(11),
         preprocessing_version: "v1".to_string(),
         model: "test-sparse-model".to_string(),
         vocabulary_size: 1000,
@@ -169,13 +168,11 @@ fn seed_lexical_generation(layout: &InstanceLayout) -> Result<()> {
                     provider: maestria_domain::ProviderName::new("test-provider"),
                     model: maestria_domain::ModelName::new("test-model"),
                     revision: maestria_domain::FingerprintRevision::new("rev-1"),
-                    artifact_hash: ContentHash::new("sha256:".to_owned() + &"1".repeat(64))?,
+                    artifact_hash: maestria_test_support::content_hash(1)?,
                     dimensions: 384,
                     quantization: maestria_domain::QuantizationScheme::new("f32"),
-                    query_template_hash: ContentHash::new("sha256:".to_owned() + &"2".repeat(64))?,
-                    document_template_hash: ContentHash::new(
-                        "sha256:".to_owned() + &"3".repeat(64),
-                    )?,
+                    query_template_hash: maestria_test_support::content_hash(2)?,
+                    document_template_hash: maestria_test_support::content_hash(3)?,
                     preprocessing_version: maestria_domain::PreprocessingVersion::new("v1"),
                 },
                 sparse_namespace: None,
@@ -192,7 +189,7 @@ fn status_context(layout: InstanceLayout) -> Result<crate::api::server::ApiConte
         token: "test-token".to_string(),
         socket_path: PathBuf::new(),
         runtime: None,
-        realm_id: maestria_domain::RealmId::try_from("a".repeat(64))?,
+        realm_id: maestria_test_support::realm_id(10)?,
     })
 }
 

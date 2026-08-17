@@ -2842,6 +2842,7 @@ dependencies = [
  "maestria-search-tantivy",
  "maestria-storage-sqlite",
  "maestria-studio",
+ "maestria-test-support",
  "maestria-vector-sqlite",
  "serde_json",
  "tempfile",
@@ -2853,8 +2854,10 @@ dependencies = [
 name = "maestria-code-intel"
 version = "0.6.1"
 dependencies = [
+ "maestria-domain",
  "maestria-governance",
  "maestria-index-selection",
+ "maestria-test-support",
  "proc-macro2",
  "regex",
  "serde",
@@ -2878,6 +2881,7 @@ dependencies = [
  "maestria-retrieval",
  "maestria-search-tantivy",
  "maestria-storage-sqlite",
+ "maestria-test-support",
  "sha2 0.10.9",
  "tempfile",
  "tokio",
@@ -2909,6 +2913,7 @@ dependencies = [
  "maestria-search-tantivy",
  "maestria-sparse-local",
  "maestria-storage-sqlite",
+ "maestria-test-support",
  "maestria-vector-sqlite",
  "maestria-visual-local",
  "maestria-web-evidence",
@@ -3026,6 +3031,7 @@ name = "maestria-ports"
 version = "0.6.1"
 dependencies = [
  "maestria-domain",
+ "maestria-test-support",
  "serde",
 ]
 
@@ -3038,6 +3044,7 @@ dependencies = [
  "maestria-domain",
  "maestria-governance",
  "maestria-ports",
+ "maestria-test-support",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -3054,6 +3061,7 @@ dependencies = [
  "maestria-governance",
  "maestria-memory",
  "maestria-ports",
+ "maestria-test-support",
  "maestria-validation",
  "parking_lot",
  "serde",
@@ -3094,6 +3102,7 @@ version = "0.6.1"
 dependencies = [
  "maestria-domain",
  "maestria-ports",
+ "maestria-test-support",
  "rusqlite",
  "serde",
  "serde_json",
@@ -3137,10 +3146,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "maestria-test-support"
+version = "0.6.1"
+dependencies = [
+ "maestria-domain",
+]
+
+[[package]]
 name = "maestria-validation"
 version = "0.6.1"
 dependencies = [
  "maestria-domain",
+ "maestria-test-support",
 ]
 
 [[package]]
@@ -3159,6 +3176,7 @@ dependencies = [
  "base64",
  "maestria-domain",
  "maestria-ports",
+ "maestria-test-support",
  "serde",
  "serde_json",
  "ureq",

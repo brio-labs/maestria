@@ -1,12 +1,12 @@
 use super::*;
 use crate::test_support::TempDir;
-use maestria_domain::{ArtifactId, BlobId, ContentHash, ParserStarted};
+use maestria_domain::{ArtifactId, BlobId, ParserStarted};
 use std::path::{Path, PathBuf};
 
 fn write_manifest(dir: &Path, read_roots: &[&str]) -> std::io::Result<PathBuf> {
     let mut lines = vec![
         "schema_version=2".to_string(),
-        format!("realm_id={}", "a".repeat(64)),
+        format!("realm_id={}", maestria_test_support::realm_id_str(10)),
         format!("root={}", dir.display()),
     ];
     for root in read_roots {
@@ -40,7 +40,7 @@ fn make_recovery(
             artifact_id: ArtifactId::new(artifact_id),
             title: title.to_string(),
             source_path: source_path.to_string(),
-            content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
+            content_hash: maestria_test_support::content_hash(10)?,
             blob_id: BlobId::new(artifact_id),
         })],
         start_full_text: Vec::new(),

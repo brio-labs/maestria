@@ -13,17 +13,17 @@ fn state_persistence_round_trip() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = WatchState::default();
     state.files.insert(
         "/tmp/a.md".to_string(),
-        "sha256:".to_owned() + &"a".repeat(64),
+        maestria_test_support::content_hash_str(10),
     );
     state.removed.insert(
         "/tmp/b.md".to_string(),
-        "sha256:".to_owned() + &"b".repeat(64),
+        maestria_test_support::content_hash_str(11),
     );
     state.artifact_ids.insert(
         "/tmp/a.md".to_string(),
         ArtifactIdEntry {
             artifact_id: 42,
-            content_hash: "sha256:".to_owned() + &"a".repeat(64),
+            content_hash: maestria_test_support::content_hash_str(10),
         },
     );
 
@@ -31,11 +31,11 @@ fn state_persistence_round_trip() -> Result<(), Box<dyn std::error::Error>> {
     let loaded = load_state(&layout);
     assert_eq!(
         loaded.files.get("/tmp/a.md"),
-        Some("sha256:".to_owned() + &"a".repeat(64)).as_ref()
+        Some(maestria_test_support::content_hash_str(10)).as_ref()
     );
     assert_eq!(
         loaded.removed.get("/tmp/b.md"),
-        Some("sha256:".to_owned() + &"b".repeat(64)).as_ref()
+        Some(maestria_test_support::content_hash_str(11)).as_ref()
     );
     assert_eq!(
         loaded.artifact_ids.get("/tmp/a.md").map(|e| e.artifact_id),

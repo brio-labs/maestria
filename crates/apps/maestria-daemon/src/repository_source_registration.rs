@@ -10,7 +10,7 @@
 
 use anyhow::{Context, Result, anyhow};
 use maestria_code_intel::RepositoryCodeIndex;
-use maestria_core::{InstanceLayout, artifact_id_for, content_hash};
+use maestria_core::{InstanceLayout, artifact_id_for, content_hash, format_duration};
 use maestria_domain::{ArtifactDetected, ArtifactId, ContentHash, DomainInput, IndexStatus};
 use maestria_governance::scan_secrets;
 use maestria_runtime::{DomainApplicationResult, RuntimeHandle, RuntimeSubmissionError};
@@ -178,20 +178,8 @@ fn registration_progress(
     };
     format!(
         "repository sources: {done}/{total} ({percent:.1}%) {rate:.1}/s elapsed={}",
-        format_elapsed(elapsed)
+        format_duration(elapsed)
     )
-}
-
-fn format_elapsed(elapsed: std::time::Duration) -> String {
-    let total_seconds = elapsed.as_secs();
-    let hours = total_seconds / 3600;
-    let minutes = (total_seconds % 3600) / 60;
-    let seconds = total_seconds % 60;
-    if hours > 0 {
-        format!("{hours}:{minutes:02}:{seconds:02}")
-    } else {
-        format!("{minutes}:{seconds:02}")
-    }
 }
 
 /// Shared registration body: build the expected content-hash map from the

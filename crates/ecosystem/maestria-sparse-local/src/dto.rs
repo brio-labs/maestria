@@ -9,8 +9,9 @@ pub(super) struct SparseEncodePayload {
 
 /// Wire payload for a batched sparse encoding request.
 #[derive(Debug, Serialize)]
-pub(super) struct SparseEncodeBatchPayload {
-    pub(super) texts: Vec<String>,
+pub(super) struct SparseEncodeBatchPayload<'a> {
+    #[serde(borrow)]
+    pub(super) texts: &'a [String],
     pub(super) kind: SparseKindWire,
 }
 

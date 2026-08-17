@@ -14,6 +14,7 @@
 
 use maestria_code_intel::RepositoryCodeIndex;
 use maestria_retrieval::MonotonicInstant;
+use maestria_test_support::run_git;
 use serde::Serialize;
 use std::error::Error;
 use std::fs;
@@ -169,14 +170,6 @@ fn write_fixture_workspace(root: &Path, file_count: usize) -> Result<(), Box<dyn
     )?;
     run_git(root, &["add", "."], "git add")?;
     run_git(root, &["commit", "-m", "fixture workspace"], "git commit")?;
-    Ok(())
-}
-
-fn run_git(root: &Path, args: &[&str], operation: &str) -> Result<(), Box<dyn Error>> {
-    let status = Command::new("git").current_dir(root).args(args).status()?;
-    if !status.success() {
-        return Err(format!("{operation} failed: exit {status}").into());
-    }
     Ok(())
 }
 

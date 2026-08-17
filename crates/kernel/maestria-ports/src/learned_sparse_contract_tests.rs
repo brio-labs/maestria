@@ -1,6 +1,5 @@
 use maestria_domain::{
-    ChunkId, ContentHash, CorpusSnapshotId, IndexGenerationId, RepresentationName, SparseNamespace,
-    TrustZone,
+    ChunkId, CorpusSnapshotId, IndexGenerationId, RepresentationName, SparseNamespace, TrustZone,
 };
 
 use crate::{
@@ -104,7 +103,7 @@ pub fn assert_learned_sparse_index_contract(
         .identity()
         .ok_or("learned sparse provider identity is unavailable")?;
     assert_eq!(index.identity().as_ref(), Some(&identity));
-    let content_hash = ContentHash::new(format!("sha256:{}", "4".repeat(64)))?;
+    let content_hash = maestria_test_support::content_hash(4)?;
     let document = |chunk_id, text: &str| -> Result<SparseDocument, PortError> {
         Ok(SparseDocument {
             chunk_id: ChunkId::new(chunk_id),
@@ -185,7 +184,7 @@ mod tests {
         let provider = InMemoryLearnedSparseProvider::new(incompatible.clone())?;
         let document = SparseDocument {
             chunk_id: ChunkId::new(1),
-            content_hash: ContentHash::new(format!("sha256:{}", "7".repeat(64)))?,
+            content_hash: maestria_test_support::content_hash(7)?,
             vector: provider.encode("alpha beta", SparseInputKind::Document, incompatible)?,
         };
         assert!(matches!(

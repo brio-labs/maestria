@@ -1,6 +1,6 @@
 use super::*;
 use maestria_code_intel::REPOSITORY_CODE_INDEX_FILENAME;
-use maestria_domain::{ArtifactId, BlobId, ContentHash, DomainEvent, EventId, SequenceNumber};
+use maestria_domain::{ArtifactId, BlobId, DomainEvent, EventId, SequenceNumber};
 use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -56,7 +56,7 @@ fn parser_started_then_source_became_stale_excludes_version()
                 artifact_id,
                 title: "main".to_string(),
                 source_path: path.clone(),
-                content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
+                content_hash: maestria_test_support::content_hash(10)?,
                 blob_id: BlobId::new(1),
             },
         },
@@ -66,7 +66,7 @@ fn parser_started_then_source_became_stale_excludes_version()
             event: DomainEvent::SourceBecameStale {
                 artifact_id,
                 source_path: path.clone(),
-                content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
+                content_hash: maestria_test_support::content_hash(10)?,
             },
         },
     ];
@@ -88,7 +88,7 @@ fn re_ingestion_after_stale_reactivates_version() -> Result<(), Box<dyn std::err
                 artifact_id: artifact_id_v1,
                 title: "main".to_string(),
                 source_path: path.clone(),
-                content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
+                content_hash: maestria_test_support::content_hash(10)?,
                 blob_id: BlobId::new(1),
             },
         },
@@ -98,7 +98,7 @@ fn re_ingestion_after_stale_reactivates_version() -> Result<(), Box<dyn std::err
             event: DomainEvent::SourceBecameStale {
                 artifact_id: artifact_id_v1,
                 source_path: path.clone(),
-                content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
+                content_hash: maestria_test_support::content_hash(10)?,
             },
         },
         DomainEventEnvelope {
@@ -108,7 +108,7 @@ fn re_ingestion_after_stale_reactivates_version() -> Result<(), Box<dyn std::err
                 artifact_id: artifact_id_v2,
                 title: "main".to_string(),
                 source_path: path.clone(),
-                content_hash: ContentHash::new("sha256:".to_owned() + &"d".repeat(64))?,
+                content_hash: maestria_test_support::content_hash(13)?,
                 blob_id: BlobId::new(2),
             },
         },
@@ -135,7 +135,7 @@ fn latest_by_path_semantics_preserved_across_mixed_events() -> Result<(), Box<dy
                 artifact_id: id_a1,
                 title: "a".to_string(),
                 source_path: path_a.clone(),
-                content_hash: ContentHash::new("sha256:".to_owned() + &"1".repeat(64))?,
+                content_hash: maestria_test_support::content_hash(1)?,
                 blob_id: BlobId::new(1),
             },
         },
@@ -146,7 +146,7 @@ fn latest_by_path_semantics_preserved_across_mixed_events() -> Result<(), Box<dy
                 artifact_id: id_b1,
                 title: "b".to_string(),
                 source_path: path_b.clone(),
-                content_hash: ContentHash::new("sha256:".to_owned() + &"2".repeat(64))?,
+                content_hash: maestria_test_support::content_hash(2)?,
                 blob_id: BlobId::new(2),
             },
         },
@@ -157,7 +157,7 @@ fn latest_by_path_semantics_preserved_across_mixed_events() -> Result<(), Box<dy
                 artifact_id: id_a2,
                 title: "a".to_string(),
                 source_path: path_a.clone(),
-                content_hash: ContentHash::new("sha256:".to_owned() + &"3".repeat(64))?,
+                content_hash: maestria_test_support::content_hash(3)?,
                 blob_id: BlobId::new(3),
             },
         },
@@ -174,7 +174,7 @@ fn document_tree_captured_version_overrides_placeholder() -> Result<(), Box<dyn 
 {
     let path = "src/main.rs".to_string();
     let artifact_id = ArtifactId::new(1);
-    let content_hash = ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?;
+    let content_hash = maestria_test_support::content_hash(10)?;
     let real_version = content_hash.version_id()?;
     assert_ne!(
         real_version,

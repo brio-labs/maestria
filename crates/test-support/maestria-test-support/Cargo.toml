@@ -1,0 +1,10 @@
+[package]
+name = "maestria-test-support"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+maestria-domain = { path = "../../kernel/maestria-domain" }

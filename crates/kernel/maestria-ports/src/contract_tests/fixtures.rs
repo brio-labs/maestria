@@ -14,11 +14,12 @@ pub fn fixture_embedding_identity(
     model: &str,
     dimensions: usize,
 ) -> Result<crate::EmbeddingIdentity, crate::PortError> {
-    let artifact_hash = maestria_domain::ContentHash::new(format!("sha256:{}", "0".repeat(64)))
-        .map_err(|error| crate::PortError::InternalContext {
+    let artifact_hash = maestria_test_support::content_hash(0).map_err(|error| {
+        crate::PortError::InternalContext {
             context: "create fixture embedding fingerprint",
             source: error.to_string(),
-        })?;
+        }
+    })?;
     let template_hash = |digit: u8| {
         maestria_domain::ContentHash::new(format!("sha256:{}", format!("{digit:x}").repeat(64)))
             .map_err(|error| crate::PortError::InternalContext {

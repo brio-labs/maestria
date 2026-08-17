@@ -104,89 +104,108 @@ pub(super) fn dense_score(
     )
 }
 
-pub(super) fn learned_sparse_score(
-    identity: &SparseIdentity,
+/// Precomputed learned-sparse score provenance, built once per query.
+pub(super) struct LearnedSparseScoreContext {
     fingerprint_id: RetrievalModelFingerprint,
-    raw_score_micros: u32,
-    raw_rank: u32,
-) -> Result<RetrievalScoreSet, RetrievalError> {
-    let fingerprint = &identity.fingerprint;
-    let components = BTreeMap::from([
-        (
-            "provider".to_string(),
-            fingerprint.provider.as_str().to_string(),
-        ),
-        ("model".to_string(), fingerprint.model.as_str().to_string()),
-        (
-            "revision".to_string(),
-            fingerprint.revision.as_str().to_string(),
-        ),
-        (
-            "artifact_hash".to_string(),
-            fingerprint.artifact_hash.as_str().to_string(),
-        ),
-        (
-            "tokenizer_hash".to_string(),
-            fingerprint.tokenizer_hash.as_str().to_string(),
-        ),
-        (
-            "vocabulary_hash".to_string(),
-            fingerprint.vocabulary_hash.as_str().to_string(),
-        ),
-        (
-            "vocabulary_size".to_string(),
-            fingerprint.vocabulary_size.to_string(),
-        ),
-        (
-            "term_namespace".to_string(),
-            fingerprint.term_namespace.clone(),
-        ),
-        (
-            "query_template_hash".to_string(),
-            fingerprint.query_template_hash.as_str().to_string(),
-        ),
-        (
-            "document_template_hash".to_string(),
-            fingerprint.document_template_hash.as_str().to_string(),
-        ),
-        (
-            "preprocessing_version".to_string(),
-            fingerprint.preprocessing_version.as_str().to_string(),
-        ),
-        (
-            "weighting_version".to_string(),
-            fingerprint.weighting_version.clone(),
-        ),
-        (
-            "quantization".to_string(),
-            fingerprint.quantization.as_str().to_string(),
-        ),
-        (
-            "pruning_threshold".to_string(),
-            fingerprint.pruning_threshold.to_string(),
-        ),
-        ("max_terms".to_string(), fingerprint.max_terms.to_string()),
-        (
-            "generation".to_string(),
-            identity.generation_id.value().to_string(),
-        ),
-        (
-            "corpus_snapshot".to_string(),
-            identity.corpus_snapshot.value().to_string(),
-        ),
-        (
-            "representation".to_string(),
-            identity.representation.0.clone(),
-        ),
-    ]);
-    score_set(
-        RetrievalScoreKind::LearnedSparse,
-        i64::from(raw_score_micros),
-        raw_rank,
-        RetrievalScoreScale::fixed_point("learned_sparse_dot_product_micros", 1_000_000),
-        identity.representation.clone(),
-        RetrievalScoreFingerprint::new(fingerprint_id, components),
-    )
+    representation: RepresentationName,
+    components: BTreeMap<String, String>,
+}
+
+impl LearnedSparseScoreContext {
+    pub(super) fn new(
+        identity: &SparseIdentity,
+        fingerprint_id: RetrievalModelFingerprint,
+    ) -> Self {
+        let fingerprint = &identity.fingerprint;
+        let components = BTreeMap::from([
+            (
+                "provider".to_string(),
+                fingerprint.provider.as_str().to_string(),
+            ),
+            ("model".to_string(), fingerprint.model.as_str().to_string()),
+            (
+                "revision".to_string(),
+                fingerprint.revision.as_str().to_string(),
+            ),
+            (
+                "artifact_hash".to_string(),
+                fingerprint.artifact_hash.as_str().to_string(),
+            ),
+            (
+                "tokenizer_hash".to_string(),
+                fingerprint.tokenizer_hash.as_str().to_string(),
+            ),
+            (
+                "vocabulary_hash".to_string(),
+                fingerprint.vocabulary_hash.as_str().to_string(),
+            ),
+            (
+                "vocabulary_size".to_string(),
+                fingerprint.vocabulary_size.to_string(),
+            ),
+            (
+                "term_namespace".to_string(),
+                fingerprint.term_namespace.clone(),
+            ),
+            (
+                "query_template_hash".to_string(),
+                fingerprint.query_template_hash.as_str().to_string(),
+            ),
+            (
+                "document_template_hash".to_string(),
+                fingerprint.document_template_hash.as_str().to_string(),
+            ),
+            (
+                "preprocessing_version".to_string(),
+                fingerprint.preprocessing_version.as_str().to_string(),
+            ),
+            (
+                "weighting_version".to_string(),
+                fingerprint.weighting_version.clone(),
+            ),
+            (
+                "quantization".to_string(),
+                fingerprint.quantization.as_str().to_string(),
+            ),
+            (
+                "pruning_threshold".to_string(),
+                fingerprint.pruning_threshold.to_string(),
+            ),
+            ("max_terms".to_string(), fingerprint.max_terms.to_string()),
+            (
+                "generation".to_string(),
+                identity.generation_id.value().to_string(),
+            ),
+            (
+                "corpus_snapshot".to_string(),
+                identity.corpus_snapshot.value().to_string(),
+            ),
+            (
+                "representation".to_string(),
+                identity.representation.0.clone(),
+            ),
+        ]);
+        Self {
+            fingerprint_id,
+            representation: identity.representation.clone(),
+            components,
+        }
+    }
+
+    pub(super) fn score(
+        &self,
+        raw_score_micros: u32,
+        raw_rank: u32,
+    ) -> Result<RetrievalScoreSet, RetrievalError> {
+        score_set(
+            RetrievalScoreKind::LearnedSparse,
+            i64::from(raw_score_micros),
+            raw_rank,
+            RetrievalScoreScale::fixed_point("learned_sparse_dot_product_micros", 1_000_000),
+            self.representation.clone(),
+            RetrievalScoreFingerprint::new(self.fingerprint_id.clone(), self.components.clone()),
+        )
+    }
 }
 
 pub(super) fn specialized_score(

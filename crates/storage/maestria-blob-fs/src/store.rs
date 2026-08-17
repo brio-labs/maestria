@@ -54,7 +54,7 @@ impl FsBlobStore {
 
     pub fn put_with_digest(&self, bytes: Vec<u8>) -> Result<(BlobId, String), PortError> {
         let digest = sha256_digest(&bytes);
-        let digest_hex = hex_digest(&digest);
+        let digest_hex = maestria_domain::hex_digest(&digest);
         let id = id_from_digest(&digest);
 
         self.ensure_blob_file(&digest_hex, &bytes)?;
@@ -255,7 +255,7 @@ impl BlobStore for FsBlobStore {
             _ => io_error("read blob object", &path, error),
         })?;
         let actual_digest = sha256_digest(&bytes);
-        let actual_hex = hex_digest(&actual_digest);
+        let actual_hex = maestria_domain::hex_digest(&actual_digest);
         if actual_hex != digest_hex {
             return Err(PortError::InternalContext {
                 context: "blob integrity check failed",
@@ -274,16 +274,6 @@ fn id_from_digest(digest: &[u8; 32]) -> BlobId {
     let mut id_bytes = [0_u8; 8];
     id_bytes.copy_from_slice(&digest[0..8]);
     BlobId::new(u64::from_be_bytes(id_bytes))
-}
-
-fn hex_digest(digest: &[u8; 32]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut hex = String::with_capacity(DIGEST_HEX_LEN);
-    for byte in digest {
-        hex.push(HEX[(byte >> 4) as usize] as char);
-        hex.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    hex
 }
 
 fn validate_digest_hex(digest_hex: &str) -> Result<&str, PortError> {

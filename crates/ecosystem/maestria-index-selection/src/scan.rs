@@ -14,14 +14,19 @@ pub fn is_supported_source_file(path: &Path) -> bool {
     if path.file_name().and_then(|name| name.to_str()) == Some("Cargo.toml") {
         return true;
     }
-    matches!(
-        path.extension()
-            .and_then(|extension| extension.to_str())
-            .map(str::to_ascii_lowercase)
-            .as_deref(),
-        Some("md" | "markdown" | "txt" | "text" | "rs" | "toml" | "json" | "yaml" | "yml" | "pdf")
-    )
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            [
+                "md", "markdown", "txt", "text", "rs", "toml", "json", "yaml", "yml", "pdf",
+            ]
+            .iter()
+            .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+        })
 }
+
+/// Shared default privacy exclusions, built once per process.
+static DEFAULT_EXCLUSIONS: std::sync::OnceLock<PrivacyExclusions> = std::sync::OnceLock::new();
 
 /// Whether `path` traverses a privacy-excluded component.
 ///
@@ -29,7 +34,7 @@ pub fn is_supported_source_file(path: &Path) -> bool {
 /// `target`, `dist`, `build`, `.env.*` prefixes) are OR-ed with the shared
 /// governance privacy exclusions.
 pub fn is_privacy_excluded_path(path: &Path) -> bool {
-    let default_exclusions = PrivacyExclusions::default();
+    let default_exclusions = DEFAULT_EXCLUSIONS.get_or_init(PrivacyExclusions::default);
     path.components().any(|component| {
         let name = component.as_os_str().to_string_lossy();
         matches!(

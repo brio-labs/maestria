@@ -8,3 +8,6 @@ publish = false
 
 [dependencies]
 maestria-domain = { path = "../../kernel/maestria-domain" }
+
+[dev-dependencies]
+maestria-test-support = { path = "../../test-support/maestria-test-support" }

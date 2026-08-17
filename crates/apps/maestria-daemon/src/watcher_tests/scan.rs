@@ -1,5 +1,4 @@
 use super::*;
-use maestria_domain::RealmId;
 use std::{env, fs, path::PathBuf, process};
 
 #[test]
@@ -14,7 +13,7 @@ fn scan_skips_instance_state_when_root_contains_instance() -> Result<(), Box<dyn
 
     let manifest = InstanceManifest {
         schema_version: 2,
-        realm_id: RealmId::try_from("a".repeat(64))?,
+        realm_id: maestria_test_support::realm_id(10)?,
         root: instance,
         read_roots: vec![root.clone()],
         excluded_patterns: Vec::new(),
@@ -58,7 +57,7 @@ fn scan_allows_read_root_nested_in_instance() -> Result<(), Box<dyn std::error::
 
     let manifest = InstanceManifest {
         schema_version: 2,
-        realm_id: RealmId::try_from("a".repeat(64))?,
+        realm_id: maestria_test_support::realm_id(10)?,
         root: instance,
         read_roots: vec![nested],
         excluded_patterns: Vec::new(),
@@ -89,7 +88,7 @@ fn scan_excludes_instance_manifest_and_preserves_alias_scope()
 
     let manifest = InstanceManifest {
         schema_version: 2,
-        realm_id: RealmId::try_from("a".repeat(64))?,
+        realm_id: maestria_test_support::realm_id(10)?,
         root: instance.clone(),
         read_roots: vec![instance.join(".")],
         excluded_patterns: Vec::new(),

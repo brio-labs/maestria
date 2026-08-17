@@ -126,18 +126,25 @@ impl TryFrom<String> for ContentHash {
 
 impl ContentHash {
     pub fn new(hash: String) -> Result<Self, SearchCompatibilityError> {
-        let valid_digest = hash.strip_prefix("sha256:").is_some_and(|digest| {
-            digest.len() == 64
-                && digest
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-        });
-        if !valid_digest {
+        if !Self::is_valid(&hash) {
             return Err(SearchCompatibilityError::InvalidContentHash(
                 "Must be sha256: followed by 64 hexadecimal characters",
             ));
         }
         Ok(Self(hash))
+    }
+
+    fn is_valid(value: &str) -> bool {
+        value.strip_prefix("sha256:").is_some_and(|digest| {
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        })
+    }
+
+    pub fn is_well_formed(value: &str) -> bool {
+        Self::is_valid(value)
     }
 
     pub fn as_str(&self) -> &str {

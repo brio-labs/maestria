@@ -41,3 +41,4 @@ ignore = "0.4.28"
 
 [dev-dependencies]
 maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }
+maestria-test-support = { path = "../../test-support/maestria-test-support" }

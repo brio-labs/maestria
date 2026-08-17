@@ -21,12 +21,12 @@ use crate::language::typescript::tokens::{
     TS_SOURCE_EXTENSIONS, is_bench_file, is_test_file, module_path_for_file,
 };
 use crate::language::{BackendDiscovery, DerivedFileContext, LanguageBackend, LanguageKind};
-use crate::provenance::content_hash;
 use crate::symbols::RelationCandidate;
 use crate::symbols::SymbolExtraction;
 use crate::symbols::context::FileContext;
 use crate::types::{FileContextRecord, PackageRecord, SymbolMarkers, SymbolRecord};
 use crate::walk;
+use maestria_domain::content_hash;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};

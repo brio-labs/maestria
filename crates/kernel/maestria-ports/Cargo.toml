@@ -6,10 +6,14 @@ license.workspace = true
 rust-version.workspace = true
 
 [features]
-contract-tests = []
+contract-tests = ["dep:maestria-test-support"]
 
 [dependencies]
 maestria_domain = { package = "maestria-domain", path = "../maestria-domain" }
 serde = { version = "1", features = ["derive"] }
+maestria-test-support = { path = "../../test-support/maestria-test-support", optional = true }
 
 
+
+[dev-dependencies]
+maestria-test-support = { path = "../../test-support/maestria-test-support" }

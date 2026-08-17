@@ -128,6 +128,14 @@ pub fn is_notable_group(file_count: usize, total_bytes: u64) -> bool {
     file_count >= PROMPT_MIN_FILES || total_bytes >= PROMPT_MIN_BYTES
 }
 
+/// The direct child directory of `dir` containing `file`, if `file` is not
+/// `dir` itself.
+fn child_of(dir: &Path, file: &Path) -> Option<PathBuf> {
+    let relative = file.strip_prefix(dir).ok()?;
+    let first = relative.components().next()?;
+    Some(dir.join(first))
+}
+
 /// Group the sources under `dir` by their direct child directory.
 ///
 /// Files directly inside `dir` belong to the `None` entry and are always
@@ -136,14 +144,9 @@ pub fn group_by_child(dir: &Path, files: &[PathBuf]) -> Vec<(PathBuf, usize, u64
     let mut groups: std::collections::BTreeMap<PathBuf, (usize, u64)> =
         std::collections::BTreeMap::new();
     for file in files {
-        let Some(relative) = file.strip_prefix(dir).ok() else {
+        let Some(child) = child_of(dir, file) else {
             continue;
         };
-        let mut components = relative.components();
-        let Some(first) = components.next() else {
-            continue;
-        };
-        let child = dir.join(first);
         let size = fs::metadata(file).map_or(0, |metadata| metadata.len());
         let entry = groups.entry(child).or_insert((0, 0));
         entry.0 += 1;
@@ -152,6 +155,32 @@ pub fn group_by_child(dir: &Path, files: &[PathBuf]) -> Vec<(PathBuf, usize, u64
     let mut ordered: Vec<(PathBuf, usize, u64)> = groups
         .into_iter()
         .map(|(path, (count, bytes))| (path, count, bytes))
+        .collect();
+    ordered.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| right.2.cmp(&left.2)));
+    ordered
+}
+
+/// Partition `files` under `dir` by their direct child directory, returning
+/// each child with its file count, total bytes, and member files in one pass.
+pub(crate) fn partition_by_child(
+    dir: &Path,
+    files: &[PathBuf],
+) -> Vec<(PathBuf, usize, u64, Vec<PathBuf>)> {
+    let mut groups: std::collections::BTreeMap<PathBuf, (usize, u64, Vec<PathBuf>)> =
+        std::collections::BTreeMap::new();
+    for file in files {
+        let Some(child) = child_of(dir, file) else {
+            continue;
+        };
+        let size = fs::metadata(file).map_or(0, |metadata| metadata.len());
+        let entry = groups.entry(child).or_insert((0, 0, Vec::new()));
+        entry.0 += 1;
+        entry.1 += size;
+        entry.2.push(file.clone());
+    }
+    let mut ordered: Vec<(PathBuf, usize, u64, Vec<PathBuf>)> = groups
+        .into_iter()
+        .map(|(path, (count, bytes, members))| (path, count, bytes, members))
         .collect();
     ordered.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| right.2.cmp(&left.2)));
     ordered

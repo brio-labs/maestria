@@ -243,7 +243,7 @@ mod tests {
             kind: EvidenceKind::PdfSpan {
                 snapshot: maestria_domain::SnapshotRef::new(
                     maestria_domain::BlobId::new(9),
-                    maestria_domain::ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?,
+                    maestria_test_support::content_hash(0)?,
                 ),
                 page_start: 1,
                 page_end: 1,
@@ -270,9 +270,7 @@ mod tests {
             claim_ids: Default::default(),
             evidence_ids: Default::default(),
             index_status: IndexStatus::Indexed,
-            content_hash: Some(maestria_domain::ContentHash::new(
-                "sha256:".to_owned() + &"0".repeat(64),
-            )?),
+            content_hash: Some(maestria_test_support::content_hash(0)?),
             parse_status: None,
             security: Default::default(),
         };

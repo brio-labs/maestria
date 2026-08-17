@@ -4,7 +4,7 @@ use super::*;
 
 use std::path::Path;
 fn test_realm_id() -> Result<RealmId, Box<dyn std::error::Error>> {
-    Ok(RealmId::try_from("a".repeat(64))?)
+    Ok(maestria_test_support::realm_id(10)?)
 }
 
 #[test]
