@@ -23,6 +23,7 @@ mod evidence;
 mod extract;
 mod index;
 mod notebooks;
+mod repository_index;
 mod retrieval;
 mod router;
 mod search;

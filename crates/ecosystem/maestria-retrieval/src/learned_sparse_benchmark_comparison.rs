@@ -60,8 +60,8 @@ impl LearnedSparseBenchmarkComparison {
                 .filter(|case| case.class == class)
                 .collect::<Vec<_>>();
             let mut routes = BTreeMap::new();
-            for route in all_routes() {
-                routes.insert(route, metrics::aggregate(&cases, route, observations)?);
+            for route in corpus.route_configurations.keys() {
+                routes.insert(*route, metrics::aggregate(&cases, *route, observations)?);
             }
             let winning_route = metrics::winning_sparse_route(class, &routes);
             classes.insert(
@@ -381,10 +381,6 @@ impl LearnedSparsePromotionRecord {
     }
 }
 
-fn all_routes() -> [LearnedSparseRoute; 4] {
-    LearnedSparseRoute::all()
-}
-
 pub(super) fn validate_observations(
     corpus: &LearnedSparseBenchmarkCorpus,
     observations: &[LearnedSparseBenchmarkObservation],
@@ -408,11 +404,11 @@ pub(super) fn validate_observations(
         }
     }
     for case in &corpus.cases {
-        for route in all_routes() {
-            if !seen.contains(&(case.case_id.clone(), route)) {
+        for route in corpus.route_configurations.keys() {
+            if !seen.contains(&(case.case_id.clone(), *route)) {
                 return Err(LearnedSparseBenchmarkError::MissingObservation {
                     case_id: case.case_id.clone(),
-                    route,
+                    route: *route,
                 });
             }
         }

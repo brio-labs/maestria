@@ -1,7 +1,6 @@
 use std::mem::size_of;
 
 use maestria_domain::ChunkId;
-use maestria_domain::IndexFingerprint;
 use maestria_ports::{PortError, VectorEmbedding};
 
 pub(crate) const F32_BYTES: usize = size_of::<f32>();
@@ -64,29 +63,9 @@ impl TryFrom<VectorEmbedding> for PreparedEmbedding {
                 maestria_ports::RetentionPolicy::ProviderDefined => "provider_defined".to_string(),
             },
             representation: embedding.provenance.identity.representation.0.clone(),
-            fingerprint: serialize_fingerprint(&embedding.provenance.identity.fingerprint),
+            fingerprint: embedding.provenance.identity.fingerprint.encode(),
         })
     }
-}
-
-pub(crate) fn serialize_fingerprint(f: &IndexFingerprint) -> String {
-    let mut serialized = String::new();
-    let mut append = |value: &str| {
-        serialized.push_str(&value.len().to_string());
-        serialized.push(':');
-        serialized.push_str(value);
-    };
-    let dimensions = f.dimensions.to_string();
-    append(f.provider.as_str());
-    append(f.model.as_str());
-    append(f.revision.as_str());
-    append(f.artifact_hash.as_str());
-    append(&dimensions);
-    append(f.quantization.as_str());
-    append(f.query_template_hash.as_str());
-    append(f.document_template_hash.as_str());
-    append(f.preprocessing_version.as_str());
-    serialized
 }
 
 pub(crate) fn validate_vector(vector: &[f32], label: &str) -> Result<(), PortError> {
@@ -199,8 +178,6 @@ pub(crate) fn to_port_error(error: rusqlite::Error) -> PortError {
 }
 #[cfg(test)]
 mod tests {
-    use super::serialize_fingerprint;
-
     #[test]
     fn fingerprint_serialization_is_collision_free_for_delimiters()
     -> Result<(), Box<dyn std::error::Error>> {
@@ -212,10 +189,7 @@ mod tests {
         let mut second = base;
         second.provider = "a".to_string().into();
         second.model = "b:c".to_string().into();
-        assert_ne!(
-            serialize_fingerprint(&first),
-            serialize_fingerprint(&second)
-        );
+        assert_ne!(first.encode(), second.encode());
         Ok(())
     }
 }

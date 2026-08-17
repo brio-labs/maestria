@@ -2,6 +2,7 @@
 
 use crate::CodeIntelError;
 use crate::language::backend_for_path;
+use crate::selection::RepositorySelection;
 use crate::symbols::relation;
 use crate::types::{CodeIndexSummary, ParserGeneration, RepositoryCodeIndex};
 use crate::walk::is_excluded_path;
@@ -39,12 +40,24 @@ pub(crate) fn check_new_auto_targets(
             }
         })
         .collect();
+    // The persisted selection is the build configuration; a malformed one
+    // falls back to whole-repo (conservative: more files can only force a
+    // full rebuild, never skip a selected one).
+    let selection = match RepositorySelection::try_from(inputs.selection_paths.clone()) {
+        Ok(selection) => selection,
+        Err(_) => RepositorySelection::everything(),
+    };
     let mut walk_set = BTreeSet::new();
     for backend in &inputs.backends {
-        walk_set.extend(backend.collect_source_files(inputs.root, inputs.excluded_patterns)?);
+        walk_set.extend(backend.collect_source_files(
+            inputs.root,
+            inputs.excluded_patterns,
+            Some(&selection),
+        )?);
     }
     for path in inputs.file_set.union(&walk_set) {
-        if is_excluded_path(Path::new(path), inputs.excluded_patterns) {
+        if is_excluded_path(Path::new(path), inputs.excluded_patterns) || !selection.contains(path)
+        {
             continue;
         }
         let Some(backend) = backend_for_path(&inputs.backends, path) else {
@@ -91,9 +104,19 @@ pub(crate) fn assemble_index(
             symbols.extend(records.iter().cloned());
         }
     }
+    // Records gated out by a policy change are dropped from the rebuilt index.
+    let gate_root = Path::new(&inputs.identity.root);
+    symbols.retain(|symbol| {
+        inputs
+            .file_gate
+            .allows(gate_root, &symbol.provenance.file_path)
+    });
     let mut reassembled_candidates = Vec::new();
     for (candidate, prefix) in candidates.iter().zip(&state.candidate_prefixes) {
-        if state.dropped_files.contains(prefix) || state.replaced_files.contains(prefix) {
+        if state.dropped_files.contains(prefix)
+            || state.replaced_files.contains(prefix)
+            || !inputs.file_gate.allows(gate_root, prefix)
+        {
             continue;
         }
         reassembled_candidates.push(candidate.clone());
@@ -102,16 +125,7 @@ pub(crate) fn assemble_index(
     let relations =
         relation::resolve_relations(inputs.parser_generation, &symbols, &reassembled_candidates);
 
-    let mut packages = index.packages.clone();
-    for package in packages.iter_mut() {
-        rewrite_identity(&mut package.provenance, inputs.identity);
-        for dependency in &mut package.dependencies {
-            rewrite_identity(&mut dependency.provenance, inputs.identity);
-        }
-        for target in &mut package.targets {
-            rewrite_identity(&mut target.provenance, inputs.identity);
-        }
-    }
+    let packages = filter_and_rewrite_packages(index.packages.clone(), gate_root, inputs);
     let symbol_files: BTreeSet<&String> = symbols
         .iter()
         .map(|symbol| &symbol.provenance.file_path)
@@ -140,12 +154,59 @@ pub(crate) fn assemble_index(
                 workspace_warnings: index.summary.workspace_warnings.clone(),
                 relation_summary: relation::relation_status_summary(relations.len()),
                 changed,
+                selected_paths: inputs.selection_paths.clone(),
+                selection_policies: inputs.selection_policies.clone(),
             },
             packages,
             symbols,
             relations,
-            file_contexts: state.contexts.clone(),
+            file_contexts: state
+                .contexts
+                .iter()
+                .filter(|(key, _)| inputs.file_gate.allows(gate_root, key))
+                .map(|(key, record)| (key.clone(), record.clone()))
+                .collect(),
         },
         reassembled_candidates,
     ))
+}
+
+/// Drops packages whose every target is gated out by the selection and
+/// rewrites retained package/dependency/target identities to the current
+/// identity (kept packages were extracted under the old identity — the
+/// rewrite keeps the rebuilt index fresh-build equal).
+fn filter_and_rewrite_packages(
+    packages: Vec<crate::types::PackageRecord>,
+    gate_root: &Path,
+    inputs: &RebuildInputs,
+) -> Vec<crate::types::PackageRecord> {
+    let mut packages: Vec<_> = packages
+        .into_iter()
+        .filter_map(|mut package| {
+            package.targets.retain(|target| {
+                let relative = Path::new(&target.src_path)
+                    .strip_prefix(gate_root)
+                    .map_or_else(
+                        |_| target.src_path.clone(),
+                        |relative| relative.to_string_lossy().into_owned(),
+                    );
+                inputs.file_gate.allows(gate_root, &relative)
+            });
+            if package.targets.is_empty() {
+                None
+            } else {
+                Some(package)
+            }
+        })
+        .collect();
+    for package in packages.iter_mut() {
+        rewrite_identity(&mut package.provenance, inputs.identity);
+        for dependency in &mut package.dependencies {
+            rewrite_identity(&mut dependency.provenance, inputs.identity);
+        }
+        for target in &mut package.targets {
+            rewrite_identity(&mut target.provenance, inputs.identity);
+        }
+    }
+    packages
 }

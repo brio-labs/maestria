@@ -188,7 +188,7 @@ fn prepare_search_runtime_with_options(
         dense_generation,
         repository_code_index,
         repository_execution_policy,
-        hybrid_execution_policy: maestria_retrieval::HybridExecutionPolicy::Shadow,
+        hybrid_execution_policy: crate::runtime_construction::hybrid_policy(&sqlite_store),
         learned_sparse_execution_policy: maestria_retrieval::LearnedSparseExecutionPolicy::Shadow,
         sparse_retriever: None,
         corpus_snapshot,

@@ -83,6 +83,7 @@ impl LanguageBackend for TypeScriptBackend {
         &self,
         root: &Path,
         excluded_patterns: &[String],
+        selection: Option<&crate::selection::RepositorySelection>,
     ) -> Result<BTreeSet<String>, CodeIntelError> {
         let mut files = BTreeSet::new();
         walk::collect_source_paths(
@@ -90,6 +91,7 @@ impl LanguageBackend for TypeScriptBackend {
             root,
             &mut files,
             excluded_patterns,
+            selection,
             &TS_SOURCE_EXTENSIONS,
         )?;
         Ok(files)

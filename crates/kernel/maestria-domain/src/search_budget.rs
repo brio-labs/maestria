@@ -3,11 +3,11 @@ use serde::{Deserialize, Serialize};
 use super::SearchCompatibilityError;
 
 fn default_candidate_budget() -> u32 {
-    10_000
+    30_000
 }
 
 fn default_work_budget() -> u64 {
-    100_000
+    30_000_000
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

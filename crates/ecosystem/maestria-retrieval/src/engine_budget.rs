@@ -29,6 +29,10 @@ pub(crate) fn usage_within_budget(
             .is_none_or(|limit| usage.bytes_read <= limit.get())
 }
 
+#[cfg(test)]
+#[path = "engine_budget_tests.rs"]
+mod tests;
+
 fn partition_allowance(total: u64, lanes: usize, lane: usize) -> u64 {
     let lanes = lanes.max(1) as u64;
     let base = total / lanes;
@@ -62,7 +66,11 @@ pub fn lane_budget(
     }
     let max_bytes = partitioned_bytes.and_then(std::num::NonZeroU64::new);
     SearchExecutionBudget::with_byte_limit(
-        partition_allowance(max_results, lanes, lane),
+        // `max_results` is the plan's final-result ceiling, not a shared
+        // consumable resource: every lane must be able to produce up to the
+        // full result count so fusion can select from all lanes. Partitioning
+        // it would cap each lane at `max_results / lanes` candidates.
+        max_results,
         partition_allowance(max_candidates, lanes, lane),
         partition_allowance(max_work_units, lanes, lane),
         max_bytes,
@@ -75,10 +83,14 @@ pub(crate) fn remaining_budget(
     usage: SearchExecutionUsage,
 ) -> Option<SearchExecutionBudget> {
     let global = plan.execution_budget().ok()?;
-    let max_results = global.max_results().saturating_sub(usage.results);
+    // `usage.results` counts lane-produced candidates and can legitimately
+    // exceed the final-result ceiling (each lane produces up to
+    // `max_results` for fusion); the ceiling applies to the final
+    // selection, not to cumulative lane production.
+    let max_results = global.max_results();
     let max_candidates = global.max_candidates().saturating_sub(usage.candidates);
     let max_work_units = global.max_work_units().saturating_sub(usage.work_units);
-    if max_results == 0 || max_candidates == 0 || max_work_units == 0 {
+    if max_candidates == 0 || max_work_units == 0 {
         return None;
     }
     let max_bytes = global

@@ -94,11 +94,12 @@ pub(crate) trait LanguageBackend {
 
     /// Every source file under `root` this backend would extract, as
     /// relative paths (exclusion-aware; used by identity and the new-file
-    /// check).
+    /// check). When `selection` is `Some`, the walk is pruned to it.
     fn collect_source_files(
         &self,
         root: &Path,
         excluded_patterns: &[String],
+        selection: Option<&crate::selection::RepositorySelection>,
     ) -> Result<BTreeSet<String>, CodeIntelError>;
 
     /// Full extraction pass for this backend's packages.

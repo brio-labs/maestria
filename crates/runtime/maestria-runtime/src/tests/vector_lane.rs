@@ -510,7 +510,8 @@ async fn full_text_effect_completes_while_vector_lane_is_saturated()
         .ok_or("input channel closed")?;
     assert!(
         matches!(completion, DomainInput::FullTextIndexCompleted(completion)
-            if completion.artifact_id == full_text_artifact && completion.chunk_id == full_text_chunk),
+            if completion.artifact_id == full_text_artifact
+                && completion.chunk_id == full_text_chunk),
         "full-text completion must be delivered while the vector lane is saturated"
     );
     assert!(
@@ -641,5 +642,130 @@ async fn full_text_completion_on_full_input_channel_delivers_without_retry()
             if completion.artifact_id == artifact_id && completion.chunk_id == chunk_id),
         "the deferred full-text completion must arrive once the channel drains"
     );
+    Ok(())
+}
+
+#[derive(Clone, Default)]
+struct CountingEmbeddingProvider {
+    calls: Arc<AtomicUsize>,
+}
+
+impl CountingEmbeddingProvider {
+    fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+}
+
+impl maestria_ports::EmbeddingProvider for CountingEmbeddingProvider {
+    fn disclosure(&self) -> maestria_ports::ProviderDisclosure {
+        maestria_ports::ProviderDisclosure {
+            remote: false,
+            retention: maestria_ports::RetentionPolicy::NoRetention,
+        }
+    }
+    fn embed(
+        &self,
+        request: maestria_ports::EmbeddingRequest,
+    ) -> Result<maestria_ports::EmbeddingResponse, PortError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(maestria_ports::EmbeddingResponse {
+            vector: vec![1.0, 0.0],
+            provider_id: "counting".to_string(),
+            model: request.model,
+            model_version: "v1".to_string(),
+            identity: request.identity,
+            disclosure: maestria_ports::ProviderDisclosure {
+                remote: false,
+                retention: maestria_ports::RetentionPolicy::NoRetention,
+            },
+        })
+    }
+    fn identity(&self) -> Option<maestria_ports::EmbeddingIdentity> {
+        maestria_ports::contract_tests::fixture_embedding_identity("counting", 2).ok()
+    }
+}
+
+/// Secret-bearing chunks must degrade the vector lane instead of failing the
+/// runtime: a later clean chunk is still embedded, proving the runtime did
+/// not cancel after the secret refusal.
+#[tokio::test]
+async fn secret_chunk_degrades_vector_lane_without_cancelling_runtime()
+-> Result<(), Box<dyn std::error::Error>> {
+    let artifact_id = ArtifactId::new(1);
+    let secret_chunk = ChunkId::new(10);
+    let clean_artifact = ArtifactId::new(2);
+    let clean_chunk = ChunkId::new(11);
+    let mut state = KernelState::new();
+    state
+        .artifacts
+        .insert(artifact_id, artifact_fixture(artifact_id));
+    state
+        .artifacts
+        .insert(clean_artifact, artifact_fixture(clean_artifact));
+    state.chunks.insert(
+        secret_chunk,
+        chunk_fixture(secret_chunk, artifact_id, 0, "api_key = abc123"),
+    );
+    state.chunks.insert(
+        clean_chunk,
+        chunk_fixture(clean_chunk, clean_artifact, 0, "clean chunk text"),
+    );
+
+    let provider = CountingEmbeddingProvider::default();
+    let adapters = Adapters {
+        embedding_provider: Some(Arc::new(provider.clone())),
+        ..crate::test_helpers::test_adapters()
+    };
+    let (runtime, mut _input_rx) = MaestriaRuntime::new(
+        RuntimeConfig {
+            max_concurrent_effects: 1,
+            max_retries: 0,
+            default_effect_timeout: Duration::from_secs(30),
+            embedding_model: Some("counting".to_string()),
+            ..RuntimeConfig::default()
+        },
+        state,
+        adapters,
+        crate::test_helpers::test_governance(),
+    );
+    let (effect_tx, effect_rx) = mpsc::channel(32);
+    let effect_shutdown = CancellationToken::new();
+    let runtime_shutdown = CancellationToken::new();
+    let executor =
+        runtime.spawn_effect_executor(effect_rx, effect_shutdown.clone(), runtime_shutdown.clone());
+
+    effect_tx
+        .send(vec![EffectWork::Pending(MaestriaEffect::IndexVector(
+            IndexVectorRequest {
+                artifact_id,
+                chunk_id: secret_chunk,
+            },
+        ))])
+        .await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        provider.calls(),
+        0,
+        "secret-bearing chunk must not reach the embedding provider"
+    );
+
+    effect_tx
+        .send(vec![EffectWork::Pending(MaestriaEffect::IndexVector(
+            IndexVectorRequest {
+                artifact_id: clean_artifact,
+                chunk_id: clean_chunk,
+            },
+        ))])
+        .await?;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while provider.calls() == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .map_err(|_| "clean vector effect never ran: runtime cancelled after secret refusal")?;
+
+    drop(effect_tx);
+    tokio::time::timeout(Duration::from_secs(5), executor).await??;
     Ok(())
 }

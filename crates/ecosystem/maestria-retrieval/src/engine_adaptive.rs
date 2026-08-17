@@ -188,17 +188,23 @@ async fn retrieve_missing_slot(request: MissingSlotRequest<'_>) -> RetrievalResu
 
 fn lane_budget_exhausted(batches: &[CandidateBatch]) -> bool {
     batches.iter().any(|batch| {
+        // A lane that exhausted a resource budget without producing any
+        // candidates leaves nothing to iterate; a lane that returned
+        // candidates is a complete answer even when its collector hit the
+        // candidate ceiling (the engine must not report BudgetExhausted
+        // against an Answerable outcome).
         !matches!(
             batch.status,
             maestria_domain::SearchLaneStatus::Failed { .. }
-        ) && matches!(
-            batch.execution.completion,
-            maestria_domain::SearchExecutionCompletion::Exhausted(
-                maestria_domain::SearchExecutionResource::Candidates
-                    | maestria_domain::SearchExecutionResource::WorkUnits
-                    | maestria_domain::SearchExecutionResource::BytesRead
+        ) && batch.candidates.is_empty()
+            && matches!(
+                batch.execution.completion,
+                maestria_domain::SearchExecutionCompletion::Exhausted(
+                    maestria_domain::SearchExecutionResource::Candidates
+                        | maestria_domain::SearchExecutionResource::WorkUnits
+                        | maestria_domain::SearchExecutionResource::BytesRead
+                )
             )
-        )
     })
 }
 

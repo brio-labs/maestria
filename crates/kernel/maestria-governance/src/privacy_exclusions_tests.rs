@@ -31,6 +31,43 @@ fn default_excludes_sensitive_extensions() {
 }
 
 #[test]
+fn default_excludes_machine_state_directories() {
+    let exclusions = PrivacyExclusions::default();
+    for path in [
+        "/home/user/.cache/pip",
+        "/home/user/.config/Code",
+        "/home/user/.cargo/registry",
+        "/home/user/.rustup/toolchains",
+        "/home/user/.nvm/versions",
+        "/home/user/.var/app",
+        "/work/vendor/bundle",
+        "/work/.venv/lib",
+        "/work/src/__pycache__/mod.cpython-312.pyc",
+    ] {
+        assert!(
+            exclusions.is_excluded(Path::new(path)),
+            "expected {path} to be excluded as machine state"
+        );
+    }
+}
+
+#[test]
+fn default_keeps_user_content_visible() {
+    let exclusions = PrivacyExclusions::default();
+    for path in [
+        "/home/user/.logseq/journals/2026-08-13.md",
+        "/home/user/Documents/report.md",
+        "/home/user/notes/ideas.md",
+        "/home/user/.local/share/app/data.json",
+    ] {
+        assert!(
+            !exclusions.is_excluded(Path::new(path)),
+            "expected {path} to stay visible (user content)"
+        );
+    }
+}
+
+#[test]
 fn normal_paths_are_not_excluded() {
     let exclusions = PrivacyExclusions::default();
     assert!(!exclusions.is_excluded(Path::new("/src/main.rs")));

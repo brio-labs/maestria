@@ -42,11 +42,16 @@ fn is_skipped_directory(name: &str) -> bool {
 /// relative path, skipping `.git`, `target/`, hidden directories,
 /// `__pycache__`, `*.egg-info`, and privacy-excluded paths. Symlinks are
 /// never followed.
+///
+/// When `selection` is `Some`, the walk is pruned to it: a directory is
+/// entered only when a selected path equals it, lies under it, or contains
+/// it, and files are collected only when `selection.contains(relative)`.
 pub(crate) fn collect_source_paths(
     root: &Path,
     directory: &Path,
     paths: &mut std::collections::BTreeSet<String>,
     excluded_patterns: &[String],
+    selection: Option<&crate::selection::RepositorySelection>,
     extensions: &[&'static str],
 ) -> Result<(), CodeIntelError> {
     if is_excluded_path(directory, excluded_patterns) {
@@ -63,6 +68,11 @@ pub(crate) fn collect_source_paths(
                 context: "derive source identity path".to_string(),
                 details: error.to_string(),
             })?;
+        if let Some(selection) = selection
+            && !selection.contains(&relative.to_string_lossy())
+        {
+            return Ok(());
+        }
         let extension = directory
             .extension()
             .and_then(|extension| extension.to_str())
@@ -74,6 +84,15 @@ pub(crate) fn collect_source_paths(
     }
     if !metadata.is_dir() {
         return Ok(());
+    }
+    if let Some(selection) = selection {
+        let relative = directory.strip_prefix(root).map_or_else(
+            |_| String::new(),
+            |relative| relative.to_string_lossy().into_owned(),
+        );
+        if !selection_reaches(selection, &relative) {
+            return Ok(());
+        }
     }
     for entry in fs::read_dir(directory).map_err(|error| CodeIntelError::Identity {
         context: "read source directory".to_string(),
@@ -91,9 +110,30 @@ pub(crate) fn collect_source_paths(
         {
             continue;
         }
-        collect_source_paths(root, &child, paths, excluded_patterns, extensions)?;
+        collect_source_paths(
+            root,
+            &child,
+            paths,
+            excluded_patterns,
+            selection,
+            extensions,
+        )?;
     }
     Ok(())
+}
+
+/// Whether the selection covers `relative` or anything under or above it:
+/// some selected path equals it, lies below it, or contains it. A directory
+/// is entered when it is selected, is an ancestor of a selected path, or is
+/// a descendant of one (its files are then still filtered by
+/// [`RepositorySelection::contains`]).
+fn selection_reaches(selection: &crate::selection::RepositorySelection, relative: &str) -> bool {
+    selection.is_whole()
+        || selection.as_paths().any(|selected| {
+            selected == relative
+                || selected.starts_with(&format!("{relative}/"))
+                || relative.starts_with(&format!("{selected}/"))
+        })
 }
 
 /// Bounded manifest discovery: every file named in `manifest_names` under

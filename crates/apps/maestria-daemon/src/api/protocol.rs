@@ -11,6 +11,8 @@ mod protocol_index;
 mod protocol_notebook;
 #[path = "protocol_read.rs"]
 mod protocol_read;
+#[path = "protocol_repository_index.rs"]
+mod protocol_repository_index;
 pub use protocol_client::{ClientErrorCode, DaemonClient, DaemonRequestError};
 pub(crate) use protocol_client::{ClientReplyOut, read_capped_ndjson_line};
 pub use protocol_federation::{
@@ -31,6 +33,12 @@ pub use protocol_read::{
     RetrievalPromotionRecordWire, RetrievalPromotionRecords, RetrievalStatusResponse,
     SearchEvidenceResponse, SearchRawRankResponse, SearchResponse, SearchScoreResponse,
     SearchScoreScaleResponse, StatusResponse, TaskResponse, TaskSummary,
+};
+pub use protocol_repository_index::{
+    RepositoryIndexCandidatesResponse, RepositoryIndexChildrenResponse, RepositoryIndexFile,
+    RepositoryIndexFilesResponse, RepositoryIndexProgress, RepositoryIndexProgressResponse,
+    RepositoryIndexRunResponse, RepositoryIndexSelectionResponse, RepositoryIndexStatusResponse,
+    RepositoryIndexSummary,
 };
 
 const MAX_SEARCH_LIMIT: usize = 100;
@@ -156,6 +164,32 @@ pub enum ClientOperation {
         includes: Vec<String>,
         policies: std::collections::BTreeMap<String, maestria_index_selection::IndexPolicy>,
     },
+    RepositoryIndexCandidates {
+        root: String,
+    },
+    RepositoryIndexSelectionGet,
+    RepositoryIndexSelectionSave {
+        profile: maestria_index_selection::IndexSelectionProfile,
+    },
+    RepositoryIndexRun {
+        root: String,
+        includes: Vec<String>,
+        policies: std::collections::BTreeMap<String, maestria_index_selection::IndexPolicy>,
+    },
+    RepositoryIndexStatus {
+        root: String,
+    },
+    RepositoryIndexChildren {
+        root: String,
+        /// Repository-relative directory path to expand.
+        path: String,
+    },
+    RepositoryIndexFiles {
+        root: String,
+        /// Repository-relative directory path to list.
+        path: String,
+    },
+    RepositoryIndexProgressGet,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -192,6 +226,14 @@ pub enum ClientResponse {
     IndexSelection(IndexSelectionResponse),
     IndexSelectionSaved,
     IndexRun(IndexRunResponse),
+    RepositoryIndexCandidates(RepositoryIndexCandidatesResponse),
+    RepositoryIndexSelection(RepositoryIndexSelectionResponse),
+    RepositoryIndexSelectionSaved,
+    RepositoryIndexRun(RepositoryIndexRunResponse),
+    RepositoryIndexStatus(RepositoryIndexStatusResponse),
+    RepositoryIndexChildren(RepositoryIndexChildrenResponse),
+    RepositoryIndexFiles(RepositoryIndexFilesResponse),
+    RepositoryIndexProgress(RepositoryIndexProgressResponse),
 }
 
 /// Untrusted proposal payload submitted to the model agent endpoint.

@@ -22,7 +22,10 @@ pub(crate) fn GlobalNav(notebooks: Vec<NotebookSummary>) -> Element {
     } else {
         idle_class
     };
-    let index_class = if matches!(&route, Route::Index { .. }) {
+    let index_class = if matches!(
+        &route,
+        Route::Index { .. } | Route::IndexRepositories { .. }
+    ) {
         active_class
     } else {
         idle_class

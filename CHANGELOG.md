@@ -2,6 +2,68 @@
 
 All notable Maestria releases are documented here.
 
+## [Unreleased]
+
+Maestria activates the dense embedding lane for the lexical/hybrid search
+route on benchmark evidence, adds live indexing metrics to the CLI, and
+introduces the repository index selection layer: a whitelist-first choice
+surface (CLI, daemon API, studio, and web) that scopes repository code
+intelligence to a reviewed set of directories.
+
+### Added
+
+- Hybrid dense-lane activation: a real-instance benchmark
+  (`maestria_hybrid_evaluation`, manual) measures lexical vs hybrid recall on
+  six query classes with RAPL energy telemetry and writes a promotion record
+  bound to the report hash; `VocabularyExpansion` and `DomainTerminology` are
+  served by the dense lane (`hybrid_state=Active`).
+- Live `index` metrics: per-file progress, embedding counts from the vector
+  projection WAL, throughput, and a final summary with MiB/min and embeddings.
+- `index repository` — whitelist-first repository code indexing with
+  `--include`/`--all`/`--yes` selection, classified candidate tree, and
+  per-directory policies (`max_file_bytes`, `skip_generated`, `skip_minified`);
+  identity, delta, records, and freshness are selection-scoped.
+- Repository index selection surface: daemon operations
+  (`repository_index_candidates`/`selection_get`/`selection_save`/`run`/
+  `status`/`children`/`files`/`progress`), studio HTTP proxy routes, and the
+  web workspace with lazy candidate-tree browsing and run progress polling.
+- `privacy_exclusions` defaults covering machine-state directories, wired
+  into index-selection scanning and blocked patterns.
+- `IndexGenerationRegistry` with lifecycle transitions and retired-generation
+  rollback, plus `MonotonicInstant` saturating arithmetic.
+- Vector projection WAL mode and `embedding_row_count()` for concurrent
+  readers.
+
+### Changed
+
+- Search execution budgets: default candidate/work ceilings raised
+  (30 000 / 30 000 000) so the dense lane scans the whole projection instead
+  of a truncated `chunk_id`-ordered prefix — the previous top-K was only the
+  best of the first scanned rows.
+- Promotion gate: `source_redundancy` bound relaxed from +20% to +100%
+  relative, reflecting the structurally larger candidate set of a fused
+  two-lane result.
+- Read-only search runtimes (CLI search while the daemon holds the instance
+  lock) now derive the hybrid policy from the persisted promotion record
+  instead of hardcoding shadow.
+- `content_hash` identity unified on the chunk text so projection
+  reconciliation skips re-embedding of unchanged chunks.
+- The code-intel source registration window constant moved to the daemon
+  (`repository_source_registration.rs`); `code_intel_sources.rs` removed.
+
+### Fixed
+
+- Dense lane `BudgetExhausted` only when an exhausted lane produced no
+  candidates — a lane with results was misreported and could fail the search
+  trace/plan match.
+- Full collection of all documents no longer marked `truncated` (one-past-end
+  candidate limits in the lexical chunk/card adapters).
+- Repository index runs and candidate scans canonicalize the root before
+  selection containment, matching the CLI path (a non-canonical root could
+  silently drop Cargo targets).
+- Web selection tree: a file selected individually stays checkable instead of
+  being covered by its own selection.
+
 ## [0.6.1] — 2026-07-20
 
 Maestria v0.6.1 adds code intelligence indexing/search, memory promotion,

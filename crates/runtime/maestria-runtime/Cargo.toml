@@ -21,6 +21,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 [dev-dependencies]
+maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }
 tokio-test = "0.4"
 tracing-subscriber = "0.3"
 parking_lot = "0.12"

@@ -16,21 +16,41 @@ use super::LearnedSparseBenchmarkExecutor;
 use super::energy::EnergySample;
 
 impl LearnedSparseBenchmarkExecutor {
-    /// Peak resident set size of this process, in bytes.
-    pub(super) fn peak_ram_bytes(&self) -> u64 {
-        let status = match std::fs::read_to_string("/proc/self/status") {
-            Ok(status) => status,
-            Err(_) => return 0,
+    /// Lifecycle operations measured once per route and reused for every
+    /// observation of that route. The operations exercise the route's whole
+    /// projection (indexing/rebuilding every chunk), so re-measuring them
+    /// per case would re-encode the corpus for each observation.
+    pub(super) fn cached_lifecycle_operations(
+        &self,
+        route: LearnedSparseRoute,
+    ) -> super::LearnedSparseOperationSet {
+        let mut cache = match self.lifecycle_ops.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
         };
+        if let Some(ops) = cache.get(&route) {
+            return ops.clone();
+        }
+        let ops = self.lifecycle_operations(route);
+        cache.insert(route, ops.clone());
+        ops
+    }
+}
+
+impl LearnedSparseBenchmarkExecutor {
+    /// Peak resident set size of this process, in bytes, when readable.
+    ///
+    /// Returns `None` when the process status is unreadable or the high-water
+    /// marker is absent, so the caller can record the measurement as
+    /// `Unavailable` instead of inferring a zero.
+    pub(super) fn peak_ram_bytes(&self) -> Option<u64> {
+        let status = std::fs::read_to_string("/proc/self/status").ok()?;
         let kilobytes = status
             .lines()
             .find_map(|line| line.strip_prefix("VmHWM:"))
             .and_then(|value| value.trim().strip_suffix(" kB"))
-            .and_then(|value| value.trim().parse::<u64>().ok());
-        match kilobytes {
-            Some(kb) => kb.saturating_mul(1024),
-            None => 0,
-        }
+            .and_then(|value| value.trim().parse::<u64>().ok())?;
+        Some(kilobytes.saturating_mul(1024))
     }
 
     fn dir_size(path: &Path) -> u64 {

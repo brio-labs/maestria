@@ -1,6 +1,6 @@
 use crate::{
-    CodeIntelError, RepositoryCodeIndex, identity::discover_repository_identity,
-    language::active_backends,
+    CodeIntelError, RepositoryCodeIndex, RepositorySelection,
+    identity::discover_repository_identity, language::active_backends,
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -39,10 +39,18 @@ impl RepositoryCodeIndex {
         };
         let repository_root = Path::new(&self.summary.repository_root);
         let backends = active_backends(repository_root, &self.summary.excluded_patterns)?;
+        // Freshness is scoped to the indexed selection; a malformed
+        // persisted selection falls back to whole-repo, which is
+        // conservative (the digest then covers more than the index does).
+        let selection = match RepositorySelection::try_from(self.summary.selected_paths.clone()) {
+            Ok(selection) => selection,
+            Err(_) => RepositorySelection::everything(),
+        };
         let current = discover_repository_identity(
             repository_root,
             &self.summary.excluded_patterns,
             &backends,
+            &selection,
         )?;
         let current = RepositoryIdentitySnapshot {
             commit_sha: current.commit,

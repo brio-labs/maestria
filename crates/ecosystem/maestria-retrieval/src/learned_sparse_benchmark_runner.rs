@@ -39,10 +39,14 @@ pub fn run_learned_sparse_benchmark<E: LearnedSparseBenchmarkExecutor>(
     executor: &E,
 ) -> Result<Vec<LearnedSparseBenchmarkObservation>, LearnedSparseBenchmarkError> {
     corpus.validate()?;
-    let mut observations = Vec::with_capacity(corpus.cases.len() * LearnedSparseRoute::all().len());
+    // The corpus declares the routes it evaluates (route_configurations);
+    // an instance without a sparse lane evaluates the lexical and hybrid
+    // routes only.
+    let routes = corpus.route_configurations.keys().collect::<Vec<_>>();
+    let mut observations = Vec::with_capacity(corpus.cases.len() * routes.len());
     for case in &corpus.cases {
-        for route in LearnedSparseRoute::all() {
-            observations.push(executor.observe(case.clone(), route)?);
+        for route in &routes {
+            observations.push(executor.observe(case.clone(), **route)?);
         }
     }
     super::comparison::validate_observations(corpus, &observations)?;

@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 use crate::{
     api::{ApiClient, CandidateDirWire, IndexCandidatesWire, IndexPolicyWire, IndexRunWire},
     components::{Shell, WorkspaceContext, alert},
+    route::Route,
     state::LoadState,
 };
 
@@ -11,7 +12,39 @@ const DEFAULT_MAX_FILE_BYTES: u64 = 1024 * 1024;
 
 /// Included directories: path → the policy its files run under. A
 /// directory is whitelisted exactly when it is present in this map.
-type Included = std::collections::BTreeMap<String, IndexPolicyWire>;
+pub(crate) type Included = std::collections::BTreeMap<String, IndexPolicyWire>;
+
+/// The tab bar shared by the two indexing subsections: document indexing
+/// (`/index`) and repository code indexing (`/index/repositories`).
+#[component]
+pub(crate) fn IndexTabs() -> Element {
+    let route = use_route::<Route>();
+    let documents_active = matches!(&route, Route::Index { .. });
+    let repositories_active = matches!(&route, Route::IndexRepositories { .. });
+    let tab_class = |active: bool| {
+        if active {
+            "rounded-t border-b-2 border-accent px-4 py-2 font-semibold text-accent"
+        } else {
+            "rounded-t px-4 py-2 text-ink-muted hover:text-ink-strong"
+        }
+    };
+    rsx! {
+        div { class: "mb-6 flex gap-1 border-b border-line",
+            a {
+                class: tab_class(documents_active),
+                href: "/index",
+                aria_current: if documents_active { "page" } else { "false" },
+                "Documents"
+            }
+            a {
+                class: tab_class(repositories_active),
+                href: "/index/repositories",
+                aria_current: if repositories_active { "page" } else { "false" },
+                "Repositories"
+            }
+        }
+    }
+}
 
 #[component]
 pub(crate) fn IndexWorkspace() -> Element {
@@ -28,6 +61,7 @@ pub(crate) fn IndexWorkspace() -> Element {
 
     rsx! {
         Shell { title: "Index", active_notebook: None,
+            IndexTabs {}
             p { class: "mb-6 text-ink-muted",
                 "Choose what gets indexed: the whitelist decides, and per-directory policy "
                 "switches filter large, generated, or minified files."
@@ -148,7 +182,7 @@ fn RunControls(
 
 /// Collect the default whitelist: every `Recommended` directory under
 /// `node` with the policy the classifier assigned.
-fn collect_recommended(node: &CandidateDirWire, selected: &mut Included) {
+pub(crate) fn collect_recommended(node: &CandidateDirWire, selected: &mut Included) {
     if node.class == "Recommended" {
         selected.insert(node.path.clone(), node.policy.clone());
         return;
@@ -159,7 +193,7 @@ fn collect_recommended(node: &CandidateDirWire, selected: &mut Included) {
 }
 
 #[component]
-fn CandidateTree(node: CandidateDirWire, included: Signal<Included>) -> Element {
+pub(crate) fn CandidateTree(node: CandidateDirWire, included: Signal<Included>) -> Element {
     rsx! {
         ul { class: "space-y-1", role: "list",
             for child in node.children.iter() {
@@ -170,7 +204,7 @@ fn CandidateTree(node: CandidateDirWire, included: Signal<Included>) -> Element 
 }
 
 #[component]
-fn CandidateRow(node: CandidateDirWire, included: Signal<Included>) -> Element {
+pub(crate) fn CandidateRow(node: CandidateDirWire, included: Signal<Included>) -> Element {
     let path = node.path.clone();
     let class = node.class.clone();
     let checked = included.read().contains_key(&node.path);
@@ -222,7 +256,7 @@ fn CandidateRow(node: CandidateDirWire, included: Signal<Included>) -> Element {
 }
 
 #[component]
-fn PolicyToggles(path: String, included: Signal<Included>) -> Element {
+pub(crate) fn PolicyToggles(path: String, included: Signal<Included>) -> Element {
     let policy = match included.read().get(&path) {
         Some(policy) => policy.clone(),
         None => IndexPolicyWire {

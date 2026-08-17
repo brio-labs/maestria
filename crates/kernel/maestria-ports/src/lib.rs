@@ -61,11 +61,11 @@ pub use traits::{
     EmbeddingResponse, EventFilter, EventLog, EvidenceRepository, FileHandle, FileMetadata,
     GovernedAgentProposal, GraphIndex, GraphRelationPage, GraphRelationQuery, HarnessAdapter,
     HarnessCapabilities, HarnessCommandClass, HarnessOutcome, HarnessRequest, HarnessRunId,
-    IdAllocator, IndexedCard, IndexedChunk, ModelAgentProposal, ModelAgentProposalError, PortError,
-    ProviderDisclosure, ProviderEndpoint, ProviderTransport, RealmReadGrantRepository,
-    RetentionPolicy, SearchFuture, SearchHit, SearchKnowledgeExecutor, SearchQuery,
-    VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery, WebFetchOptions, WebFetcher,
-    WebSnapshotData,
+    IdAllocator, IndexedCard, IndexedChunk, IndexedEmbeddingKey, ModelAgentProposal,
+    ModelAgentProposalError, PortError, ProviderDisclosure, ProviderEndpoint, ProviderTransport,
+    RealmReadGrantRepository, RetentionPolicy, SearchFuture, SearchHit, SearchKnowledgeExecutor,
+    SearchQuery, VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery, WebFetchOptions,
+    WebFetcher, WebSnapshotData,
 };
 mod visual;
 pub use visual::{VisualEmbeddingProvider, VisualEmbeddingRequest, VisualSource};

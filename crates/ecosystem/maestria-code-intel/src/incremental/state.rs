@@ -2,8 +2,10 @@
 
 use crate::identity::RepositoryIdentity;
 use crate::language::LanguageBackend;
+use crate::selection::FileGate;
 use crate::symbols::RelationCandidate;
 use crate::types::{FileContextRecord, RepositoryCodeIndex};
+use maestria_index_selection::IndexPolicy;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -22,6 +24,16 @@ pub(crate) struct RebuildInputs<'a> {
     /// Active language backends used to dispatch per-file re-extraction,
     /// subtree derivation, and the new-file check.
     pub(crate) backends: Vec<Box<dyn LanguageBackend>>,
+    /// Repository-relative directories the rebuilt index covers (empty =
+    /// whole repository), persisted into the rebuilt summary.
+    pub(crate) selection_paths: Vec<String>,
+    /// Per-directory policy overrides applied at build time, persisted
+    /// into the rebuilt summary.
+    pub(crate) selection_policies: BTreeMap<String, IndexPolicy>,
+    /// Selection + policies gate applied per file: re-extraction, assembly,
+    /// and candidate retention all check it, so records gated out by
+    /// size/minified policy changes are dropped on rebuild.
+    pub(crate) file_gate: FileGate,
 }
 
 /// Working stores threaded through the incremental rebuild phases.

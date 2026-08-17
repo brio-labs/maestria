@@ -6,7 +6,8 @@ use maestria_domain::{
     SearchExecutionResource, SearchExecutionUsage,
 };
 use maestria_ports::{
-    BoundedSearch, PortError, VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery,
+    BoundedSearch, IndexedEmbeddingKey, PortError, VectorEmbedding, VectorIndex, VectorSearchHit,
+    VectorSearchQuery,
 };
 use rusqlite::{Connection, params};
 
@@ -83,10 +84,28 @@ impl SqliteVectorIndex {
     /// Opens a SQLite database at `path` and applies the vector projection schema.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, PortError> {
         let mut connection = Connection::open(path).map_err(to_port_error)?;
+        connection
+            .busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(to_port_error)?;
         migrate(&mut connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
         })
+    }
+
+    /// Count persisted vector rows in the projection.
+    ///
+    /// Used by clients that report live embedding progress while a writer
+    /// commits concurrently; the projection runs in WAL mode so the count
+    /// reads a consistent committed snapshot.
+    pub fn embedding_row_count(&self) -> Result<u64, PortError> {
+        let connection = self.lock_connection()?;
+        let count = connection
+            .query_row("SELECT count(*) FROM vector_embeddings", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map_err(to_port_error)?;
+        i64_to_u64(count)
     }
 
     /// Creates an in-memory vector projection. Useful for adapter tests and callers
@@ -197,6 +216,58 @@ impl VectorIndex for SqliteVectorIndex {
         delete_stale_chunks(&transaction, &expected_chunks)?;
         transaction.commit().map_err(to_port_error)
     }
+
+    fn indexed_embedding_keys(&self) -> Result<Vec<IndexedEmbeddingKey>, PortError> {
+        let connection = self.lock_connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT chunk_id, content_hash, generation_id, representation, fingerprint
+                 FROM vector_embeddings",
+            )
+            .map_err(to_port_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                let stored_id: i64 = row.get(0)?;
+                let chunk_id = u64::try_from(stored_id).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Integer,
+                        Box::new(error),
+                    )
+                })?;
+                Ok(IndexedEmbeddingKey {
+                    chunk_id: ChunkId::new(chunk_id),
+                    content_hash: row.get(1)?,
+                    generation_id: row.get(2)?,
+                    representation: row.get(3)?,
+                    fingerprint: row.get(4)?,
+                })
+            })
+            .map_err(to_port_error)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(to_port_error)
+    }
+
+    fn reconcile_projection(
+        &self,
+        upserted: Vec<VectorEmbedding>,
+        expected: &[ChunkId],
+    ) -> Result<(), PortError> {
+        let prepared = upserted
+            .into_iter()
+            .map(PreparedEmbedding::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut expected_chunks = expected
+            .iter()
+            .map(|chunk_id| u64_to_i64(chunk_id.value()))
+            .collect::<Result<Vec<_>, _>>()?;
+        expected_chunks.sort_unstable();
+
+        let mut connection = self.lock_connection()?;
+        let transaction = connection.transaction().map_err(to_port_error)?;
+        upsert_embeddings(&transaction, prepared)?;
+        delete_stale_chunks(&transaction, &expected_chunks)?;
+        transaction.commit().map_err(to_port_error)
+    }
 }
 
 fn collect_hits(
@@ -266,9 +337,7 @@ fn search_impl(
         (
             Some(identity.generation_id.value().to_string()),
             Some(identity.representation.0.clone()),
-            Some(crate::encoding::serialize_fingerprint(
-                &identity.fingerprint,
-            )),
+            Some(identity.fingerprint.encode()),
         )
     } else {
         (None, None, None)

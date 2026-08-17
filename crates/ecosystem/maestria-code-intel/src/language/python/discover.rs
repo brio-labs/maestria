@@ -397,6 +397,7 @@ fn collect_top_level_modules(
 pub(crate) fn collect_python_source_files(
     root: &Path,
     excluded_patterns: &[String],
+    selection: Option<&crate::selection::RepositorySelection>,
 ) -> Result<BTreeSet<String>, CodeIntelError> {
     let mut files = BTreeSet::new();
     walk::collect_source_paths(
@@ -404,6 +405,7 @@ pub(crate) fn collect_python_source_files(
         root,
         &mut files,
         excluded_patterns,
+        selection,
         &PYTHON_SOURCE_EXTENSIONS,
     )?;
     Ok(files)

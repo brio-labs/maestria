@@ -320,7 +320,15 @@ The deterministic repository lane is a persisted projection, not an embedding fa
 `maestria index repository <path>` discovers every Cargo workspace under the repository
 root with a bounded walk (skipping `.git`, `target/`, hidden directories, and
 privacy-excluded paths) and records each workspace's packages, targets, features,
-dependencies, and Rust symbols into one repository-wide index. Python repositories
+dependencies, and Rust symbols into one repository-wide index. The index is built
+over an explicit selection: a repository-relative set of directories (`--include`,
+the scripted `--yes` approval of the classified candidate tree, or the default
+`Recommended`-only set the classifier recommends), recorded in the index summary as
+`selected_paths` (empty = whole repository) with per-directory `selection_policies`
+overrides. `--all` selects the whole repository. Worktree identity, the changed
+delta, every record, and freshness are all scoped to the selection; a selection or
+policy change forces a full rebuild, and edits outside the selection are never
+indexed and never trigger a rebuild. Python repositories
 (PEP 621 `pyproject.toml`, `setup.cfg`, or `setup.py`) are discovered with the same
 walk: each distribution becomes a package whose targets are its top-level packages
 and modules, and Python classes, functions, methods, imports, and calls are extracted
@@ -483,8 +491,9 @@ flight (submitted but not yet awaited) at any time, and waits for the
 terminal indexed state are serialized oldest-first. The window is sized
 inside the runtime's effect-semaphore headroom (16 slots) so a mid-size
 repository never floods the input loop; it is a named constant
-(`REGISTRATION_IN_FLIGHT`) in `crates/apps/maestria-cli/src/commands/
-code_intel_sources.rs` and must not be raised without fresh measurements of
+(`REGISTRATION_IN_FLIGHT`) in `crates/apps/maestria-daemon/src/
+repository_source_registration.rs` and must not be raised without fresh
+measurements of
 the runtime pipeline. Per-artifact runtime cost is dominated by the
 full-text indexing effect (tantivy commit per artifact across cards, lexical
 cards, chunks, and lexical chunks); commit batching in the runtime is

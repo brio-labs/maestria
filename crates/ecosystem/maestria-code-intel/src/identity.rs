@@ -17,18 +17,20 @@ pub(crate) struct RepositoryIdentity {
     pub(crate) worktree_identity: crate::types::WorktreeIdentity,
 }
 
-/// Derive repository identity values used for provenance without reading excluded files.
+/// Derive repository identity values used for provenance without reading
+/// excluded files. The digest covers only paths under `selection`.
 pub(crate) fn discover_repository_identity(
     root: &Path,
     excluded_patterns: &[String],
     backends: &[Box<dyn LanguageBackend>],
+    selection: &crate::selection::RepositorySelection,
 ) -> Result<RepositoryIdentity, CodeIntelError> {
     let canonical_root = canonical_root(root)?;
     let commit = git_output(root, &["rev-parse", "HEAD"], "git rev-parse HEAD")?;
     let dirty = discover_dirty_paths(root)?;
     let file_set = discover_file_set(root)?;
     let blob_map = git_blob_map(root)?;
-    let paths = collect_identity_paths(root, excluded_patterns, backends, &file_set)?;
+    let paths = collect_identity_paths(root, excluded_patterns, backends, &file_set, selection)?;
     let mut hasher = Sha256::new();
     hasher.update(b"maestria-worktree-identity-v2\0");
     // Pass 1: per-path presence (missing marker vs path record).
@@ -111,16 +113,23 @@ pub(crate) fn discover_repository_identity(
 /// Every path participating in the worktree identity digest: identity inputs
 /// from the git file set, known source files from the bounded walk (so
 /// gitignored sources participate), and every manifest the discovery walk
-/// can see (plus `Cargo.lock` siblings), even when gitignored.
+/// can see (plus `Cargo.lock` siblings), even when gitignored. Everything
+/// is filtered to `selection`; the manifest walk itself stays whole-repo
+/// (workspace-root manifests outside the selection are still needed for
+/// `cargo metadata`).
 fn collect_identity_paths(
     root: &Path,
     excluded_patterns: &[String],
     backends: &[Box<dyn LanguageBackend>],
     file_set: &BTreeSet<String>,
+    selection: &crate::selection::RepositorySelection,
 ) -> Result<BTreeSet<String>, CodeIntelError> {
     let mut paths: BTreeSet<String> = file_set
         .iter()
-        .filter(|line| is_identity_input(Path::new(line), excluded_patterns, backends))
+        .filter(|line| {
+            is_identity_input(Path::new(line), excluded_patterns, backends)
+                && selection.contains(line)
+        })
         .cloned()
         .collect();
     collect_source_paths(
@@ -128,16 +137,21 @@ fn collect_identity_paths(
         root,
         &mut paths,
         excluded_patterns,
+        Some(selection),
         &KNOWN_SOURCE_EXTENSIONS,
     )?;
     let manifest_names = all_manifest_names(backends);
     for manifest in discover_manifests(root, excluded_patterns, &manifest_names)? {
-        if let Ok(relative) = manifest.strip_prefix(root) {
+        if let Ok(relative) = manifest.strip_prefix(root)
+            && selection.contains(&relative.to_string_lossy())
+        {
             paths.insert(relative.to_string_lossy().into_owned());
         }
         if manifest.file_name().and_then(|name| name.to_str()) == Some("Cargo.toml") {
             let lock = manifest.with_extension("lock");
-            if let Ok(relative) = lock.strip_prefix(root) {
+            if let Ok(relative) = lock.strip_prefix(root)
+                && selection.contains(&relative.to_string_lossy())
+            {
                 paths.insert(relative.to_string_lossy().into_owned());
             }
         }
@@ -375,6 +389,7 @@ mod tests {
             root,
             excluded_patterns,
             &backends,
+            &crate::selection::RepositorySelection::everything(),
         )?)
     }
 

@@ -2,7 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use super::execution::{Meter, validate_limit_u32};
 use crate::{
-    BoundedSearch, PortError, VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery,
+    BoundedSearch, IndexedEmbeddingKey, PortError, VectorEmbedding, VectorIndex, VectorSearchHit,
+    VectorSearchQuery,
 };
 use maestria_domain::ChunkId;
 
@@ -202,6 +203,48 @@ impl VectorIndex for InMemoryVectorIndex {
                 source: "index mutex is poisoned".to_string(),
             })?;
         guard.clear();
+        Ok(())
+    }
+
+    fn indexed_embedding_keys(&self) -> Result<Vec<IndexedEmbeddingKey>, PortError> {
+        let guard = self
+            .embeddings
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "vector index lock poisoned",
+                source: "index mutex is poisoned".to_string(),
+            })?;
+        Ok(guard
+            .iter()
+            .map(|embedding| IndexedEmbeddingKey {
+                chunk_id: embedding.chunk_id,
+                content_hash: embedding.provenance.content_hash.clone(),
+                generation_id: embedding
+                    .provenance
+                    .identity
+                    .generation_id
+                    .value()
+                    .to_string(),
+                representation: embedding.provenance.identity.representation.0.clone(),
+                fingerprint: embedding.provenance.identity.fingerprint.encode(),
+            })
+            .collect())
+    }
+
+    fn reconcile_projection(
+        &self,
+        upserted: Vec<VectorEmbedding>,
+        expected: &[ChunkId],
+    ) -> Result<(), PortError> {
+        self.index_embeddings(upserted)?;
+        let mut guard = self
+            .embeddings
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "vector index lock poisoned",
+                source: "index mutex is poisoned".to_string(),
+            })?;
+        guard.retain(|embedding| expected.contains(&embedding.chunk_id));
         Ok(())
     }
 }

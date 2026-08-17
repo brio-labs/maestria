@@ -12,6 +12,7 @@ use std::{
     time::Duration,
 };
 
+use super::index_metrics::{IndexMetrics, human_bytes};
 use super::index_selection::{SelectionPlan, approve_interactively, approve_scripted, record_skip};
 use crate::helpers;
 
@@ -43,8 +44,14 @@ enum FileOutcome {
 
 /// Process one file, or return the error that prevented it from reaching a
 /// terminal state. The caller continues the batch on error; the summary
-/// reports the failure.
-async fn process_file(file: &Path, ctx: &ProcessContext<'_>) -> Result<FileOutcome> {
+/// reports the failure. Returns the number of source bytes read alongside
+/// the terminal outcome for aggregate throughput metrics.
+async fn process_file(
+    file: &Path,
+    done: usize,
+    total: usize,
+    ctx: &ProcessContext<'_>,
+) -> Result<(FileOutcome, u64)> {
     let file = file
         .canonicalize()
         .with_context(|| format!("canonicalize index path {}", file.display()))?;
@@ -60,6 +67,9 @@ async fn process_file(file: &Path, ctx: &ProcessContext<'_>) -> Result<FileOutco
     }
 
     let bytes = fs::read(&file)?;
+    let bytes_len = bytes.len() as u64;
+    let prefix = format!("[{done}/{total}]");
+    let size = human_bytes(bytes_len);
     let artifact_id = artifact_id_for(&file, &bytes);
     let hash = maestria_domain::ContentHash::new(content_hash(&bytes))?;
     // Check whether this exact artifact was already indexed before this session.
@@ -67,8 +77,12 @@ async fn process_file(file: &Path, ctx: &ProcessContext<'_>) -> Result<FileOutco
         && artifact.content_hash.as_ref() == Some(&hash)
         && artifact.index_status == IndexStatus::Indexed
     {
-        println!("unchanged artifact={} path={}", artifact.id, file.display());
-        return Ok(FileOutcome::Unchanged);
+        println!(
+            "{prefix} unchanged artifact={} path={} ({size})",
+            artifact.id,
+            file.display()
+        );
+        return Ok((FileOutcome::Unchanged, bytes_len));
     }
 
     let title = match file.file_name().and_then(|n| n.to_str()) {
@@ -124,17 +138,20 @@ async fn process_file(file: &Path, ctx: &ProcessContext<'_>) -> Result<FileOutco
         .ok_or_else(|| anyhow!("artifact {artifact_id} has no terminal outcome"))?;
     match &outcome {
         FileOutcome::Indexed => {
-            println!("indexed artifact={artifact_id} path={}", file.display());
+            println!(
+                "{prefix} indexed artifact={artifact_id} path={} ({size})",
+                file.display()
+            );
         }
         FileOutcome::Unchanged => {}
         FileOutcome::Skipped(reason) => {
             println!(
-                "skipped artifact={artifact_id} path={} ({reason})",
+                "{prefix} skipped artifact={artifact_id} path={} ({size}, {reason})",
                 file.display()
             );
         }
     }
-    Ok(outcome)
+    Ok((outcome, bytes_len))
 }
 
 /// Wait until every artifact in `recovery_artifact_ids` has reached
@@ -180,6 +197,70 @@ async fn drain_validation_recovery(
     )
     .await?;
     Ok(())
+}
+
+/// Index every selected file under per-file supervision, wait for recovery
+/// work, and print the run summary with live metrics. Returns `Ok(())` when
+/// no selected file failed.
+async fn run_selected_batch(
+    selected_files: &[PathBuf],
+    ctx: &ProcessContext<'_>,
+    recovery: &maestria_daemon::RecoveryQueue,
+    policy_skipped_total: usize,
+) -> Result<()> {
+    let mut metrics = IndexMetrics::new(selected_files.len(), ctx.layout);
+    let mut indexed = 0usize;
+    let mut unchanged = 0usize;
+    let mut skipped = 0usize;
+    let mut failed = 0usize;
+    for (done, file) in selected_files.iter().enumerate() {
+        let done = done + 1;
+        match process_file(file, done, selected_files.len(), ctx).await {
+            Ok((FileOutcome::Indexed, bytes)) => {
+                indexed += 1;
+                metrics.add_bytes(bytes);
+            }
+            Ok((FileOutcome::Unchanged, bytes)) => {
+                unchanged += 1;
+                metrics.add_bytes(bytes);
+            }
+            Ok((FileOutcome::Skipped(_), bytes)) => {
+                skipped += 1;
+                metrics.add_bytes(bytes);
+            }
+            Err(error) => {
+                failed += 1;
+                eprintln!("failed artifact path={} error={error}", file.display());
+            }
+        }
+        if let Some(line) = metrics.status_line(done) {
+            println!("{line}");
+        }
+    }
+
+    if !recovery.artifact_ids.is_empty() {
+        drain_recovery(ctx.layout, &recovery.artifact_ids, Duration::from_secs(60)).await?;
+    }
+    if !recovery.validation_task_ids.is_empty() {
+        drain_validation_recovery(
+            ctx.layout,
+            &recovery.validation_task_ids,
+            Duration::from_secs(60),
+        )
+        .await?;
+    }
+    println!(
+        "{}",
+        metrics.summary(indexed, unchanged, skipped + policy_skipped_total, failed)
+    );
+    if failed > 0 {
+        Err(anyhow!(
+            "{failed} of {} selected files failed to index",
+            selected_files.len()
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -264,49 +345,7 @@ pub async fn run(
             layout: &layout,
             index_timeout,
         };
-
-        // Per-file supervision: one unindexable or failing file must not
-        // abort the batch. Outcomes are counted; failures are reported in
-        // the summary and reflected in the exit status.
-        let mut indexed = 0usize;
-        let mut unchanged = 0usize;
-        let mut skipped = 0usize;
-        let mut failed = 0usize;
-        for file in &selected_files {
-            match process_file(file, &ctx).await {
-                Ok(FileOutcome::Indexed) => indexed += 1,
-                Ok(FileOutcome::Unchanged) => unchanged += 1,
-                Ok(FileOutcome::Skipped(_)) => skipped += 1,
-                Err(error) => {
-                    failed += 1;
-                    eprintln!("failed artifact path={} error={error}", file.display());
-                }
-            }
-        }
-
-        if !recovery.artifact_ids.is_empty() {
-            drain_recovery(&layout, &recovery.artifact_ids, Duration::from_secs(60)).await?;
-        }
-        if !recovery.validation_task_ids.is_empty() {
-            drain_validation_recovery(
-                &layout,
-                &recovery.validation_task_ids,
-                Duration::from_secs(60),
-            )
-            .await?;
-        }
-        println!(
-            "indexed {indexed} · unchanged {unchanged} · skipped {skipped} · failed {failed}",
-            skipped = skipped + policy_skipped_total,
-        );
-        if failed > 0 {
-            Err(anyhow!(
-                "{failed} of {} selected files failed to index",
-                selected_files.len()
-            ))
-        } else {
-            Ok(())
-        }
+        run_selected_batch(&selected_files, &ctx, &recovery, policy_skipped_total).await
     }
     .await;
 

@@ -12,6 +12,11 @@
 /// - `markdown`: safe agent Markdown rendering.
 /// - `nav`: global workspace navigation and mobile notebook selector.
 /// - `pages`: Dashboard and notebook sections.
+/// - `repositories`: repository code index subsection of the Index
+///   workspace (selection + policies + status).
+/// - `repository_index_types`: typed wire DTOs for the repository index
+///   operations.
+/// - `repository_tree`: the lazy expandable repository selection tree.
 /// - `retrieval`: retrieval lane status and promotion records workspace.
 /// - `route`: routed workspace paths.
 /// - `search`: governed index search workspace.
@@ -29,6 +34,9 @@ mod index_types;
 mod markdown;
 mod nav;
 mod pages;
+mod repositories;
+mod repository_index_types;
+mod repository_tree;
 mod retrieval;
 mod route;
 mod search;
@@ -39,8 +47,8 @@ mod tasks;
 pub use api::ApiClient;
 pub use app::App;
 pub(crate) use app::{
-    Index, NotFound, NotebookAsk, NotebookDrafts, NotebookOverview, NotebookSources, Retrieval,
-    Search, Tasks,
+    Index, IndexRepositories, NotFound, NotebookAsk, NotebookDrafts, NotebookOverview,
+    NotebookSources, Retrieval, Search, Tasks,
 };
 pub use components::WorkspaceContext;
 pub(crate) use pages::Dashboard;

@@ -10,6 +10,8 @@
 /// - `projection_open`: shared store and projection opening for runtime construction.
 /// - `recovery_inputs`: recovery input collection and ordering.
 /// - `recovery_staging`: startup recovery queue staging and event-log scanning.
+/// - `repository_source_registration`: canonical repository source artifact
+///   registration (session and runtime variants).
 /// - `supervision_recovery`: supervised recovery diagnostics.
 /// - `validation_recovery`: validation report recovery checks.
 /// - `lifecycle`: instance runtime lifecycle and recovery queue.
@@ -48,6 +50,7 @@ mod projection_recovery;
 mod providers;
 mod recovery_inputs;
 mod recovery_staging;
+mod repository_source_registration;
 mod runtime_construction;
 mod search_executor;
 mod source_identity;
@@ -89,6 +92,12 @@ pub use providers::{
     build_sparse_provider, build_visual_provider, ocr_status, sparse_status, visual_status,
 };
 pub use recovery_inputs::{RecoveryInputs, recovery_inputs};
+pub use repository_source_registration::{
+    register_repository_sources_with_runtime, register_repository_sources_with_session,
+};
+pub(crate) use repository_source_registration::{
+    repository_index_progress, set_repository_index_progress,
+};
 pub use search_executor::{
     SearchRuntime, prepare_search_runtime, prepare_search_runtime_read_only,
     prepare_search_runtime_read_only_for_federation,

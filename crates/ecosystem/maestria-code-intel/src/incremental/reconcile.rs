@@ -238,12 +238,17 @@ fn reconcile_derived_children(
 }
 
 /// Re-extract one file through its language backend, mapping a `None`
-/// (no-longer-extractable) result to a dropped file.
+/// (no-longer-extractable) result to a dropped file. A file gated out by
+/// the selection's policies (grown past `max_file_bytes`, become minified)
+/// is also dropped — the incremental fix path for policy changes.
 fn reextract_via_backend(
     inputs: &RebuildInputs,
     rel: &str,
     record: &FileContextRecord,
 ) -> Result<Option<ReextractedFile>, CodeIntelError> {
+    if !inputs.file_gate.allows(inputs.root, rel) {
+        return Ok(None);
+    }
     let Some(backend) = backend_for_path(&inputs.backends, rel) else {
         return Ok(None);
     };

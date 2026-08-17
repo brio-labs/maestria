@@ -361,3 +361,19 @@ fn satisfies_shared_embedding_provider_contract() -> Result<(), Box<dyn std::err
     )?;
     maestria_ports::contract_tests::assert_embedding_provider_contract(&provider)
 }
+
+#[test]
+fn truncate_text_caps_input_without_splitting_characters() {
+    let short = "hello world";
+    assert_eq!(truncate_text(short), short);
+    let ascii = "a".repeat(MAX_INPUT_BYTES + 1);
+    let cut = truncate_text(&ascii);
+    assert_eq!(cut.len(), MAX_INPUT_BYTES);
+    assert!(cut.is_char_boundary(cut.len()));
+    let cjk = "あ".repeat(MAX_INPUT_BYTES + 3);
+    let cut = truncate_text(&cjk);
+    assert!(cut.len() <= MAX_INPUT_BYTES);
+    assert!(cut.is_char_boundary(cut.len()));
+    assert_eq!(cut.len() % 3, 0);
+    assert_eq!(cut.len(), MAX_INPUT_BYTES - 1);
+}

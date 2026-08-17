@@ -3,6 +3,9 @@ use std::path::PathBuf;
 use clap::{Parser as ClapParser, Subcommand, ValueEnum};
 use maestria_domain::TaskPriority;
 
+#[path = "cli_types/parsers.rs"]
+mod parsers;
+
 #[derive(ClapParser)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
@@ -28,20 +31,18 @@ pub enum Commands {
         path: Option<PathBuf>,
         #[arg(short, long)]
         recursive: bool,
-        /// Skip files larger than N bytes; 0 disables.
-        #[arg(long)]
+        #[arg(long, help = "Skip files larger than N bytes; 0 disables")]
         max_file_bytes: Option<u64>,
-        /// Skip generated asset dumps (single-extension dumps).
-        #[arg(long)]
+        #[arg(long, help = "Skip generated asset dumps (single-extension dumps)")]
         skip_generated: bool,
-        /// Skip minified single-line bundles.
-        #[arg(long)]
+        #[arg(long, help = "Skip minified single-line bundles")]
         skip_minified: bool,
-        /// Accept every directory prompt (non-interactive).
-        #[arg(long)]
+        #[arg(long, help = "Accept every directory prompt (non-interactive)")]
         yes: bool,
-        /// Write the approved selection to system/index-selection.json.
-        #[arg(long)]
+        #[arg(
+            long,
+            help = "Write the approved selection to system/index-selection.json"
+        )]
         save_selection: bool,
     },
     Search {
@@ -135,8 +136,10 @@ pub enum PromotionCommands {
     Set {
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
-        /// Path to a serialized LearnedSparsePromotionRecord JSON file
-        #[arg(long)]
+        #[arg(
+            long,
+            help = "Path to a serialized LearnedSparsePromotionRecord JSON file"
+        )]
         record: PathBuf,
     },
     /// Remove the promotion record and restore the lexical/hybrid route
@@ -198,8 +201,7 @@ pub enum CodeSearchCommands {
     Doc { pattern: String },
     /// Match repository symbols carrying a todo|fixme|hack|unsafe marker
     Markers { kind: String },
-    /// Match symbols in files changed since a commit (persisted delta when
-    /// --since is omitted; live git diff plus dirty set when given)
+    /// Match symbols in files changed since a commit
     Changed {
         #[arg(long)]
         since: Option<String>,
@@ -214,8 +216,7 @@ pub enum CodeSearchCommands {
         #[arg(long, default_value = "both")]
         direction: String,
     },
-    /// Resolve cross-file symbol references (inbound callers/importers by
-    /// default; pass --direction outbound for the symbols the seed uses)
+    /// Resolve cross-file symbol references (inbound by default)
     References {
         pattern: String,
         #[arg(long)]
@@ -231,7 +232,11 @@ pub enum IndexCommands {
         instance_dir: PathBuf,
     },
     /// Build and persist exact Cargo metadata and Rust symbol records
-    Repository { path: PathBuf },
+    Repository {
+        path: PathBuf,
+        #[command(flatten)]
+        selection: crate::commands::repository_index::RepositoryIndexArgs,
+    },
 }
 
 #[derive(Subcommand)]
@@ -390,9 +395,9 @@ pub enum RealmGrantCommands {
         access: CliRealmGrantAccess,
         #[arg(long, value_enum)]
         max_sensitivity: CliRealmGrantSensitivity,
-        #[arg(long, value_parser = parse_federated_results)]
+        #[arg(long, value_parser = parsers::parse_federated_results)]
         max_results: usize,
-        #[arg(long, value_parser = parse_federated_evidence_bytes)]
+        #[arg(long, value_parser = parsers::parse_federated_evidence_bytes)]
         max_evidence_bytes: usize,
     },
     /// List current provider grants
@@ -422,25 +427,6 @@ pub enum CliRealmGrantSensitivity {
     Restricted,
 }
 
-fn parse_federated_results(input: &str) -> Result<usize, &'static str> {
-    let value = input
-        .parse::<usize>()
-        .map_err(|_| "maximum results must be an unsigned integer")?;
-    if !(1..=100).contains(&value) {
-        return Err("maximum results must be 1..=100");
-    }
-    Ok(value)
-}
-
-fn parse_federated_evidence_bytes(input: &str) -> Result<usize, &'static str> {
-    let value = input
-        .parse::<usize>()
-        .map_err(|_| "maximum evidence bytes must be an unsigned integer")?;
-    if !(1..=65_536).contains(&value) {
-        return Err("maximum evidence bytes must be 1..=65536");
-    }
-    Ok(value)
-}
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum CliTaskPriority {
     Low,

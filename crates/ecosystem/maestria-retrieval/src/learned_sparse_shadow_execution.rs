@@ -156,7 +156,9 @@ fn shadow_lane_budget(
         None => None,
     };
     maestria_domain::SearchExecutionBudget::with_byte_limit(
-        partition_allowance(global.max_results(), lanes, lane),
+        // Result ceiling is not partitioned: shadow lanes must observe the
+        // full candidate depth to produce comparable observations.
+        global.max_results(),
         partition_allowance(global.max_candidates(), lanes, lane),
         partition_allowance(global.max_work_units(), lanes, lane),
         max_bytes,

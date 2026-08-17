@@ -28,11 +28,11 @@ use maestria_retrieval::adapters::{
     LearnedSparseGenerationCapability,
 };
 use maestria_retrieval::{
-    CandidateRetriever, HybridExecutionPolicy, HybridPromotionRecord, LearnedSparseBenchmarkCase,
+    CandidateRetriever, HybridPromotionRecord, LearnedSparseBenchmarkCase,
     LearnedSparseBenchmarkCorpus, LearnedSparseBenchmarkError, LearnedSparseBenchmarkIdentity,
-    LearnedSparseBenchmarkObservation, LearnedSparseExecutionPolicy, LearnedSparseExpectedOutcome,
-    LearnedSparseQueryClass, LearnedSparseResourceMetrics, LearnedSparseRoute, Measurement,
-    RetrievalEngine, score_case,
+    LearnedSparseBenchmarkObservation, LearnedSparseExpectedOutcome,
+    LearnedSparseOperationMeasurement, LearnedSparseResourceMetrics, LearnedSparseRoute,
+    Measurement, score_case,
 };
 use maestria_storage_sqlite::{SqliteLearnedSparseIndex, SqliteStore};
 
@@ -40,6 +40,8 @@ use maestria_storage_sqlite::{SqliteLearnedSparseIndex, SqliteStore};
 mod dense;
 #[path = "learned_sparse_benchmark_executor/energy.rs"]
 pub(super) mod energy;
+#[path = "learned_sparse_benchmark_executor/identity.rs"]
+mod identity;
 #[path = "learned_sparse_benchmark_executor/lifecycle.rs"]
 mod lifecycle;
 #[path = "learned_sparse_benchmark_executor/measure.rs"]
@@ -96,7 +98,21 @@ pub struct LearnedSparseBenchmarkExecutor {
     /// Optional fusion override for the fused routes; the daemon default
     /// (FixedKRrf 60) applies when unset.
     fusion: Option<std::sync::Arc<dyn maestria_retrieval::RankFusion + Send + Sync>>,
+    /// Lifecycle operations measured once per route: they exercise the same
+    /// projection regardless of the case, so re-measuring them for every
+    /// observation would re-encode the whole corpus once per case.
+    lifecycle_ops: std::sync::Mutex<BTreeMap<LearnedSparseRoute, LearnedSparseOperationSet>>,
 }
+
+/// The six lifecycle operation measurements for one route.
+pub(super) type LearnedSparseOperationSet = (
+    LearnedSparseOperationMeasurement,
+    LearnedSparseOperationMeasurement,
+    LearnedSparseOperationMeasurement,
+    LearnedSparseOperationMeasurement,
+    LearnedSparseOperationMeasurement,
+    LearnedSparseOperationMeasurement,
+);
 
 impl LearnedSparseBenchmarkExecutor {
     /// Prepares the instance for evaluation: reconciles the sparse
@@ -198,59 +214,12 @@ impl LearnedSparseBenchmarkExecutor {
                 format!("open sqlite store {}", layout.database_path.display())
             })?),
             state: state.clone(),
+            lifecycle_ops: std::sync::Mutex::new(BTreeMap::new()),
         })
     }
 
     pub fn sparse_generation_id(&self) -> Option<maestria_domain::IndexGenerationId> {
         self.sparse_generation_id
-    }
-
-    fn engine_for(
-        &self,
-        route: LearnedSparseRoute,
-        class: LearnedSparseQueryClass,
-    ) -> Result<RetrievalEngine> {
-        let sparse_retriever = self.sparse.as_ref().map(|lane| lane.retriever.clone());
-        let mut engine = match route {
-            LearnedSparseRoute::Lexical => self.runtime.retrieval_engine_with_policies(
-                HybridExecutionPolicy::Shadow,
-                LearnedSparseExecutionPolicy::Disabled,
-                None,
-                true,
-            ),
-            LearnedSparseRoute::Hybrid => self.runtime.retrieval_engine_with_policies(
-                HybridExecutionPolicy::Active(self.hybrid_record.clone()),
-                LearnedSparseExecutionPolicy::Disabled,
-                None,
-                true,
-            ),
-            LearnedSparseRoute::SparseOnly => {
-                let record = self.active_record(class)?;
-                self.runtime.retrieval_engine_with_policies(
-                    HybridExecutionPolicy::Shadow,
-                    LearnedSparseExecutionPolicy::Active(Box::new(record)),
-                    sparse_retriever,
-                    false,
-                )
-            }
-            LearnedSparseRoute::SparseFused => {
-                let record = self.active_record(class)?;
-                self.runtime.retrieval_engine_with_policies(
-                    HybridExecutionPolicy::Active(self.hybrid_record.clone()),
-                    LearnedSparseExecutionPolicy::Active(Box::new(record)),
-                    sparse_retriever,
-                    true,
-                )
-            }
-        }?;
-        if matches!(
-            route,
-            LearnedSparseRoute::Hybrid | LearnedSparseRoute::SparseFused
-        ) && let Some(fusion) = &self.fusion
-        {
-            engine = engine.with_fusion(fusion.clone());
-        }
-        Ok(engine)
     }
 }
 
@@ -292,7 +261,7 @@ impl maestria_retrieval::LearnedSparseBenchmarkExecutor for LearnedSparseBenchma
             .map_err(|error| LearnedSparseBenchmarkError::InvalidMeasurement(error.to_string()))?;
 
         let (initial_indexing, incremental_update, deletion, rebuild, activation, rollback) =
-            self.lifecycle_operations(route);
+            self.cached_lifecycle_operations(route);
 
         let safety = self.safety_for(
             &case,
@@ -308,22 +277,14 @@ impl maestria_retrieval::LearnedSparseBenchmarkExecutor for LearnedSparseBenchma
             evaluation_date: self.corpus.evaluation_date.clone(),
             case_id: case.case_id,
             route,
-            identity: self
-                .sparse
-                .as_ref()
-                .map(|lane| {
-                    LearnedSparseBenchmarkIdentity::from_sparse_identity(
-                        &lane.identity,
-                        BACKEND_FINGERPRINT,
-                    )
-                })
-                .transpose()
-                .map_err(|error| LearnedSparseBenchmarkError::InvalidIdentity(error.to_string()))?
-                .ok_or_else(|| {
-                    LearnedSparseBenchmarkError::InvalidIdentity(
-                        "sparse identity is unavailable for the observation".to_string(),
-                    )
-                })?,
+            identity: match &self.sparse {
+                Some(lane) => LearnedSparseBenchmarkIdentity::from_sparse_identity(
+                    &lane.identity,
+                    BACKEND_FINGERPRINT,
+                )
+                .map_err(|error| LearnedSparseBenchmarkError::InvalidIdentity(error.to_string()))?,
+                None => self.dense_benchmark_identity()?,
+            },
             route_configuration: self
                 .corpus
                 .route_configurations
@@ -339,7 +300,12 @@ impl maestria_retrieval::LearnedSparseBenchmarkExecutor for LearnedSparseBenchma
                 p50_latency_ms: Measurement::measured(p50),
                 p95_latency_ms: Measurement::measured(p95),
                 p99_latency_ms: Measurement::measured(p99),
-                peak_ram_bytes: Measurement::measured(self.peak_ram_bytes()),
+                peak_ram_bytes: match self.peak_ram_bytes() {
+                    Some(bytes) => Measurement::measured(bytes),
+                    None => Measurement::unavailable(
+                        "process peak RSS is unreadable (/proc/self/status)",
+                    ),
+                },
                 index_disk_bytes: Measurement::measured(self.index_disk_bytes(route)),
                 initial_indexing,
                 incremental_update,

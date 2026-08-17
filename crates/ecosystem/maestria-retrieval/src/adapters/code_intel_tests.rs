@@ -34,6 +34,8 @@ fn archive() -> Result<maestria_code_intel::RepositoryCodeIndex, Box<dyn std::er
                 std::collections::BTreeSet::new(),
                 &[],
             ),
+            selected_paths: Vec::new(),
+            selection_policies: std::collections::BTreeMap::new(),
         },
         packages: Vec::new(),
         symbols: vec![symbol("rec-1")?],

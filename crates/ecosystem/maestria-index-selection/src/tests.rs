@@ -1,5 +1,8 @@
 //! Behavior-defining unit tests for the choice layer.
 
+#[path = "repo_tests.rs"]
+mod repo_tests;
+
 use crate::candidates::{bound_candidate_tree, scan_candidates};
 use crate::classify::{Class, classify, default_policy};
 use crate::policy::{IndexPolicy, Selection, group_by_child, select_source};

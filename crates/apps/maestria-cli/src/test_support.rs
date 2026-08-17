@@ -111,10 +111,14 @@ pub fn assert_init_ok(
     Ok(())
 }
 pub fn assert_index_ok(instance_path: &str, file: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let stdout = assert_ok_lines(&["index", "-i", instance_path, file], 2)?;
+    let stdout = assert_ok(&["index", "-i", instance_path, file])?;
     assert!(
         stdout.contains("indexed"),
         "index stdout missing 'indexed': {stdout}"
+    );
+    assert!(
+        stdout.contains("duration="),
+        "index stdout missing run metrics: {stdout}"
     );
     Ok(())
 }

@@ -2,6 +2,7 @@
 
 use crate::delta::RepositoryChangeDelta;
 use crate::markers::{CodeMarker, MarkerQueryKind};
+use maestria_index_selection::IndexPolicy;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -512,6 +513,17 @@ pub struct CodeIndexSummary {
     /// HEAD). Required on every persisted index; indexes persisted without
     /// it fail to load and rebuild from scratch.
     pub changed: RepositoryChangeDelta,
+    /// Repository-relative directories this index covers; empty = whole
+    /// repository. Identity, delta, records, and freshness are scoped to
+    /// the selection; a selection change forces a full rebuild. Old
+    /// persisted indexes load as empty (whole repo).
+    #[serde(default)]
+    pub selected_paths: Vec<String>,
+    /// Per-directory policy overrides applied at build time, keyed by
+    /// repository-relative directory path. A policy change forces a full
+    /// rebuild. Old persisted indexes load as empty.
+    #[serde(default)]
+    pub selection_policies: BTreeMap<String, IndexPolicy>,
 }
 
 /// Serializable persisted index container.

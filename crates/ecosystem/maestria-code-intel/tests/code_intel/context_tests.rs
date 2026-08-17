@@ -98,6 +98,8 @@ fn context_fixture() -> Result<RepositoryCodeIndex, Box<dyn Error>> {
                 std::collections::BTreeSet::new(),
                 &[],
             ),
+            selected_paths: Vec::new(),
+            selection_policies: std::collections::BTreeMap::new(),
         },
         packages: Vec::new(),
         symbols,
