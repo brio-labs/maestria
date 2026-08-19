@@ -3,7 +3,7 @@ use maestria_domain::{
     DomainEvent, DomainInput, RecordValidationReportInput, RunValidationRequest,
     ValidationCompleted,
 };
-use maestria_memory::MemoryService;
+use maestria_memory::review_queue;
 use maestria_validation::{SearchValidationContext, ValidationContext, ValidationRunner};
 use std::collections::BTreeMap;
 
@@ -116,33 +116,14 @@ pub(crate) fn build_validation_report_from_state(
         .iter()
         .map(|(id, candidate)| (*id, candidate.clone()))
         .collect();
-    let review_queue = MemoryService::review_queue(&state.memory_candidates, &state.memories);
+    let review_queue = review_queue(&state.memory_candidates, &state.memories);
     if !review_queue.is_empty() {
         tracing::debug!(
             pending_candidates = review_queue.len(),
             "validation found queued memory candidates"
         );
     }
-    let mut validators: Vec<Box<dyn maestria_validation::Validator>> = vec![
-        Box::new(maestria_validation::CitationValidator),
-        Box::new(maestria_validation::EvidenceExistenceValidator),
-        Box::new(maestria_validation::MemoryValidator),
-        Box::new(maestria_validation::HarnessRunValidator),
-    ];
-    if request.task_id().is_some() {
-        validators.push(Box::new(maestria_validation::TaskStateValidator));
-    }
-    if search.is_some() {
-        validators.push(Box::new(maestria_validation::SearchPlanValidator));
-        validators.push(Box::new(maestria_validation::CandidateProvenanceValidator));
-        validators.push(Box::new(maestria_validation::CoverageValidator));
-        validators.push(Box::new(maestria_validation::ConflictValidator));
-        validators.push(Box::new(maestria_validation::FreshnessValidator));
-        validators.push(Box::new(maestria_validation::CitationAlignmentValidator));
-        validators.push(Box::new(maestria_validation::RetrievalSecurityValidator));
-        validators.push(Box::new(maestria_validation::SearchRegressionValidator));
-    }
-    ValidationRunner::with_validators(validators).run(
+    ValidationRunner::for_target(request.task_id().is_some(), search.is_some()).run(
         request.validation_report_id,
         request.task_id(),
         &ValidationContext {

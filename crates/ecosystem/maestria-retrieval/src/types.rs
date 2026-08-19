@@ -15,6 +15,19 @@ pub struct RetrieverDescriptor {
     pub generation: IndexGenerationId,
 }
 
+impl RetrieverDescriptor {
+    pub fn is_code(&self) -> bool {
+        self.modality.eq_ignore_ascii_case("code")
+            || self.modality.eq_ignore_ascii_case("rust")
+            || self.id.to_ascii_lowercase().contains("code_intel")
+    }
+
+    pub fn is_dense(&self) -> bool {
+        let id = self.id.to_ascii_lowercase();
+        id.contains("dense") || id.contains("vector") || id.contains("semantic")
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum CandidateSourceFilterError {
     #[error("source filter must contain at least one artifact")]
@@ -64,7 +77,7 @@ impl CandidateSourceFilter {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CandidateRequest {
-    pub plan: SearchPlan,
+    pub plan: std::sync::Arc<SearchPlan>,
     pub query: SearchQuery,
     pub execution_budget: SearchExecutionBudget,
     pub expected_generation: IndexGenerationId,
@@ -80,10 +93,45 @@ pub struct CandidateBatch {
     pub generation: Option<IndexGenerationId>,
     pub execution: SearchExecution,
 }
+
+impl CandidateBatch {
+    pub fn succeeded(
+        descriptor: RetrieverDescriptor,
+        query: String,
+        candidates: Vec<EvidenceCandidate>,
+        generation: Option<IndexGenerationId>,
+        execution: SearchExecution,
+    ) -> Self {
+        Self {
+            descriptor,
+            query,
+            candidates,
+            status: SearchLaneStatus::Succeeded,
+            generation,
+            execution,
+        }
+    }
+
+    pub fn failed(
+        descriptor: RetrieverDescriptor,
+        query: String,
+        error: String,
+        generation: Option<IndexGenerationId>,
+        execution: SearchExecution,
+    ) -> Self {
+        Self {
+            descriptor,
+            query,
+            candidates: Vec::new(),
+            status: SearchLaneStatus::Failed { error },
+            generation,
+            execution,
+        }
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FusedCandidate {
     pub candidate: EvidenceCandidate,
-    pub fused_score: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,29 +186,9 @@ pub enum HybridExecutionPolicy {
     Active(HybridPromotionRecord),
 }
 
-impl HybridExecutionPolicy {
-    /// Whether the dense lane may serve the query's class. Protected
-    /// classes (ExactLiteral, NoEvidence, Security) are never served by
-    /// the dense lane: the record's served classes come from the gate.
-    pub fn allows_dense(&self, query: &str) -> bool {
-        let class = crate::learned_sparse_policy::classify_query(query);
-        match self {
-            Self::Active(record) => record.serves_class(&class),
-            Self::Shadow => false,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RetrievalMode {
-    LexicalOnly,
-    HybridShadow,
-    Hybrid,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RerankRequest {
-    pub plan: SearchPlan,
+    pub plan: std::sync::Arc<SearchPlan>,
     pub candidates: Vec<RankedCandidate>,
     pub max_latency_ms: u32,
 }
@@ -214,7 +242,7 @@ pub struct ContextExpansion {
     pub execution: SearchExecution,
 }
 pub struct RetrievalExperiment {
-    pub plan: SearchPlan,
+    pub plan: std::sync::Arc<SearchPlan>,
     pub candidates: Vec<EvidenceCandidate>,
 }
 

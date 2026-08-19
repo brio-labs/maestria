@@ -10,9 +10,10 @@ use tokio::sync::{RwLock, mpsc};
 struct FailingGraphIndex;
 impl GraphIndex for FailingGraphIndex {
     fn insert_relation(&self, _relation: Relation) -> Result<(), PortError> {
-        Err(PortError::Internal {
-            message: "forced failure".into(),
-        })
+        Err(PortError::internal(
+            "maestria runtime test",
+            "forced failure",
+        ))
     }
     fn get_relations_for(
         &self,

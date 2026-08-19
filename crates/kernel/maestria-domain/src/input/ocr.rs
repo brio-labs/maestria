@@ -1,9 +1,31 @@
-use crate::effects::{MaestriaEffect, OcrEffect, ParseArtifactRequest, ParseArtifactSource};
+use crate::effects::{MaestriaEffect, ParseArtifactRequest, ParseArtifactSource};
 use crate::events::DomainEvent;
 use crate::inputs::{OcrCompleted, OcrFailed, OcrRequested};
+use crate::ocr::{OcrCompletion, OcrIntent};
 use crate::{DomainError, KernelOutput};
 
 impl crate::KernelState {
+    /// Shared OCR correlation validation used by the live handlers and the
+    /// replay appliers: the completion must reference the intent's artifact
+    /// and correlate exactly with the intent.
+    pub(crate) fn validate_ocr_correlation(
+        &self,
+        artifact_id: crate::ids::ArtifactId,
+        completion: &OcrCompletion,
+        intent: &OcrIntent,
+    ) -> Result<(), DomainError> {
+        if artifact_id != intent.artifact_id() {
+            return Err(DomainError::InternalInvariantViolation {
+                detail: "OCR completion artifact does not correlate with intent",
+            });
+        }
+        completion
+            .validate_against(intent)
+            .map_err(|_| DomainError::InternalInvariantViolation {
+                detail: "OCR completion does not correlate exactly with its intent",
+            })
+    }
+
     pub(super) fn process_ocr_requested(
         &mut self,
         input: OcrRequested,
@@ -13,7 +35,7 @@ impl crate::KernelState {
         if let Some(existing) = self.pending_ocr.get(&request_id) {
             if existing == &intent {
                 return Ok(KernelOutput {
-                    effects: vec![MaestriaEffect::Ocr(OcrEffect::new(intent))],
+                    effects: vec![MaestriaEffect::Ocr(intent)],
                     ..KernelOutput::default()
                 });
             }
@@ -33,9 +55,7 @@ impl crate::KernelState {
         let mut output = Self::output_for_event(event);
         self.pending_ocr.insert(request_id.clone(), intent.clone());
         self.ocr_intents.insert(request_id.clone(), intent.clone());
-        output
-            .effects
-            .push(MaestriaEffect::Ocr(OcrEffect::new(intent)));
+        output.effects.push(MaestriaEffect::Ocr(intent));
         Ok(output)
     }
     pub(super) fn process_ocr_completed(
@@ -72,16 +92,7 @@ impl crate::KernelState {
                 detail: "OCR completion has no pending intent",
             });
         };
-        if input.artifact_id != intent.artifact_id() {
-            return Err(DomainError::InternalInvariantViolation {
-                detail: "OCR completion artifact does not correlate with intent",
-            });
-        }
-        completion.validate_against(&intent).map_err(|_| {
-            DomainError::InternalInvariantViolation {
-                detail: "OCR completion does not correlate exactly with its intent",
-            }
-        })?;
+        self.validate_ocr_correlation(input.artifact_id, &completion, &intent)?;
         let parser = self
             .pending_parsers
             .get(&intent.artifact_id())

@@ -1,7 +1,7 @@
 use crate::test_support::*;
 use maestria_domain::{
     BlobId, ContentHash, DomainEvent, DomainEventEnvelope, DomainInput, KernelState,
-    MaestriaEffect, OcrDisclosure, OcrEffect, OcrIntent, OcrProviderIdentity, OcrRetentionPolicy,
+    MaestriaEffect, OcrDisclosure, OcrIntent, OcrProviderIdentity, OcrRetentionPolicy,
 };
 use maestria_ports::{
     EventFilter, EventLog, InMemoryEventLog, OcrIdentity, OcrPage, OcrProvider, OcrRequest,
@@ -244,7 +244,7 @@ async fn governed_policy_rejection_sends_zero_ocr_bytes() -> TestResult {
     let request = intent(blob, bytes, true)?;
     let (input_tx, _input_rx) = mpsc::channel(8);
     let result = MaestriaRuntime::test_execute_effect(
-        MaestriaEffect::Ocr(OcrEffect::new(request)),
+        MaestriaEffect::Ocr(request),
         EffectExecutionContext::test_default(
             Arc::new(adapters),
             Arc::new(crate::test_helpers::test_governance()),
@@ -278,7 +278,7 @@ async fn malformed_page_set_is_rejected_after_transport_and_not_completed() -> T
         .insert(request.request_id().clone(), request.clone());
     let (input_tx, mut input_rx) = mpsc::channel(8);
     let result = MaestriaRuntime::test_execute_effect(
-        MaestriaEffect::Ocr(OcrEffect::new(request)),
+        MaestriaEffect::Ocr(request),
         EffectExecutionContext::test_default(
             Arc::new(adapters),
             Arc::new(crate::test_helpers::test_governance()),

@@ -93,13 +93,13 @@ impl KernelState {
             {
                 output
                     .effects
-                    .push(MaestriaEffect::IndexFullText(IndexFullTextRequest {
+                    .push(MaestriaEffect::IndexFullText(IndexChunkRequest {
                         artifact_id: input.artifact_id,
                         chunk_id: chunk.id,
                     }));
                 output
                     .effects
-                    .push(MaestriaEffect::IndexVector(IndexVectorRequest {
+                    .push(MaestriaEffect::IndexVector(IndexChunkRequest {
                         artifact_id: input.artifact_id,
                         chunk_id: chunk.id,
                     }));
@@ -120,31 +120,41 @@ impl KernelState {
         &mut self,
         input: crate::model_agent::ModelAgentProposalRequest,
     ) -> Result<KernelOutput, DomainError> {
-        if !matches!(
-            input.execution,
-            crate::model_agent::ModelAgentProposalExecution::Fresh
-        ) {
-            return Err(DomainError::ModelAgentProposalRequestNotFresh {
-                run_id: input.run_id,
-            });
-        }
-        if self.model_agent_requests.contains_key(&input.run_id)
-            || self.model_agent_results.contains_key(&input.run_id)
-        {
-            return Err(DomainError::DuplicateModelAgentProposalRunId {
-                run_id: input.run_id,
-            });
-        }
-        self.model_agent_requests
-            .insert(input.run_id, input.clone());
+        self.apply_model_agent_proposal_requested(&input)?;
         let event = self.emit_event(DomainEvent::ModelAgentProposalRequested {
             request: input.clone(),
         });
         let mut output = Self::output_for_event(event);
-        output.effects.push(MaestriaEffect::QueryHarnessProposal(
-            input.into_harness_request(),
-        ));
+        output
+            .effects
+            .push(MaestriaEffect::QueryHarnessProposal(Box::new(input)));
         Ok(output)
+    }
+
+    /// Shared model-agent request mutator: validates a fresh proposal and
+    /// registers it. Used by the live handler and the replay applier.
+    pub(crate) fn apply_model_agent_proposal_requested(
+        &mut self,
+        request: &crate::model_agent::ModelAgentProposalRequest,
+    ) -> Result<(), DomainError> {
+        if !matches!(
+            request.execution,
+            crate::model_agent::ModelAgentProposalExecution::Fresh
+        ) {
+            return Err(DomainError::ModelAgentProposalRequestNotFresh {
+                run_id: request.run_id,
+            });
+        }
+        if self.model_agent_requests.contains_key(&request.run_id)
+            || self.model_agent_results.contains_key(&request.run_id)
+        {
+            return Err(DomainError::DuplicateModelAgentProposalRunId {
+                run_id: request.run_id,
+            });
+        }
+        self.model_agent_requests
+            .insert(request.run_id, request.clone());
+        Ok(())
     }
     pub(super) fn process_model_agent_proposal_resumed(
         &mut self,
@@ -182,23 +192,32 @@ impl KernelState {
         }
         Ok(KernelOutput {
             events: Vec::new(),
-            effects: vec![MaestriaEffect::QueryHarnessProposal(
-                input.into_harness_request(),
-            )],
+            effects: vec![MaestriaEffect::QueryHarnessProposal(Box::new(input))],
         })
     }
     pub(super) fn process_model_agent_proposal_completed(
         &mut self,
         result: crate::model_agent::ModelAgentProposalResult,
     ) -> Result<KernelOutput, DomainError> {
+        self.apply_model_agent_proposal_completed(&result)?;
+        let event = self.emit_event(DomainEvent::ModelAgentProposalCompleted { result });
+        Ok(Self::output_for_event(event))
+    }
+
+    /// Shared model-agent completion mutator: resolves the terminal result
+    /// and retires the request. Used by the live handler and the replay
+    /// applier.
+    pub(crate) fn apply_model_agent_proposal_completed(
+        &mut self,
+        result: &crate::model_agent::ModelAgentProposalResult,
+    ) -> Result<(), DomainError> {
         let run_id = result.run_id();
         if self.model_agent_results.contains_key(&run_id) {
             return Err(DomainError::DuplicateModelAgentProposalRunId { run_id });
         }
         self.model_agent_requests.remove(&run_id);
         self.model_agent_results.insert(run_id, result.clone());
-        let event = self.emit_event(DomainEvent::ModelAgentProposalCompleted { result });
-        Ok(Self::output_for_event(event))
+        Ok(())
     }
 
     pub(super) fn process_harness_run_requested(
@@ -306,6 +325,7 @@ impl KernelState {
         &mut self,
         tick: LogicalTick,
     ) -> Result<KernelOutput, DomainError> {
+        self.current_tick = Some(tick);
         let event = self.emit_event(DomainEvent::TickObserved { at: tick });
         Ok(Self::output_for_event(event))
     }

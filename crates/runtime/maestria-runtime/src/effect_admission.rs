@@ -2,7 +2,7 @@ use crate::config::EffectExecutionContext;
 use crate::proposal_persistence::decode_pending_continuation;
 use crate::proposal_recovery::journal_entry_matches_proposal;
 use maestria_domain::{MaestriaEffect, ModelAgentProposalExecution};
-use maestria_governance::{ApprovalRequest, PolicyDecision, RiskClass, ScopeGuard};
+use maestria_governance::{AdmissionPolicy, ApprovalRequest, PolicyDecision, RiskClass};
 use maestria_ports::{ApprovalStatus, EffectJournalEntry, EffectJournalStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +49,23 @@ pub(crate) enum EffectAdmission {
     },
 }
 
+impl maestria_governance::AdmissionPolicy for EffectExecutionContext {
+    fn bypasses_approval(&self, effect: &MaestriaEffect) -> bool {
+        match effect {
+            // The approval-request effect is the approval mechanism itself.
+            MaestriaEffect::RequestApproval(_) => true,
+            // A vector effect without an embedding provider can never
+            // execute; the executor's permanent per-artifact degradation
+            // path (traced) is the runtime outcome. Admitting it here keeps
+            // the effect on that path instead of producing a per-chunk
+            // governance denial under restrictive profiles — a guaranteed
+            // denial storm at home scale (issue #434).
+            MaestriaEffect::IndexVector(_) => self.adapters.embedding_provider.is_none(),
+            _ => false,
+        }
+    }
+}
+
 impl EffectExecutionContext {
     fn exact_journal_entry(
         &self,
@@ -61,7 +78,7 @@ impl EffectExecutionContext {
             .scan_in_flight()
             .map_err(|error| format!("unable to scan proposal journal: {error}"))?;
         Ok(entries.into_iter().find(|entry| {
-            entry.generation == generation.value()
+            entry.generation == generation
                 && journal_entry_matches_proposal(entry, proposal, self.scope_id)
         }))
     }
@@ -227,14 +244,14 @@ impl EffectExecutionContext {
         risk: RiskClass,
         proposal: &maestria_domain::ModelAgentProposalRequest,
     ) -> EffectAdmission {
-        let scope = ScopeGuard::new(self.scope.clone());
+        let scope = &self.scope;
         let decision = self
             .governance
             .approval_gate
             .decide(&ApprovalRequest {
                 effect,
                 profile: self.profile,
-                scope: &scope,
+                scope,
                 risk,
             })
             .decision;
@@ -254,43 +271,31 @@ impl EffectExecutionContext {
     }
 
     pub(crate) fn admit_effect(&self, effect: &MaestriaEffect) -> EffectAdmission {
-        let scope = ScopeGuard::new(self.scope.clone());
-        let risk = self.governance.classifier.classify(effect, &scope);
+        let scope = &self.scope;
+        let risk = self.governance.classifier.classify(effect, scope);
 
-        if matches!(effect, MaestriaEffect::RequestApproval(_)) {
+        if self.bypasses_approval(effect) {
             return EffectAdmission::Execute { risk, claim: None };
         }
 
         if let MaestriaEffect::QueryHarnessProposal(request) = effect {
-            return match &request.proposal.execution {
+            return match &request.execution {
                 ModelAgentProposalExecution::Fresh => {
-                    self.admit_fresh_proposal(effect, risk, &request.proposal)
+                    self.admit_fresh_proposal(effect, risk, request)
                 }
                 ModelAgentProposalExecution::JournalRecovery { journal_generation } => {
-                    self.admit_journal_recovery(risk, &request.proposal, *journal_generation)
+                    self.admit_journal_recovery(risk, request, *journal_generation)
                 }
                 ModelAgentProposalExecution::ApprovalContinuation {
                     approval_id,
                     journal_generation,
                 } => self.admit_approval_continuation(
                     risk,
-                    &request.proposal,
+                    request,
                     *approval_id,
                     *journal_generation,
                 ),
             };
-        }
-
-        // A vector effect without an embedding provider can never execute;
-        // the executor's permanent per-artifact degradation path (traced)
-        // is the runtime outcome. Admitting it here keeps the effect on
-        // that path instead of producing a per-chunk governance denial
-        // under restrictive profiles — a guaranteed denial storm at home
-        // scale (issue #434).
-        if matches!(effect, MaestriaEffect::IndexVector(_))
-            && self.adapters.embedding_provider.is_none()
-        {
-            return EffectAdmission::Execute { risk, claim: None };
         }
 
         let decision = self
@@ -299,7 +304,7 @@ impl EffectExecutionContext {
             .decide(&ApprovalRequest {
                 effect,
                 profile: self.profile,
-                scope: &scope,
+                scope,
                 risk,
             })
             .decision;

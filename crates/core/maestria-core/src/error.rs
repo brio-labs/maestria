@@ -29,6 +29,7 @@ pub enum CoreError {
         kind: &'static str,
         reason: &'static str,
     },
+    RetrievalAuthorization(maestria_governance::RetrievalAuthorizationError),
     SearchPlan(maestria_governance::SearchPlanValidationError),
     Port(PortError),
 }
@@ -47,6 +48,9 @@ impl fmt::Display for CoreError {
                 write!(f, "invalid manifest key '{key}': {reason}")
             }
             Self::BlobIntegrity { message } => write!(f, "blob integrity failure: {message}"),
+            Self::RetrievalAuthorization(error) => {
+                write!(f, "retrieval authorization failed: {error}")
+            }
             Self::SearchPlan(error) => write!(f, "search plan rejected: {error}"),
             Self::NotFound { message } => write!(f, "not found: {message}"),
             Self::NotFoundEntity { kind, id } => write!(f, "not found: {kind} {id}"),

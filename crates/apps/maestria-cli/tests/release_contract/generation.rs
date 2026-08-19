@@ -187,11 +187,17 @@ fn configured_dense_generation_survives_projection_rebuild_and_fallback()
         &instance_path,
         "dense generation",
     ])?;
+    // The default Shadow policy does not dispatch dense lanes (4.3): the
+    // dense inference cost is not paid and the trace records only the
+    // lexical and card lanes.
     assert!(
-        explained.contains("retrieval_mode=hybrid-shadow"),
+        explained.contains("retrieval_mode=lexical-only"),
         "{explained}"
     );
-    assert!(explained.contains("dense_chunks"), "{explained}");
+    assert!(
+        explained.contains("retrievers_run=[\"cards\", \"lexical_chunks\"]"),
+        "{explained}"
+    );
     assert!(
         explained.contains("retriever_generations=[Some("),
         "{explained}"
@@ -219,7 +225,7 @@ fn configured_dense_generation_survives_projection_rebuild_and_fallback()
         "{fallback_explained}"
     );
     assert!(
-        fallback_explained.contains("dense_chunks"),
+        fallback_explained.contains("retrievers_run=[\"cards\", \"lexical_chunks\"]"),
         "{fallback_explained}"
     );
     Ok(())

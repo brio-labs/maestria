@@ -50,7 +50,7 @@ impl CurrentVersionFilter {
 
 #[async_trait]
 impl CandidateRetriever for CurrentVersionFilter {
-    fn descriptor(&self) -> RetrieverDescriptor {
+    fn descriptor(&self) -> &RetrieverDescriptor {
         self.inner.descriptor()
     }
 
@@ -168,6 +168,14 @@ fn evidence_location(
     }
 }
 
+/// Converts an f32 similarity score to a clamped u32 micros value.
+pub fn similarity_micros(score: f32) -> u32 {
+    if score.is_finite() && score > 0.0 {
+        (score.min(1.0) * 1_000_000.0).floor() as u32
+    } else {
+        0
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

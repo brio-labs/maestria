@@ -43,10 +43,7 @@ impl<'a> CoreServices<'a> {
     fn authorization(&self) -> CoreResult<maestria_governance::RetrievalAuthorizationContext> {
         self.retrieval_policy
             .authorization_context(&CorpusScope::Global)
-            .map_err(|_| CoreError::NotAvailable {
-                kind: "evidence",
-                reason: "not available under retrieval policy",
-            })
+            .map_err(CoreError::RetrievalAuthorization)
     }
 
     pub fn open_evidence(&self, input: OpenEvidenceInput) -> CoreResult<OpenEvidenceOutput> {

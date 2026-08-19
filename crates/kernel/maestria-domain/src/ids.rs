@@ -54,8 +54,6 @@ id_type!(EvidenceId);
 id_type!(ClaimId);
 id_type!(TaskId);
 id_type!(EventId);
-id_type!(SequenceNumber);
-id_type!(SnapshotId);
 id_type!(LogicalTick);
 id_type!(RelationId);
 id_type!(MemoryCandidateId);
@@ -77,6 +75,14 @@ id_type!(CorrelationId);
 id_type!(NotebookId);
 id_type!(NotebookDraftId);
 id_type!(JournalGeneration);
+
+/// True when the value is exactly 64 lower-case hexadecimal digits.
+pub fn is_lowercase_hex64(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
 
 impl QueryId {
     /// Deterministic query identity derived from the query text, so plans,

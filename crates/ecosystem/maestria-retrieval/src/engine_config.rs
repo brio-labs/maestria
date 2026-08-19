@@ -73,14 +73,6 @@ impl RetrievalEngine {
         self
     }
 
-    pub fn with_visual_execution_policy(
-        mut self,
-        policy: crate::visual_benchmark::VisualExecutionPolicy,
-    ) -> Self {
-        self.visual_execution_policy = policy;
-        self
-    }
-
     pub fn with_capabilities(
         mut self,
         capabilities: maestria_governance::SearchCapabilities,
@@ -96,16 +88,6 @@ impl RetrievalEngine {
 
     pub fn with_reranker(mut self, reranker: Arc<dyn CandidateReranker>) -> Self {
         self.reranker = Some(reranker);
-        self.capabilities = self
-            .capabilities
-            .clone()
-            .with_stage(maestria_domain::SearchStage::Reranking);
-        self
-    }
-
-    pub fn with_visual_reranker(mut self, reranker: Arc<dyn CandidateReranker>) -> Self {
-        self.reranker = Some(reranker);
-        self.visual_reranker = true;
         self.capabilities = self
             .capabilities
             .clone()

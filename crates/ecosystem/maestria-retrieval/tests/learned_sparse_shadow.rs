@@ -111,8 +111,8 @@ struct FixedRetriever {
 
 #[async_trait]
 impl CandidateRetriever for FixedRetriever {
-    fn descriptor(&self) -> RetrieverDescriptor {
-        self.descriptor.clone()
+    fn descriptor(&self) -> &RetrieverDescriptor {
+        &self.descriptor
     }
 
     fn sparse_namespace(&self) -> Option<SparseNamespace> {
@@ -152,8 +152,8 @@ struct SlowRetriever {
 
 #[async_trait]
 impl CandidateRetriever for SlowRetriever {
-    fn descriptor(&self) -> RetrieverDescriptor {
-        self.descriptor.clone()
+    fn descriptor(&self) -> &RetrieverDescriptor {
+        &self.descriptor
     }
 
     fn sparse_namespace(&self) -> Option<SparseNamespace> {

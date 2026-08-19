@@ -223,7 +223,10 @@ fn propose_memory_candidate_rejects_empty_evidence() -> Result<(), Box<dyn std::
         Ok(_) => return Err(std::io::Error::other("empty evidence must be rejected").into()),
         Err(error) => error,
     };
-    assert!(matches!(err, DomainError::EvidenceRequired { .. }));
+    assert!(matches!(
+        err,
+        DomainError::MemoryCandidateRequiresEvidence { .. }
+    ));
     Ok(())
 }
 
@@ -265,7 +268,7 @@ fn propose_memory_candidate_rejects_duplicate_claim_id() -> Result<(), Box<dyn s
         Ok(_) => return Err(std::io::Error::other("duplicate claim_id must be rejected").into()),
         Err(error) => error,
     };
-    assert!(matches!(err, DomainError::DuplicateId { kind, .. } if kind == "claim"));
+    assert!(matches!(err, DomainError::DuplicateClaim { .. }));
     Ok(())
 }
 
@@ -308,7 +311,7 @@ fn propose_memory_candidate_rejects_duplicate_candidate_id()
         }
         Err(error) => error,
     };
-    assert!(matches!(err, DomainError::DuplicateId { kind, .. } if kind == "memory_candidate"));
+    assert!(matches!(err, DomainError::DuplicateMemoryCandidate { .. }));
     Ok(())
 }
 
@@ -393,7 +396,7 @@ fn propose_memory_candidate_rejects_evidence_bound_to_other_claim()
         }
         Err(error) => error,
     };
-    assert!(matches!(err, DomainError::DuplicateId { kind, .. } if kind == "evidence_claim"));
+    assert!(matches!(err, DomainError::DuplicateEvidenceClaim { .. }));
     Ok(())
 }
 

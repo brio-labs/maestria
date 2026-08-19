@@ -25,6 +25,16 @@ pub fn is_supported_source_file(path: &Path) -> bool {
         })
 }
 
+/// Canonical directory names skipped wholesale by indexing and scanning.
+pub const CANONICAL_EXCLUDED_NAMES: &[&str] = &[
+    ".git",
+    "target",
+    "node_modules",
+    "dist",
+    "build",
+    "__pycache__",
+];
+
 /// Shared default privacy exclusions, built once per process.
 static DEFAULT_EXCLUSIONS: std::sync::OnceLock<PrivacyExclusions> = std::sync::OnceLock::new();
 

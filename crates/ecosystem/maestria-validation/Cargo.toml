@@ -7,7 +7,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-maestria-domain = { path = "../../kernel/maestria-domain" }
+maestria-domain = { workspace = true }
 
 [dev-dependencies]
-maestria-test-support = { path = "../../test-support/maestria-test-support" }
+maestria-test-support = { workspace = true }

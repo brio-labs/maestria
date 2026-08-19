@@ -7,7 +7,7 @@ use maestria_domain::{
 use maestria_ports::{PortError, RealmReadGrantRepository};
 use rusqlite::{Row, params};
 
-use crate::sqlite_store::to_port_error;
+use crate::sqlite_store::{to_port_error, usize_to_i64};
 
 impl RealmReadGrantRepository for crate::SqliteStore {
     fn get(&self, token_digest: &GrantTokenDigest) -> Result<Option<RealmReadGrant>, PortError> {
@@ -91,11 +91,12 @@ impl RealmReadGrantRepository for crate::SqliteStore {
         };
         let transaction = connection.transaction().map_err(to_port_error)?;
         for digest in existing {
-            let digest =
-                GrantTokenDigest::try_from(digest).map_err(|error| PortError::InternalContext {
-                    context: "decode realm read grant digest for cleanup",
-                    source: error.to_string(),
-                })?;
+            let digest = GrantTokenDigest::try_from(digest).map_err(|error| {
+                PortError::internal(
+                    "decode realm read grant digest for cleanup",
+                    error.to_string(),
+                )
+            })?;
             if !token_digests.contains(&digest) {
                 transaction
                     .execute(
@@ -175,10 +176,8 @@ fn state_name(state: RealmReadGrantState) -> &'static str {
 }
 
 fn parse_token_digest(value: String) -> Result<GrantTokenDigest, PortError> {
-    GrantTokenDigest::try_from(value).map_err(|error| PortError::InternalContext {
-        context: "decode realm read grant digest",
-        source: error.to_string(),
-    })
+    GrantTokenDigest::try_from(value)
+        .map_err(|error| PortError::internal("decode realm read grant digest", error.to_string()))
 }
 
 fn parse_realm_id(value: String, context: &'static str) -> Result<RealmId, PortError> {
@@ -188,19 +187,10 @@ fn parse_realm_id(value: String, context: &'static str) -> Result<RealmId, PortE
     })
 }
 
-fn i64_to_usize(value: i64, context: &'static str) -> Result<usize, PortError> {
-    usize::try_from(value).map_err(|_| invalid("decode realm read grant integer", context))
-}
-
-fn usize_to_i64(value: usize) -> Result<i64, PortError> {
-    i64::try_from(value).map_err(|_| PortError::InvalidInput {
-        message: "realm read grant bound does not fit SQLite INTEGER".to_string(),
-    })
-}
-
 fn invalid(context: &'static str, source: impl ToString) -> PortError {
-    PortError::InternalContext {
-        context,
-        source: source.to_string(),
-    }
+    PortError::internal(context, source.to_string())
+}
+fn i64_to_usize(value: i64, context: &'static str) -> Result<usize, PortError> {
+    crate::sqlite_store::i64_to_usize(value)
+        .map_err(|_| PortError::internal(context, "stored realm read grant bound is negative"))
 }

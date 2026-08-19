@@ -58,9 +58,11 @@ fn root_node(
             artifact_id
                 .value()
                 .checked_mul(crate::chunking::ID_STRIDE)
-                .ok_or_else(|| PortError::InvalidInputContext {
-                    context: "allocate PDF root node id",
-                    source: "artifact id cannot be expanded into PDF node ids".to_string(),
+                .ok_or_else(|| {
+                    PortError::invalid_input(
+                        "allocate PDF root node id",
+                        "artifact id cannot be expanded into PDF node ids",
+                    )
                 })?,
         ),
         parent_id: None,
@@ -90,9 +92,8 @@ fn page_node(
             .value()
             .checked_add(PAGE_NODE_OFFSET)
             .and_then(|value| value.checked_add(page_order as u64))
-            .ok_or_else(|| PortError::InvalidInputContext {
-                context: "allocate PDF page node id",
-                source: "PDF page node id overflow".to_string(),
+            .ok_or_else(|| {
+                PortError::invalid_input("allocate PDF page node id", "PDF page node id overflow")
             })?,
     );
     Ok(StructureNode {

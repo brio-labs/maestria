@@ -69,7 +69,6 @@ pub async fn run_complete_task_test(
     for event in seed_events {
         let envelope = DomainEventEnvelope {
             id: maestria_domain::EventId::new(state.event_log.len() as u64 + 1),
-            sequence: maestria_domain::SequenceNumber::new(state.event_log.len() as u64 + 1),
             event,
         };
         event_log

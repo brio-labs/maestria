@@ -12,6 +12,7 @@ use crate::types::{CandidateRequest, RetrievalError, RetrievalResult};
 #[path = "engine_budget.rs"]
 mod engine_budget;
 pub use engine_budget::lane_budget;
+pub(crate) use engine_budget::partition_allowance;
 pub(super) use engine_budget::{
     add_usage, execution_with_budget, remaining_budget, usage_within_budget,
 };
@@ -23,6 +24,18 @@ pub(crate) use engine_diversity::run_diversity_stage;
 #[path = "engine_pipeline_dispatch.rs"]
 mod dispatch;
 pub(super) use dispatch::collect_batches;
+
+pub(crate) fn search_query_for_plan(
+    plan: &SearchPlan,
+    text: &str,
+) -> Result<SearchQuery, RetrievalError> {
+    Ok(SearchQuery {
+        q: text.to_string(),
+        limit: plan.stop_conditions().max_results as usize,
+        offset: 0,
+        execution_budget: plan.execution_budget()?,
+    })
+}
 
 pub(super) async fn collect_initial_batches(
     retrievers: &[Arc<dyn CandidateRetriever>],
@@ -49,12 +62,7 @@ pub(super) async fn collect_initial_batches(
     let mut web_requests_used = 0_u32;
     let mut execution_usage = SearchExecutionUsage::default();
     for rewrite in session.records() {
-        let rewrite_query = SearchQuery {
-            q: rewrite.query.clone(),
-            limit: plan.stop_conditions().max_results as usize,
-            offset: 0,
-            execution_budget: plan.execution_budget()?,
-        };
+        let rewrite_query = search_query_for_plan(plan, &rewrite.query)?;
         batches.extend(
             collect_batches(
                 retrievers,
@@ -79,12 +87,7 @@ pub(super) async fn collect_missing_slot_batches(
     web_requests_used: &mut u32,
     execution_usage: &mut SearchExecutionUsage,
 ) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
-    let query = SearchQuery {
-        q: query.to_string(),
-        limit: plan.stop_conditions().max_results as usize,
-        offset: 0,
-        execution_budget: plan.execution_budget()?,
-    };
+    let query = search_query_for_plan(plan, query)?;
     collect_batches(
         retrievers,
         plan,

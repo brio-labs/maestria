@@ -72,8 +72,8 @@ struct StubRetriever {
 
 #[async_trait::async_trait]
 impl crate::traits::CandidateRetriever for StubRetriever {
-    fn descriptor(&self) -> RetrieverDescriptor {
-        self.descriptor.clone()
+    fn descriptor(&self) -> &RetrieverDescriptor {
+        &self.descriptor
     }
 
     async fn retrieve(
@@ -154,8 +154,8 @@ struct EmptyRecordingRetriever {
 
 #[async_trait::async_trait]
 impl crate::traits::CandidateRetriever for EmptyRecordingRetriever {
-    fn descriptor(&self) -> RetrieverDescriptor {
-        self.descriptor.clone()
+    fn descriptor(&self) -> &RetrieverDescriptor {
+        &self.descriptor
     }
 
     async fn retrieve(

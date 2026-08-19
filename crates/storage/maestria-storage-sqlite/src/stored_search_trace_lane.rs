@@ -207,34 +207,13 @@ impl StoredSearchExecutionUsage {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredSearchExecutionResource {
-    Results,
-    Candidates,
-    WorkUnits,
-    BytesRead,
-}
-
-impl StoredSearchExecutionResource {
-    pub(crate) fn from_domain(value: &SearchExecutionResource) -> Self {
-        match value {
-            SearchExecutionResource::Results => Self::Results,
-            SearchExecutionResource::Candidates => Self::Candidates,
-            SearchExecutionResource::WorkUnits => Self::WorkUnits,
-            SearchExecutionResource::BytesRead => Self::BytesRead,
-        }
-    }
-
-    pub(crate) fn try_into_domain(
-        self,
-    ) -> Result<SearchExecutionResource, maestria_ports::PortError> {
-        Ok(match self {
-            Self::Results => SearchExecutionResource::Results,
-            Self::Candidates => SearchExecutionResource::Candidates,
-            Self::WorkUnits => SearchExecutionResource::WorkUnits,
-            Self::BytesRead => SearchExecutionResource::BytesRead,
-        })
+crate::stored_enum! {
+    #[serde(rename_all = "snake_case")]
+    pub(crate) enum StoredSearchExecutionResource <=> SearchExecutionResource {
+        Results,
+        Candidates,
+        WorkUnits,
+        BytesRead,
     }
 }
 
@@ -351,7 +330,7 @@ mod tests {
             SearchExecutionResource::BytesRead,
         ] {
             assert_eq!(
-                StoredSearchExecutionResource::from_domain(&resource).try_into_domain()?,
+                StoredSearchExecutionResource::from_domain(resource).try_into_domain()?,
                 resource
             );
         }

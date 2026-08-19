@@ -1,44 +1,7 @@
 #![forbid(unsafe_code)]
 
-use maestria_ports::{FileHandle, FileMetadata, ParseContext, ParsedArtifact, Parser, PortError};
-
-use crate::chunking::{
-    decode_utf8, extension_is, paragraph_chunks, parsed_artifact, ranges_from_starts,
-};
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct MarkdownParser;
-
-impl MarkdownParser {
-    pub const fn new() -> Self {
-        Self
-    }
-}
-
-impl Parser for MarkdownParser {
-    fn id(&self) -> &'static str {
-        "markdown-parser"
-    }
-
-    fn supports(&self, file: &FileMetadata) -> bool {
-        extension_is(file, &["md", "markdown"])
-    }
-
-    fn parse(&self, file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError> {
-        let bytes = file.bytes.clone();
-        let text = decode_utf8(file.bytes)?;
-        let chunks = markdown_chunks(&text);
-        parsed_artifact(
-            context.artifact_id,
-            &file.path,
-            &bytes,
-            chunks,
-            self.id().to_string(),
-            "1.0".to_string(),
-            Some("markdown".to_string()),
-        )
-    }
-}
+use crate::chunking::{extension_is, paragraph_chunks, ranges_from_starts};
+use crate::text_parser;
 
 fn markdown_chunks(text: &str) -> Vec<(String, maestria_ports::SourceSpan)> {
     let heading_lines = text
@@ -63,3 +26,15 @@ fn is_markdown_heading(line: &str) -> bool {
             None => true,
         }
 }
+
+text_parser!(
+    MarkdownParser,
+    "markdown-parser",
+    |file: &maestria_ports::FileMetadata| {
+        extension_is(file, &crate::chunking::DOC_EXTENSIONS[0..2])
+    },
+    "markdown-parser",
+    "1.0",
+    "markdown",
+    markdown_chunks
+);

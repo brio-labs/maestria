@@ -1,6 +1,6 @@
 use maestria_ports::{
     EmbeddingIdentity, EmbeddingInputKind, EmbeddingProvider, EmbeddingRequest, EmbeddingResponse,
-    PortError, ProviderDisclosure, ProviderEndpoint, ProviderTransport, RetentionPolicy,
+    PortError, ProviderDisclosure, ProviderEndpoint, ProviderTransport,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -55,7 +55,10 @@ impl LocalHttpEmbeddingProvider {
             identity,
             document_template,
             query_template,
-            transport: Arc::new(UreqTransport::new(endpoint)),
+            transport: Arc::new(maestria_adapter_http::UreqJsonClient::new(
+                endpoint,
+                std::time::Duration::from_secs(15),
+            )),
         })
     }
 
@@ -104,12 +107,11 @@ fn validate_profile(
             source: "dimensions must be positive when provided".to_string(),
         });
     }
-    if model != identity.fingerprint.model.as_str() {
-        return Err(PortError::InvalidInputContext {
-            context: "embedding model identity mismatch",
-            source: "model does not match the identity fingerprint".to_string(),
-        });
-    }
+    maestria_adapter_http::validate_model_identity(
+        model,
+        identity.fingerprint.model.as_str(),
+        "embedding",
+    )?;
     if dimensions.is_some_and(|value| value != identity.fingerprint.dimensions as usize) {
         return Err(PortError::InvalidInputContext {
             context: "embedding dimensions identity mismatch",
@@ -158,24 +160,18 @@ impl EmbeddingProvider for LocalHttpEmbeddingProvider {
             model: self.model.clone(),
             dimensions: self.dimensions,
         };
-        let body = serde_json::to_vec(&payload).map_err(|error| PortError::InternalContext {
-            context: "encode embedding request",
-            source: error.to_string(),
-        })?;
+        let body = serde_json::to_vec(&payload)
+            .map_err(|error| PortError::internal("encode embedding request", error.to_string()))?;
         let response = self.transport.post(body)?;
-        let parsed: EmbeddingApiResponse =
-            serde_json::from_slice(&response).map_err(|error| PortError::DownstreamContext {
-                context: "decode embedding response",
-                source: error.to_string(),
-            })?;
-        let first = parsed
-            .data
-            .into_iter()
-            .next()
-            .ok_or_else(|| PortError::DownstreamContext {
-                context: "decode embedding response data",
-                source: "embedding response contained no data".to_string(),
-            })?;
+        let parsed: EmbeddingApiResponse = serde_json::from_slice(&response).map_err(|error| {
+            PortError::downstream("decode embedding response", error.to_string())
+        })?;
+        let first = parsed.data.into_iter().next().ok_or_else(|| {
+            PortError::downstream(
+                "decode embedding response data",
+                "embedding response contained no data",
+            )
+        })?;
         validate_vector(&first.embedding, self.dimensions)?;
         let model_version = if parsed.model.trim().is_empty() {
             self.model.clone()
@@ -193,56 +189,6 @@ impl EmbeddingProvider for LocalHttpEmbeddingProvider {
     }
     fn identity(&self) -> Option<EmbeddingIdentity> {
         Some(self.identity.clone())
-    }
-}
-
-#[derive(Debug, Clone)]
-struct UreqTransport {
-    endpoint: ProviderEndpoint,
-    disclosure: ProviderDisclosure,
-    agent: ureq::Agent,
-}
-
-impl UreqTransport {
-    fn new(endpoint: ProviderEndpoint) -> Self {
-        Self {
-            endpoint,
-            disclosure: ProviderDisclosure {
-                remote: false,
-                retention: RetentionPolicy::NoRetention,
-            },
-            agent: ureq::AgentBuilder::new()
-                .timeout(std::time::Duration::from_secs(15))
-                .redirects(0)
-                .build(),
-        }
-    }
-}
-
-impl ProviderTransport for UreqTransport {
-    fn endpoint(&self) -> &ProviderEndpoint {
-        &self.endpoint
-    }
-
-    fn disclosure(&self) -> &ProviderDisclosure {
-        &self.disclosure
-    }
-
-    fn post(&self, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
-        self.agent
-            .post(self.endpoint.as_str())
-            .set("content-type", "application/json")
-            .send_bytes(&body)
-            .map_err(|error| PortError::DownstreamContext {
-                context: "embedding request failed",
-                source: error.to_string(),
-            })?
-            .into_string()
-            .map(String::into_bytes)
-            .map_err(|error| PortError::DownstreamContext {
-                context: "read embedding response",
-                source: error.to_string(),
-            })
     }
 }
 
@@ -268,9 +214,8 @@ struct EmbeddingData {
 
 pub fn parse_loopback_endpoint(endpoint: &str) -> Result<Url, PortError> {
     ProviderEndpoint::loopback_http(endpoint, EMBEDDING_ENDPOINT_PATH).and_then(|endpoint| {
-        Url::parse(endpoint.as_str()).map_err(|error| PortError::InvalidInputContext {
-            context: "invalid provider endpoint",
-            source: error.to_string(),
+        Url::parse(endpoint.as_str()).map_err(|error| {
+            PortError::invalid_input("invalid provider endpoint", error.to_string())
         })
     })
 }

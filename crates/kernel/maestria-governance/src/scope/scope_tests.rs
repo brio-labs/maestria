@@ -247,15 +247,3 @@ fn scope_check_write_containment_rejects_read_only() {
             .is_err()
     );
 }
-
-// ── ScopeGuard delegation ────────────────────────────────────
-
-#[test]
-fn guard_delegates_containment() {
-    let scope = sample_scope();
-    let guard = ScopeGuard::new(scope);
-    assert_eq!(
-        guard.check_read_containment(Path::new("/allowed/read/docs/note.md")),
-        Ok(())
-    );
-}

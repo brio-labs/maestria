@@ -57,12 +57,6 @@ pub struct ModelAgentProposalRequest {
     pub correlation_id: CorrelationId,
 }
 
-impl ModelAgentProposalRequest {
-    pub fn into_harness_request(self) -> crate::effects::QueryHarnessProposalRequest {
-        crate::effects::QueryHarnessProposalRequest { proposal: self }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ModelAgentSearchResult {
     pub trace_id: SearchTraceId,

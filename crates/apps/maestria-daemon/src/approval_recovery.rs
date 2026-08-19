@@ -13,17 +13,11 @@ use maestria_storage_sqlite::SqliteStore;
 /// resolved state. If a CLI-initiated resolution persisted the event but crashed
 /// before updating the repo, this repair brings the repo back into consistency.
 pub fn reconcile_approval_repo(state: &KernelState, store: &SqliteStore) -> Result<()> {
-    use maestria_domain::DomainEvent;
-
     for envelope in &state.event_log {
-        if let DomainEvent::ApprovalRecorded {
-            approval_id,
-            outcome,
-        } = &envelope.event
-        {
+        if let Some((approval_id, outcome)) = envelope.event.approval_record() {
             let approved = outcome.approved();
             let existing = store
-                .find_by_id(*approval_id)
+                .find_by_id(approval_id)
                 .map_err(|e| anyhow!("reconcile approval {approval_id}: {e}"))?;
             if existing.is_none() {
                 anyhow::bail!(
@@ -31,7 +25,7 @@ pub fn reconcile_approval_repo(state: &KernelState, store: &SqliteStore) -> Resu
                      event log contains ApprovalRecorded but no matching durable request"
                 );
             }
-            if let Err(e) = store.resolve(*approval_id, approved) {
+            if let Err(e) = store.resolve(approval_id, approved) {
                 anyhow::bail!("reconcile: resolve approval {approval_id}: {e}");
             }
         }

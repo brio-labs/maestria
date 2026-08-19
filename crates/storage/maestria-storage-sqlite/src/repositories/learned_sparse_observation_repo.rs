@@ -163,9 +163,11 @@ fn decode_observation(
 }
 
 fn i64_from_u64(value: u64, field: &'static str) -> Result<i64, maestria_ports::PortError> {
-    i64::try_from(value).map_err(|error| maestria_ports::PortError::InvalidInputContext {
-        context: "learned-sparse shadow numeric field",
-        source: format!("{field}: {error}"),
+    crate::sqlite_store::u64_to_i64(value).map_err(|_| {
+        maestria_ports::PortError::invalid_input(
+            "learned-sparse shadow numeric field",
+            format!("{field}: {value}"),
+        )
     })
 }
 

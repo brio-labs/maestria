@@ -8,8 +8,11 @@ use maestria_domain::{
 use maestria_ports::{GraphIndex, GraphRelationQuery, PortError};
 
 fn graph_query(endpoint: RelationEndpoint) -> Result<GraphRelationQuery, PortError> {
-    GraphRelationQuery::new(endpoint, u64::MAX).ok_or_else(|| PortError::Internal {
-        message: "graph query limit must be positive".to_string(),
+    GraphRelationQuery::new(endpoint, u64::MAX).ok_or_else(|| {
+        PortError::internal(
+            "maestria graph sqlite test",
+            "graph query limit must be positive".to_string(),
+        )
     })
 }
 

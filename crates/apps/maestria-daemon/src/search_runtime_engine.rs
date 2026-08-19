@@ -29,11 +29,19 @@ impl SearchRuntime {
     /// The benchmark executor and the daemon both build engines here (R28);
     /// only the policies, the optional learned-sparse lane, and whether the
     /// base retrievers are registered differ.
-    /// The base serving lanes: cards, lexical chunks, repository code, dense
-    /// chunks, and the visual lane, all generation-filtered.
+    /// The base serving lanes: cards, lexical chunks, repository code, and dense
+    /// chunks, all generation-filtered.
     fn base_retrievers(
         &self,
         events: &[maestria_domain::DomainEventEnvelope],
+        sources: &std::collections::BTreeMap<
+            std::path::PathBuf,
+            (
+                maestria_domain::ArtifactId,
+                maestria_domain::ArtifactVersionId,
+                maestria_domain::ContentHash,
+            ),
+        >,
         active_versions: std::collections::BTreeSet<maestria_domain::ArtifactVersionId>,
     ) -> Result<Vec<Arc<dyn CandidateRetriever>>> {
         let mut retrievers: Vec<Arc<dyn CandidateRetriever>> = Vec::new();
@@ -71,6 +79,7 @@ impl SearchRuntime {
                     evidence: self.evidence.clone(),
                     blobs: self.blobs.clone(),
                 },
+                sources,
                 events,
             )
             .map_err(|error| anyhow!("prepare repository code security resolver: {error}"))?;
@@ -99,9 +108,6 @@ impl SearchRuntime {
                 active_versions.clone(),
             )));
         }
-        if let Some(retriever) = self.visual_retriever(active_versions) {
-            retrievers.push(retriever);
-        }
         Ok(retrievers)
     }
 
@@ -113,10 +119,13 @@ impl SearchRuntime {
         include_base_retrievers: bool,
     ) -> Result<RetrievalEngine> {
         let events = self.domain_events()?;
-        let active_versions = reconcile_active_versions(&events);
+        // Single projection scan shared by the version filter and the
+        // repository-code security resolver.
+        let sources = maestria_domain::active_source_versions(&events);
+        let active_versions = reconcile_active_versions(&sources);
         let mut retrievers: Vec<Arc<dyn CandidateRetriever>> = Vec::new();
         if include_base_retrievers {
-            retrievers = self.base_retrievers(&events, active_versions)?;
+            retrievers = self.base_retrievers(&events, &sources, active_versions)?;
         }
         // The sparse lane registers after the base lanes so the engine's
         // primary generation stays the lexical generation (R24).
@@ -132,9 +141,6 @@ impl SearchRuntime {
         if self.persist_learned_sparse_observations {
             engine = engine.with_learned_sparse_observation_repository(self.event_log.clone());
         }
-        if let Some(reranker) = self.reranker.clone() {
-            engine = engine.with_visual_reranker(reranker);
-        }
         if let Some(graph) = self.graph_index.clone() {
             engine = engine.with_expander(Arc::new(HierarchyGraphExpander::new(
                 HierarchyGraphExpanderParts {
@@ -149,7 +155,6 @@ impl SearchRuntime {
         Ok(engine
             .with_hybrid_policy(hybrid_policy)
             .with_learned_sparse_execution_policy(sparse_policy)
-            .with_repository_execution_policy(self.repository_execution_policy.clone())
-            .with_visual_execution_policy(self.visual_execution_policy.clone()))
+            .with_repository_execution_policy(self.repository_execution_policy.clone()))
     }
 }

@@ -8,8 +8,11 @@ use maestria_domain::{
 use maestria_ports::{GraphIndex, GraphRelationQuery, PortError};
 
 fn graph_query(endpoint: RelationEndpoint) -> Result<GraphRelationQuery, PortError> {
-    GraphRelationQuery::new(endpoint, u64::MAX).ok_or_else(|| PortError::Internal {
-        message: "graph query limit must be positive".to_string(),
+    GraphRelationQuery::new(endpoint, u64::MAX).ok_or_else(|| {
+        PortError::internal(
+            "maestria graph sqlite test",
+            "graph query limit must be positive".to_string(),
+        )
     })
 }
 
@@ -149,7 +152,7 @@ fn rebuild_rolls_back_when_insert_fails() -> Result<(), PortError> {
     drop(connection);
 
     let result = index.rebuild(vec![rel2, rel3]);
-    assert!(result.is_err_and(|error| error.is_internal()));
+    assert!(result.is_err_and(|error| error.is_conflict()));
     assert_eq!(
         index.get_relations_for(graph_query(ep)?)?.relations,
         vec![rel1]

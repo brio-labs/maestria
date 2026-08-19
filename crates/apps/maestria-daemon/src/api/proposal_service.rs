@@ -147,7 +147,7 @@ pub(super) fn status(layout: &InstanceLayout, run_id: u64) -> Result<ModelAgentS
     let store = SqliteStore::open_read_only(&layout.database_path)?;
     let mut approval_id = None;
     let mut correlation_id = None;
-    let mut pending_journal_generation = None;
+    let mut pending_journal_generation: Option<maestria_domain::JournalGeneration> = None;
     for record in store.find_pending()? {
         let Some(identity) = pending_proposal_identity(&record)
             .map_err(|error| anyhow!("read approval {}: {error}", record.id))?
@@ -157,7 +157,7 @@ pub(super) fn status(layout: &InstanceLayout, run_id: u64) -> Result<ModelAgentS
         if identity.run_id == run_id {
             approval_id = Some(record.id.value());
             correlation_id = Some(identity.correlation_id.value());
-            pending_journal_generation = Some(identity.journal_generation.value());
+            pending_journal_generation = Some(identity.journal_generation);
             break;
         }
     }
@@ -179,7 +179,8 @@ pub(super) fn status(layout: &InstanceLayout, run_id: u64) -> Result<ModelAgentS
         status: status.to_string(),
         approval_id,
         journal_generation: pending_journal_generation
-            .or_else(|| entry.map(|entry| entry.generation)),
+            .or_else(|| entry.map(|entry| entry.generation))
+            .map(|generation| generation.value()),
         trace_id: None,
         evidence_count: 0,
         harness: None,

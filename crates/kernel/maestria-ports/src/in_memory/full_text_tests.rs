@@ -1,12 +1,7 @@
 use crate::FullTextIndex;
+use crate::contract_tests::search_budget;
 use crate::in_memory::InMemoryFullTextIndex;
 use maestria_domain::{ArtifactId, ChunkId};
-
-fn search_budget(
-    limit: u64,
-) -> Result<maestria_domain::SearchExecutionBudget, maestria_domain::SearchCompatibilityError> {
-    maestria_domain::SearchExecutionBudget::new(limit, 10_000, 100_000, 0)
-}
 
 #[test]
 fn reindex_chunk_replaces_old_record() -> Result<(), Box<dyn std::error::Error>> {

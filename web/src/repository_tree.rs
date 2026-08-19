@@ -9,7 +9,7 @@ use crate::{
         ApiClient, CandidateDirWire, IndexPolicyWire, RepositoryIndexFileWire,
         RepositoryIndexFilesWire,
     },
-    components::alert,
+    components::{alert, class_badge},
     index::Included,
     state::LoadState,
 };
@@ -77,11 +77,7 @@ fn BrowseRow(
     let class = node.class.clone();
     let checked = included.read().contains_key(&node.path);
     let size_mb = node.total_bytes as f64 / (1024.0 * 1024.0);
-    let class_badge = match class.as_str() {
-        "Recommended" => "bg-success",
-        "Noise" => "bg-muted",
-        _ => "bg-warning",
-    };
+    let badge = class_badge(&class);
     let direct_files = node.file_count
         > node
             .children
@@ -140,7 +136,7 @@ fn BrowseRow(
                         }
                         span { class: "truncate font-mono text-sm", "{node.path}" }
                         span {
-                            class: "rounded px-2 py-1 text-xs text-white {class_badge}",
+                            class: "rounded px-2 py-1 text-xs text-white {badge}",
                             {class}
                         }
                         span { class: "text-xs text-ink-muted",
@@ -179,11 +175,7 @@ fn FileLeafRow(
     default_policy: IndexPolicyWire,
 ) -> Element {
     let toggle_path = node_path.clone();
-    let class_badge = match class.as_str() {
-        "Recommended" => "bg-success",
-        "Noise" => "bg-muted",
-        _ => "bg-warning",
-    };
+    let badge = class_badge(&class);
     rsx! {
         li { class: "rounded-lg border border-line bg-panel px-3 py-1.5",
             label { class: "flex min-w-0 items-center gap-2",
@@ -202,7 +194,7 @@ fn FileLeafRow(
                 }
                 span { class: "truncate font-mono text-xs", {node_path.clone()} }
                 span {
-                    class: "rounded px-1.5 py-0.5 text-[10px] text-white {class_badge}",
+                    class: "rounded px-1.5 py-0.5 text-[10px] text-white {badge}",
                     {class}
                 }
             }

@@ -97,8 +97,8 @@ impl StoredSearchTraceCandidate {
             source_span: StoredEvidenceSpan::from_domain(value.source_span()),
             rank: value.rank(),
             scores: StoredRetrievalScoreSet::from_domain(value.scores()),
-            trust: StoredTrustLabel::from_domain(&value.trust()),
-            freshness: StoredFreshnessStatus::from_domain(&value.freshness()),
+            trust: StoredTrustLabel::from_domain(value.trust()),
+            freshness: StoredFreshnessStatus::from_domain(value.freshness()),
             duplicate_cluster: value.duplicate_cluster().map(|id| id.value()),
             reasons: value
                 .reasons()
@@ -216,7 +216,7 @@ impl StoredSearchTrace {
         Self {
             query_id: value.query_id.value(),
             original_query: value.original_query.clone(),
-            intent: StoredSearchIntent::from_domain(&value.intent),
+            intent: StoredSearchIntent::from_domain(value.intent),
             original_intent: value
                 .original_intent
                 .as_ref()

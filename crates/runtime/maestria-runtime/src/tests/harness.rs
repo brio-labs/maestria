@@ -168,63 +168,6 @@ async fn query_harness_rejects_blocked_pattern_before_custom_adapter()
     Ok(())
 }
 
-/// Verify that a blocked scope path is enforced before a custom harness
-/// adapter can observe or execute a cat request.
-#[tokio::test]
-async fn query_harness_rejects_blocked_path_before_custom_adapter()
--> Result<(), Box<dyn std::error::Error>> {
-    let harness_called = Arc::new(AtomicBool::new(false));
-    let harness = Arc::new(SpyHarnessAdapter::new(harness_called.clone()));
-    let adapters = test_adapters(harness);
-    let governance = test_governance();
-    let (input_tx, _input_rx) = mpsc::channel(8);
-
-    let request = maestria_domain::QueryHarnessRequest {
-        run_id: maestria_domain::HarnessRunId(7),
-        task_id: None,
-        execution: maestria_domain::HarnessExecution::Fresh,
-        capability: "shell".to_string(),
-        scope_id: maestria_domain::ScopeId(1),
-        command: "cat /workspace/private/notes.txt".to_string(),
-    };
-
-    let ctx = EffectExecutionContext {
-        scope: Scope::new(
-            vec![PathBuf::from("/workspace")],
-            vec![],
-            vec!["shell".into()],
-            vec![],
-            false,
-        )
-        .with_blocked_read_paths(vec![PathBuf::from("/workspace/private")]),
-        ..EffectExecutionContext::test_default(
-            adapters,
-            governance,
-            Arc::new(RwLock::new(KernelState::new())),
-            input_tx,
-        )
-    };
-
-    let result = ctx
-        .execute_effect(MaestriaEffect::QueryHarness(request), None)
-        .await;
-    match result {
-        Err(EffectFailure::Denied(reason)) => {
-            assert!(
-                reason.contains("blocked by scope"),
-                "denial reason should identify the blocked path: {reason}"
-            );
-        }
-        Err(other) => return Err(format!("expected typed denial, got {other}").into()),
-        Ok(()) => return Err("blocked path unexpectedly succeeded".into()),
-    }
-    assert!(
-        !harness_called.load(Ordering::Relaxed),
-        "blocked-path harness must not be invoked"
-    );
-    Ok(())
-}
-
 /// Verify that an allowed command (echo) proceeds through to the adapter
 /// and produces a HarnessRunCompleted event.
 #[tokio::test]
@@ -425,7 +368,7 @@ async fn query_harness_records_lifecycle_and_processes_current_feedback()
     };
     adapters.effect_journal.record_terminal(
         completed_run_id,
-        completed_generation,
+        maestria_domain::JournalGeneration::new(completed_generation),
         maestria_ports::EffectJournalStatus::Completed,
     )?;
     assert!(

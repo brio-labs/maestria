@@ -33,7 +33,6 @@ pub(crate) fn validate_domain_events_schema(connection: &Connection) -> Result<(
 
     for (name, expected_type, require_not_null, require_nullable, require_primary_key) in [
         ("id", "INTEGER", true, false, true),
-        ("sequence", "INTEGER", true, false, false),
         ("event_kind", "TEXT", true, false, false),
         ("artifact_id", "INTEGER", false, true, false),
         ("payload_json", "TEXT", true, false, false),
@@ -73,9 +72,8 @@ pub(crate) fn validate_domain_events_schema(connection: &Connection) -> Result<(
         }
         indexes
     };
-    let mut has_unique_sequence = false;
-    let mut has_artifact_sequence_index = false;
-    for (index_name, unique) in indexes {
+    let mut has_artifact_id_index = false;
+    for (index_name, _unique) in indexes {
         let quoted_name = index_name.replace('"', "\"\"");
         let mut statement = connection
             .prepare(&format!("PRAGMA index_info(\"{quoted_name}\")"))
@@ -85,26 +83,14 @@ pub(crate) fn validate_domain_events_schema(connection: &Connection) -> Result<(
         while let Some(row) = rows.next().map_err(to_port_error)? {
             index_columns.push(row.get::<_, String>(2).map_err(to_port_error)?);
         }
-        if unique && index_columns == ["sequence"] {
-            has_unique_sequence = true;
-        }
-        if index_name == "idx_domain_events_artifact_sequence"
-            && index_columns == ["artifact_id", "sequence"]
-        {
-            has_artifact_sequence_index = true;
+        if index_name == "idx_domain_events_artifact_id" && index_columns == ["artifact_id", "id"] {
+            has_artifact_id_index = true;
         }
     }
-    if !has_unique_sequence {
-        return Err(PortError::InternalContext {
-            context: "domain_events sequence index is not unique",
-            source: "sequence must have a unique index".to_string(),
-        });
-    }
-    if !has_artifact_sequence_index {
+    if !has_artifact_id_index {
         return Err(PortError::InternalContext {
             context: "domain_events artifact index is invalid",
-            source: "expected idx_domain_events_artifact_sequence on artifact_id, sequence"
-                .to_string(),
+            source: "expected idx_domain_events_artifact_id on artifact_id, id".to_string(),
         });
     }
     Ok(())
@@ -112,25 +98,24 @@ pub(crate) fn validate_domain_events_schema(connection: &Connection) -> Result<(
 
 pub(crate) fn validate_event_order(connection: &Connection) -> Result<(), PortError> {
     let mut statement = connection
-        .prepare("SELECT id, sequence FROM domain_events ORDER BY sequence ASC")
+        .prepare("SELECT id FROM domain_events ORDER BY id ASC")
         .map_err(to_port_error)?;
     let mut rows = statement.query([]).map_err(to_port_error)?;
     let mut expected = 1_u64;
     while let Some(row) = rows.next().map_err(to_port_error)? {
         let id = i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?;
-        let sequence = i64_to_u64(row.get::<_, i64>(1).map_err(to_port_error)?)?;
-        if id != expected || sequence != expected {
+        if id != expected {
             return Err(PortError::InternalContext {
                 context: "domain event log is not contiguous",
-                source: format!("expected {expected}: id {id}, sequence {sequence}"),
+                source: format!("expected {expected}: id {id}"),
             });
         }
-        expected = expected
-            .checked_add(1)
-            .ok_or_else(|| PortError::InternalContext {
-                context: "domain event sequence exhausted",
-                source: "event sequence exceeded the u64 range".to_string(),
-            })?;
+        expected = expected.checked_add(1).ok_or_else(|| {
+            PortError::internal(
+                "domain event id exhausted",
+                "event id exceeded the u64 range",
+            )
+        })?;
     }
     Ok(())
 }
@@ -140,7 +125,7 @@ pub(crate) fn validate_stored_event_payloads(connection: &Connection) -> Result<
         .prepare(
             "SELECT e.event_kind, e.artifact_id, e.payload_json
              FROM domain_events e
-             ORDER BY e.sequence ASC",
+             ORDER BY e.id ASC",
         )
         .map_err(to_port_error)?;
     let mut rows = statement.query([]).map_err(to_port_error)?;

@@ -24,35 +24,14 @@ pub(crate) use super::stored_evidence_pack_coverage::{
 };
 pub(crate) use super::stored_evidence_pack_reproducibility::StoredEvidencePackReproducibilityRecord;
 
-/// Wire mirror of `maestria_domain::ClaimCoverageStatusRecord`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredClaimCoverageStatusRecord {
-    Supported,
-    Partial,
-    Missing,
-    Conflicted,
-}
-
-impl StoredClaimCoverageStatusRecord {
-    pub(crate) fn from_domain(status: ClaimCoverageStatusRecord) -> Self {
-        match status {
-            ClaimCoverageStatusRecord::Supported => Self::Supported,
-            ClaimCoverageStatusRecord::Partial => Self::Partial,
-            ClaimCoverageStatusRecord::Missing => Self::Missing,
-            ClaimCoverageStatusRecord::Conflicted => Self::Conflicted,
-        }
-    }
-
-    pub(crate) fn try_into_domain(
-        self,
-    ) -> Result<ClaimCoverageStatusRecord, maestria_ports::PortError> {
-        Ok(match self {
-            Self::Supported => ClaimCoverageStatusRecord::Supported,
-            Self::Partial => ClaimCoverageStatusRecord::Partial,
-            Self::Missing => ClaimCoverageStatusRecord::Missing,
-            Self::Conflicted => ClaimCoverageStatusRecord::Conflicted,
-        })
+crate::stored_enum! {
+    /// Wire mirror of `maestria_domain::ClaimCoverageStatusRecord`.
+    #[serde(rename_all = "snake_case")]
+    pub(crate) enum StoredClaimCoverageStatusRecord <=> ClaimCoverageStatusRecord {
+        Supported,
+        Partial,
+        Missing,
+        Conflicted,
     }
 }
 

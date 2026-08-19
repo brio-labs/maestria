@@ -1,6 +1,6 @@
 use crate::config::EffectExecutionContext;
 use crate::effect_result::EffectFailure;
-use maestria_domain::{ArtifactId, Chunk, ChunkId, IndexVectorRequest, content_hash};
+use maestria_domain::{ArtifactId, Chunk, ChunkId, IndexChunkRequest, content_hash};
 use maestria_governance::scan_secrets;
 use maestria_ports::{EmbeddingInputKind, EmbeddingProvider, EmbeddingRequest, VectorEmbedding};
 use std::sync::Arc;
@@ -8,7 +8,7 @@ use std::sync::Arc;
 impl EffectExecutionContext {
     pub(crate) async fn handle_index_vector(
         &self,
-        request: IndexVectorRequest,
+        request: IndexChunkRequest,
     ) -> Result<(), EffectFailure> {
         // Permanent per-artifact degradation: configuration cannot change
         // mid-run, so later chunks short-circuit instead of repeating the
@@ -83,7 +83,7 @@ impl EffectExecutionContext {
     /// permanently degrading the artifact when a precondition is unmet.
     async fn resolve_embedding_capability(
         &self,
-        request: &IndexVectorRequest,
+        request: &IndexChunkRequest,
         provider: &Arc<dyn EmbeddingProvider + Send + Sync>,
     ) -> Result<
         (
@@ -96,67 +96,43 @@ impl EffectExecutionContext {
         let disclosure = provider.disclosure();
         if disclosure.remote || disclosure.retention != maestria_ports::RetentionPolicy::NoRetention
         {
-            tracing::warn!(
-                chunk_id = %request.chunk_id,
-                "embedding transport violates local no-retention policy"
-            );
-            return match self
-                .degrade_vector_artifact(
-                    request.artifact_id,
-                    request.chunk_id,
+            return Err(self
+                .degrade_vector_with(
+                    request,
                     "embedding transport violates local no-retention policy",
                 )
-                .await
-            {
-                Err(failure) => Err(failure),
-                Ok(()) => Err(EffectFailure::Degraded(
-                    "embedding transport violates local no-retention policy".to_string(),
-                )),
-            };
+                .await);
         }
         let Some(model) = self
             .embedding_model
             .clone()
             .filter(|model| !model.trim().is_empty())
         else {
-            tracing::warn!(
-                chunk_id = %request.chunk_id,
-                "vector provider configured without model"
-            );
-            return match self
-                .degrade_vector_artifact(
-                    request.artifact_id,
-                    request.chunk_id,
-                    "embedding model is not configured",
-                )
-                .await
-            {
-                Err(failure) => Err(failure),
-                Ok(()) => Err(EffectFailure::Degraded(
-                    "embedding model is not configured".to_string(),
-                )),
-            };
+            return Err(self
+                .degrade_vector_with(request, "embedding model is not configured")
+                .await);
         };
         let Some(identity) = provider.identity() else {
-            tracing::warn!(
-                chunk_id = %request.chunk_id,
-                "embedding provider has no generation identity"
-            );
-            return match self
-                .degrade_vector_artifact(
-                    request.artifact_id,
-                    request.chunk_id,
-                    "embedding provider has no generation identity",
-                )
-                .await
-            {
-                Err(failure) => Err(failure),
-                Ok(()) => Err(EffectFailure::Degraded(
-                    "embedding provider has no generation identity".to_string(),
-                )),
-            };
+            return Err(self
+                .degrade_vector_with(request, "embedding provider has no generation identity")
+                .await);
         };
         Ok((Arc::clone(provider), model, identity))
+    }
+
+    async fn degrade_vector_with(
+        &self,
+        request: &IndexChunkRequest,
+        reason: &'static str,
+    ) -> EffectFailure {
+        tracing::warn!(chunk_id = %request.chunk_id, "{reason}");
+        match self
+            .degrade_vector_artifact(request.artifact_id, request.chunk_id, reason)
+            .await
+        {
+            Err(failure) => failure,
+            Ok(()) => EffectFailure::Degraded(reason.to_string()),
+        }
     }
 
     async fn index_vector_embedding(
@@ -199,9 +175,14 @@ impl EffectExecutionContext {
     /// Record permanent degradation for the artifact, running the
     /// stale-projection invalidation only for its first degraded chunk.
     /// Return the recorded degradation reason when this artifact's vector
-    /// lane has already permanently degraded, `None` while the lane is live.
     fn degraded_artifact_reason(&self, artifact_id: ArtifactId) -> Option<String> {
-        let degraded = self.degraded_vector_artifacts.lock().ok()?;
+        let degraded = match self.degraded_vector_artifacts.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("degraded vector artifacts lock poisoned on read");
+                poisoned.into_inner()
+            }
+        };
         degraded.get(&artifact_id).cloned()
     }
 

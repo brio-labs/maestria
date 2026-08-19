@@ -6,7 +6,6 @@ mod fixtures;
 fn new_envelope(id: u64, event: DomainEvent) -> DomainEventEnvelope {
     DomainEventEnvelope {
         id: EventId::new(id),
-        sequence: SequenceNumber::new(id),
         event,
     }
 }
@@ -85,7 +84,6 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), Box<dyn std::e
     // → ArtifactParsed → ArtifactIndexed.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
@@ -94,7 +92,6 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), Box<dyn std::e
     })?;
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::ParserStarted {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
@@ -109,7 +106,6 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), Box<dyn std::e
     // so the evidence-completeness gate can match hashes.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(3),
-        sequence: SequenceNumber::new(3),
         event: DomainEvent::PendingIndex {
             artifact_id: ArtifactId::new(1),
             content_hash: fixtures::test_content_hash()?,
@@ -119,7 +115,6 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), Box<dyn std::e
     // Register a chunk so the FullTextIndexed → ArtifactIndexed chain works.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(4),
-        sequence: SequenceNumber::new(4),
         event: DomainEvent::ChunkRegistered {
             node_id: maestria_domain::StructureNodeId::new(1),
             source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
@@ -135,7 +130,6 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), Box<dyn std::e
     // matching content_hash so the evidence-completeness gate passes.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(5),
-        sequence: SequenceNumber::new(5),
         event: DomainEvent::EvidenceRecorded {
             evidence_id: evidence_id_for(ArtifactId::new(1), 0),
             artifact_id: ArtifactId::new(1),
@@ -155,7 +149,6 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), Box<dyn std::e
     // when ArtifactIndexed arrives.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(6),
-        sequence: SequenceNumber::new(6),
         event: DomainEvent::FullTextIndexed {
             artifact_id: ArtifactId::new(1),
             chunk_id: ChunkId::new(10),
@@ -165,11 +158,9 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), Box<dyn std::e
     // ArtifactParsed must NOT clear pending_parsers.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(7),
-        sequence: SequenceNumber::new(7),
         event: DomainEvent::ArtifactParsed {
             status: maestria_domain::ParseStatus::Parsed,
             artifact_id: ArtifactId::new(1),
-            chunks_added: 1,
         },
     })?;
     assert!(
@@ -181,7 +172,6 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), Box<dyn std::e
     // evidence is complete.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(8),
-        sequence: SequenceNumber::new(8),
         event: DomainEvent::ArtifactIndexed {
             artifact_id: ArtifactId::new(1),
         },
@@ -201,7 +191,6 @@ fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), Box<dyn s
     let art_id = ArtifactId::new(1);
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ArtifactRegistered {
             artifact_id: art_id,
             title: "Notes".to_string(),
@@ -210,7 +199,6 @@ fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), Box<dyn s
     })?;
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::ParserStarted {
             artifact_id: art_id,
             title: "Notes".to_string(),
@@ -225,7 +213,6 @@ fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), Box<dyn s
     // Set content_hash via PendingIndex so the artifact exists but lacks evidence.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(3),
-        sequence: SequenceNumber::new(3),
         event: DomainEvent::PendingIndex {
             artifact_id: art_id,
             content_hash: fixtures::test_content_hash()?,
@@ -235,7 +222,6 @@ fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), Box<dyn s
     // ChunkRegistered so pending_chunks check passes.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(4),
-        sequence: SequenceNumber::new(4),
         event: DomainEvent::ChunkRegistered {
             node_id: maestria_domain::StructureNodeId::new(1),
             source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
@@ -250,7 +236,6 @@ fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), Box<dyn s
     // FullTextIndexed so pending_full_text is clear.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(5),
-        sequence: SequenceNumber::new(5),
         event: DomainEvent::FullTextIndexed {
             artifact_id: art_id,
             chunk_id: ChunkId::new(10),
@@ -260,7 +245,6 @@ fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), Box<dyn s
     let before = state.clone();
     let err = match state.apply_event(DomainEventEnvelope {
         id: EventId::new(6),
-        sequence: SequenceNumber::new(6),
         event: DomainEvent::ArtifactIndexed {
             artifact_id: art_id,
         },

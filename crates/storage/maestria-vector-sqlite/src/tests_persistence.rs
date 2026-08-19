@@ -30,8 +30,11 @@ fn round_trips_provenance() -> Result<(), PortError> {
     }])?;
 
     // Direct query to verify provenance storage, since the contract
-    let connection = index.connection.lock().map_err(|_| PortError::Internal {
-        message: "vector index lock poisoned".to_string(),
+    let connection = index.connection.lock().map_err(|_| {
+        PortError::internal(
+            "maestria vector sqlite test",
+            "vector index lock poisoned".to_string(),
+        )
     })?;
     let mut stmt = connection
         .prepare("SELECT content_hash, model_version, disclosure_remote, retention_policy FROM vector_embeddings WHERE chunk_id = 42")
@@ -52,8 +55,11 @@ fn round_trips_provenance() -> Result<(), PortError> {
 #[test]
 fn unchanged_embedding_does_not_update_projection() -> Result<(), PortError> {
     let index = SqliteVectorIndex::in_memory()?;
-    let connection = index.connection.lock().map_err(|_| PortError::Internal {
-        message: "vector index lock poisoned".to_string(),
+    let connection = index.connection.lock().map_err(|_| {
+        PortError::internal(
+            "maestria vector sqlite test",
+            "vector index lock poisoned".to_string(),
+        )
     })?;
     connection
         .execute_batch(
@@ -86,8 +92,11 @@ fn unchanged_embedding_does_not_update_projection() -> Result<(), PortError> {
     index.index_embeddings(vec![embedding.clone()])?;
     index.index_embeddings(vec![embedding])?;
 
-    let connection = index.connection.lock().map_err(|_| PortError::Internal {
-        message: "vector index lock poisoned".to_string(),
+    let connection = index.connection.lock().map_err(|_| {
+        PortError::internal(
+            "maestria vector sqlite test",
+            "vector index lock poisoned".to_string(),
+        )
     })?;
     let writes: i64 = connection
         .query_row("SELECT count FROM vector_write_audit", [], |row| row.get(0))
@@ -101,8 +110,11 @@ fn reopen_persistence_and_mismatch_rejection() -> Result<(), PortError> {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
-        .map_err(|error| PortError::Internal {
-            message: format!("read test timestamp: {error}"),
+        .map_err(|error| {
+            PortError::internal(
+                "maestria vector sqlite test",
+                format!("read test timestamp: {error}"),
+            )
         })?;
     let db_path = std::env::temp_dir().join(format!("test_vec_{}.db", timestamp));
 

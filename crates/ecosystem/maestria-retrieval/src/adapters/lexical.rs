@@ -54,8 +54,8 @@ impl LexicalChunkRetriever {
 
 #[async_trait]
 impl CandidateRetriever for LexicalChunkRetriever {
-    fn descriptor(&self) -> RetrieverDescriptor {
-        self.descriptor.clone()
+    fn descriptor(&self) -> &RetrieverDescriptor {
+        &self.descriptor
     }
 
     async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {

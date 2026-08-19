@@ -47,3 +47,28 @@ pub struct ValidationContext<'a> {
     pub harness_exit_code: Option<i32>,
     pub search: Option<SearchValidationContext<'a>>,
 }
+
+pub(crate) fn passed_check(name: &str, message: impl Into<String>) -> ValidationCheck {
+    ValidationCheck {
+        name: name.to_string(),
+        passed: true,
+        severity: Severity::Error,
+        message: message.into(),
+    }
+}
+
+pub(crate) fn failed_check(name: &str, message: impl Into<String>) -> ValidationCheck {
+    ValidationCheck {
+        name: name.to_string(),
+        passed: false,
+        severity: Severity::Error,
+        message: message.into(),
+    }
+}
+
+pub(crate) fn count_missing_evidence(
+    ids: impl Iterator<Item = EvidenceId>,
+    evidences: &BTreeMap<EvidenceId, Evidence>,
+) -> usize {
+    ids.filter(|id| !evidences.contains_key(id)).count()
+}

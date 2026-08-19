@@ -71,7 +71,6 @@ fn brain_state_round_trips_and_lists_deterministically() -> Result<(), Box<dyn s
         body: "body".to_string(),
         node_id: maestria_domain::StructureNodeId::new(0),
         source_span: maestria_domain::SourceSpan::text_span(1, 2)?,
-        claim_ids: [ClaimId::new(5), ClaimId::new(3)].into(),
         security: SecurityMetadata::default(),
     };
     let evidence = Evidence {
@@ -387,7 +386,6 @@ fn security_metadata_round_trips() -> Result<(), Box<dyn std::error::Error>> {
         source_span: maestria_domain::SourceSpan::text_span(1, 2)?,
         title: "Test Card".to_string(),
         body: "Card body".to_string(),
-        claim_ids: std::collections::BTreeSet::new(),
         security: sec.clone(),
     };
     CardRepository::put(&store, card.clone())?;

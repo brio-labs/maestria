@@ -15,8 +15,10 @@ pub enum ContainmentError {
 /// Lexically normalise a path without touching the filesystem.
 ///
 /// Resolves `.` and `..` components, returning `None` when a `..` component
-/// would escape the filesystem root or the path is empty.
-fn lexical_normalize(path: &Path) -> Option<PathBuf> {
+/// would escape the filesystem root or the path is empty. This is the single
+/// canonical implementation; consumers must not re-implement path
+/// normalization with different (silent-pop) semantics.
+pub fn lexical_normalize(path: &Path) -> Option<PathBuf> {
     let mut components: Vec<Component<'_>> = Vec::new();
 
     for component in path.components() {
@@ -97,7 +99,6 @@ pub struct Scope {
     write_roots: Vec<PathBuf>,
     allowed_harnesses: Vec<String>,
     blocked_commands: Vec<String>,
-    blocked_read_paths: Vec<PathBuf>,
     blocked_patterns: Vec<String>,
     web_allowed: bool,
 }
@@ -114,8 +115,12 @@ impl Scope {
             read_roots,
             write_roots,
             allowed_harnesses,
-            blocked_commands,
-            blocked_read_paths: Vec::new(),
+            // Pre-normalize so `command_allowed` never re-trims/lowercases
+            // per entry.
+            blocked_commands: blocked_commands
+                .into_iter()
+                .map(|entry| entry.trim().to_lowercase())
+                .collect(),
             blocked_patterns: Vec::new(),
             web_allowed,
         }
@@ -128,9 +133,13 @@ impl Scope {
         if command.is_empty() {
             return false;
         }
+        // Entries are pre-normalized (trimmed, lowercased) at construction,
+        // so the comparison allocates only the caller's lowercase command.
         !self.blocked_commands.iter().any(|entry| {
-            let entry = entry.as_str().trim().to_lowercase();
-            command == entry || command.starts_with(&format!("{entry} "))
+            command == *entry
+                || (command.len() > entry.len()
+                    && command.as_bytes().get(entry.len()) == Some(&b' ')
+                    && command.starts_with(entry))
         })
     }
 
@@ -147,15 +156,6 @@ impl Scope {
         &self.read_roots
     }
 
-    pub fn blocked_paths(&self) -> &[PathBuf] {
-        &self.blocked_read_paths
-    }
-
-    pub fn with_blocked_read_paths(mut self, paths: Vec<PathBuf>) -> Self {
-        self.blocked_read_paths = paths;
-        self
-    }
-
     pub fn blocked_patterns(&self) -> &[String] {
         &self.blocked_patterns
     }
@@ -169,74 +169,21 @@ impl Scope {
     /// one read or write root.
     ///
     /// This normalises `..` and `.` components and rejects empty or escaping
-    /// paths.
+    /// paths. Read roots are checked first without building a combined Vec.
     pub fn check_read_containment(&self, path: &Path) -> Result<(), ContainmentError> {
-        let all_roots: Vec<PathBuf> = self
-            .read_roots
-            .iter()
-            .chain(self.write_roots.iter())
-            .cloned()
-            .collect();
-        check_containment(&all_roots, path)
+        match check_containment(&self.read_roots, path) {
+            Ok(()) => Ok(()),
+            Err(ContainmentError::PathNotUnderAnyRoot { .. }) => {
+                check_containment(&self.write_roots, path)
+            }
+            Err(other) => Err(other),
+        }
     }
 
     /// Strictly check that `path` is lexically contained within at least
     /// one write root.
     pub fn check_write_containment(&self, path: &Path) -> Result<(), ContainmentError> {
         check_containment(&self.write_roots, path)
-    }
-}
-
-// ── ScopeGuard ───────────────────────────────────────────────────────
-
-/// Owned guard wrapping a [`Scope`] for use by approval gates.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScopeGuard {
-    scope: Scope,
-}
-
-impl ScopeGuard {
-    pub fn new(scope: Scope) -> Self {
-        Self { scope }
-    }
-
-    pub fn scope(&self) -> &Scope {
-        &self.scope
-    }
-
-    // ── existing delegation ──────────────────────────────────────
-
-    pub fn command_allowed(&self, command: &str) -> bool {
-        self.scope.command_allowed(command)
-    }
-
-    pub fn harness_allowed(&self, harness: &str) -> bool {
-        self.scope.harness_allowed(harness)
-    }
-
-    pub fn web_allowed(&self) -> bool {
-        self.scope.web_allowed()
-    }
-
-    pub fn readable_roots(&self) -> &[PathBuf] {
-        self.scope.readable_roots()
-    }
-
-    pub fn blocked_paths(&self) -> &[PathBuf] {
-        self.scope.blocked_paths()
-    }
-
-    pub fn blocked_patterns(&self) -> &[String] {
-        self.scope.blocked_patterns()
-    }
-    // ── new containment delegation ───────────────────────────────
-
-    pub fn check_read_containment(&self, path: &Path) -> Result<(), ContainmentError> {
-        self.scope.check_read_containment(path)
-    }
-
-    pub fn check_write_containment(&self, path: &Path) -> Result<(), ContainmentError> {
-        self.scope.check_write_containment(path)
     }
 }
 

@@ -15,11 +15,8 @@ pub(super) fn read_relation(row: &Row<'_>) -> Result<Relation, PortError> {
     let evidence_id = row.get::<_, Option<String>>(6).map_err(to_port_error)?;
     let confidence_milli = row.get::<_, i64>(7).map_err(to_port_error)?;
     let security_json = row.get::<_, String>(8).map_err(to_port_error)?;
-    let security: SecurityMetadata =
-        serde_json::from_str(&security_json).map_err(|error| PortError::InternalContext {
-            context: "deserialize relation security",
-            source: error.to_string(),
-        })?;
+    let security: SecurityMetadata = serde_json::from_str(&security_json)
+        .map_err(|error| PortError::internal("deserialize relation security", error.to_string()))?;
 
     Ok(Relation {
         id: parse_relation_id(&id)?,
@@ -117,10 +114,7 @@ fn parse_evidence_id(value: &str) -> Result<EvidenceId, PortError> {
 fn parse_u64(value: &str, label: &'static str) -> Result<u64, PortError> {
     value
         .parse::<u64>()
-        .map_err(|error| PortError::InternalContext {
-            context: label,
-            source: error.to_string(),
-        })
+        .map_err(|error| PortError::internal(label, error.to_string()))
 }
 
 fn i64_to_u16(value: i64, label: &'static str) -> Result<u16, PortError> {
@@ -130,9 +124,4 @@ fn i64_to_u16(value: i64, label: &'static str) -> Result<u16, PortError> {
     })
 }
 
-pub(crate) fn to_port_error(error: rusqlite::Error) -> PortError {
-    PortError::InternalContext {
-        context: "sqlite graph projection error",
-        source: error.to_string(),
-    }
-}
+pub(crate) use maestria_sqlite_support::to_port_error;

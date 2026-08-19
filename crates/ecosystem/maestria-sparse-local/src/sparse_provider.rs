@@ -1,8 +1,8 @@
 use maestria_domain::RepresentationName;
 use maestria_ports::{
     DEFAULT_MAX_SPARSE_TERMS, LearnedSparseProvider, PortError, ProviderDisclosure,
-    ProviderEndpoint, ProviderTransport, RetentionPolicy, SPARSE_REPRESENTATION_V1, SparseIdentity,
-    SparseInputKind, SparseTermWeight, SparseVector,
+    ProviderEndpoint, ProviderTransport, SPARSE_REPRESENTATION_V1, SparseIdentity, SparseInputKind,
+    SparseTermWeight, SparseVector,
 };
 use std::sync::Arc;
 
@@ -34,7 +34,11 @@ impl LocalHttpSparseProvider {
         Ok(Self {
             model: model.to_string(),
             identity,
-            transport: Arc::new(UreqTransport::new(endpoint)),
+            transport: Arc::new(maestria_adapter_http::UreqJsonClient::with_batch_timeout(
+                endpoint,
+                std::time::Duration::from_secs(5),
+                std::time::Duration::from_secs(120),
+            )),
         })
     }
 
@@ -73,12 +77,11 @@ fn validate_profile(model: &str, identity: &SparseIdentity) -> Result<(), PortEr
             source: "identity representation must be sparse_text_v1".to_string(),
         });
     }
-    if identity.fingerprint.model.as_str() != model {
-        return Err(PortError::InvalidInputContext {
-            context: "sparse model identity mismatch",
-            source: "model does not match the provider identity".to_string(),
-        });
-    }
+    maestria_adapter_http::validate_model_identity(
+        model,
+        identity.fingerprint.model.as_str(),
+        "sparse",
+    )?;
     if identity.fingerprint.vocabulary_size == 0 {
         return Err(PortError::InvalidInputContext {
             context: "sparse provider vocabulary is zero",
@@ -122,16 +125,11 @@ impl LearnedSparseProvider for LocalHttpSparseProvider {
                 SparseInputKind::Document => SparseKindWire::Document,
             },
         };
-        let body = serde_json::to_vec(&payload).map_err(|error| PortError::InternalContext {
-            context: "encode sparse request",
-            source: error.to_string(),
-        })?;
+        let body = serde_json::to_vec(&payload)
+            .map_err(|error| PortError::internal("encode sparse request", error.to_string()))?;
         let response = self.transport.post(body)?;
-        let parsed: SparseApiResponse =
-            serde_json::from_slice(&response).map_err(|error| PortError::DownstreamContext {
-                context: "decode sparse response",
-                source: error.to_string(),
-            })?;
+        let parsed: SparseApiResponse = serde_json::from_slice(&response)
+            .map_err(|error| PortError::downstream("decode sparse response", error.to_string()))?;
         self.build_vector(parsed, identity)
     }
 
@@ -166,15 +164,13 @@ impl LearnedSparseProvider for LocalHttpSparseProvider {
                 SparseInputKind::Document => SparseKindWire::Document,
             },
         };
-        let body = serde_json::to_vec(&payload).map_err(|error| PortError::InternalContext {
-            context: "encode sparse batch request",
-            source: error.to_string(),
+        let body = serde_json::to_vec(&payload).map_err(|error| {
+            PortError::internal("encode sparse batch request", error.to_string())
         })?;
         let response = self.transport.post_to("/batch", body)?;
         let parsed: SparseBatchApiResponse =
-            serde_json::from_slice(&response).map_err(|error| PortError::DownstreamContext {
-                context: "decode sparse batch response",
-                source: error.to_string(),
+            serde_json::from_slice(&response).map_err(|error| {
+                PortError::downstream("decode sparse batch response", error.to_string())
             })?;
         if parsed.vectors.len() != texts.len() {
             return Err(PortError::DownstreamContext {
@@ -248,89 +244,6 @@ impl LocalHttpSparseProvider {
             })?);
         }
         SparseVector::new(identity, terms)
-    }
-}
-
-#[derive(Debug, Clone)]
-struct UreqTransport {
-    endpoint: ProviderEndpoint,
-    disclosure: ProviderDisclosure,
-    agent: ureq::Agent,
-}
-
-impl UreqTransport {
-    fn new(endpoint: ProviderEndpoint) -> Self {
-        Self {
-            endpoint,
-            disclosure: ProviderDisclosure {
-                remote: false,
-                retention: RetentionPolicy::NoRetention,
-            },
-            agent: ureq::AgentBuilder::new()
-                .timeout(std::time::Duration::from_secs(5))
-                .redirects(0)
-                .build(),
-        }
-    }
-}
-
-impl ProviderTransport for UreqTransport {
-    fn endpoint(&self) -> &ProviderEndpoint {
-        &self.endpoint
-    }
-
-    fn disclosure(&self) -> &ProviderDisclosure {
-        &self.disclosure
-    }
-
-    fn post(&self, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
-        self.post_bytes(
-            self.endpoint.as_str(),
-            body,
-            "sparse request failed",
-            SINGLE_REQUEST_TIMEOUT,
-        )
-    }
-
-    fn post_to(&self, path_suffix: &'static str, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
-        self.post_bytes(
-            &format!("{}{}", self.endpoint.as_str(), path_suffix),
-            body,
-            "sparse batch request failed",
-            BATCH_REQUEST_TIMEOUT,
-        )
-    }
-}
-
-/// Per-request deadline for single encodes.
-const SINGLE_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-/// Per-request deadline for batched encodes; a batch scales with the chunk
-/// count, so its deadline scales with the model's per-text encode cost.
-const BATCH_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
-
-impl UreqTransport {
-    fn post_bytes(
-        &self,
-        url: &str,
-        body: Vec<u8>,
-        failure_context: &'static str,
-        timeout: std::time::Duration,
-    ) -> Result<Vec<u8>, PortError> {
-        self.agent
-            .post(url)
-            .timeout(timeout)
-            .set("content-type", "application/json")
-            .send_bytes(&body)
-            .map_err(|error| PortError::DownstreamContext {
-                context: failure_context,
-                source: error.to_string(),
-            })?
-            .into_string()
-            .map(String::into_bytes)
-            .map_err(|error| PortError::DownstreamContext {
-                context: "read sparse response",
-                source: error.to_string(),
-            })
     }
 }
 

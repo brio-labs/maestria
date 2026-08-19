@@ -18,7 +18,7 @@ pub struct SqliteGraphIndex {
 impl SqliteGraphIndex {
     /// Opens a SQLite database at `path` and applies the graph projection schema.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, PortError> {
-        let mut connection = Connection::open(path).map_err(to_port_error)?;
+        let mut connection = maestria_sqlite_support::open_connection(path)?;
         migrate(&mut connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
@@ -27,15 +27,7 @@ impl SqliteGraphIndex {
 
     /// Creates an in-memory graph projection.
     pub fn in_memory() -> Result<Self, PortError> {
-        let mut connection = Connection::open_in_memory().map_err(to_port_error)?;
-        migrate(&mut connection)?;
-        Ok(Self {
-            connection: Mutex::new(connection),
-        })
-    }
-
-    /// Wraps an existing SQLite connection and applies the graph projection schema.
-    pub fn from_connection(mut connection: Connection) -> Result<Self, PortError> {
+        let mut connection = maestria_sqlite_support::open_in_memory_connection()?;
         migrate(&mut connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
@@ -43,12 +35,10 @@ impl SqliteGraphIndex {
     }
 
     pub(crate) fn lock_connection(&self) -> Result<MutexGuard<'_, Connection>, PortError> {
-        self.connection
-            .lock()
-            .map_err(|_| PortError::InternalContext {
-                context: "graph sqlite connection lock poisoned",
-                source: "graph sqlite connection mutex is poisoned".to_string(),
-            })
+        maestria_sqlite_support::lock_connection(
+            &self.connection,
+            "graph sqlite connection lock poisoned",
+        )
     }
 }
 

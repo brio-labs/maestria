@@ -6,7 +6,7 @@ use maestria_core::InstanceLayout;
 use maestria_domain::{
     ArtifactId, Authority, BlobId, ClaimId, DomainEvent, DomainEventEnvelope, EventId, EvidenceId,
     EvidenceKind, IntegrityState, LineRange, LogicalTick, MemoryCandidateId, ReviewStatus,
-    SecurityMetadata, Sensitivity, SequenceNumber, SnapshotRef, TrustZone,
+    SecurityMetadata, Sensitivity, SnapshotRef, TrustZone,
 };
 use maestria_ports::EventLog;
 use maestria_storage_sqlite::SqliteStore;
@@ -101,7 +101,6 @@ fn seed_promotable_candidate(instance_path: &Path) -> Result<(), Box<dyn std::er
         let id = (offset + 1) as u64;
         store.append(DomainEventEnvelope {
             id: EventId::new(id),
-            sequence: SequenceNumber::new(id),
             event,
         })?;
     }

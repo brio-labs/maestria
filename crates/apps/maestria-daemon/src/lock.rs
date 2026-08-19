@@ -118,10 +118,10 @@ pub async fn acquire(layout: &InstanceLayout) -> Result<InstanceWriteLock> {
         }
     })
     .await
-    .map_err(|_| {
+    .map_err(|error| {
         anyhow!(
             "timed out waiting for instance write lock (another process, e.g. a running \
-             daemon, owns the instance; stop the daemon or use the Studio)"
+             daemon, owns the instance; stop the daemon or use the Studio): {error}"
         )
     })?
 }

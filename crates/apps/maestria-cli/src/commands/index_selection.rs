@@ -145,7 +145,10 @@ fn prompt_candidate(
             policy.display()
         );
         print!("> ");
-        let _ = std::io::Write::flush(&mut std::io::stdout());
+        // Flushing stdout for an interactive prompt is best-effort; a flush
+        // failure (e.g., broken pipe) is non-fatal and should not abort the
+        // selection flow.
+        std::io::Write::flush(&mut std::io::stdout()).ok();
         let mut answer = String::new();
         if std::io::stdin().read_line(&mut answer).is_err() {
             return Err(anyhow!("failed to read approval answer"));

@@ -114,7 +114,7 @@ fn candidate_request(
     let authorization = RetrievalSecurityPolicy::default().authorization_context(plan.scope())?;
     let execution_budget = plan.execution_budget()?;
     Ok(CandidateRequest {
-        plan,
+        plan: std::sync::Arc::new(plan),
         query: SearchQuery {
             q: query.to_string(),
             limit,
@@ -131,12 +131,14 @@ fn candidate_request(
 fn retriever(
     generation: IndexGenerationId,
 ) -> Result<CodeIntelRetriever, Box<dyn std::error::Error>> {
+    let sources = maestria_domain::active_source_versions(&[]);
     let security = CodeIntelSecurityResolver::from_events(
         CodeIntelSecurityResolverParts {
             artifacts: Arc::new(InMemoryArtifactRepository::new()),
             evidence: Arc::new(InMemoryEvidenceRepository::new()),
             blobs: Arc::new(InMemoryBlobStore::new()),
         },
+        &sources,
         &[],
     )?;
     Ok(CodeIntelRetriever::new(

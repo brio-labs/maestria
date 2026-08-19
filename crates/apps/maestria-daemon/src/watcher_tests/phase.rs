@@ -1,4 +1,5 @@
 use super::*;
+use maestria_domain::ArtifactDetected;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 

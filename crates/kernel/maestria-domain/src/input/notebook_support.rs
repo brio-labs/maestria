@@ -50,13 +50,13 @@ impl KernelState {
     }
 
     pub(super) fn current_notebook_tick(&self) -> LogicalTick {
-        for envelope in self.event_log.iter().rev() {
-            if let DomainEvent::TickObserved { at } = envelope.event {
-                return at;
-            }
+        if let Some(at) = self.current_tick {
+            return at;
         }
+        // No tick observed yet: fall back to the last event's sequence,
+        // preserving the pre-cache semantics.
         match self.event_log.last() {
-            Some(envelope) => LogicalTick::new(envelope.sequence.value()),
+            Some(envelope) => LogicalTick::new(envelope.id.value()),
             None => LogicalTick::new(0),
         }
     }
@@ -66,14 +66,15 @@ enum NotebookIdKind {
     Draft,
 }
 fn next_id(previous: Option<u64>, kind: NotebookIdKind) -> Result<u64, DomainError> {
-    let kind = match kind {
-        NotebookIdKind::Notebook => "notebook",
-        NotebookIdKind::Draft => "notebook draft",
-    };
     match previous {
-        Some(value) => value
-            .checked_add(1)
-            .ok_or(DomainError::DuplicateId { kind, id: value }),
+        Some(value) => value.checked_add(1).ok_or_else(|| match kind {
+            NotebookIdKind::Notebook => DomainError::DuplicateNotebook {
+                id: NotebookId::new(value),
+            },
+            NotebookIdKind::Draft => DomainError::DuplicateNotebookDraft {
+                id: NotebookDraftId::new(value),
+            },
+        }),
         None => Ok(1),
     }
 }
@@ -86,9 +87,44 @@ pub(super) fn draft_title(value: String) -> Result<NotebookDraftTitle, DomainErr
     NotebookDraftTitle::try_from(value).map_err(invalid_draft)
 }
 
+/// Violation reported by [`validate_draft_deletion`]. Callers map
+/// `NotebookMismatch` to their own error: the live handler reports
+/// `MissingNotebookDraft` while replay reports `NotebookDraftRevisionConflict`
+/// (observable contract).
+pub(crate) enum DraftDeletionViolation {
+    MissingNotebookDraft,
+    NotebookMismatch { actual: NotebookDraftRevision },
+    RevisionMismatch { actual: NotebookDraftRevision },
+}
+
+/// Shared notebook-draft deletion validation used by both the live handler
+/// and the replay applier.
+pub(crate) fn validate_draft_deletion(
+    state: &KernelState,
+    notebook_id: NotebookId,
+    draft_id: NotebookDraftId,
+    expected_revision: NotebookDraftRevision,
+) -> Result<(), DraftDeletionViolation> {
+    let draft = state
+        .notebook_drafts
+        .get(&draft_id)
+        .ok_or(DraftDeletionViolation::MissingNotebookDraft)?;
+    if draft.notebook_id != notebook_id {
+        return Err(DraftDeletionViolation::NotebookMismatch {
+            actual: draft.revision,
+        });
+    }
+    if draft.revision != expected_revision {
+        return Err(DraftDeletionViolation::RevisionMismatch {
+            actual: draft.revision,
+        });
+    }
+    Ok(())
+}
+
 pub(super) fn source_key(value: String) -> Result<SourceIdentityKey, DomainError> {
-    SourceIdentityKey::try_from(value).map_err(|error| DomainError::NotebookSourceUnavailable {
-        key: error.to_string(),
+    SourceIdentityKey::try_from(value).map_err(|error| DomainError::InvalidSourceIdentityKey {
+        reason: error.to_string(),
     })
 }
 

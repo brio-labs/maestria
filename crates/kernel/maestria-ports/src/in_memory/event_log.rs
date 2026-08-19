@@ -1,7 +1,8 @@
 use std::sync::{Arc, Mutex};
 
+use super::store::lock_map;
 use crate::{EventFilter, PortError};
-use maestria_domain::{DomainEvent, DomainEventEnvelope};
+use maestria_domain::DomainEventEnvelope;
 
 #[derive(Clone, Default)]
 pub struct InMemoryEventLog {
@@ -16,17 +17,12 @@ impl InMemoryEventLog {
 
 impl crate::EventLog for InMemoryEventLog {
     fn append(&self, event: DomainEventEnvelope) -> Result<(), PortError> {
-        let mut guard = self.events.lock().map_err(|_| PortError::InternalContext {
-            context: "event log lock poisoned",
-            source: "event log mutex is poisoned".to_string(),
-        })?;
-        let expected_sequence = guard.len() as u64 + 1;
-        if event.sequence.value() != expected_sequence || event.id.value() != expected_sequence {
+        let mut guard = lock_map(&self.events, "event log lock poisoned")?;
+        let expected_id = guard.len() as u64 + 1;
+        if event.id.value() != expected_id {
             return Err(PortError::Conflict {
                 message: format!(
-                    "expected sequence/id {}, got seq {}, id {}",
-                    expected_sequence,
-                    event.sequence.value(),
+                    "expected event id {expected_id}, got id {}",
                     event.id.value()
                 ),
             });
@@ -36,80 +32,10 @@ impl crate::EventLog for InMemoryEventLog {
     }
 
     fn scan(&self, filter: EventFilter) -> Result<Vec<DomainEventEnvelope>, PortError> {
-        let guard = self.events.lock().map_err(|_| PortError::InternalContext {
-            context: "event log lock poisoned",
-            source: "event log mutex is poisoned".to_string(),
-        })?;
+        let guard = lock_map(&self.events, "event log lock poisoned")?;
         let mut entries = guard.clone();
         if let Some(artifact_id) = filter.artifact_id {
-            entries.retain(|entry| match &entry.event {
-                DomainEvent::ArtifactRegistered {
-                    artifact_id: current,
-                    ..
-                }
-                | DomainEvent::ChunkRegistered {
-                    artifact_id: current,
-                    ..
-                }
-                | DomainEvent::CardCreated {
-                    artifact_id: current,
-                    ..
-                }
-                | DomainEvent::ClaimCreated {
-                    artifact_id: current,
-                    ..
-                }
-                | DomainEvent::EvidenceRecorded {
-                    artifact_id: current,
-                    ..
-                } => *current == artifact_id,
-                DomainEvent::TaskOpened {
-                    artifact_id: Some(current),
-                    ..
-                }
-                | DomainEvent::ArtifactParsed {
-                    artifact_id: current,
-                    ..
-                }
-                | DomainEvent::DocumentTreeCaptured {
-                    artifact_id: current,
-                    ..
-                }
-                | DomainEvent::SearchCompleted {
-                    artifact_id: current,
-                    ..
-                }
-                | DomainEvent::PendingIndex {
-                    artifact_id: current,
-                    ..
-                }
-                | DomainEvent::FullTextIndexed {
-                    artifact_id: current,
-                    ..
-                }
-                | DomainEvent::ArtifactIndexed {
-                    artifact_id: current,
-                    ..
-                }
-                | DomainEvent::ParserStarted {
-                    artifact_id: current,
-                    ..
-                }
-                | DomainEvent::SourceBecameStale {
-                    artifact_id: current,
-                    ..
-                } => *current == artifact_id,
-                DomainEvent::OcrRequested { intent } => intent.artifact_id() == artifact_id,
-                DomainEvent::OcrCompleted {
-                    artifact_id: current,
-                    ..
-                }
-                | DomainEvent::OcrFailed {
-                    artifact_id: current,
-                    ..
-                } => *current == artifact_id,
-                _ => false,
-            });
+            entries.retain(|entry| entry.event.artifact_id() == Some(artifact_id));
         }
         Ok(entries)
     }

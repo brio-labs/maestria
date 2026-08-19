@@ -66,10 +66,7 @@ impl EffectExecutionContext {
         }
         let observed_at = {
             let state = self.state.read().await;
-            state
-                .event_log
-                .last()
-                .map_or(0, |entry| entry.sequence.value())
+            state.event_log.last().map_or(0, |entry| entry.id.value())
         };
         let accessed_at = match SystemTime::now().duration_since(UNIX_EPOCH) {
             Ok(duration) => duration.as_secs(),
@@ -120,29 +117,96 @@ impl EffectExecutionContext {
     }
 
     fn normalized_web_text(html: &str) -> String {
-        let lower = html
-            .to_ascii_lowercase()
-            .replace("&#32;", " ")
-            .replace("&#x20;", " ")
-            .replace("&nbsp;", " ")
-            .replace("&amp;", "&");
-        let mut text = String::with_capacity(lower.len());
+        let mut out = String::with_capacity(html.len());
         let mut in_tag = false;
-        for character in lower.chars() {
-            match character {
-                '<' => {
-                    in_tag = true;
-                    text.push(' ');
+        let mut prev_was_space = true;
+        let mut idx = 0;
+        while idx < html.len() {
+            let Some(ch) = html[idx..].chars().next() else {
+                break;
+            };
+            let char_len = ch.len_utf8();
+            let lc = ch.to_ascii_lowercase();
+            if !in_tag && lc == '<' {
+                in_tag = true;
+                if !prev_was_space && !out.is_empty() {
+                    out.push(' ');
+                    prev_was_space = true;
                 }
-                '>' => {
-                    in_tag = false;
-                    text.push(' ');
-                }
-                _ if !in_tag => text.push(character),
-                _ => {}
+                idx += char_len;
+                continue;
             }
+            if in_tag && lc == '>' {
+                in_tag = false;
+                if !prev_was_space && !out.is_empty() {
+                    out.push(' ');
+                    prev_was_space = true;
+                }
+                idx += char_len;
+                continue;
+            }
+            if in_tag {
+                idx += char_len;
+                continue;
+            }
+            if lc == '&' {
+                let rem = &html[idx..];
+                if rem.len() >= 5 && rem[..5].eq_ignore_ascii_case("&#32;") {
+                    if !prev_was_space && !out.is_empty() {
+                        out.push(' ');
+                        prev_was_space = true;
+                    } else if out.is_empty() {
+                        prev_was_space = true;
+                    }
+                    idx += 5;
+                    continue;
+                }
+                if rem.len() >= 6 && rem[..6].eq_ignore_ascii_case("&#x20;") {
+                    if !prev_was_space && !out.is_empty() {
+                        out.push(' ');
+                        prev_was_space = true;
+                    } else if out.is_empty() {
+                        prev_was_space = true;
+                    }
+                    idx += 6;
+                    continue;
+                }
+                if rem.len() >= 6 && rem[..6].eq_ignore_ascii_case("&nbsp;") {
+                    if !prev_was_space && !out.is_empty() {
+                        out.push(' ');
+                        prev_was_space = true;
+                    } else if out.is_empty() {
+                        prev_was_space = true;
+                    }
+                    idx += 6;
+                    continue;
+                }
+                if rem.len() >= 5 && rem[..5].eq_ignore_ascii_case("&amp;") {
+                    if prev_was_space && out.is_empty() {
+                        // leading '&' not preceded by space, keep
+                    }
+                    out.push('&');
+                    prev_was_space = false;
+                    idx += 5;
+                    continue;
+                }
+            }
+            if lc.is_ascii_whitespace() || lc.is_whitespace() {
+                if !prev_was_space && !out.is_empty() {
+                    out.push(' ');
+                    prev_was_space = true;
+                }
+                idx += char_len;
+                continue;
+            }
+            out.push(lc);
+            prev_was_space = false;
+            idx += char_len;
         }
-        text.split_whitespace().collect::<Vec<_>>().join(" ")
+        if prev_was_space && out.ends_with(' ') {
+            out.pop();
+        }
+        out
     }
     async fn persist_web_evidence(
         &self,

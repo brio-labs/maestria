@@ -88,9 +88,7 @@ pub use parser_resume::verify_pending_blobs;
 pub use projection_recovery::{
     reconcile_graph_projection, reconcile_projections, reconcile_vector_projection,
 };
-pub use providers::{
-    build_sparse_provider, build_visual_provider, ocr_status, sparse_status, visual_status,
-};
+pub use providers::{build_sparse_provider, ocr_status, sparse_status, visual_status};
 pub use recovery_inputs::{RecoveryInputs, recovery_inputs};
 pub use repository_source_registration::{
     register_repository_sources_with_runtime, register_repository_sources_with_session,

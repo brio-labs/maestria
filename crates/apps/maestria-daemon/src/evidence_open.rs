@@ -13,11 +13,14 @@ use std::fs;
 
 use anyhow::{Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
-use maestria_core::{InstanceLayout, InstanceManifest, OpenChunkEvidenceInput, OpenEvidenceInput};
+use maestria_core::{
+    InstanceLayout, InstanceManifest, OpenChunkEvidenceInput, OpenEvidenceInput, lexical_normalize,
+    path_matches_pattern,
+};
 use maestria_domain::{ChunkId, Evidence, EvidenceId, EvidenceKind};
 use maestria_governance::RetrievalSecurityPolicy;
 use maestria_parsers::ParserRegistry;
-use maestria_ports::{ArtifactRepository, ChunkRepository, EvidenceRepository};
+use maestria_ports::EvidenceRepository;
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
 
@@ -59,16 +62,6 @@ pub fn complete_evidence_stores(
     })
 }
 
-/// Open the evidence store stack for an instance layout.
-///
-/// Eager variant for entry points that need the full stack up front. The
-/// SQLite store is opened read-only and the full-text index without its
-/// writer lock: evidence retrieval never mutates either.
-pub fn open_evidence_stores(layout: &InstanceLayout) -> Result<EvidenceStores> {
-    let sqlite = open_evidence_sqlite(layout)?;
-    complete_evidence_stores(layout, sqlite)
-}
-
 /// Wire the evidence store stack into core services with no vector or graph
 /// index, borrowing from `stores`.
 pub fn evidence_core_services(stores: &EvidenceStores) -> maestria_core::CoreServices<'_> {
@@ -104,6 +97,7 @@ fn evidence_retrieval_authorization() -> Result<maestria_governance::RetrievalAu
         .authorization_context(&maestria_domain::CorpusScope::Global)
         .map_err(|error| anyhow!("evidence retrieval policy is not authorized: {error}"))
 }
+
 /// Open evidence by id after enforcing the instance's read scope and retrieval
 /// policy (R48). Shared by the daemon API handler and the CLI command so the
 /// two client surfaces cannot drift.
@@ -128,17 +122,17 @@ pub fn open_evidence_scoped_with_authorization(
     let manifest = decode_manifest(layout)?;
     let sqlite = open_evidence_sqlite(layout)?;
     let evidence_id = EvidenceId::new(evidence_id);
+    // Scope and policy gate before opening the full store stack: out-of-scope
+    // evidence must reject without requiring the read-only indexes.
     if let Some(evidence) = EvidenceRepository::get(&sqlite, evidence_id)? {
         reject_denied(authorization.evaluate(&evidence.security), "evidence")?;
         validate_evidence_scope(&manifest, &evidence)?;
-        if let Some(artifact) = ArtifactRepository::get(&sqlite, evidence.artifact_id)? {
-            reject_denied(authorization.evaluate(&artifact.security), "artifact")?;
-        }
     }
     let stores = complete_evidence_stores(layout, sqlite)?;
     let core = evidence_core_services(&stores);
     let output =
         core.open_evidence_pre_authorized(OpenEvidenceInput { evidence_id }, &authorization)?;
+    validate_evidence_scope(&manifest, &output.evidence)?;
     Ok(output)
 }
 
@@ -149,32 +143,17 @@ pub fn open_chunk_evidence_scoped(
     chunk_id: u64,
 ) -> Result<maestria_core::OpenEvidenceOutput> {
     let manifest = decode_manifest(layout)?;
-    let sqlite = open_evidence_sqlite(layout)?;
-    let chunk_id = ChunkId::new(chunk_id);
-    let chunk = ChunkRepository::get(&sqlite, chunk_id)?
-        .ok_or_else(|| anyhow!("chunk {chunk_id} does not exist"))?;
-    let evidence = EvidenceRepository::get(
-        &sqlite,
-        maestria_domain::evidence_id_for(chunk.artifact_id, chunk.order),
-    )?
-    .ok_or_else(|| anyhow!("evidence for chunk {chunk_id} does not exist"))?;
-    if evidence.artifact_id != chunk.artifact_id {
-        return Err(anyhow!(
-            "chunk evidence belongs to artifact {}, requested chunk belongs to artifact {}",
-            evidence.artifact_id,
-            chunk.artifact_id
-        ));
-    }
     let authorization = evidence_retrieval_authorization()?;
-    reject_denied(authorization.evaluate(&evidence.security), "evidence")?;
-    validate_evidence_scope(&manifest, &evidence)?;
-    if let Some(artifact) = ArtifactRepository::get(&sqlite, evidence.artifact_id)? {
-        reject_denied(authorization.evaluate(&artifact.security), "artifact")?;
-    }
+    let sqlite = open_evidence_sqlite(layout)?;
     let stores = complete_evidence_stores(layout, sqlite)?;
     let core = evidence_core_services(&stores);
-    let output = core
-        .open_chunk_evidence_pre_authorized(OpenChunkEvidenceInput { chunk_id }, &authorization)?;
+    let output = core.open_chunk_evidence_pre_authorized(
+        OpenChunkEvidenceInput {
+            chunk_id: ChunkId::new(chunk_id),
+        },
+        &authorization,
+    )?;
+    validate_evidence_scope(&manifest, &output.evidence)?;
     Ok(output)
 }
 
@@ -208,14 +187,19 @@ pub fn validate_evidence_scope(manifest: &InstanceManifest, evidence: &Evidence)
 
 fn source_scope_allowed(manifest: &InstanceManifest, path: &str) -> bool {
     let path = std::path::Path::new(path);
-    let mut candidates = vec![lexical_normalize(path)];
-    if path.is_relative() {
-        candidates.push(lexical_normalize(&manifest.root.join(path)));
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(normalized) = lexical_normalize(path) {
+        candidates.push(normalized);
+    }
+    if path.is_relative()
+        && let Some(normalized) = lexical_normalize(&manifest.root.join(path))
+    {
+        candidates.push(normalized);
     }
     let roots: Vec<_> = manifest
         .read_roots
         .iter()
-        .map(|root| lexical_normalize(root))
+        .filter_map(|root| lexical_normalize(root))
         .collect();
     let blocked_patterns = runtime_blocked_patterns(manifest);
     candidates.iter().any(|candidate| {
@@ -224,55 +208,4 @@ fn source_scope_allowed(manifest: &InstanceManifest, path: &str) -> bool {
                 .iter()
                 .any(|pattern| path_matches_pattern(candidate, pattern))
     })
-}
-
-fn lexical_normalize(path: &std::path::Path) -> std::path::PathBuf {
-    let mut normalized = std::path::PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                normalized.pop();
-            }
-            other => normalized.push(other.as_os_str()),
-        }
-    }
-    normalized
-}
-
-fn path_matches_pattern(path: &std::path::Path, pattern: &str) -> bool {
-    path.components()
-        .any(|component| glob_matches(&component.as_os_str().to_string_lossy(), pattern))
-}
-
-fn glob_matches(value: &str, pattern: &str) -> bool {
-    let value: Vec<char> = value.chars().collect();
-    let pattern: Vec<char> = pattern.chars().collect();
-    let mut value_index = 0usize;
-    let mut pattern_index = 0usize;
-    let mut star_pattern_index = None;
-    let mut star_value_index = 0usize;
-
-    while value_index < value.len() {
-        if pattern_index < pattern.len()
-            && (pattern[pattern_index] == '?' || pattern[pattern_index] == value[value_index])
-        {
-            value_index += 1;
-            pattern_index += 1;
-        } else if pattern_index < pattern.len() && pattern[pattern_index] == '*' {
-            star_pattern_index = Some(pattern_index);
-            star_value_index = value_index;
-            pattern_index += 1;
-        } else if let Some(star_index) = star_pattern_index {
-            pattern_index = star_index + 1;
-            star_value_index += 1;
-            value_index = star_value_index;
-        } else {
-            return false;
-        }
-    }
-    while pattern_index < pattern.len() && pattern[pattern_index] == '*' {
-        pattern_index += 1;
-    }
-    pattern_index == pattern.len()
 }

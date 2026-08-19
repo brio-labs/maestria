@@ -73,7 +73,6 @@ impl PrivacyExclusions {
 
         false
     }
-
     /// Return the configured sensitive names.
     pub fn sensitive_names(&self) -> &[String] {
         &self.sensitive_names
@@ -84,16 +83,48 @@ impl PrivacyExclusions {
         &self.sensitive_extensions
     }
 
-    /// Return the number of configured sensitive names.
-    pub fn name_count(&self) -> usize {
-        self.sensitive_names.len()
+    /// Privacy-driven blocked patterns: sensitive names plus `*.ext` forms of
+    /// sensitive extensions. Single-sourced for daemon and harness so the
+    /// composition cannot drift.
+    pub fn privacy_blocked_patterns(&self) -> Vec<String> {
+        let mut patterns = self.sensitive_names().to_vec();
+        patterns.extend(
+            self.sensitive_extensions()
+                .iter()
+                .map(|extension| format!("*.{extension}")),
+        );
+        patterns
     }
-
-    /// Return the number of configured sensitive extensions.
-    pub fn extension_count(&self) -> usize {
-        self.sensitive_extensions.len()
+    /// Whether any component of `path` matches the shared walk-excluded name
+    /// set (`.env.*` matched as a prefix) or this instance's privacy set.
+    pub fn is_walk_excluded(&self, path: &Path) -> bool {
+        path.components().any(|component| {
+            component.as_os_str().to_str().is_some_and(|name| {
+                WALK_EXCLUDED_NAMES
+                    .iter()
+                    .any(|candidate| match *candidate {
+                        ".env.*" => name.starts_with(".env."),
+                        exact => name == exact,
+                    })
+            })
+        }) || self.is_excluded(path)
     }
 }
+
+/// Names excluded by every source walk: VCS directories, machine state,
+/// secret-bearing names, and build output. `.env.*` is matched as a prefix
+/// convention.
+pub const WALK_EXCLUDED_NAMES: &[&str] = &[
+    ".git",
+    ".ssh",
+    ".gnupg",
+    "secrets",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".env.*",
+];
 
 impl Default for PrivacyExclusions {
     /// Default sensitive set suitable for local-source indexing:

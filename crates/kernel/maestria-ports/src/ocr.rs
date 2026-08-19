@@ -9,6 +9,20 @@ pub struct OcrIdentity {
     pub preprocessing_version: String,
 }
 
+impl TryFrom<OcrIdentity> for maestria_domain::OcrProviderIdentity {
+    type Error = maestria_domain::OcrValidationError;
+
+    fn try_from(identity: OcrIdentity) -> Result<Self, Self::Error> {
+        Self::new(
+            identity.provider,
+            identity.model,
+            identity.revision,
+            identity.artifact_hash,
+            identity.preprocessing_version,
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OcrRequest {
     pub file: FileHandle,

@@ -8,7 +8,7 @@ use maestria_domain::{
     Artifact, ArtifactId, ArtifactVersionId, Authority, BlobId, ContentHash, CorpusScope,
     DomainEvent, DomainEventEnvelope, EventId, Evidence, EvidenceId, EvidenceKind, IndexStatus,
     IntegrityState, LineRange, LogicalTick, ReviewStatus, ScopeId, SecurityMetadata, Sensitivity,
-    SequenceNumber, SnapshotRef, StructureNodeId, TrustLabel, TrustZone, content_hash,
+    SnapshotRef, StructureNodeId, TrustLabel, TrustZone, content_hash,
 };
 use maestria_governance::{RetrievalAuthorizationContext, RetrievalSecurityPolicy};
 use maestria_ports::{
@@ -117,7 +117,6 @@ fn canonical_events(
     vec![
         DomainEventEnvelope {
             id: EventId::new(1),
-            sequence: SequenceNumber::new(1),
             event: DomainEvent::ParserStarted {
                 artifact_id,
                 title: FILE_PATH.to_string(),
@@ -128,7 +127,6 @@ fn canonical_events(
         },
         DomainEventEnvelope {
             id: EventId::new(2),
-            sequence: SequenceNumber::new(2),
             event: DomainEvent::DocumentTreeCaptured {
                 artifact_id,
                 artifact_version_id: artifact_version,
@@ -190,7 +188,6 @@ fn fixture(mode: FixtureMode) -> Result<Fixture, Box<dyn Error>> {
                 canonical_events(artifact_id, artifact_version, blob_id, &content_hash);
             events.push(DomainEventEnvelope {
                 id: EventId::new(3),
-                sequence: SequenceNumber::new(3),
                 event: DomainEvent::SourceBecameStale {
                     artifact_id,
                     source_path: SOURCE_PATH.to_string(),
@@ -203,12 +200,14 @@ fn fixture(mode: FixtureMode) -> Result<Fixture, Box<dyn Error>> {
             canonical_events(artifact_id, artifact_version, blob_id, &content_hash)
         }
     };
+    let sources = maestria_domain::active_source_versions(&events);
     let resolver = CodeIntelSecurityResolver::from_events(
         CodeIntelSecurityResolverParts {
             artifacts: artifacts.clone(),
             evidence: evidence.clone(),
             blobs: blobs.clone(),
         },
+        &sources,
         &events,
     )?;
     Ok(Fixture {
@@ -575,12 +574,14 @@ fn artifact_repository_failure_is_propagated() -> Result<(), Box<dyn Error>> {
         fixture.blob_id,
         &fixture.content_hash,
     );
+    let sources = maestria_domain::active_source_versions(&events);
     let resolver = CodeIntelSecurityResolver::from_events(
         CodeIntelSecurityResolverParts {
             artifacts: Arc::new(FailingArtifactRepository),
             evidence: fixture.evidence,
             blobs: fixture.blobs,
         },
+        &sources,
         &events,
     )?;
     assert_internal(
@@ -601,12 +602,14 @@ fn active_source_without_artifact_version_fails_matching_resolution() -> Result<
         &fixture.content_hash,
     );
     events.truncate(1);
+    let sources = maestria_domain::active_source_versions(&events);
     let resolver = CodeIntelSecurityResolver::from_events(
         CodeIntelSecurityResolverParts {
             artifacts: fixture.artifacts,
             evidence: fixture.evidence,
             blobs: fixture.blobs,
         },
+        &sources,
         &events,
     )?;
     assert_internal(
@@ -637,12 +640,14 @@ fn active_source_with_mismatched_version_hash_fails_matching_resolution()
         root_id: StructureNodeId::new(1),
         nodes: Vec::new(),
     };
+    let sources = maestria_domain::active_source_versions(&events);
     let resolver = CodeIntelSecurityResolver::from_events(
         CodeIntelSecurityResolverParts {
             artifacts: fixture.artifacts,
             evidence: fixture.evidence,
             blobs: fixture.blobs,
         },
+        &sources,
         &events,
     )?;
     assert_internal(
@@ -670,19 +675,20 @@ fn delayed_stale_event_does_not_remove_newer_source() -> Result<(), Box<dyn Erro
     ));
     events.push(DomainEventEnvelope {
         id: EventId::new(5),
-        sequence: SequenceNumber::new(5),
         event: DomainEvent::SourceBecameStale {
             artifact_id: ArtifactId::new(10),
             source_path: SOURCE_PATH.to_string(),
             content_hash: old_hash.clone(),
         },
     });
+    let sources = maestria_domain::active_source_versions(&events);
     let resolver = CodeIntelSecurityResolver::from_events(
         CodeIntelSecurityResolverParts {
             artifacts: fixture.artifacts,
             evidence: fixture.evidence,
             blobs: fixture.blobs,
         },
+        &sources,
         &events,
     )?;
     assert!(resolver.authorizes(&fixture.symbol, &default_authorization()?)?);

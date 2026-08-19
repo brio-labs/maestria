@@ -58,7 +58,6 @@ fn preflight_duplicate_is_noop_when_indexed() -> Result<(), Box<dyn std::error::
     // Set up artifact as fully indexed via replay events
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
@@ -67,7 +66,6 @@ fn preflight_duplicate_is_noop_when_indexed() -> Result<(), Box<dyn std::error::
     })?;
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::PendingIndex {
             artifact_id: ArtifactId::new(1),
             content_hash: hash_abc()?,
@@ -75,7 +73,6 @@ fn preflight_duplicate_is_noop_when_indexed() -> Result<(), Box<dyn std::error::
     })?;
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(3),
-        sequence: SequenceNumber::new(3),
         event: DomainEvent::ArtifactIndexed {
             artifact_id: ArtifactId::new(1),
         },

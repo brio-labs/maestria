@@ -25,7 +25,6 @@ pub(crate) fn RetrievalWorkspace() -> Element {
             match status() {
                 LoadState::Loading => rsx! { p { "Loading retrieval status…" } },
                 LoadState::Failed(error) => rsx! { {alert(&error)} },
-                LoadState::Empty => rsx! {},
                 LoadState::Ready(value) => rsx! {
                     InstanceStats {
                         status: value.clone(),
@@ -34,6 +33,7 @@ pub(crate) fn RetrievalWorkspace() -> Element {
                     LaneTable { lanes: value.lanes.clone() }
                     PromotionRecords { records: value.promotion_records.clone() }
                 },
+                LoadState::Empty => rsx! { p { "No retrieval status." } },
             }
         }
     }

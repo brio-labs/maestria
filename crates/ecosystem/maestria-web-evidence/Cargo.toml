@@ -6,10 +6,10 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-maestria-ports = { path = "../../kernel/maestria-ports" }
-maestria-domain = { path = "../../kernel/maestria-domain" }
-ureq = { version = "2", features = ["charset"] }
-url = "2"
+maestria-ports = { workspace = true }
+maestria-domain = { workspace = true }
+ureq = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
-maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }
+maestria-ports = { workspace = true, features = ["contract-tests"] }

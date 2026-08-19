@@ -138,8 +138,8 @@ impl LearnedSparseChunkRetriever {
 
 #[async_trait]
 impl CandidateRetriever for LearnedSparseChunkRetriever {
-    fn descriptor(&self) -> RetrieverDescriptor {
-        self.descriptor.clone()
+    fn descriptor(&self) -> &RetrieverDescriptor {
+        &self.descriptor
     }
     fn sparse_namespace(&self) -> Option<maestria_domain::SparseNamespace> {
         Some(self.identity.namespace.clone())

@@ -17,35 +17,27 @@ pub(crate) enum StoredDiversityPlacement {
     Skipped(StoredDiversitySkipReason),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredDiversitySkipReason {
-    DuplicateCluster,
-    LowMarginalGain,
+crate::stored_enum! {
+    #[serde(rename_all = "snake_case")]
+    pub(crate) enum StoredDiversitySkipReason <=> DiversitySkipReason {
+        DuplicateCluster,
+        LowMarginalGain,
+    }
 }
-
 impl StoredDiversityPlacement {
     pub(crate) fn from_domain(value: &DiversityPlacement) -> Self {
         match value {
             DiversityPlacement::Selected(rank) => Self::Selected(*rank),
-            DiversityPlacement::Skipped(reason) => Self::Skipped(match reason {
-                DiversitySkipReason::DuplicateCluster => {
-                    StoredDiversitySkipReason::DuplicateCluster
-                }
-                DiversitySkipReason::LowMarginalGain => StoredDiversitySkipReason::LowMarginalGain,
-            }),
+            DiversityPlacement::Skipped(reason) => {
+                Self::Skipped(StoredDiversitySkipReason::from_domain(*reason))
+            }
         }
     }
 
     pub(crate) fn try_into_domain(self) -> Result<DiversityPlacement, maestria_ports::PortError> {
         Ok(match self {
             Self::Selected(rank) => DiversityPlacement::Selected(rank),
-            Self::Skipped(reason) => DiversityPlacement::Skipped(match reason {
-                StoredDiversitySkipReason::DuplicateCluster => {
-                    DiversitySkipReason::DuplicateCluster
-                }
-                StoredDiversitySkipReason::LowMarginalGain => DiversitySkipReason::LowMarginalGain,
-            }),
+            Self::Skipped(reason) => DiversityPlacement::Skipped(reason.try_into_domain()?),
         })
     }
 }

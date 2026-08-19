@@ -72,10 +72,7 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
 
     let duration = start
         .elapsed()
-        .map_err(|error| PortError::InternalContext {
-            context: "measure harness run duration",
-            source: error.to_string(),
-        })?;
+        .map_err(|error| PortError::internal("measure harness run duration", error.to_string()))?;
 
     Ok(HarnessOutcome {
         run_id: request.run_id,

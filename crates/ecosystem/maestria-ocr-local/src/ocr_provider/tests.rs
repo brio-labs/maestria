@@ -32,8 +32,11 @@ impl OcrTransport for FixtureTransport {
     fn post(&self, _endpoint: &str, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
         self.requests
             .lock()
-            .map_err(|_| PortError::Internal {
-                message: "fixture transport mutex poisoned".to_string(),
+            .map_err(|_| {
+                PortError::internal(
+                    "maestria ocr local test",
+                    "fixture transport mutex poisoned".to_string(),
+                )
             })?
             .push(body);
         Ok(br#"{"choices":[{"message":{"content":"recognized page"}}]}"#.to_vec())
@@ -319,9 +322,10 @@ fn sends_one_image_request_per_page_and_preserves_identity() -> Result<(), PortE
         transport
             .requests
             .lock()
-            .map_err(|_| PortError::Internal {
-                message: "fixture transport mutex poisoned".to_string(),
-            })?
+            .map_err(|_| PortError::internal(
+                "maestria ocr local test",
+                "fixture transport mutex poisoned".to_string()
+            ))?
             .len(),
         2
     );

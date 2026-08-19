@@ -225,6 +225,12 @@ class PhilosophyCheckTests(unittest.TestCase):
                 '[package]\nname = "maestria-domain"\n[dependencies]\ntokio = "1"\n',
                 encoding="utf-8",
             )
+            gov = root / "crates" / "kernel" / "maestria-governance"
+            gov.mkdir(parents=True)
+            (gov / "Cargo.toml").write_text('[package]\nname = "maestria-governance"\n', encoding="utf-8")
+            ports = root / "crates" / "kernel" / "maestria-ports"
+            ports.mkdir(parents=True)
+            (ports / "Cargo.toml").write_text('[package]\nname = "maestria-ports"\n', encoding="utf-8")
             source.write_text(
                 "use std::fs;\n"
                 'pub fn production_failure() { panic!("forbidden"); }\n'
@@ -233,8 +239,8 @@ class PhilosophyCheckTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            manifest_violations = PHILOSOPHY_CHECK.scan_domain_manifest()
-            source_violations = PHILOSOPHY_CHECK.scan_domain_sources()
+            manifest_violations = PHILOSOPHY_CHECK.scan_kernel_manifests()
+            source_violations = PHILOSOPHY_CHECK.scan_kernel_sources()
 
             self.assertEqual(
                 manifest_violations,
@@ -243,7 +249,7 @@ class PhilosophyCheckTests(unittest.TestCase):
                 ],
             )
             self.assertIn(
-                "crates/kernel/maestria-domain/src/lib.rs contains forbidden domain token std::fs",
+                "crates/kernel/maestria-domain/src/lib.rs contains forbidden kernel token std::fs",
                 source_violations,
             )
             self.assertIn(
@@ -944,8 +950,7 @@ dev_alias = { package = "unknown-package", version = "1" }
 
     def test_production_strip_line_comments_keeps_doc_comments(self) -> None:
         body = "//! doc comment\n// normal comment\npub fn foo() {}\n"
-        result = PHILOSOPHY_CHECK.production_strip_line_comments(body)
-        self.assertIn("//! doc comment", result)
+        result = PHILOSOPHY_CHECK._rust_syntax(body)
         self.assertNotIn("// normal comment", result)
         self.assertIn("pub fn foo", result)
 

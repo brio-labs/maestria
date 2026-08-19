@@ -2,22 +2,20 @@ use maestria_domain::{
     ChunkId, CorpusSnapshotId, IndexGenerationId, RepresentationName, SparseNamespace, TrustZone,
 };
 
+use crate::contract_tests::search_budget;
 use crate::{
     LearnedSparseIndex, LearnedSparseProvider, PortError, SPARSE_REPRESENTATION_V1, SparseDocument,
     SparseFingerprint, SparseIdentity, SparseInputKind, SparseSearchQuery,
 };
 
-fn search_budget(
-    limit: u64,
-) -> Result<maestria_domain::SearchExecutionBudget, maestria_domain::SearchCompatibilityError> {
-    maestria_domain::SearchExecutionBudget::new(limit, 10_000, 100_000, 0)
-}
-
 pub fn fixture_sparse_identity() -> Result<SparseIdentity, PortError> {
     let hash = |digit: char| {
         maestria_domain::ContentHash::new(format!("sha256:{}", digit.to_string().repeat(64)))
-            .map_err(|error| PortError::InvalidInput {
-                message: format!("create sparse fixture hash: {error}"),
+            .map_err(|error| {
+                PortError::invalid_input(
+                    "contract fixture",
+                    format!("create sparse fixture hash: {error}"),
+                )
             })
     };
     Ok(SparseIdentity {
@@ -29,8 +27,11 @@ pub fn fixture_sparse_identity() -> Result<SparseIdentity, PortError> {
             TrustZone::Verified,
             SPARSE_REPRESENTATION_V1,
         )
-        .map_err(|error| PortError::InvalidInput {
-            message: format!("create sparse fixture namespace: {error}"),
+        .map_err(|error| {
+            PortError::invalid_input(
+                "contract fixture",
+                format!("create sparse fixture namespace: {error}"),
+            )
         })?,
         fingerprint: SparseFingerprint {
             provider: "fixture-local".to_string(),

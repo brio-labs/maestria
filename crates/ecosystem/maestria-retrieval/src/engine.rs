@@ -1,5 +1,4 @@
 use maestria_domain::{SearchOutcome, SearchPlan};
-use maestria_ports::SearchQuery;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -32,8 +31,10 @@ mod tests;
 
 #[path = "planner.rs"]
 mod planner;
+pub(crate) use engine_capabilities::batch_is_eligible;
 /// Allocates the execution budget for one retrieval lane.
 pub use engine_pipeline::lane_budget;
+pub(crate) use engine_pipeline::partition_allowance;
 /// Reconciles an evaluator status with the diversity selector status.
 pub use engine_pipeline::reconcile_status;
 pub use planner::SearchPlannerContext;
@@ -62,8 +63,6 @@ pub struct RetrievalEngine {
     repository_execution_policy: crate::repository_benchmark::RepositoryExecutionPolicy,
     visual_execution_policy: crate::visual_benchmark::VisualExecutionPolicy,
 }
-
-pub(super) use engine_capabilities::batch_is_eligible;
 
 impl RetrievalEngine {
     /// Execute the search plan and return the outcome.
@@ -154,12 +153,7 @@ impl RetrievalEngine {
             if active_retrievers.is_empty() {
                 return Err(RetrievalError::Internal("No retrievers configured".into()));
             }
-            let query = SearchQuery {
-                q: plan.original_query().to_string(),
-                limit: plan.stop_conditions().max_results as usize,
-                offset: 0,
-                execution_budget: plan.execution_budget()?,
-            };
+            let query = engine_pipeline::search_query_for_plan(plan, plan.original_query())?;
             let (batches, rewrites, web_requests_used, mut execution_usage) =
                 engine_pipeline::collect_initial_batches(
                     &active_retrievers,

@@ -85,12 +85,9 @@ impl SparseIdentity {
                 source: self.representation.0.clone(),
             });
         }
-        self.namespace
-            .validate()
-            .map_err(|error| PortError::InvalidInputContext {
-                context: "invalid sparse namespace",
-                source: error.to_string(),
-            })?;
+        self.namespace.validate().map_err(|error| {
+            PortError::invalid_input("invalid sparse namespace", error.to_string())
+        })?;
         if self.namespace.projection() != self.representation.0 {
             return Err(PortError::InvalidInputContext {
                 context: "sparse namespace projection mismatch",
@@ -208,11 +205,77 @@ pub struct SparseTermContribution {
     pub contribution_micros: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SparseSearchHit {
     pub chunk_id: ChunkId,
     pub score_micros: u32,
     pub contributions: Vec<SparseTermContribution>,
+}
+
+/// Two-pointer dot-product merge over sorted term weights shared by every
+/// sparse scoring implementation so the contribution math cannot diverge.
+pub fn dot_contributions(
+    document: &[SparseTermWeight],
+    query: &[SparseTermWeight],
+) -> Vec<(u32, f64)> {
+    let mut left = 0_usize;
+    let mut right = 0_usize;
+    let mut contributions = Vec::new();
+    while left < document.len() && right < query.len() {
+        let document_term = document[left];
+        let query_term = query[right];
+        match document_term.term_id().cmp(&query_term.term_id()) {
+            std::cmp::Ordering::Less => left += 1,
+            std::cmp::Ordering::Greater => right += 1,
+            std::cmp::Ordering::Equal => {
+                contributions.push((
+                    document_term.term_id(),
+                    f64::from(document_term.weight()) * f64::from(query_term.weight()),
+                ));
+                left += 1;
+                right += 1;
+            }
+        }
+    }
+    contributions
+}
+
+/// Micros-scaled fixed-point clamp shared by every sparse scorer: non-finite
+/// or non-positive values collapse to zero; otherwise the micros value is
+/// rounded and clamped to the u32 range.
+pub fn fixed_micros(value: f64) -> u32 {
+    if !value.is_finite() || value <= 0.0 {
+        return 0;
+    }
+    (value * 1_000_000.0).round().min(f64::from(u32::MAX)) as u32
+}
+
+/// Sort-by-score completion tail shared by every sparse scorer: score
+/// descending, chunk id ascending, then result-budget metering and
+/// complete/exhausted termination.
+pub fn finish_sparse_search(
+    mut meter: crate::execution::Meter,
+    mut hits: Vec<SparseSearchHit>,
+    limit: usize,
+    mut stopped: Option<maestria_domain::SearchExecutionResource>,
+) -> BoundedSearch<SparseSearchHit> {
+    hits.sort_by(|left, right| {
+        right
+            .score_micros
+            .cmp(&left.score_micros)
+            .then_with(|| left.chunk_id.cmp(&right.chunk_id))
+    });
+    hits.truncate(limit);
+    for _ in &hits {
+        if let Some(resource) = meter.result() {
+            stopped = Some(resource);
+            break;
+        }
+    }
+    match stopped {
+        Some(resource) => meter.exhausted(hits, resource),
+        None => meter.complete(hits),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

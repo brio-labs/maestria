@@ -19,10 +19,7 @@ impl KernelState {
         input: CreateCardInput,
     ) -> Result<DomainEventEnvelope, DomainError> {
         if self.cards.contains_key(&input.card_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "card",
-                id: input.card_id.value(),
-            });
+            return Err(DomainError::DuplicateCard { id: input.card_id });
         }
         if !self.artifacts.contains_key(&input.artifact_id) {
             return Err(DomainError::MissingArtifact {
@@ -80,10 +77,7 @@ impl KernelState {
             return Err(DomainError::MissingArtifact { id: artifact_id });
         }
         if self.cards.contains_key(&card_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "card",
-                id: card_id.value(),
-            });
+            return Err(DomainError::DuplicateCard { id: card_id });
         }
         self.cards.insert(
             card_id,

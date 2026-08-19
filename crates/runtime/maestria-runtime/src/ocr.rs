@@ -1,13 +1,12 @@
 use crate::config::EffectExecutionContext;
 use crate::effect_result::EffectFailure;
 use maestria_domain::{
-    DomainInput, OcrCompleted, OcrCompletion, OcrEffect, OcrFailed, OcrPageText, content_hash,
+    DomainInput, OcrCompleted, OcrCompletion, OcrFailed, OcrIntent, OcrPageText, content_hash,
 };
 use maestria_ports::{FileHandle, OcrRequest, OcrResponse};
 
 impl EffectExecutionContext {
-    pub(crate) async fn handle_ocr(&self, effect: OcrEffect) -> Result<(), EffectFailure> {
-        let intent = effect.intent;
+    pub(crate) async fn handle_ocr(&self, intent: OcrIntent) -> Result<(), EffectFailure> {
         let Some(provider) = &self.adapters.ocr_provider else {
             return self
                 .ocr_failed(&intent, "OCR provider is not configured")

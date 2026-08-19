@@ -25,10 +25,7 @@ fn candidate_requires_evidence_at_construction() -> Result<(), Box<dyn std::erro
 
     assert!(matches!(
         error,
-        DomainError::EvidenceRequired {
-            kind: "memory_candidate",
-            id: 1,
-        }
+        DomainError::MemoryCandidateRequiresEvidence { id } if id.value() == 1
     ));
     Ok(())
 }

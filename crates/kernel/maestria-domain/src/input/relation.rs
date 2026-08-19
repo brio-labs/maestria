@@ -64,9 +64,8 @@ impl KernelState {
             RelationEndpoint::Card(id) => self.cards.get(id).map(|v| &v.security),
         };
         if self.relations.contains_key(&input.relation_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "relation",
-                id: input.relation_id.value(),
+            return Err(DomainError::DuplicateRelation {
+                id: input.relation_id,
             });
         }
         if let Some(evidence_id) = input.evidence_id
@@ -160,10 +159,7 @@ impl KernelState {
         validate_endpoint(&source)?;
         validate_endpoint(&target)?;
         if self.relations.contains_key(&relation_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "relation",
-                id: relation_id.value(),
-            });
+            return Err(DomainError::DuplicateRelation { id: relation_id });
         }
         if let Some(ev_id) = evidence_id
             && !self.evidences.contains_key(&ev_id)

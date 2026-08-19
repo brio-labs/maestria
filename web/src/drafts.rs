@@ -2,77 +2,42 @@ use dioxus::prelude::*;
 
 use crate::{
     api::{ApiClient, ClientError, CreateDraft, Draft, DraftSummary, UpdateDraft},
-    components::WorkspaceContext,
+    components::{WorkspaceContext, set_alert},
     state::LoadState,
 };
-
-fn api_client() -> ApiClient {
-    ApiClient::new()
-}
-
-fn set_alert(mut context: Signal<WorkspaceContext>, error: ClientError) {
-    let mut value = context.write();
-    value.model.alert = Some(error);
-    value.model.status = "Action failed".into();
-}
 
 #[component]
 pub fn Drafts(notebook_id: u64) -> Element {
     let context = use_context::<Signal<WorkspaceContext>>();
-    let snapshot = context.read().clone();
-    let drafts = match snapshot.model.drafts {
-        LoadState::Ready(values) => values,
-        _ => Vec::new(),
+    let (drafts, preview_title, preview_markdown, conflict) = {
+        let snapshot = context.read();
+        let drafts = match &snapshot.model.drafts {
+            LoadState::Ready(values) => values.clone(),
+            _ => Vec::new(),
+        };
+        let preview = snapshot.model.preview.clone();
+        let conflict = snapshot
+            .model
+            .alert
+            .as_ref()
+            .is_some_and(|error| error.problem_code() == Some("revision-conflict"));
+        let preview_title = preview
+            .as_ref()
+            .map_or_else(String::new, |value| value.title.clone());
+        let preview_markdown = preview
+            .as_ref()
+            .map_or_else(String::new, |value| value.markdown.clone());
+        (drafts, preview_title, preview_markdown, conflict)
     };
-    let initial_preview = snapshot.model.preview.clone();
     let selected = use_signal(|| None::<Draft>);
-    let title = use_signal(move || {
-        initial_preview
-            .as_ref()
-            .map_or_else(String::new, |preview| preview.title.clone())
-    });
-    let initial_preview = snapshot.model.preview.clone();
-    let markdown = use_signal(move || {
-        initial_preview
-            .as_ref()
-            .map_or_else(String::new, |preview| preview.markdown.clone())
-    });
-    let api = use_hook(api_client);
-    let conflict = snapshot
-        .model
-        .alert
-        .as_ref()
-        .is_some_and(|error| error.problem_code() == Some("revision-conflict"));
-    rsx! {
-        DraftWorkspace {
-            notebook_id,
-            drafts,
-            api,
-            context,
-            title,
-            markdown,
-            selected,
-            conflict
-        }
-    }
-}
-
-#[component]
-fn DraftWorkspace(
-    notebook_id: u64,
-    drafts: Vec<DraftSummary>,
-    api: ApiClient,
-    context: Signal<WorkspaceContext>,
-    title: Signal<String>,
-    markdown: Signal<String>,
-    selected: Signal<Option<Draft>>,
-    conflict: bool,
-) -> Element {
+    let title = use_signal(move || preview_title.clone());
+    let markdown = use_signal(move || preview_markdown.clone());
+    let api = use_hook(ApiClient::new);
     rsx! {
         div { class: "grid gap-6 lg:grid-cols-[16rem_1fr]",
             DraftList {
                 notebook_id,
-                drafts,
+                drafts: drafts.clone(),
                 api: api.clone(),
                 title,
                 markdown,
@@ -162,11 +127,7 @@ fn DeleteDraftButton(
                                     .as_ref()
                                     .is_some_and(|value| value.draft_id == draft_id);
                                 let mut value = context.write();
-                                value.model.drafts = if drafts.is_empty() {
-                                    LoadState::Empty
-                                } else {
-                                    LoadState::Ready(drafts)
-                                };
+                                value.model.drafts = LoadState::ready_or_empty(drafts);
                                 value.model.alert = None;
                                 value.model.status = "Draft deleted".into();
                                 if was_selected {
@@ -323,11 +284,7 @@ fn SaveDraftButton(
                                 markdown_field.set(draft.markdown.clone());
                                 selected_field.set(Some(draft));
                                 let mut value = context.write();
-                                value.model.drafts = if drafts.is_empty() {
-                                    LoadState::Empty
-                                } else {
-                                    LoadState::Ready(drafts)
-                                };
+                                value.model.drafts = LoadState::ready_or_empty(drafts);
                                 value.model.preview = None;
                                 value.model.draft_previews.clear();
                                 value.model.alert = None;

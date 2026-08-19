@@ -23,6 +23,6 @@ pub(crate) fn validated_instance(instance_dir: PathBuf) -> Result<InstanceLayout
 pub(crate) fn load_manifest(layout: &InstanceLayout) -> Result<InstanceManifest> {
     let contents = fs::read_to_string(&layout.manifest_path)
         .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
-    maestria_core::InstanceService::parse_manifest(&contents)
+    InstanceManifest::decode(&contents)
         .map_err(|error| anyhow::anyhow!("parse instance manifest: {error}"))
 }

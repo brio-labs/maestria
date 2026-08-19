@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use maestria_domain::*;
+use maestria_ports::contract_tests::assert_realm_read_grant_repository_contract;
 use maestria_ports::{EventFilter, EventLog, RealmReadGrantRepository};
 
 use crate::SqliteStore;
@@ -69,6 +70,13 @@ fn realm_read_grant_projection_rejects_two_active_consumer_rows()
 }
 
 #[test]
+fn realm_read_grant_repository_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    assert_realm_read_grant_repository_contract(&store)?;
+    Ok(())
+}
+
+#[test]
 fn realm_read_grant_events_round_trip_through_strict_payloads()
 -> Result<(), Box<dyn std::error::Error>> {
     let store = SqliteStore::in_memory()?;
@@ -77,14 +85,12 @@ fn realm_read_grant_events_round_trip_through_strict_payloads()
     let events = vec![
         DomainEventEnvelope {
             id: EventId::new(1),
-            sequence: SequenceNumber::new(1),
             event: DomainEvent::RealmReadGrantIssued {
                 grant: grant.clone(),
             },
         },
         DomainEventEnvelope {
             id: EventId::new(2),
-            sequence: SequenceNumber::new(2),
             event: DomainEvent::FederatedReadAccessRecorded {
                 token_digest: digest.clone(),
                 provider_realm: realm('a')?,
@@ -97,7 +103,6 @@ fn realm_read_grant_events_round_trip_through_strict_payloads()
         },
         DomainEventEnvelope {
             id: EventId::new(3),
-            sequence: SequenceNumber::new(3),
             event: DomainEvent::RealmReadGrantRevoked {
                 token_digest: digest,
             },

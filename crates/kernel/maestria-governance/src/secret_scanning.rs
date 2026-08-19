@@ -27,6 +27,15 @@ impl SecretScan {
     }
 }
 
+/// Access-token shape prefixes classified as `AccessToken`. Mirrors the
+/// `_SECRET_ACCESS_TOKEN_PATTERN` vocabulary in `scripts/philosophy-check.py`.
+const ACCESS_TOKEN_PREFIXES: &[&str] =
+    &["AKIA", "ghp_", "github_pat_", "xoxb-", "xoxp-", "sk_live_"];
+
+/// Credential assignment keys classified as `CredentialAssignment`. Mirrors
+/// `_SECRET_ASSIGNMENT_KEYS` in `scripts/philosophy-check.py`.
+const CREDENTIAL_KEYS: &[&str] = &["password", "passwd", "api_key", "apikey", "secret", "token"];
+
 /// Scan text before indexing, embedding, exporting, or sending it to a provider.
 pub fn scan_secrets(text: &str) -> SecretScan {
     let mut findings = Vec::new();
@@ -34,7 +43,7 @@ pub fn scan_secrets(text: &str) -> SecretScan {
         let trimmed = line.trim();
         let kind = if trimmed.contains("-----BEGIN ") && trimmed.contains(" PRIVATE KEY-----") {
             Some(SecretKind::PrivateKey)
-        } else if ["AKIA", "ghp_", "github_pat_", "xoxb-", "xoxp-", "sk_live_"]
+        } else if ACCESS_TOKEN_PREFIXES
             .iter()
             .any(|prefix| trimmed.contains(prefix))
         {
@@ -73,14 +82,12 @@ fn contains_credential_assignment(line: &str) -> bool {
         .trim()
         .trim_matches(|character| matches!(character, '"' | '\'' | '{' | '}'))
         .trim();
-    ["password", "passwd", "api_key", "apikey", "secret", "token"]
-        .iter()
-        .any(|key| {
-            normalized_name.eq_ignore_ascii_case(key)
-                && !value
-                    .trim()
-                    .trim_matches(|character| matches!(character, '"' | '\'' | ',' | '}'))
-                    .trim()
-                    .is_empty()
-        })
+    CREDENTIAL_KEYS.iter().any(|key| {
+        normalized_name.eq_ignore_ascii_case(key)
+            && !value
+                .trim()
+                .trim_matches(|character| matches!(character, '"' | '\'' | ',' | '}'))
+                .trim()
+                .is_empty()
+    })
 }

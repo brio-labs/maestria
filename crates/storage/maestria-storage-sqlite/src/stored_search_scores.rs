@@ -267,9 +267,8 @@ impl StoredRetrievalScoreSet {
             .into_iter()
             .map(StoredRetrievalLaneScore::try_into_domain)
             .collect::<Result<Vec<_>, _>>()?;
-        RetrievalScoreSet::new(lanes).map_err(|error| PortError::InvalidInputContext {
-            context: "decode stored retrieval score set",
-            source: error.to_string(),
+        RetrievalScoreSet::new(lanes).map_err(|error| {
+            PortError::invalid_input("decode stored retrieval score set", error.to_string())
         })
     }
 }

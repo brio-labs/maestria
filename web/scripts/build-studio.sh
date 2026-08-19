@@ -32,7 +32,7 @@ if [[ -n "$SYSROOT_DIR" ]]; then
 fi
 REMAP_FLAGS="$REMAP_FLAGS --remap-path-prefix=$CARGO_HOME_DIR=/cargo"
 
-export RUSTFLAGS="${RUSTFLAGS:-} $REMAP_FLAGS"
+export RUSTFLAGS="${REMAP_FLAGS# }"
 
 # Studio bundle mode: "fast" skips wasm-opt optimization passes for quick PR
 # checks (default); "release" applies the full -Oz pass and is used on main

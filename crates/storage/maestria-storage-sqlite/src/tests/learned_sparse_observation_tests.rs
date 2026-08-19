@@ -61,7 +61,7 @@ fn shadow_observations_export_import_is_typed_and_does_not_store_raw_queries() -
 #[test]
 fn shadow_observation_import_rejects_invalid_schema_without_touching_events() -> TestResult {
     let store = SqliteStore::in_memory()?;
-    let event = super::registered(1, 1, 1);
+    let event = super::registered(1, 1);
     EventLog::append(&store, event.clone())?;
     let invalid = r#"[{
         "schema_version": 2,

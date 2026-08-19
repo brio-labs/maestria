@@ -150,4 +150,20 @@ impl TantivyFullTextIndex {
         *required = false;
         Ok(())
     }
+
+    pub(crate) fn with_writer<F>(&self, context: &'static str, f: F) -> Result<(), PortError>
+    where
+        F: FnOnce(&mut IndexWriter) -> Result<(), PortError>,
+    {
+        let mut writer_guard = self.writer.lock().map_err(|_| PortError::InternalContext {
+            context: "Tantivy writer lock poisoned",
+            source: "Tantivy writer mutex is poisoned".to_string(),
+        })?;
+        let writer = writer_guard
+            .as_mut()
+            .ok_or_else(|| PortError::downstream(context, "full-text index is read-only"))?;
+        f(writer)?;
+        writer.commit().map_err(to_port_error)?;
+        self.reader.reload().map_err(to_port_error)
+    }
 }

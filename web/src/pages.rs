@@ -3,48 +3,49 @@ use dioxus::prelude::*;
 use crate::ask::Ask;
 use crate::drafts::Drafts;
 use crate::{
-    api::{ApiClient, CatalogSource, Notebook},
-    components::{NotebookNav, Shell, WorkspaceContext, alert},
+    api::ApiClient,
+    components::{NotebookNav, Shell, WorkspaceContext, alert, set_alert},
     route::Route,
     session::Session,
     state::LoadState,
 };
 
-async fn refresh_notebook(
-    api: &ApiClient,
-    notebook_id: u64,
-) -> Result<(Notebook, Vec<CatalogSource>), crate::api::ClientError> {
-    let notebook = api.notebook(notebook_id).await?;
-    let sources = api.sources(notebook_id).await?;
-    Ok((notebook, sources))
+#[derive(Clone, PartialEq)]
+pub enum NotebookSection {
+    Overview,
+    Sources,
+    Ask,
+    Drafts,
 }
-
-fn set_alert(mut context: Signal<WorkspaceContext>, error: crate::api::ClientError) {
-    let mut value = context.write();
-    value.model.alert = Some(error);
-    value.model.status = "Action failed".into();
-}
+#[path = "pages_sources.rs"]
+mod pages_sources;
+use pages_sources::Sources;
 
 #[component]
 pub fn Dashboard() -> Element {
     let context = use_context::<Signal<WorkspaceContext>>();
     let navigator = use_navigator();
-    let snapshot = context.read().clone();
-    let agent_label = if snapshot
-        .agent
-        .as_ref()
-        .is_some_and(|agent| agent.status == "ready")
-    {
-        "Agent available"
-    } else {
-        "Agent not configured"
-    };
-    let remembered_notebook = match (&snapshot.model.notebooks, snapshot.active_notebook) {
-        (LoadState::Ready(notebooks), Some(id)) => notebooks
-            .iter()
-            .find(|notebook| notebook.notebook_id == id)
-            .cloned(),
-        _ => None,
+    let (agent_label, remembered_notebook, notebooks, alert_error) = {
+        let snapshot = context.read();
+        let agent_label = if snapshot
+            .agent
+            .as_ref()
+            .is_some_and(|agent| agent.status == "ready")
+        {
+            "Agent available"
+        } else {
+            "Agent not configured"
+        };
+        let remembered_notebook = match (&snapshot.model.notebooks, snapshot.active_notebook) {
+            (LoadState::Ready(notebooks), Some(id)) => notebooks
+                .iter()
+                .find(|notebook| notebook.notebook_id == id)
+                .cloned(),
+            _ => None,
+        };
+        let notebooks = snapshot.model.notebooks.clone();
+        let alert_error = snapshot.model.alert.clone();
+        (agent_label, remembered_notebook, notebooks, alert_error)
     };
     let remembered_title = remembered_notebook
         .as_ref()
@@ -57,7 +58,7 @@ pub fn Dashboard() -> Element {
         .map(|notebook| notebook.source_count);
     rsx! {
         Shell { title: "Workspace", active_notebook: None,
-            if let Some(error) = snapshot.model.alert.as_ref() { {alert(error)} }
+            if let Some(error) = alert_error.as_ref() { {alert(error)} }
             section { class: "mb-6 rounded-lg border border-line bg-panel p-6",
                 p {
                     class: "max-w-2xl text-lg text-ink-strong",
@@ -93,7 +94,7 @@ pub fn Dashboard() -> Element {
                     }
                 }
             }
-            NotebookList { notebooks: snapshot.model.notebooks }
+            NotebookList { notebooks }
         }
     }
 }
@@ -174,7 +175,7 @@ fn NotebookList(notebooks: LoadState<Vec<crate::api::NotebookSummary>>) -> Eleme
 }
 
 #[component]
-pub fn NotebookPage(notebook_id: u64, section: String) -> Element {
+pub fn NotebookPage(notebook_id: u64, section: NotebookSection) -> Element {
     let context = use_context::<Signal<WorkspaceContext>>();
     let navigator = use_navigator();
     let api = use_hook(ApiClient::new);
@@ -190,7 +191,7 @@ pub fn NotebookPage(notebook_id: u64, section: String) -> Element {
             };
             let result = async {
                 let notebook = api.notebook(notebook_id).await?;
-                let sources = api.sources(notebook_id).await?;
+                let sources = api.sources().await?;
                 let drafts = api.drafts(notebook_id).await?;
                 Ok::<_, crate::api::ClientError>((notebook, sources, drafts))
             }
@@ -202,16 +203,8 @@ pub fn NotebookPage(notebook_id: u64, section: String) -> Element {
             match result {
                 Ok((notebook, sources, drafts)) => {
                     value.model.notebook = LoadState::Ready(notebook);
-                    value.model.sources = if sources.is_empty() {
-                        LoadState::Empty
-                    } else {
-                        LoadState::Ready(sources)
-                    };
-                    value.model.drafts = if drafts.is_empty() {
-                        LoadState::Empty
-                    } else {
-                        LoadState::Ready(drafts)
-                    };
+                    value.model.sources = LoadState::ready_or_empty(sources);
+                    value.model.drafts = LoadState::ready_or_empty(drafts);
                     value.model.alert = None;
                     value.model.status = "Notebook ready".into();
                 }
@@ -223,27 +216,31 @@ pub fn NotebookPage(notebook_id: u64, section: String) -> Element {
             }
         });
     });
-    let snapshot = context.read().clone();
-    let notebook = match &snapshot.model.notebook {
-        LoadState::Ready(value) => Some(value.clone()),
-        _ => None,
+    let (notebook, alert_error, is_loading) = {
+        let snapshot = context.read();
+        let notebook = match &snapshot.model.notebook {
+            LoadState::Ready(value) => Some(value.clone()),
+            _ => None,
+        };
+        let alert_error = snapshot.model.alert.clone();
+        let is_loading = matches!(snapshot.model.notebook, LoadState::Loading);
+        (notebook, alert_error, is_loading)
     };
     let title = notebook
         .as_ref()
         .map_or_else(|| "Notebook".to_owned(), |value| value.title.clone());
     rsx! {
         Shell { title, active_notebook: Some(notebook_id),
-            if let Some(error) = snapshot.model.alert.as_ref() { {alert(error)} }
+            if let Some(error) = alert_error.as_ref() { {alert(error)} }
             if let Some(notebook) = notebook {
                 NotebookNav { notebook: notebook.clone() }
-                match section.as_str() {
-                    "overview" => rsx! { Overview { notebook_id, notebook } },
-                    "sources" => rsx! { Sources { notebook_id } },
-                    "ask" => rsx! { Ask { notebook_id } },
-                    "drafts" => rsx! { Drafts { notebook_id } },
-                    _ => rsx! { p { "Unknown section" } },
+                match section {
+                    NotebookSection::Overview => rsx! { Overview { notebook_id, notebook } },
+                    NotebookSection::Sources => rsx! { Sources { notebook_id } },
+                    NotebookSection::Ask => rsx! { Ask { notebook_id } },
+                    NotebookSection::Drafts => rsx! { Drafts { notebook_id } },
                 }
-            } else if matches!(snapshot.model.notebook, LoadState::Loading) {
+            } else if is_loading {
                 p { "Loading notebook…" }
             } else {
                 p { class: "mb-4", "The requested notebook could not be loaded." }
@@ -262,24 +259,28 @@ pub fn NotebookPage(notebook_id: u64, section: String) -> Element {
 #[component]
 fn Overview(notebook_id: u64, notebook: crate::api::Notebook) -> Element {
     let context = use_context::<Signal<WorkspaceContext>>();
-    let snapshot = context.read().clone();
+    let (available, drafts, agent_status) = {
+        let snapshot = context.read();
+        let available = match &snapshot.model.sources {
+            LoadState::Ready(values) => values.len(),
+            _ => 0,
+        };
+        let drafts = match &snapshot.model.drafts {
+            LoadState::Ready(values) => values.len(),
+            _ => 0,
+        };
+        let agent_status = snapshot
+            .agent
+            .as_ref()
+            .map_or("Not configured", |value| value.status.as_str())
+            .to_owned();
+        (available, drafts, agent_status)
+    };
     let selected = notebook
         .sources
         .iter()
         .filter(|source| source.available)
         .count();
-    let available = match snapshot.model.sources {
-        LoadState::Ready(values) => values.len(),
-        _ => 0,
-    };
-    let drafts = match snapshot.model.drafts {
-        LoadState::Ready(values) => values.len(),
-        _ => 0,
-    };
-    let agent = snapshot
-        .agent
-        .as_ref()
-        .map_or("Not configured", |value| value.status.as_str());
     rsx! {
         div { class: "grid gap-4 md:grid-cols-3",
             article {
@@ -305,7 +306,7 @@ fn Overview(notebook_id: u64, notebook: crate::api::Notebook) -> Element {
             article {
                 class: "rounded-lg border border-line bg-panel p-5",
                 h3 { class: "font-semibold", "Agent" }
-                p { class: "mt-2", {agent} }
+                p { class: "mt-2", {agent_status} }
             }
         }
         div {
@@ -324,104 +325,6 @@ fn Overview(notebook_id: u64, notebook: crate::api::Notebook) -> Element {
                 class: "rounded border border-line bg-panel px-4 py-2",
                 href: "/notebooks/{notebook_id}/drafts",
                 "Open drafts"
-            }
-        }
-    }
-}
-
-#[component]
-fn Sources(notebook_id: u64) -> Element {
-    let context = use_context::<Signal<WorkspaceContext>>();
-    let snapshot = context.read().clone();
-    let sources = match snapshot.model.sources {
-        LoadState::Ready(values) => values,
-        _ => Vec::new(),
-    };
-    let selected_count = sources.iter().filter(|source| source.available).count();
-    let api = use_hook(ApiClient::new);
-    rsx! {
-        section { class: "rounded-lg border border-line bg-panel p-5",
-            h2 { class: "font-semibold text-ink-strong", "Sources" }
-            p {
-                class: "mt-1 text-sm text-ink-muted",
-                "{selected_count} selected / {sources.len()} available"
-            }
-            div { class: "mt-4 divide-y divide-line",
-                for source in sources {
-                    SourceRow {
-                        notebook_id,
-                        source,
-                        notebook: snapshot.model.notebook.clone(),
-                        api: api.clone(),
-                        context
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn SourceRow(
-    notebook_id: u64,
-    source: CatalogSource,
-    notebook: LoadState<Notebook>,
-    api: ApiClient,
-    context: Signal<WorkspaceContext>,
-) -> Element {
-    let key = source.source_key.clone();
-    let title = match source.title.clone() {
-        Some(value) => value,
-        None => source.source_key.clone(),
-    };
-    let selected = match notebook {
-        LoadState::Ready(value) => value
-            .sources
-            .iter()
-            .any(|item| item.source_key == key && item.available),
-        _ => false,
-    };
-    rsx! {
-        div { class: "flex items-center justify-between gap-3 py-3",
-            div {
-                p { class: "font-medium", {title} }
-                p {
-                    class: "text-sm text-ink-muted",
-                    "{source.source_key} · {source.index_status}"
-                }
-            }
-            button {
-                class: "rounded border border-line px-3 py-2",
-                disabled: !source.available,
-                onclick: move |_| {
-                    let key = key.clone();
-                    let api = api.clone();
-                    spawn(async move {
-                        let result = if selected {
-                            api.detach_source(notebook_id, &key).await
-                        } else {
-                            api.attach_source(notebook_id, &key).await
-                        };
-                        match result {
-                            Err(error) => set_alert(context, error),
-                            Ok(()) => match refresh_notebook(&api, notebook_id).await {
-                                Ok((notebook, sources)) => {
-                                    let mut value = context.write();
-                                    value.model.notebook = LoadState::Ready(notebook);
-                                    value.model.sources = if sources.is_empty() {
-                                        LoadState::Empty
-                                    } else {
-                                        LoadState::Ready(sources)
-                                    };
-                                    value.model.alert = None;
-                                    value.model.status = "Sources updated".into();
-                                }
-                                Err(error) => set_alert(context, error),
-                            },
-                        }
-                    });
-                },
-                {if selected { "Detach" } else { "Attach" }}
             }
         }
     }

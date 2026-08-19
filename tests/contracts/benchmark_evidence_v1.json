@@ -25,7 +25,7 @@
   },
   "milestones": [
     {
-      "milestone": "v0.4 — Deterministic Search Baseline",
+      "milestone": "v0.4 \u2014 Deterministic Search Baseline",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
@@ -38,7 +38,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "dfe77d7af2793387b0a990aa1f03a62b8d00a830f1bab088867656b455daaccb"
+        "source_hash": "e7a285b4dde19cbcca0d3620095cc68edc5568a4c677f3b44cd0f0077d04226e"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -82,7 +82,7 @@
       ]
     },
     {
-      "milestone": "v0.5 — Evaluated Hybrid Retrieval",
+      "milestone": "v0.5 \u2014 Evaluated Hybrid Retrieval",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
@@ -95,7 +95,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "dfe77d7af2793387b0a990aa1f03a62b8d00a830f1bab088867656b455daaccb"
+        "source_hash": "e7a285b4dde19cbcca0d3620095cc68edc5568a4c677f3b44cd0f0077d04226e"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -139,7 +139,7 @@
       ]
     },
     {
-      "milestone": "v0.7 — Repository Intelligence",
+      "milestone": "v0.7 \u2014 Repository Intelligence",
       "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
@@ -202,7 +202,7 @@
       ]
     },
     {
-      "milestone": "v0.8 — Visual Document Retrieval",
+      "milestone": "v0.8 \u2014 Visual Document Retrieval",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
@@ -263,7 +263,7 @@
       ]
     },
     {
-      "milestone": "v0.9 — Doc & Marker Search",
+      "milestone": "v0.9 \u2014 Doc & Marker Search",
       "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
@@ -318,7 +318,7 @@
       ]
     },
     {
-      "milestone": "v1.0 — Python Repository Intelligence",
+      "milestone": "v1.0 \u2014 Python Repository Intelligence",
       "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
@@ -381,7 +381,7 @@
       ]
     },
     {
-      "milestone": "v1.1 — Web Repository Intelligence",
+      "milestone": "v1.1 \u2014 Web Repository Intelligence",
       "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
@@ -445,7 +445,7 @@
       ]
     },
     {
-      "milestone": "v1.2 — Learned-Sparse Four-Profile Evaluation",
+      "milestone": "v1.2 \u2014 Learned-Sparse Four-Profile Evaluation",
       "release_stage": "benchmark-complete",
       "data_fidelity": "real",
       "corpus": {
@@ -503,7 +503,7 @@
       ]
     },
     {
-      "milestone": "v1.3 — Dense-Lane Promotion (re-justified judgment set v2)",
+      "milestone": "v1.3 \u2014 Dense-Lane Promotion (re-justified judgment set v2)",
       "release_stage": "benchmark-complete",
       "data_fidelity": "real",
       "corpus": {

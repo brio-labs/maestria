@@ -1,4 +1,5 @@
 use super::*;
+use maestria_ports::RetentionPolicy;
 use maestria_ports::contract_tests::fixture_embedding_identity;
 use std::sync::{
     Mutex,
@@ -40,12 +41,18 @@ impl ProviderTransport for FixtureTransport {
     fn post(&self, _body: Vec<u8>) -> Result<Vec<u8>, PortError> {
         self.response
             .lock()
-            .map_err(|_| PortError::Internal {
-                message: "fixture lock poisoned".to_string(),
+            .map_err(|_| {
+                PortError::internal(
+                    "maestria embedding openai test",
+                    "fixture lock poisoned".to_string(),
+                )
             })?
             .take()
-            .ok_or_else(|| PortError::Internal {
-                message: "fixture already consumed".to_string(),
+            .ok_or_else(|| {
+                PortError::internal(
+                    "maestria embedding openai test",
+                    "fixture already consumed".to_string(),
+                )
             })?
     }
 }
@@ -80,8 +87,11 @@ impl ProviderTransport for RecordingTransport {
 
     fn post(&self, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
         self.post_count.fetch_add(1, Ordering::Relaxed);
-        *self.body.lock().map_err(|_| PortError::Internal {
-            message: "recording lock poisoned".to_string(),
+        *self.body.lock().map_err(|_| {
+            PortError::internal(
+                "maestria embedding openai test",
+                "recording lock poisoned".to_string(),
+            )
         })? = Some(body);
         Ok(self.response.clone())
     }
@@ -114,17 +124,25 @@ fn applies_kind_template_and_preserves_disclosure() -> Result<(), PortError> {
     let body = transport
         .body
         .lock()
-        .map_err(|_| PortError::Internal {
-            message: "recording lock poisoned".to_string(),
+        .map_err(|_| {
+            PortError::internal(
+                "maestria embedding openai test",
+                "recording lock poisoned".to_string(),
+            )
         })?
         .clone()
-        .ok_or_else(|| PortError::Internal {
-            message: "recording body missing".to_string(),
+        .ok_or_else(|| {
+            PortError::internal(
+                "maestria embedding openai test",
+                "recording body missing".to_string(),
+            )
         })?;
-    let payload: serde_json::Value =
-        serde_json::from_slice(&body).map_err(|error| PortError::Internal {
-            message: format!("decode recording body: {error}"),
-        })?;
+    let payload: serde_json::Value = serde_json::from_slice(&body).map_err(|error| {
+        PortError::internal(
+            "maestria embedding openai test",
+            format!("decode recording body: {error}"),
+        )
+    })?;
     assert_eq!(payload["input"], "query: hello");
     assert!(response.disclosure.remote);
     assert_eq!(
@@ -165,9 +183,10 @@ fn denied_transport_disclosure_posts_zero_bytes() -> Result<(), PortError> {
         transport
             .body
             .lock()
-            .map_err(|_| PortError::Internal {
-                message: "recording lock poisoned".to_string(),
-            })?
+            .map_err(|_| PortError::internal(
+                "maestria embedding openai test",
+                "recording lock poisoned".to_string()
+            ))?
             .is_none()
     );
     Ok(())

@@ -1,7 +1,4 @@
-use crate::lexical::{
-    CardField, ChunkField, IndexedLexicalCard, IndexedLexicalChunk, LexicalCardHit,
-    LexicalChunkHit, LexicalQuery,
-};
+use crate::lexical::{IndexedLexicalCard, IndexedLexicalChunk};
 use crate::{BoundedSearch, CardHit, IndexedCard, IndexedChunk, PortError, SearchHit, SearchQuery};
 use maestria_domain::{ArtifactId, CardId};
 
@@ -73,39 +70,6 @@ pub trait FullTextIndex: Send + Sync {
     /// Index cards with lexical metadata.
     fn index_lexical_cards(&self, cards: Vec<IndexedLexicalCard>) -> Result<(), PortError>;
 
-    /// Index one artifact chunk together with its cards as one atomic
-    /// projection update.
-    ///
-    /// The default implementation preserves the historical call sequence
-    /// (cards, lexical cards, chunk, lexical chunk), each with its own
-    /// commit, so adapters without a native batch path keep identical
-    /// semantics. Adapters whose writes are costly per commit (for example a
-    /// search index that flushes and fsyncs on every commit) SHOULD override
-    /// this to apply the whole artifact update in one commit; the operations
-    /// must stay idempotent (delete-then-add per key) so retries and
-    /// recovery re-drives replace rather than duplicate documents.
-    fn index_artifact_chunk(
-        &self,
-        chunk: IndexedChunk,
-        cards: Vec<IndexedCard>,
-        lexical_chunk: Option<IndexedLexicalChunk>,
-        lexical_cards: Vec<IndexedLexicalCard>,
-    ) -> Result<(), PortError> {
-        if !cards.is_empty() {
-            self.index_cards(cards)?;
-        }
-        if self.supports_lexical_metadata() && !lexical_cards.is_empty() {
-            self.index_lexical_cards(lexical_cards)?;
-        }
-        self.index_chunks(vec![chunk])?;
-        if self.supports_lexical_metadata()
-            && let Some(lexical_chunk) = lexical_chunk
-        {
-            self.index_lexical_chunks(vec![lexical_chunk])?;
-        }
-        Ok(())
-    }
-
     /// Index a whole artifact's chunks with its cards as one atomic
     /// projection update.
     ///
@@ -113,12 +77,14 @@ pub trait FullTextIndex: Send + Sync {
     /// executes them as a per-artifact batch, so ingestion commits once per
     /// artifact instead of once per chunk (chunk commits dominate the
     /// ingestion cost: each flushes and fsyncs segments). The default
-    /// implementation falls back to per-chunk [`Self::index_artifact_chunk`]
-    /// calls (cards attached to the first chunk); adapters whose writes are
-    /// costly per commit SHOULD override this to apply the whole artifact
-    /// update in one commit. Operations must stay idempotent
-    /// (delete-then-add per key) so retries and recovery re-drives replace
-    /// rather than duplicate documents.
+    /// implementation preserves the historical call sequence (cards, lexical
+    /// cards, chunk, lexical chunk per chunk, with cards attached to the
+    /// first chunk), each with its own commit, so adapters without a native
+    /// batch path keep identical semantics. Adapters whose writes are costly
+    /// per commit SHOULD override this to apply the whole artifact update in
+    /// one commit; the operations must stay idempotent (delete-then-add per
+    /// key) so retries and recovery re-drives replace rather than duplicate
+    /// documents.
     fn index_artifact_chunks(
         &self,
         chunks: Vec<IndexedChunk>,
@@ -131,65 +97,19 @@ pub trait FullTextIndex: Send + Sync {
                 .iter()
                 .find(|candidate| candidate.chunk_id == chunk.chunk_id)
                 .cloned();
-            let chunk_cards = if index == 0 {
-                cards.clone()
-            } else {
-                Vec::new()
-            };
-            self.index_artifact_chunk(chunk, chunk_cards, lexical, lexical_cards.clone())?;
+            if index == 0 && !cards.is_empty() {
+                self.index_cards(cards.clone())?;
+            }
+            if index == 0 && self.supports_lexical_metadata() && !lexical_cards.is_empty() {
+                self.index_lexical_cards(lexical_cards.clone())?;
+            }
+            self.index_chunks(vec![chunk])?;
+            if self.supports_lexical_metadata()
+                && let Some(lexical_chunk) = lexical
+            {
+                self.index_lexical_chunks(vec![lexical_chunk])?;
+            }
         }
         Ok(())
-    }
-
-    /// Execute a typed lexical search for chunks.
-    fn search_lexical(
-        &self,
-        query: LexicalQuery<ChunkField>,
-    ) -> Result<BoundedSearch<LexicalChunkHit>, PortError> {
-        let _ = query;
-        Err(PortError::InternalContext {
-            context: "lexical chunk search is unsupported",
-            source: "adapter does not provide lexical retrieval".to_string(),
-        })
-    }
-
-    /// Execute a typed lexical search for cards.
-    fn search_cards_lexical(
-        &self,
-        query: LexicalQuery<CardField>,
-    ) -> Result<BoundedSearch<LexicalCardHit>, PortError> {
-        let _ = query;
-        Err(PortError::InternalContext {
-            context: "lexical card search is unsupported",
-            source: "adapter does not provide lexical retrieval".to_string(),
-        })
-    }
-
-    /// Execute a typed lexical search for chunks, applying a pre-score filter to candidates.
-    /// This method is REQUIRED for governed retrieval to enforce ACL/scope boundaries securely.
-    fn search_lexical_filtered(
-        &self,
-        query: LexicalQuery<ChunkField>,
-        filter: &dyn Fn(maestria_domain::ChunkId, ArtifactId) -> Result<bool, PortError>,
-    ) -> Result<BoundedSearch<LexicalChunkHit>, PortError> {
-        let _ = (query, filter);
-        Err(PortError::InternalContext {
-            context: "filtered lexical chunk search is unsupported",
-            source: "adapter must implement pre-score filtering".to_string(),
-        })
-    }
-
-    /// Execute a typed lexical search for cards, applying a pre-score filter to candidates.
-    /// This method is REQUIRED for governed retrieval to enforce ACL/scope boundaries securely.
-    fn search_cards_lexical_filtered(
-        &self,
-        query: LexicalQuery<CardField>,
-        filter: &dyn Fn(CardId, ArtifactId) -> Result<bool, PortError>,
-    ) -> Result<BoundedSearch<LexicalCardHit>, PortError> {
-        let _ = (query, filter);
-        Err(PortError::InternalContext {
-            context: "filtered lexical card search is unsupported",
-            source: "adapter must implement pre-score filtering".to_string(),
-        })
     }
 }

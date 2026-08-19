@@ -1,3 +1,7 @@
+#[macro_use]
+#[path = "payloads_convert.rs"]
+pub(crate) mod convert;
+
 #[path = "event_payloads.rs"]
 pub(crate) mod event_payloads;
 #[path = "ocr_event_payloads.rs"]
@@ -115,4 +119,4 @@ pub(crate) use evidence_payloads::StoredEvidenceKind;
 ///
 /// Rows write v5; tagged payload decoding remains compatible with records
 /// written by prior versions.
-pub(crate) const CURRENT_PAYLOAD_VERSION: i64 = 6;
+pub(crate) const CURRENT_PAYLOAD_VERSION: i64 = 7;

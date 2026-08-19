@@ -138,7 +138,10 @@ fn parser_completed_rejects_mismatched_chunk() -> Result<(), Box<dyn std::error:
         "mismatched chunk must error",
     )?;
 
-    assert!(matches!(err, DomainError::DuplicateId { kind, id: 10 } if kind == "chunk"));
+    assert!(matches!(
+        err,
+        DomainError::DuplicateChunk { id } if id.value() == 10
+    ));
     Ok(())
 }
 
@@ -220,7 +223,10 @@ fn parser_completed_rejects_mismatched_card() -> Result<(), Box<dyn std::error::
         "mismatched card must error",
     )?;
 
-    assert!(matches!(err, DomainError::DuplicateId { kind, id: 20 } if kind == "card"));
+    assert!(matches!(
+        err,
+        DomainError::DuplicateCard { id } if id.value() == 20
+    ));
     Ok(())
 }
 

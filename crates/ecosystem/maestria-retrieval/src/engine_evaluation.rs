@@ -3,15 +3,6 @@ use maestria_ports::SearchQuery;
 
 use super::{RetrievalEngine, engine_pipeline, reconcile_status};
 use crate::types::{RankedCandidate, RerankRequest, RetrievalResult};
-fn batch_is_code(batch: &crate::types::CandidateBatch) -> bool {
-    batch.descriptor.modality.eq_ignore_ascii_case("code")
-        || batch.descriptor.modality.eq_ignore_ascii_case("rust")
-        || batch
-            .descriptor
-            .id
-            .to_ascii_lowercase()
-            .contains("code_intel")
-}
 
 pub(super) struct EvaluationRequest<'a> {
     pub(super) engine: &'a RetrievalEngine,
@@ -119,9 +110,9 @@ fn prepare_fusion_batches(
 ) -> (Vec<crate::types::CandidateBatch>, bool) {
     let has_non_code_evidence = batches
         .iter()
-        .any(|batch| !batch_is_code(batch) && !batch.candidates.is_empty());
+        .any(|batch| !batch.descriptor.is_code() && !batch.candidates.is_empty());
     let has_fresh_code_evidence = batches.iter().any(|batch| {
-        batch_is_code(batch)
+        batch.descriptor.is_code()
             && batch.candidates.iter().any(|candidate| {
                 !matches!(
                     candidate.freshness(),
@@ -132,7 +123,7 @@ fn prepare_fusion_batches(
     let stale_code_only = !has_non_code_evidence
         && !has_fresh_code_evidence
         && batches.iter().any(|batch| {
-            batch_is_code(batch)
+            batch.descriptor.is_code()
                 && batch.candidates.iter().any(|candidate| {
                     matches!(
                         candidate.freshness(),
@@ -158,7 +149,7 @@ fn prepare_fusion_batches(
         })
         .filter_map(|batch| {
             let mut batch = batch.clone();
-            if batch_is_code(&batch) {
+            if batch.descriptor.is_code() {
                 batch.candidates.retain(|candidate| {
                     !matches!(
                         candidate.freshness(),
@@ -197,7 +188,7 @@ async fn apply_reranking(
             .min(u64::from(u32::MAX)) as u32;
         let rerank_res = reranker
             .rerank(RerankRequest {
-                plan: plan.clone(),
+                plan: std::sync::Arc::new(plan.clone()),
                 candidates: ranked,
                 max_latency_ms: remaining_ms,
             })

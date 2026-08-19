@@ -85,14 +85,9 @@ pub(crate) fn validate_vector(vector: &[f32], label: &str) -> Result<(), PortErr
 }
 
 pub(crate) fn encode_vector(vector: &[f32]) -> Result<Vec<u8>, PortError> {
-    let capacity =
-        vector
-            .len()
-            .checked_mul(F32_BYTES)
-            .ok_or_else(|| PortError::InvalidInputContext {
-                context: "embedding vector is too large",
-                source: "byte capacity overflow".to_string(),
-            })?;
+    let capacity = vector.len().checked_mul(F32_BYTES).ok_or_else(|| {
+        PortError::invalid_input("embedding vector is too large", "byte capacity overflow")
+    })?;
     let mut bytes = Vec::with_capacity(capacity);
     for value in vector {
         bytes.extend_from_slice(&value.to_le_bytes());
@@ -140,33 +135,7 @@ pub(crate) fn cosine_similarity_bytes(query: &[f32], bytes: &[u8]) -> Result<f32
     Ok(if score.is_finite() { score } else { 0.0 })
 }
 
-pub(crate) fn u64_to_i64(value: u64) -> Result<i64, PortError> {
-    i64::try_from(value).map_err(|_| PortError::InvalidInputContext {
-        context: "id exceeds sqlite integer range",
-        source: value.to_string(),
-    })
-}
-
-pub(crate) fn i64_to_u64(value: i64) -> Result<u64, PortError> {
-    u64::try_from(value).map_err(|_| PortError::InternalContext {
-        context: "stored id is negative",
-        source: value.to_string(),
-    })
-}
-
-pub(crate) fn usize_to_i64(value: usize) -> Result<i64, PortError> {
-    i64::try_from(value).map_err(|_| PortError::InvalidInputContext {
-        context: "dimension exceeds sqlite integer range",
-        source: value.to_string(),
-    })
-}
-
-pub(crate) fn to_port_error(error: rusqlite::Error) -> PortError {
-    PortError::InternalContext {
-        context: "sqlite vector projection error",
-        source: error.to_string(),
-    }
-}
+pub(crate) use maestria_sqlite_support::{i64_to_u64, to_port_error, u64_to_i64, usize_to_i64};
 #[cfg(test)]
 mod tests {
     #[test]

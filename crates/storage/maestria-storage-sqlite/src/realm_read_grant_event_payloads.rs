@@ -6,55 +6,21 @@ use maestria_domain::{
 use maestria_ports::PortError;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-pub(crate) enum StoredFederatedReadAccess {
-    SearchOnly,
-    SearchAndOpenEvidence,
-}
-
-impl StoredFederatedReadAccess {
-    fn from_domain(value: FederatedReadAccess) -> Self {
-        match value {
-            FederatedReadAccess::SearchOnly => Self::SearchOnly,
-            FederatedReadAccess::SearchAndOpenEvidence => Self::SearchAndOpenEvidence,
-        }
-    }
-
-    fn into_domain(self) -> FederatedReadAccess {
-        match self {
-            Self::SearchOnly => FederatedReadAccess::SearchOnly,
-            Self::SearchAndOpenEvidence => FederatedReadAccess::SearchAndOpenEvidence,
-        }
+crate::stored_enum! {
+    #[serde(rename_all = "snake_case", deny_unknown_fields)]
+    pub(crate) enum StoredFederatedReadAccess <=> FederatedReadAccess {
+        SearchOnly,
+        SearchAndOpenEvidence,
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-pub(crate) enum StoredFederatedSensitivity {
-    Public,
-    Internal,
-    Confidential,
-    Restricted,
-}
-
-impl StoredFederatedSensitivity {
-    fn from_domain(value: &Sensitivity) -> Self {
-        match value {
-            Sensitivity::Public => Self::Public,
-            Sensitivity::Internal => Self::Internal,
-            Sensitivity::Confidential => Self::Confidential,
-            Sensitivity::Restricted => Self::Restricted,
-        }
-    }
-
-    fn into_domain(self) -> Sensitivity {
-        match self {
-            Self::Public => Sensitivity::Public,
-            Self::Internal => Sensitivity::Internal,
-            Self::Confidential => Sensitivity::Confidential,
-            Self::Restricted => Sensitivity::Restricted,
-        }
+crate::stored_enum! {
+    #[serde(rename_all = "snake_case", deny_unknown_fields)]
+    pub(crate) enum StoredFederatedSensitivity <=> Sensitivity {
+        Public,
+        Internal,
+        Confidential,
+        Restricted,
     }
 }
 
@@ -138,8 +104,12 @@ impl StoredEventPayload {
                     parse_digest(token_digest)?,
                     parse_realm(provider_realm)?,
                     parse_realm(consumer_realm)?,
-                    access.into_domain(),
-                    max_sensitivity.into_domain(),
+                    access
+                        .try_into_domain()
+                        .map_err(FamilyDecodeError::Invalid)?,
+                    max_sensitivity
+                        .try_into_domain()
+                        .map_err(FamilyDecodeError::Invalid)?,
                     parse_bounds(max_results, max_evidence_bytes)?,
                 ),
             }),

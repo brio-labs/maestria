@@ -2,16 +2,10 @@ use dioxus::prelude::*;
 
 use crate::{
     api::{ApiClient, AskContext, AskRequest, AskTurn, Citation, DraftPreview},
-    components::{CitationList, EvidenceDialog, WorkspaceContext},
+    components::{CitationList, EvidenceDialog, WorkspaceContext, set_alert},
     markdown::render_markdown,
     route::Route,
 };
-
-fn set_alert(mut context: Signal<WorkspaceContext>, error: crate::api::ClientError) {
-    let mut value = context.write();
-    value.model.alert = Some(error);
-    value.model.status = "Action failed".into();
-}
 
 async fn run_ask(
     api: ApiClient,
@@ -46,8 +40,6 @@ async fn run_ask(
                         .iter()
                         .map(|citation| citation.evidence.evidence_id)
                         .collect(),
-                    draft_id: None,
-                    revision: None,
                 });
             let mut value = context.write();
             if value.model.is_current_ask(request, notebook_id) {
@@ -73,59 +65,57 @@ async fn run_ask(
 
 #[component]
 pub(crate) fn Ask(notebook_id: u64) -> Element {
-    let context = use_context::<Signal<WorkspaceContext>>();
-    let snapshot = context.read().clone();
+    let mut context = use_context::<Signal<WorkspaceContext>>();
     let question = use_signal(String::new);
     let busy = use_signal(|| false);
     let api = use_hook(ApiClient::new);
-    let agent_id = snapshot
-        .agent
-        .as_ref()
-        .map_or_else(String::new, |agent| agent.id.clone());
-    let agent_ready = snapshot
-        .agent
-        .as_ref()
-        .is_some_and(|agent| agent.status == "ready");
-    rsx! {
-        AskPanel {
-            notebook_id,
-            context,
-            snapshot,
-            api,
-            question,
-            busy,
-            agent_id,
-            agent_ready
-        }
-    }
-}
-
-#[component]
-fn AskPanel(
-    notebook_id: u64,
-    context: Signal<WorkspaceContext>,
-    snapshot: WorkspaceContext,
-    api: ApiClient,
-    question: Signal<String>,
-    busy: Signal<bool>,
-    agent_id: String,
-    agent_ready: bool,
-) -> Element {
-    let current = snapshot.model.ask_notebook == Some(notebook_id);
-    let answer = current.then(|| snapshot.model.answer.clone()).flatten();
-    let citations = if current {
-        snapshot
-            .model
-            .context
+    let (agent_id, agent_ready, agents, evidence, answer, ask_context, citations, preview) = {
+        let snapshot = context.read();
+        let agent_id = snapshot
+            .agent
             .as_ref()
-            .map_or_else(Vec::new, |value| value.citations.clone())
-    } else {
-        Vec::new()
-    };
-    let ask_context = if current {
-        snapshot.model.context.clone()
-    } else {
-        None
+            .map_or_else(String::new, |agent| agent.id.clone());
+        let agent_ready = snapshot
+            .agent
+            .as_ref()
+            .is_some_and(|agent| agent.status == "ready");
+        let agents = snapshot.model.agents.clone();
+        let evidence = snapshot.evidence.clone();
+        let current = snapshot.model.ask_notebook == Some(notebook_id);
+        let answer = if current {
+            snapshot.model.answer.clone()
+        } else {
+            None
+        };
+        let citations = if current {
+            snapshot
+                .model
+                .context
+                .as_ref()
+                .map_or_else(Vec::new, |value| value.citations.clone())
+        } else {
+            Vec::new()
+        };
+        let ask_context = if current {
+            snapshot.model.context.clone()
+        } else {
+            None
+        };
+        let preview = if current {
+            snapshot.model.draft_previews.first().cloned()
+        } else {
+            None
+        };
+        (
+            agent_id,
+            agent_ready,
+            agents,
+            evidence,
+            answer,
+            ask_context,
+            citations,
+            preview,
+        )
     };
     rsx! {
         section { class: "rounded-lg border border-line bg-panel p-5",
@@ -138,27 +128,17 @@ fn AskPanel(
                 busy,
                 agent_id,
                 agent_ready,
-                agents: snapshot.model.agents.clone()
+                agents
             }
             AskAnswer { answer }
             AskCoverage { context: ask_context }
-            AskEvidence {
-                notebook_id,
-                context,
-                api,
-                citations
-            }
-            AskPreview {
-                notebook_id,
-                preview: current.then(|| snapshot.model.draft_previews.first().cloned()).flatten()
-            }
+            AskEvidence { notebook_id, context, api, citations }
+            AskPreview { notebook_id, preview }
         }
         EvidenceDialog {
-            evidence: snapshot.evidence,
+            evidence,
             on_close: move |_| {
-                let mut value = context.write();
-                value.evidence = None;
-                value.invoking_citation = None;
+                context.write().evidence = None;
             }
         }
     }
@@ -339,7 +319,6 @@ fn AskEvidence(
         CitationList {
             citations,
             on_open: move |evidence_id| {
-                context.write().invoking_citation = Some(evidence_id);
                 let api = evidence_api.clone();
                 spawn(async move {
                     match api.evidence(notebook_id, evidence_id).await {

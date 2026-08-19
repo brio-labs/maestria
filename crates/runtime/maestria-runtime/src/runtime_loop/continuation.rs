@@ -38,7 +38,6 @@ impl MaestriaRuntime {
         let (reply, result) = oneshot::channel();
         let command = RuntimeCommand {
             correlation_id,
-            input: input.clone(),
             effect_preparation: EffectPreparation::BeforeReply,
             reply,
         };

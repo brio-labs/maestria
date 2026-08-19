@@ -4,14 +4,102 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use maestria_domain::{ChunkId, EvidenceKind, KernelState};
+use maestria_domain::{Card, Chunk, ChunkId, EvidenceKind, KernelState};
 use maestria_governance::scan_secrets;
 use maestria_ports::{
-    ArtifactRepository, CardRepository, ChunkRepository, EmbeddingProvider, EmbeddingRequest,
-    EvidenceRepository, FullTextIndex, GraphIndex, IndexedCard, IndexedChunk, IndexedLexicalCard,
-    IndexedLexicalChunk, VectorEmbedding, VectorIndex,
+    ArtifactRepository, CardRepository, ChunkRepository, EmbeddingInputKind, EmbeddingProvider,
+    EmbeddingRequest, EvidenceRepository, FullTextIndex, GraphIndex, IndexedCard, IndexedChunk,
+    IndexedLexicalCard, IndexedLexicalChunk, VectorEmbedding, VectorIndex,
 };
 use maestria_storage_sqlite::SqliteStore;
+
+/// Chunk is eligible for retrieval indexing when its artifact allows retrieval and text is secret-clean.
+pub(crate) fn is_chunk_retrieval_eligible(state: &KernelState, chunk: &Chunk) -> bool {
+    state
+        .artifacts
+        .get(&chunk.artifact_id)
+        .is_some_and(|artifact| artifact.security.retrieval_allowed())
+        && scan_secrets(&chunk.text).is_clean()
+}
+
+/// Card is eligible for retrieval indexing when its artifact allows retrieval and title/body are secret-clean.
+pub(crate) fn is_card_retrieval_eligible(state: &KernelState, card: &Card) -> bool {
+    state
+        .artifacts
+        .get(&card.artifact_id)
+        .is_some_and(|artifact| artifact.security.retrieval_allowed())
+        && scan_secrets(&card.title).is_clean()
+        && scan_secrets(&card.body).is_clean()
+}
+
+/// Retrieval-eligible chunks (artifact allows retrieval && secret-clean).
+pub(crate) fn retrieval_eligible_chunks<'a>(
+    state: &'a KernelState,
+) -> impl Iterator<Item = &'a Chunk> + 'a {
+    state
+        .chunks
+        .values()
+        .filter(move |chunk| is_chunk_retrieval_eligible(state, chunk))
+}
+
+/// Retrieval-eligible cards (artifact allows retrieval && secret-clean title/body).
+pub(crate) fn retrieval_eligible_cards<'a>(
+    state: &'a KernelState,
+) -> impl Iterator<Item = &'a Card> + 'a {
+    state
+        .cards
+        .values()
+        .filter(move |card| is_card_retrieval_eligible(state, card))
+}
+
+/// Shared embedding step for vector projection recovery and the benchmark dense lifecycle.
+///
+/// Encodes a single chunk through the dense provider, validates the returned
+/// generation identity, and builds the durable [`VectorEmbedding`] together
+/// with its content-hash provenance. Both `projection_recovery` and
+/// `learned_sparse_benchmark_executor/dense.rs` delegate here so the provider
+/// contract and provenance shape cannot drift (R28).
+pub(crate) fn embed_chunk(
+    provider: &(dyn EmbeddingProvider + Send + Sync),
+    identity: &maestria_ports::EmbeddingIdentity,
+    model: &str,
+    chunk: &Chunk,
+) -> Result<VectorEmbedding> {
+    let content_hash =
+        maestria_domain::ContentHash::new(maestria_domain::content_hash(chunk.text.as_bytes()))
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "computed content hash for chunk {} is invalid: {error}",
+                    chunk.id
+                )
+            })?;
+    let response = provider
+        .embed(EmbeddingRequest {
+            text: chunk.text.clone(),
+            model: model.to_string(),
+            kind: EmbeddingInputKind::Document,
+            identity: identity.clone(),
+        })
+        .map_err(|error| anyhow::anyhow!("embed chunk {}: {error}", chunk.id))?;
+    if response.identity != *identity {
+        return Err(anyhow::anyhow!(
+            "embed chunk {} returned an incompatible generation identity",
+            chunk.id
+        ));
+    }
+    Ok(VectorEmbedding {
+        chunk_id: chunk.id,
+        vector: response.vector,
+        provenance: maestria_ports::EmbeddingProvenance {
+            content_hash: content_hash.as_str().to_owned(),
+            identity: response.identity,
+            provider_id: response.provider_id,
+            model: response.model,
+            model_version: response.model_version,
+            disclosure: response.disclosure,
+        },
+    })
+}
 /// Reconcile projection repositories from replayed domain truth.
 ///
 /// After `load_kernel_state` replays the event log, this helper first removes
@@ -71,16 +159,7 @@ pub fn reconcile_full_text_projection(
         })
         .collect();
 
-    let chunks: Vec<_> = state
-        .chunks
-        .values()
-        .filter(|chunk| {
-            state
-                .artifacts
-                .get(&chunk.artifact_id)
-                .is_some_and(|artifact| artifact.security.retrieval_allowed())
-                && scan_secrets(&chunk.text).is_clean()
-        })
+    let chunks: Vec<_> = retrieval_eligible_chunks(state)
         .map(|chunk| {
             (
                 IndexedChunk {
@@ -92,17 +171,7 @@ pub fn reconcile_full_text_projection(
             )
         })
         .collect();
-    let cards: Vec<_> = state
-        .cards
-        .values()
-        .filter(|card| {
-            state
-                .artifacts
-                .get(&card.artifact_id)
-                .is_some_and(|artifact| artifact.security.retrieval_allowed())
-                && scan_secrets(&card.title).is_clean()
-                && scan_secrets(&card.body).is_clean()
-        })
+    let cards: Vec<_> = retrieval_eligible_cards(state)
         .map(|card| {
             (
                 IndexedCard {
@@ -259,14 +328,7 @@ pub fn reconcile_vector_projection(
 /// clean secret scans, paired with their content hash.
 fn eligible_chunks(state: &KernelState) -> Result<Vec<(ChunkId, String)>> {
     let mut eligible = Vec::new();
-    for chunk in state.chunks.values() {
-        let artifact_allowed = state
-            .artifacts
-            .get(&chunk.artifact_id)
-            .is_some_and(|artifact| artifact.security.retrieval_allowed());
-        if !artifact_allowed || !scan_secrets(&chunk.text).is_clean() {
-            continue;
-        }
+    for chunk in retrieval_eligible_chunks(state) {
         // The indexed provenance identity is the embedded chunk text, not the
         // artifact hash: every writer (runtime effect handler and projection
         // recovery) stores `content_hash(chunk.text)`, so the skip must
@@ -312,13 +374,8 @@ fn embed_missing_chunks(
         let chunk = state.chunks.get(chunk_id).ok_or_else(|| {
             anyhow::anyhow!("chunk {} disappeared during projection recovery", chunk_id)
         })?;
-        let response = match provider.embed(EmbeddingRequest {
-            text: chunk.text.clone(),
-            model: model.to_string(),
-            kind: maestria_ports::EmbeddingInputKind::Document,
-            identity: identity.clone(),
-        }) {
-            Ok(response) => response,
+        let mut embedding = match embed_chunk(provider, identity, model, chunk) {
+            Ok(embedding) => embedding,
             Err(error) => {
                 // The projection is best-effort: one unembeddable chunk
                 // (oversized, provider hiccup, content the model rejects)
@@ -328,24 +385,12 @@ fn embed_missing_chunks(
                 continue;
             }
         };
-        if response.identity != *identity {
-            return Err(anyhow::anyhow!(
-                "embed chunk {} returned an incompatible generation identity",
-                chunk_id
-            ));
+        // `embed_chunk` recomputes the content_hash from the same chunk text;
+        // keep the authoritative `eligible` hash to avoid a second source of truth.
+        if embedding.provenance.content_hash != *content_hash {
+            embedding.provenance.content_hash.clone_from(content_hash);
         }
-        embeddings.push(VectorEmbedding {
-            chunk_id: *chunk_id,
-            vector: response.vector,
-            provenance: maestria_ports::EmbeddingProvenance {
-                content_hash: content_hash.clone(),
-                identity: response.identity,
-                provider_id: response.provider_id,
-                model: response.model,
-                model_version: response.model_version,
-                disclosure: response.disclosure,
-            },
-        });
+        embeddings.push(embedding);
     }
     Ok(embeddings)
 }

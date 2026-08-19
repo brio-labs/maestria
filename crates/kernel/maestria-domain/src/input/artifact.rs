@@ -53,20 +53,8 @@ impl KernelState {
         &mut self,
         input: RegisterArtifactInput,
     ) -> Result<DomainEventEnvelope, DomainError> {
-        if self.artifacts.contains_key(&input.artifact_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "artifact",
-                id: input.artifact_id.value(),
-            });
-        }
         let security = SecurityMetadata::from_optional(input.security);
-        self.artifacts.insert(
-            input.artifact_id,
-            Artifact::with_title(input.artifact_id, input.title.clone()),
-        );
-        if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
-            artifact.security = security.clone();
-        }
+        self.apply_artifact_registered(input.artifact_id, &input.title, &security)?;
         Ok(self.emit_event(DomainEvent::ArtifactRegistered {
             artifact_id: input.artifact_id,
             title: input.title,
@@ -78,44 +66,7 @@ impl KernelState {
         &mut self,
         input: RegisterChunkInput,
     ) -> Result<DomainEventEnvelope, DomainError> {
-        if !self.artifacts.contains_key(&input.artifact_id) {
-            return Err(DomainError::MissingArtifact {
-                id: input.artifact_id,
-            });
-        }
-        if self.chunks.contains_key(&input.chunk_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "chunk",
-                id: input.chunk_id.value(),
-            });
-        }
-        if self
-            .chunks
-            .values()
-            .any(|chunk| chunk.artifact_id == input.artifact_id && chunk.order == input.order)
-        {
-            return Err(DomainError::DuplicateId {
-                kind: "chunk_order",
-                id: input.chunk_id.value(),
-            });
-        }
-        self.validate_existing_deterministic_evidence_for_chunk(input.artifact_id, input.order)?;
-
-        let chunk = Chunk::new(
-            input.chunk_id,
-            input.artifact_id,
-            input.node_id,
-            input.source_span,
-            input.representations.clone(),
-            input.order,
-            input.text.clone(),
-        );
-        self.chunks.insert(input.chunk_id, chunk);
-        self.chunk_nodes.insert(input.chunk_id, input.node_id);
-        if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
-            artifact.chunk_ids.insert(input.chunk_id);
-        }
-
+        self.apply_chunk_registered(&input)?;
         Ok(self.emit_event(DomainEvent::ChunkRegistered {
             chunk_id: input.chunk_id,
             artifact_id: input.artifact_id,
@@ -136,10 +87,7 @@ impl KernelState {
         security: &SecurityMetadata,
     ) -> Result<(), DomainError> {
         if self.artifacts.contains_key(&artifact_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "artifact",
-                id: artifact_id.value(),
-            });
+            return Err(DomainError::DuplicateArtifact { id: artifact_id });
         }
         self.artifacts.insert(
             artifact_id,
@@ -153,7 +101,7 @@ impl KernelState {
 
     pub(crate) fn apply_chunk_registered(
         &mut self,
-        input: RegisterChunkInput,
+        input: &RegisterChunkInput,
     ) -> Result<(), DomainError> {
         if !self.artifacts.contains_key(&input.artifact_id) {
             return Err(DomainError::MissingArtifact {
@@ -161,20 +109,14 @@ impl KernelState {
             });
         }
         if self.chunks.contains_key(&input.chunk_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "chunk",
-                id: input.chunk_id.value(),
-            });
+            return Err(DomainError::DuplicateChunk { id: input.chunk_id });
         }
         if self
             .chunks
             .values()
             .any(|chunk| chunk.artifact_id == input.artifact_id && chunk.order == input.order)
         {
-            return Err(DomainError::DuplicateId {
-                kind: "chunk_order",
-                id: input.chunk_id.value(),
-            });
+            return Err(DomainError::DuplicateChunkOrder { id: input.chunk_id });
         }
         self.validate_existing_deterministic_evidence_for_chunk(input.artifact_id, input.order)?;
 
@@ -185,12 +127,11 @@ impl KernelState {
                 input.artifact_id,
                 input.node_id,
                 input.source_span,
-                input.representations,
+                input.representations.clone(),
                 input.order,
-                input.text,
+                input.text.clone(),
             ),
         );
-        self.chunk_nodes.insert(input.chunk_id, input.node_id);
         if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
             artifact.chunk_ids.insert(input.chunk_id);
         }
@@ -268,7 +209,7 @@ impl KernelState {
         source_path: &str,
         content_hash: &ContentHash,
         blob_id: BlobId,
-    ) {
+    ) -> Result<(), DomainError> {
         // Reconstruct pending-parser metadata so the daemon can find
         // stranded artifacts on restart and re-drive parsing.
         self.pending_parsers.insert(
@@ -281,12 +222,19 @@ impl KernelState {
                 blob_id,
             },
         );
-        if let Ok(source_key) = SourceIdentityKey::try_from(source_path.to_owned()) {
-            self.stale_sources.remove(source_path);
-            self.active_sources.insert(source_key, artifact_id);
+        match SourceIdentityKey::try_from(source_path.to_owned()) {
+            Ok(source_key) => {
+                self.stale_sources.remove(source_path);
+                self.active_sources.insert(source_key, artifact_id);
+            }
+            Err(error) => {
+                return Err(DomainError::InvalidSourceIdentityKey {
+                    reason: error.to_string(),
+                });
+            }
         }
+        Ok(())
     }
-
     pub(crate) fn apply_pending_index(
         &mut self,
         artifact_id: ArtifactId,
@@ -343,10 +291,7 @@ impl KernelState {
                 .values()
                 .find(|chunk| chunk.artifact_id == artifact_id)
                 .map(|chunk| crate::evidence_id_for(chunk.artifact_id, chunk.order))
-                .ok_or(DomainError::EvidenceRequired {
-                    kind: "artifact_indexed",
-                    id: artifact_id.value(),
-                })?;
+                .ok_or(DomainError::ArtifactIndexedRequiresEvidence { id: artifact_id })?;
             if !self.evidences.contains_key(&evidence_id) {
                 return Err(DomainError::MissingEvidence { id: evidence_id });
             }

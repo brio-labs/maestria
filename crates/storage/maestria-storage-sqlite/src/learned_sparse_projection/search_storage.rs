@@ -49,13 +49,12 @@ pub(super) fn visit_documents(
     visitor: &mut dyn DocumentVisitor,
 ) -> Result<(), PortError> {
     let identity_json = storage::identity_json(identity)?;
-    let probe_limit =
-        max_candidates
-            .checked_add(1)
-            .ok_or_else(|| PortError::InvalidInputContext {
-                context: "sparse candidate budget",
-                source: "candidate budget cannot be probed safely".to_string(),
-            })?;
+    let probe_limit = max_candidates.checked_add(1).ok_or_else(|| {
+        PortError::invalid_input(
+            "sparse candidate budget",
+            "candidate budget cannot be probed safely",
+        )
+    })?;
     let metadata = {
         let connection = store.lock()?;
         let mut statement = connection

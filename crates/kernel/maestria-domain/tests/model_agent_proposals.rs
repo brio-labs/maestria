@@ -110,7 +110,7 @@ fn requested_requires_fresh_execution_and_resume_binds_to_canonical_request()
     assert!(matches!(
         output.effects.as_slice(),
         [MaestriaEffect::QueryHarnessProposal(request)]
-            if request.proposal.execution
+            if request.execution
                 == ModelAgentProposalExecution::JournalRecovery {
                     journal_generation: JournalGeneration::new(3)
                 }
@@ -138,7 +138,6 @@ fn proposal_replay_rejects_non_fresh_canonical_request() {
     let mut state = KernelState::new();
     let result = state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ModelAgentProposalRequested {
             request: request.clone(),
         },

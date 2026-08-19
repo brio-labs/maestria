@@ -60,9 +60,16 @@ impl VisualReranker {
                 "visual reranker artifact is missing".to_string(),
             ));
         };
+        // Precompute the authorization once instead of re-deriving the scope
+        // intersection per security check.
+        let authorization = self
+            .parts
+            .policy
+            .authorization_context(&maestria_domain::CorpusScope::Global)
+            .map_err(|error| RetrievalError::Internal(error.to_string()))?;
         if artifact.index_status != IndexStatus::Indexed
-            || self.parts.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
-            || self.parts.policy.evaluate(&evidence.security) != RetrievalDecision::Allowed
+            || authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
+            || authorization.evaluate(&evidence.security) != RetrievalDecision::Allowed
             || !scan_secrets(&evidence.excerpt).is_clean()
         {
             return Err(RetrievalError::Internal(

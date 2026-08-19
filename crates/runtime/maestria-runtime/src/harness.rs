@@ -1,13 +1,15 @@
 use crate::config::EffectExecutionContext;
 use crate::effect_result::EffectFailure;
 use maestria_domain::{DomainInput, HarnessRunCompleted, HarnessRunId, QueryHarnessRequest};
-use maestria_ports::{EffectJournalStatus, HarnessOutcome, HarnessRequest, PortError};
-
+use maestria_ports::{
+    EffectJournalStatus, HarnessCommandClass, HarnessOutcome, HarnessRequest, PortError,
+};
+use std::path::PathBuf;
+use std::time::Duration;
 impl EffectExecutionContext {
     /// Execute a harness command on behalf of a task.
     /// Applies shell grammar restrictions and scope containment before
     /// delegating to the harness adapter. Sends HarnessRunCompleted
-    /// back to the domain loop.
     pub(crate) async fn handle_query_harness(
         &self,
         request: QueryHarnessRequest,
@@ -21,24 +23,22 @@ impl EffectExecutionContext {
                 capability: request.capability.clone(),
                 command: request.command.clone(),
                 scope_id: self.scope_id,
-                requested_generation: request.execution.generation(),
+                requested_generation: request
+                    .execution
+                    .generation()
+                    .map(maestria_domain::JournalGeneration::new),
             },
             "failed to record harness intent",
             "failed to record harness start",
         )?;
 
-        let scope_guard = maestria_governance::ScopeGuard::new(self.scope.clone());
-        let scope = scope_guard.scope();
-        let harness_request = HarnessRequest {
-            run_id: request.run_id,
-            command: request.command.clone(),
+        let harness_request = self.harness_request(
+            request.run_id,
+            request.command.clone(),
             working_directory,
-            duration_budget: self.default_effect_timeout,
             class,
-            readable_roots: scope.readable_roots().to_vec(),
-            blocked_paths: scope.blocked_paths().to_vec(),
-            blocked_patterns: scope.blocked_patterns().to_vec(),
-        };
+            self.default_effect_timeout,
+        );
 
         self.execute_and_process_harness(request, harness_request, generation)
             .await
@@ -54,7 +54,7 @@ impl EffectExecutionContext {
         intent: maestria_ports::EffectJournalIntent,
         intent_context: &'static str,
         start_context: &'static str,
-    ) -> Result<u64, EffectFailure> {
+    ) -> Result<maestria_domain::JournalGeneration, EffectFailure> {
         let entry = match self.adapters.effect_journal.record_intent(intent) {
             Ok(entry) => entry,
             Err(error) => {
@@ -77,7 +77,7 @@ impl EffectExecutionContext {
         &self,
         request: QueryHarnessRequest,
         harness_request: HarnessRequest,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
     ) -> Result<Option<HarnessOutcome>, EffectFailure> {
         let (outcome, was_stored) = self
             .execute_harness_provider(&request, harness_request, generation)
@@ -96,7 +96,7 @@ impl EffectExecutionContext {
         &self,
         request: &QueryHarnessRequest,
         harness_request: HarnessRequest,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
     ) -> Result<(HarnessOutcome, bool), EffectFailure> {
         let stored_outcome = self
             .adapters
@@ -136,7 +136,7 @@ impl EffectExecutionContext {
     fn claim_harness_feedback(
         &self,
         request: &QueryHarnessRequest,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
         outcome: &HarnessOutcome,
         was_stored: bool,
     ) -> Result<bool, EffectFailure> {
@@ -171,12 +171,12 @@ impl EffectExecutionContext {
         &self,
         request: &QueryHarnessRequest,
         outcome: &HarnessOutcome,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
         was_stored: bool,
     ) -> Result<(), EffectFailure> {
         let delivery = Self::send_input(
             &self.input_tx,
-            harness_completion_input(request.run_id, generation, request.task_id, outcome),
+            harness_completion_input(request.run_id, generation.value(), request.task_id, outcome),
             "harness completion",
         );
         if let Err(error) = delivery {
@@ -205,15 +205,34 @@ impl EffectExecutionContext {
     fn record_harness_terminal(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
         status: EffectJournalStatus,
     ) -> Result<(), PortError> {
         self.adapters
             .effect_journal
             .record_terminal(run_id, generation, status)
     }
-}
 
+    pub(crate) fn harness_request(
+        &self,
+        run_id: HarnessRunId,
+        command: String,
+        working_directory: PathBuf,
+        class: HarnessCommandClass,
+        duration_budget: Duration,
+    ) -> HarnessRequest {
+        HarnessRequest {
+            run_id,
+            command,
+            working_directory,
+            duration_budget,
+            class,
+            readable_roots: self.scope.readable_roots().to_vec(),
+            blocked_paths: Vec::new(),
+            blocked_patterns: self.scope.blocked_patterns().to_vec(),
+        }
+    }
+}
 /// Build the domain completion input for a finished harness run.
 ///
 /// One owner of the completion-output contract: stdout and stderr are merged
@@ -225,6 +244,17 @@ pub(crate) fn harness_completion_input(
     task_id: Option<maestria_domain::TaskId>,
     outcome: &maestria_ports::HarnessOutcome,
 ) -> DomainInput {
+    DomainInput::HarnessRunCompleted(HarnessRunCompleted {
+        run_id,
+        generation,
+        task_id,
+        command: outcome.command.clone(),
+        exit_code: outcome.exit_code,
+        output: merged_harness_output(outcome),
+    })
+}
+
+fn merged_harness_output(outcome: &HarnessOutcome) -> String {
     let mut output = String::from_utf8_lossy(&outcome.stdout).into_owned();
     if !outcome.stderr.is_empty() {
         if !output.is_empty() {
@@ -232,14 +262,7 @@ pub(crate) fn harness_completion_input(
         }
         output.push_str(&String::from_utf8_lossy(&outcome.stderr));
     }
-    DomainInput::HarnessRunCompleted(HarnessRunCompleted {
-        run_id,
-        generation,
-        task_id,
-        command: outcome.command.clone(),
-        exit_code: outcome.exit_code,
-        output,
-    })
+    output
 }
 
 pub(crate) fn truncate_output(bytes: &[u8]) -> String {
@@ -250,4 +273,15 @@ pub(crate) fn truncate_output(bytes: &[u8]) -> String {
     }
     let cut = maestria_ports::truncate_at_char_boundary(&text, LIMIT - 3);
     format!("{cut}...")
+}
+
+pub(crate) fn model_agent_harness_result(
+    outcome: &HarnessOutcome,
+) -> maestria_domain::ModelAgentHarnessResult {
+    maestria_domain::ModelAgentHarnessResult {
+        exit_code: outcome.exit_code,
+        stdout: truncate_output(&outcome.stdout),
+        stderr: truncate_output(&outcome.stderr),
+        duration_ms: outcome.duration.as_millis().min(u128::from(u64::MAX)) as u64,
+    }
 }

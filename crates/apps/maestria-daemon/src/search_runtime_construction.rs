@@ -1,42 +1,5 @@
 use super::*;
-use crate::projection_open::{
-    open_base_stores, open_base_stores_read_only, open_full_text_index, open_graph_index,
-    open_vector_index, reconcile_vector_projection, resolve_index_generations,
-};
-use anyhow::Context as _;
-use maestria_retrieval::CandidateRetriever;
-use maestria_retrieval::adapters::{
-    CurrentVersionFilter, VisualPageRegionRetriever, VisualPageRegionRetrieverParts,
-};
-
-impl SearchRuntime {
-    pub(super) fn visual_retriever(
-        &self,
-        active_versions: BTreeSet<ArtifactVersionId>,
-    ) -> Option<Arc<dyn CandidateRetriever>> {
-        let (Some(vector_index), Some(provider), Some(capability)) = (
-            self.visual_vector_index.clone(),
-            self.visual_embedding_provider.clone(),
-            self.visual_generation.clone(),
-        ) else {
-            return None;
-        };
-        Some(Arc::new(CurrentVersionFilter::new(
-            Arc::new(VisualPageRegionRetriever::new(
-                VisualPageRegionRetrieverParts {
-                    index: vector_index,
-                    artifacts: self.artifacts.clone(),
-                    chunks: self.chunks.clone(),
-                    evidence: self.evidence.clone(),
-                    blobs: self.blobs.clone(),
-                    embedding_provider: provider,
-                },
-                capability,
-            )),
-            active_versions,
-        )))
-    }
-}
+use maestria_core::{InstanceLayout, InstanceManifest};
 
 /// Construct the one search runtime used by CLI search and explain.
 pub fn prepare_search_runtime(
@@ -136,67 +99,103 @@ fn prepare_search_runtime_with_options(
     allow_projection_writes: bool,
     federation_read_only: bool,
 ) -> Result<Arc<SearchRuntime>> {
-    let (sqlite_store, blob_store) = if federation_read_only {
-        open_base_stores_read_only(layout)?
-    } else {
-        open_base_stores(layout)?
-    };
-    let search_index = open_full_text_index(
+    SearchRuntime::assemble(
         layout,
         state,
-        allow_projection_writes,
-        allow_projection_writes,
-    )?;
-    let repository_code_index = load_repository_code_index_with_exclusions(layout, Some(manifest))
-        .context("load repository code index")?;
-    let embedding_provider = if federation_read_only {
-        None
-    } else {
-        crate::vector_startup::build_embedding_provider(manifest, state)?
-    };
-    let vector_index = if federation_read_only {
-        None
-    } else {
-        open_vector_index(layout, embedding_provider.is_some())?
-    };
-    reconcile_vector_projection(
-        state,
         manifest,
-        &embedding_provider,
-        &vector_index,
-        allow_projection_writes,
-    );
-    let graph_index: Option<Arc<dyn maestria_ports::GraphIndex + Send + Sync>> =
-        if federation_read_only {
-            None
-        } else {
-            Some(open_graph_index(layout, state, allow_projection_writes)?)
-        };
-    let (primary_generation, corpus_snapshot, dense_generation) = resolve_index_generations(state)?;
-
-    let parts = SearchRuntimeParts {
-        artifacts: sqlite_store.clone(),
-        cards: sqlite_store.clone(),
-        chunks: sqlite_store.clone(),
-        evidence: sqlite_store.clone(),
-        search_index,
-        blobs: blob_store,
-        vector_index,
-        event_log: sqlite_store.clone(),
-        graph_index,
-        primary_generation,
-        dense_generation,
-        repository_code_index,
-        repository_execution_policy,
-        hybrid_execution_policy: crate::runtime_construction::hybrid_policy(&sqlite_store),
-        learned_sparse_execution_policy: maestria_retrieval::LearnedSparseExecutionPolicy::Shadow,
-        sparse_retriever: None,
-        corpus_snapshot,
-        scope_id: maestria_domain::DEFAULT_INSTANCE_SCOPE_ID,
-    };
-    Ok(Arc::new(SearchRuntime::from_parts(
-        parts,
-        embedding_provider,
         retrieval_policy,
-    )?))
+        repository_execution_policy,
+        allow_projection_writes,
+        federation_read_only,
+    )
+}
+
+use maestria_code_intel::{REPOSITORY_CODE_INDEX_FILENAME, RepositoryCodeIndex};
+use std::path::Path;
+
+pub(crate) fn load_repository_code_index_with_exclusions(
+    layout: &InstanceLayout,
+    expected_manifest: Option<&InstanceManifest>,
+) -> std::result::Result<Option<Arc<RepositoryCodeIndex>>, maestria_code_intel::CodeIntelError> {
+    let index_path = layout.system_dir.join(REPOSITORY_CODE_INDEX_FILENAME);
+    if !index_path.exists() {
+        return Ok(None);
+    }
+    let index = RepositoryCodeIndex::load(&index_path)?;
+    index.validate_provenance()?;
+    if index.is_stale_generation(maestria_code_intel::REPOSITORY_CODE_PARSER_GENERATION) {
+        return Err(maestria_code_intel::CodeIntelError::Integrity {
+            context: "parser generation".to_string(),
+            details: index.summary.parser_generation.as_str().to_string(),
+        });
+    }
+    if let Some(manifest) = expected_manifest {
+        if index.summary.excluded_patterns != manifest.excluded_patterns {
+            return Err(maestria_code_intel::CodeIntelError::Integrity {
+                context: "privacy exclusions".to_string(),
+                details: "repository code index exclusions differ from instance manifest"
+                    .to_string(),
+            });
+        }
+        validate_repository_sources(&index, manifest)?;
+    }
+    Ok(Some(Arc::new(index)))
+}
+
+fn validate_repository_sources(
+    index: &RepositoryCodeIndex,
+    manifest: &InstanceManifest,
+) -> std::result::Result<(), maestria_code_intel::CodeIntelError> {
+    let repository_root =
+        canonicalize_source(Path::new(&index.summary.repository_root), "repository root")?;
+    if !manifest.allows_source(&repository_root) {
+        return Err(scope_error(
+            "repository read scope",
+            repository_root.display().to_string(),
+        ));
+    }
+
+    let mut provenances = Vec::new();
+    for package in &index.packages {
+        provenances.push(&package.provenance);
+        provenances.extend(package.dependencies.iter().map(|item| &item.provenance));
+        provenances.extend(package.targets.iter().map(|item| &item.provenance));
+    }
+    provenances.extend(index.symbols.iter().map(|symbol| &symbol.provenance));
+    for relation in &index.relations {
+        provenances.push(&relation.source_provenance);
+        provenances.push(&relation.target_provenance);
+    }
+    for provenance in provenances {
+        let lexical_path = repository_root.join(&provenance.file_path);
+        if !manifest.allows_source(&lexical_path) {
+            return Err(scope_error(
+                "repository source scope",
+                provenance.file_path.clone(),
+            ));
+        }
+        let canonical_path = canonicalize_source(&lexical_path, "repository source")?;
+        if !canonical_path.starts_with(&repository_root) || !manifest.allows_source(&canonical_path)
+        {
+            return Err(scope_error(
+                "repository source scope",
+                canonical_path.display().to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn canonicalize_source(
+    path: &Path,
+    context: &str,
+) -> std::result::Result<std::path::PathBuf, maestria_code_intel::CodeIntelError> {
+    std::fs::canonicalize(path).map_err(|error| scope_error(context, format!("{path:?}: {error}")))
+}
+
+fn scope_error(context: &str, details: String) -> maestria_code_intel::CodeIntelError {
+    maestria_code_intel::CodeIntelError::Integrity {
+        context: context.to_string(),
+        details,
+    }
 }

@@ -41,9 +41,7 @@ fn replay_rejects_evidence_before_chunk_without_mutating_chunk_state()
     let mut events = malformed_deterministic_evidence_events(art_id, chunk_id, evidence_id)?;
     events.swap(4, 5);
     events[4].id = EventId::new(5);
-    events[4].sequence = SequenceNumber::new(5);
     events[5].id = EventId::new(6);
-    events[5].sequence = SequenceNumber::new(6);
 
     let mut state = KernelState::new();
     for event in events.iter().take(5) {
@@ -72,8 +70,8 @@ fn replay_events_valid_duplicate_evidence_still_errors() -> Result<(), Box<dyn s
     let events = valid_duplicate_evidence_events()?;
     let err = require_error(replay_events(&events), "duplicate valid evidence must fail")?;
     assert!(
-        matches!(err, DomainError::DuplicateId { kind, .. } if kind == "evidence"),
-        "expected DuplicateId evidence error, got {:?}",
+        matches!(err, DomainError::DuplicateEvidence { .. }),
+        "expected DuplicateEvidence error, got {:?}",
         err
     );
     Ok(())

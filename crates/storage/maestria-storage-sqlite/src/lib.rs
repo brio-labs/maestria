@@ -6,6 +6,7 @@
 //! domain types do not implement or depend on serde.
 
 /// Responsibility map:
+/// - `db_retry`: database busy retry helpers.
 /// - `events`: module responsibility.
 /// - `id_allocator`: module responsibility.
 /// - `journal`: durable effect-journal port implementation.
@@ -17,6 +18,7 @@
 /// - `schema`: module responsibility.
 /// - `schema_validation`: module responsibility.
 /// - `sqlite_store`: public SQLite store façade.
+pub mod db_retry;
 mod events;
 mod id_allocator;
 mod journal;

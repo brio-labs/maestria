@@ -37,24 +37,7 @@ impl RankFusion for FixedKRrf {
                 "RRF k must be greater than zero".to_string(),
             ));
         }
-        let mut evidence_clusters = std::collections::BTreeMap::<
-            maestria_domain::EvidenceId,
-            maestria_domain::DuplicateClusterId,
-        >::new();
-        for batch in batches {
-            if !matches!(batch.status, maestria_domain::SearchLaneStatus::Succeeded) {
-                continue;
-            }
-            for candidate in &batch.candidates {
-                if let Some(cluster) = candidate.duplicate_cluster() {
-                    evidence_clusters
-                        .entry(candidate.evidence_id())
-                        .and_modify(|existing| *existing = (*existing).min(cluster))
-                        .or_insert(cluster);
-                }
-            }
-        }
-
+        let evidence_clusters = collect_evidence_clusters(batches);
         let mut scores = std::collections::BTreeMap::<CandidateIdentity, u64>::new();
         let mut best_candidates =
             std::collections::BTreeMap::<CandidateIdentity, EvidenceCandidate>::new();
@@ -85,55 +68,10 @@ impl RankFusion for FixedKRrf {
                     .entry(identity.clone())
                     .and_modify(|score| *score = score.saturating_add(contribution))
                     .or_insert(contribution);
-                let mut canonical_candidate = candidate.clone();
-                if let CandidateIdentity::Cluster(cluster_id) = &identity {
-                    // The canonical member of a cluster carries the canonical
-                    // (minimum) cluster id; fields are private so rebuild.
-                    canonical_candidate = EvidenceCandidate::new(EvidenceCandidateDto {
-                        evidence_id: candidate.evidence_id(),
-                        artifact_version: candidate.artifact_version(),
-                        source_span: candidate.source_span().clone(),
-                        scores: candidate.scores().clone(),
-                        trust: candidate.trust(),
-                        freshness: candidate.freshness(),
-                        duplicate_cluster: Some(*cluster_id),
-                        reasons: candidate.reasons().to_vec(),
-                        coverage_keys: candidate.coverage_keys().to_vec(),
-                    })?;
-                }
-                let replace = best_candidates.get(&identity).is_none_or(|existing| {
-                    candidate_order(&canonical_candidate) < candidate_order(existing)
-                });
-                if replace {
-                    best_candidates.insert(identity, canonical_candidate);
-                } else if let Some(existing) = best_candidates.get_mut(&identity) {
-                    // The same evidence surfaced by another lane: keep the
-                    // canonical member and merge the new lane's score so the
-                    // fused candidate carries every contributing lane's
-                    // provenance instead of dropping it.
-                    let merged = merge_lane_scores(existing, &canonical_candidate)?;
-                    *existing = merged;
-                }
+                record_candidate(&mut best_candidates, &identity, candidate)?;
             }
         }
-
-        let mut sorted = scores.into_iter().collect::<Vec<_>>();
-        sorted.sort_by(|(left_id, left_score), (right_id, right_score)| {
-            right_score
-                .cmp(left_score)
-                .then_with(|| left_id.cmp(right_id))
-        });
-        Ok(sorted
-            .into_iter()
-            .filter_map(|(identity, score)| {
-                best_candidates
-                    .remove(&identity)
-                    .map(|candidate| FusedCandidate {
-                        candidate,
-                        fused_score: score.min(u64::from(u32::MAX)) as u32,
-                    })
-            })
-            .collect())
+        Ok(finalize_fusion(scores, best_candidates))
     }
 }
 
@@ -230,24 +168,7 @@ impl RankFusion for NormalizedBlend {
                 "NormalizedBlend requires a lexical weight in [0, 1] and blended kinds".to_string(),
             ));
         }
-        let mut evidence_clusters = std::collections::BTreeMap::<
-            maestria_domain::EvidenceId,
-            maestria_domain::DuplicateClusterId,
-        >::new();
-        for batch in batches {
-            if !matches!(batch.status, maestria_domain::SearchLaneStatus::Succeeded) {
-                continue;
-            }
-            for candidate in &batch.candidates {
-                if let Some(cluster) = candidate.duplicate_cluster() {
-                    evidence_clusters
-                        .entry(candidate.evidence_id())
-                        .and_modify(|existing| *existing = (*existing).min(cluster))
-                        .or_insert(cluster);
-                }
-            }
-        }
-
+        let evidence_clusters = collect_evidence_clusters(batches);
         let kinds = self
             .blended_kinds
             .iter()
@@ -255,26 +176,9 @@ impl RankFusion for NormalizedBlend {
             .chain(std::iter::once(RetrievalScoreKind::LexicalBm25))
             .collect::<Vec<_>>();
         let bounds = blend_bounds(batches, &kinds);
-        let (scores, mut best_candidates) =
+        let (scores, best_candidates) =
             blend_scores(self, batches, &kinds, &bounds, &evidence_clusters)?;
-
-        let mut sorted = scores.into_iter().collect::<Vec<_>>();
-        sorted.sort_by(|(left_id, left_score), (right_id, right_score)| {
-            right_score
-                .cmp(left_score)
-                .then_with(|| left_id.cmp(right_id))
-        });
-        Ok(sorted
-            .into_iter()
-            .filter_map(|(identity, score)| {
-                best_candidates
-                    .remove(&identity)
-                    .map(|candidate| FusedCandidate {
-                        candidate,
-                        fused_score: score.min(u64::from(u32::MAX)) as u32,
-                    })
-            })
-            .collect())
+        Ok(finalize_fusion(scores, best_candidates))
     }
 }
 
@@ -349,30 +253,82 @@ fn blend_scores(
                 .entry(identity.clone())
                 .and_modify(|score| *score = (*score).saturating_add(contribution))
                 .or_insert(contribution);
-            let mut canonical_candidate = candidate.clone();
-            if let CandidateIdentity::Cluster(cluster_id) = &identity {
-                canonical_candidate = EvidenceCandidate::new(EvidenceCandidateDto {
-                    evidence_id: candidate.evidence_id(),
-                    artifact_version: candidate.artifact_version(),
-                    source_span: candidate.source_span().clone(),
-                    scores: candidate.scores().clone(),
-                    trust: candidate.trust(),
-                    freshness: candidate.freshness(),
-                    duplicate_cluster: Some(*cluster_id),
-                    reasons: candidate.reasons().to_vec(),
-                    coverage_keys: candidate.coverage_keys().to_vec(),
-                })?;
-            }
-            let replace = best_candidates.get(&identity).is_none_or(|existing| {
-                candidate_order(&canonical_candidate) < candidate_order(existing)
-            });
-            if replace {
-                best_candidates.insert(identity, canonical_candidate);
-            } else if let Some(existing) = best_candidates.get_mut(&identity) {
-                let merged = merge_lane_scores(existing, &canonical_candidate)?;
-                *existing = merged;
-            }
+            record_candidate(&mut best_candidates, &identity, candidate)?;
         }
     }
     Ok((scores, best_candidates))
+}
+
+fn collect_evidence_clusters(
+    batches: &[crate::types::CandidateBatch],
+) -> std::collections::BTreeMap<maestria_domain::EvidenceId, maestria_domain::DuplicateClusterId> {
+    let mut evidence_clusters = std::collections::BTreeMap::new();
+    for batch in batches {
+        if !matches!(batch.status, maestria_domain::SearchLaneStatus::Succeeded) {
+            continue;
+        }
+        for candidate in &batch.candidates {
+            if let Some(cluster) = candidate.duplicate_cluster() {
+                evidence_clusters
+                    .entry(candidate.evidence_id())
+                    .and_modify(|existing: &mut maestria_domain::DuplicateClusterId| {
+                        *existing = (*existing).min(cluster)
+                    })
+                    .or_insert(cluster);
+            }
+        }
+    }
+    evidence_clusters
+}
+
+fn record_candidate(
+    best_candidates: &mut std::collections::BTreeMap<CandidateIdentity, EvidenceCandidate>,
+    identity: &CandidateIdentity,
+    candidate: &EvidenceCandidate,
+) -> RetrievalResult<()> {
+    let canonical_candidate = if let CandidateIdentity::Cluster(cluster_id) = identity {
+        EvidenceCandidate::new(EvidenceCandidateDto {
+            evidence_id: candidate.evidence_id(),
+            artifact_version: candidate.artifact_version(),
+            source_span: candidate.source_span().clone(),
+            scores: candidate.scores().clone(),
+            trust: candidate.trust(),
+            freshness: candidate.freshness(),
+            duplicate_cluster: Some(*cluster_id),
+            reasons: candidate.reasons().to_vec(),
+            coverage_keys: candidate.coverage_keys().to_vec(),
+        })?
+    } else {
+        candidate.clone()
+    };
+    let replace = best_candidates
+        .get(identity)
+        .is_none_or(|existing| candidate_order(&canonical_candidate) < candidate_order(existing));
+    if replace {
+        best_candidates.insert(identity.clone(), canonical_candidate);
+    } else if let Some(existing) = best_candidates.get_mut(identity) {
+        let merged = merge_lane_scores(existing, &canonical_candidate)?;
+        *existing = merged;
+    }
+    Ok(())
+}
+
+fn finalize_fusion(
+    scores: std::collections::BTreeMap<CandidateIdentity, u64>,
+    mut best_candidates: std::collections::BTreeMap<CandidateIdentity, EvidenceCandidate>,
+) -> Vec<FusedCandidate> {
+    let mut sorted = scores.into_iter().collect::<Vec<_>>();
+    sorted.sort_by(|(left_id, left_score), (right_id, right_score)| {
+        right_score
+            .cmp(left_score)
+            .then_with(|| left_id.cmp(right_id))
+    });
+    sorted
+        .into_iter()
+        .filter_map(|(identity, _)| {
+            best_candidates
+                .remove(&identity)
+                .map(|candidate| FusedCandidate { candidate })
+        })
+        .collect()
 }

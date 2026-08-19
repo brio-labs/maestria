@@ -49,8 +49,6 @@ impl MaestriaRuntime {
         let (input_tx, input_rx) = mpsc::channel(config.input_buffer_size);
         let (command_tx, command_rx) = mpsc::channel(config.input_buffer_size);
         let next_command_id = Arc::new(AtomicU64::new(Self::seed_next_command_id(&state)));
-        let next_validation_report_id =
-            Arc::new(AtomicU64::new(Self::seed_next_validation_report_id(&state)));
         (
             Self {
                 config,
@@ -67,7 +65,6 @@ impl MaestriaRuntime {
                 full_text_locks: Arc::new(Mutex::new(BTreeMap::new())),
                 pending_applications: Mutex::new(BTreeMap::new()),
                 pending_notebook_drafts: Mutex::new(BTreeMap::new()),
-                next_validation_report_id,
                 #[cfg(test)]
                 test_pre_failed_effect_task: false,
             },
@@ -135,7 +132,7 @@ impl MaestriaRuntime {
     async fn run_input_loop(
         &self,
         mut input_rx: mpsc::Receiver<DomainInput>,
-        mut command_rx: mpsc::Receiver<crate::runtime::RuntimeCommand>,
+        mut command_rx: mpsc::Receiver<(DomainInput, crate::runtime::RuntimeCommand)>,
         effect_tx: &mpsc::Sender<crate::effect_dispatch::EffectBatch>,
         shutdown_token: &tokio_util::sync::CancellationToken,
     ) {
@@ -144,7 +141,7 @@ impl MaestriaRuntime {
                 () = shutdown_token.cancelled() => break,
                 input = input_rx.recv() => input.map(|input| (input, None)),
                 command = command_rx.recv() => {
-                    command.map(|command| (command.input.clone(), Some(command)))
+                    command.map(|(input, command)| (input, Some(command)))
                 },
             };
             let Some((input, command)) = incoming else {

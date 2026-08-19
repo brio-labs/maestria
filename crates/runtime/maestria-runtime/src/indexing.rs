@@ -1,6 +1,6 @@
 use crate::config::EffectExecutionContext;
 use maestria_domain::{
-    Artifact, Chunk, DomainInput, EvidenceKind, FullTextIndexCompleted, IndexFullTextRequest,
+    Artifact, Chunk, DomainInput, EvidenceKind, FullTextIndexCompleted, IndexChunkRequest,
     evidence_id_for,
 };
 use maestria_governance::scan_secrets;
@@ -22,7 +22,7 @@ impl EffectExecutionContext {
     /// completed and no-op. A per-chunk effect for a chunk that is no longer
     /// pending (already covered by an earlier batch, or re-driven after a
     /// crash) is an idempotent no-op.
-    pub(crate) async fn handle_index_full_text(&self, request: IndexFullTextRequest) -> bool {
+    pub(crate) async fn handle_index_full_text(&self, request: IndexChunkRequest) -> bool {
         // Serialize same-artifact effects so exactly one of them runs the
         // batch; the others observe the completed chunks and no-op.
         let artifact_lock = {
@@ -216,7 +216,7 @@ impl EffectExecutionContext {
     /// privacy outcome, not a runtime failure.
     async fn quarantine_and_complete(
         &self,
-        request: &IndexFullTextRequest,
+        request: &IndexChunkRequest,
         pending: &[Chunk],
     ) -> bool {
         if let Some(artifact) = self.state.read().await.artifacts.get(&request.artifact_id) {
@@ -298,7 +298,7 @@ impl EffectExecutionContext {
     /// shuts down on secret-bearing indexing).
     async fn materialize_artifact_cards(
         &self,
-        request: &IndexFullTextRequest,
+        request: &IndexChunkRequest,
     ) -> Option<Vec<IndexedCard>> {
         let artifact_cards: Vec<IndexedCard> = {
             let state = self.state.read().await;

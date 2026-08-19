@@ -5,11 +5,10 @@ use maestria_ports::EffectJournalStatus;
 
 impl MaestriaRuntime {
     pub(super) fn check_harness_feedback_boundary(&self, completion: &HarnessRunCompleted) -> bool {
-        match self
-            .adapters
-            .effect_journal
-            .is_feedback_accepted(completion.run_id, completion.generation)
-        {
+        match self.adapters.effect_journal.is_feedback_accepted(
+            completion.run_id,
+            maestria_domain::JournalGeneration::new(completion.generation),
+        ) {
             Ok(true) => true,
             Ok(false) => {
                 tracing::warn!(
@@ -71,7 +70,7 @@ impl EffectExecutionContext {
         };
         if let Err(error) = self.adapters.effect_journal.record_terminal(
             run_id,
-            generation,
+            maestria_domain::JournalGeneration::new(generation),
             EffectJournalStatus::Completed,
         ) {
             tracing::error!(

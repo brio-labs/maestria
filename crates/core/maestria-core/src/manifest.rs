@@ -9,8 +9,7 @@ mod manifest_codec;
 mod manifest_codec_sparse;
 #[path = "manifest_encoding.rs"]
 mod manifest_encoding;
-#[path = "manifest_scope.rs"]
-mod manifest_scope;
+use crate::manifest_scope;
 
 use manifest_codec::{
     ManifestFields, parse_embedding_config, parse_manifest_fields, parse_ocr_config,

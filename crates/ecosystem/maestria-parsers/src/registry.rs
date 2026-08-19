@@ -55,6 +55,16 @@ impl ParserRegistry {
     pub fn parser_count(&self) -> usize {
         self.parsers.len()
     }
+
+    fn resolve_parser(&self, file: &FileHandle) -> Result<&dyn Parser, PortError> {
+        let metadata = metadata_for_handle(file);
+        self.parser_for(&metadata).ok_or_else(|| {
+            PortError::invalid_input(
+                "unsupported file extension",
+                file.path.display().to_string(),
+            )
+        })
+    }
 }
 
 impl Parser for ParserRegistry {
@@ -67,13 +77,7 @@ impl Parser for ParserRegistry {
     }
 
     fn parse(&self, file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError> {
-        let metadata = metadata_for_handle(&file);
-        let parser = self
-            .parser_for(&metadata)
-            .ok_or_else(|| PortError::InvalidInputContext {
-                context: "unsupported file extension",
-                source: file.path.display().to_string(),
-            })?;
+        let parser = self.resolve_parser(&file)?;
         parser.parse(file, context)
     }
 
@@ -82,13 +86,7 @@ impl Parser for ParserRegistry {
         file: FileHandle,
         context: ParseContext,
     ) -> Result<ParseOutcome, PortError> {
-        let metadata = metadata_for_handle(&file);
-        let parser = self
-            .parser_for(&metadata)
-            .ok_or_else(|| PortError::InvalidInputContext {
-                context: "unsupported file extension",
-                source: file.path.display().to_string(),
-            })?;
+        let parser = self.resolve_parser(&file)?;
         parser.parse_outcome(file, context)
     }
 
@@ -98,13 +96,7 @@ impl Parser for ParserRegistry {
         context: ParseContext,
         pages: &[maestria_domain::OcrPageText],
     ) -> Result<ParsedArtifact, PortError> {
-        let metadata = metadata_for_handle(&file);
-        let parser = self
-            .parser_for(&metadata)
-            .ok_or_else(|| PortError::InvalidInputContext {
-                context: "unsupported file extension",
-                source: file.path.display().to_string(),
-            })?;
+        let parser = self.resolve_parser(&file)?;
         parser.parse_with_ocr(file, context, pages)
     }
 }

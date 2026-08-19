@@ -1,8 +1,9 @@
 use anyhow::{Context, Result, anyhow};
-use maestria_core::{InstanceLayout, InstanceManifest, artifact_id_for, content_hash};
-use maestria_domain::{
-    ArtifactDetected, ArtifactId, DomainInput, IndexStatus, KernelState, TaskId,
+use maestria_core::{
+    InstanceLayout, InstanceManifest, artifact_id_for_content_hash, build_artifact_detected_input,
+    content_hash,
 };
+use maestria_domain::{ArtifactId, IndexStatus, KernelState, TaskId};
 use maestria_governance::{PrivacyExclusions, Scope};
 use maestria_index_selection::{IndexPolicy, Selection};
 use std::{
@@ -70,8 +71,9 @@ async fn process_file(
     let bytes_len = bytes.len() as u64;
     let prefix = format!("[{done}/{total}]");
     let size = human_bytes(bytes_len);
-    let artifact_id = artifact_id_for(&file, &bytes);
-    let hash = maestria_domain::ContentHash::new(content_hash(&bytes))?;
+    let hash_string = content_hash(&bytes);
+    let artifact_id = artifact_id_for_content_hash(&file, &hash_string);
+    let hash = maestria_domain::ContentHash::new(hash_string.clone())?;
     // Check whether this exact artifact was already indexed before this session.
     if let Some(artifact) = ctx.preexisting_state.artifacts.get(&artifact_id)
         && artifact.content_hash.as_ref() == Some(&hash)
@@ -85,22 +87,11 @@ async fn process_file(
         return Ok((FileOutcome::Unchanged, bytes_len));
     }
 
-    let title = match file.file_name().and_then(|n| n.to_str()) {
-        Some(name) => name.to_string(),
-        None => "unknown".to_string(),
-    };
-
+    let input = build_artifact_detected_input(&file, bytes, hash_string)?;
     ctx.session
-        .submit(DomainInput::ArtifactDetected(ArtifactDetected {
-            artifact_id,
-            title,
-            source_path: file.display().to_string(),
-            source_bytes: bytes,
-            content_hash: hash,
-        }))
+        .submit(input)
         .await
         .context("failed to submit artifact to runtime")?;
-
     // Wait for the artifact to reach terminal persisted state. Unsupported,
     // failed, and quarantined parses carry no indexable content, so the
     // artifact never becomes `Indexed`; a terminal non-`Parsed` parse status
@@ -208,7 +199,7 @@ async fn run_selected_batch(
     recovery: &maestria_daemon::RecoveryQueue,
     policy_skipped_total: usize,
 ) -> Result<()> {
-    let mut metrics = IndexMetrics::new(selected_files.len(), ctx.layout);
+    let mut metrics = IndexMetrics::new(selected_files.len(), ctx.layout)?;
     let mut indexed = 0usize;
     let mut unchanged = 0usize;
     let mut skipped = 0usize;

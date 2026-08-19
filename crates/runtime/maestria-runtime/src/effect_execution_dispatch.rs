@@ -34,7 +34,6 @@ fn effect_variant_name(effect: &MaestriaEffect) -> &'static str {
         MaestriaEffect::FetchWeb(_) => "fetch_web",
         MaestriaEffect::RunValidation(_) => "run_validation",
         MaestriaEffect::RequestApproval(_) => "request_approval",
-        MaestriaEffect::EmitDiagnostic(_) => "emit_diagnostic",
         MaestriaEffect::SearchKnowledge(_) => "search_knowledge",
     }
 }
@@ -49,11 +48,10 @@ pub(crate) enum PreparedEffect {
 
 impl EffectExecutionContext {
     fn claim_approved_proposal(&self, claim: ApprovedProposalClaim) -> Result<(), EffectFailure> {
-        match self
-            .adapters
-            .effect_journal
-            .record_started(claim.run_id, claim.generation)
-        {
+        match self.adapters.effect_journal.record_started(
+            claim.run_id,
+            maestria_domain::JournalGeneration::new(claim.generation),
+        ) {
             Ok(()) => Ok(()),
             Err(maestria_ports::PortError::NotFound) => Err(EffectFailure::Denied(
                 "approved proposal journal intent was already claimed or is unavailable"
@@ -87,9 +85,9 @@ impl EffectExecutionContext {
             })
             .map(|entry| (entry.run_id, entry.generation))
             .collect();
-        let key = (proposal.run_id, generation.value());
+        let key = (proposal.run_id, generation);
         let exact_active_entry = entries.iter().any(|entry| {
-            entry.generation == generation.value()
+            entry.generation == generation
                 && journal_entry_matches_proposal(entry, proposal, self.scope_id)
                 && entry.status == EffectJournalStatus::FeedbackAccepted
                 && entry.feedback.is_some()
@@ -169,7 +167,7 @@ impl EffectExecutionContext {
                     .effect_journal
                     .record_terminal(
                         proposal.run_id,
-                        journal_generation.value(),
+                        *journal_generation,
                         maestria_ports::EffectJournalStatus::Failed,
                     )
                     .map_err(|error| {
@@ -254,7 +252,7 @@ impl EffectExecutionContext {
             }
             MaestriaEffect::QueryHarness(request) => self.handle_query_harness(request).await,
             MaestriaEffect::QueryHarnessProposal(request) => {
-                self.handle_query_harness_proposal(request).await
+                self.handle_query_harness_proposal(*request).await
             }
             MaestriaEffect::FetchWeb(request) => {
                 handler_result(self.handle_fetch_web(request).await, "fetch web")
@@ -265,10 +263,6 @@ impl EffectExecutionContext {
             MaestriaEffect::RequestApproval(request) => handler_result(
                 self.handle_request_approval(request).await,
                 "request approval",
-            ),
-            MaestriaEffect::EmitDiagnostic(diagnostic) => handler_result(
-                self.handle_emit_diagnostic(diagnostic).await,
-                "emit diagnostic",
             ),
             MaestriaEffect::SearchKnowledge(request) => handler_result(
                 self.handle_search_knowledge(*request).await,
@@ -305,7 +299,7 @@ impl EffectExecutionContext {
                     .effect_journal
                     .record_terminal(
                         proposal.run_id,
-                        journal_generation.value(),
+                        *journal_generation,
                         maestria_ports::EffectJournalStatus::Failed,
                     )
                     .map_err(|error| {
@@ -334,9 +328,9 @@ impl EffectExecutionContext {
             EffectAdmission::Execute { risk, claim } => {
                 if let MaestriaEffect::QueryHarnessProposal(request) = &effect
                     && let ModelAgentProposalExecution::JournalRecovery { journal_generation } =
-                        request.proposal.execution
+                        request.execution
                 {
-                    self.claim_journal_recovery(&request.proposal, journal_generation)?;
+                    self.claim_journal_recovery(request, journal_generation)?;
                 }
                 if let Some(claim) = claim {
                     self.claim_approved_proposal(claim)?;

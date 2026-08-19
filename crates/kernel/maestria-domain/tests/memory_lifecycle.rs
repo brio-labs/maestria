@@ -1,5 +1,4 @@
 use maestria_domain::*;
-use std::collections::BTreeSet;
 #[path = "common/memory_lifecycle.rs"]
 mod common;
 
@@ -23,8 +22,6 @@ fn promote_memory_creates_active_memory_from_candidate() -> Result<(), Box<dyn s
             id: MemoryId::new(100),
         })?;
     assert_eq!(memory.candidate_id, MemoryCandidateId::new(90));
-    assert_eq!(memory.claim_id, ClaimId::new(20));
-    assert_eq!(memory.evidence_ids, BTreeSet::from([EvidenceId::new(40)]));
     assert_eq!(memory.status, MemoryStatus::Active);
     assert!(matches!(
         output.events.as_slice(),

@@ -1,4 +1,4 @@
-use maestria_domain::{CorpusScope, FreshnessRequirement, Modality, SearchIntent, SearchPlan};
+use maestria_domain::{CorpusScope, FreshnessRequirement, SearchIntent, SearchPlan};
 
 use crate::RetrievalSecurityPolicy;
 
@@ -54,10 +54,7 @@ impl SearchPlanValidator {
         Self::validate_freshness(plan, capabilities)?;
         Self::validate_budgets(plan, capabilities)?;
         Self::validate_security(capabilities, policy)?;
-        if (plan.intent() == SearchIntent::CurrentWeb
-            || plan.modalities().values().contains(&Modality::Web))
-            && !capabilities.web_enabled()
-        {
+        if plan.is_web_plan() && !capabilities.web_enabled() {
             return Err(SearchPlanValidationError::WebCapabilityMissing);
         }
         Ok(())

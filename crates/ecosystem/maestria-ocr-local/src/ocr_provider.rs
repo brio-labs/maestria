@@ -1,7 +1,5 @@
 use crate::rasterizer::{PdfRasterizer, PdftoppmRasterizer};
-use crate::transport::{
-    ChatCompletionRequest, ChatCompletionResponse, OcrTransport, UreqTransport,
-};
+use crate::transport::{ChatCompletionRequest, ChatCompletionResponse, OcrTransport};
 use maestria_ports::{
     OcrIdentity, OcrPage, OcrProvider, OcrRequest, OcrResponse, PortError, ProviderDisclosure,
     RetentionPolicy,
@@ -28,7 +26,9 @@ impl LocalHttpOcrProvider {
             model,
             identity,
             Arc::new(PdftoppmRasterizer),
-            Arc::new(UreqTransport::default()),
+            Arc::new(maestria_adapter_http::UreqJsonClient::for_timeout(
+                std::time::Duration::from_secs(1200),
+            )),
         )
     }
 
@@ -109,11 +109,8 @@ impl OcrProvider for LocalHttpOcrProvider {
                 &page.mime_type,
                 &page.bytes,
             );
-            let body =
-                serde_json::to_vec(&payload).map_err(|error| PortError::InternalContext {
-                    context: "encode OCR request",
-                    source: error.to_string(),
-                })?;
+            let body = serde_json::to_vec(&payload)
+                .map_err(|error| PortError::internal("encode OCR request", error.to_string()))?;
             let response = self.transport.post(self.endpoint.as_str(), body)?;
             let parsed: ChatCompletionResponse =
                 serde_json::from_slice(&response).map_err(|error| {
@@ -122,9 +119,11 @@ impl OcrProvider for LocalHttpOcrProvider {
                         source: error.to_string(),
                     }
                 })?;
-            let text = parsed.text().ok_or_else(|| PortError::DownstreamContext {
-                context: "decode OCR response text",
-                source: format!("OCR response contained no text for page {}", page.page),
+            let text = parsed.text().ok_or_else(|| {
+                PortError::downstream(
+                    "decode OCR response text",
+                    format!("OCR response contained no text for page {}", page.page),
+                )
             })?;
             pages.push(OcrPage {
                 page: page.page,
@@ -148,10 +147,8 @@ impl OcrProvider for LocalHttpOcrProvider {
 }
 
 fn parse_loopback_endpoint(endpoint: &str) -> Result<Url, PortError> {
-    let url = Url::parse(endpoint).map_err(|error| PortError::InvalidInputContext {
-        context: "invalid OCR endpoint",
-        source: error.to_string(),
-    })?;
+    let url = Url::parse(endpoint)
+        .map_err(|error| PortError::invalid_input("invalid OCR endpoint", error.to_string()))?;
     let valid = url.scheme() == "http"
         && matches!(url.host_str(), Some("127.0.0.1" | "::1" | "[::1]"))
         && url.path() == "/v1/chat/completions"

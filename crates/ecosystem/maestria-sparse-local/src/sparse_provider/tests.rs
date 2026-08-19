@@ -1,4 +1,5 @@
 use super::*;
+use maestria_ports::RetentionPolicy;
 use maestria_ports::learned_sparse_contract_tests::fixture_sparse_identity;
 use std::net::TcpListener;
 use std::sync::{
@@ -66,8 +67,11 @@ impl ProviderTransport for RecordingTransport {
     }
 
     fn post_to(&self, _path_suffix: &'static str, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
-        *self.body.lock().map_err(|_| PortError::Internal {
-            message: "recording mutex poisoned".to_string(),
+        *self.body.lock().map_err(|_| {
+            PortError::internal(
+                "maestria sparse local test",
+                "recording mutex poisoned".to_string(),
+            )
         })? = Some(body);
         Ok(self.response.clone())
     }
@@ -116,12 +120,18 @@ impl ProviderTransport for StaticTransport {
         self.post_count.fetch_add(1, Ordering::Relaxed);
         self.response
             .lock()
-            .map_err(|_| PortError::Internal {
-                message: "static mutex poisoned".to_string(),
+            .map_err(|_| {
+                PortError::internal(
+                    "maestria sparse local test",
+                    "static mutex poisoned".to_string(),
+                )
             })?
             .take()
-            .ok_or_else(|| PortError::Internal {
-                message: "static response already consumed".to_string(),
+            .ok_or_else(|| {
+                PortError::internal(
+                    "maestria sparse local test",
+                    "static response already consumed".to_string(),
+                )
             })?
     }
 }
@@ -315,17 +325,25 @@ fn sends_text_and_kind_and_preserves_identity() -> Result<(), PortError> {
     let body = transport
         .body
         .lock()
-        .map_err(|_| PortError::Internal {
-            message: "recording mutex poisoned".to_string(),
+        .map_err(|_| {
+            PortError::internal(
+                "maestria sparse local test",
+                "recording mutex poisoned".to_string(),
+            )
         })?
         .clone()
-        .ok_or_else(|| PortError::Internal {
-            message: "request body was not recorded".to_string(),
+        .ok_or_else(|| {
+            PortError::internal(
+                "maestria sparse local test",
+                "request body was not recorded".to_string(),
+            )
         })?;
-    let payload: serde_json::Value =
-        serde_json::from_slice(&body).map_err(|error| PortError::Internal {
-            message: format!("decode recorded request: {error}"),
-        })?;
+    let payload: serde_json::Value = serde_json::from_slice(&body).map_err(|error| {
+        PortError::internal(
+            "maestria sparse local test",
+            format!("decode recorded request: {error}"),
+        )
+    })?;
     assert_eq!(payload["text"], "table latency");
     assert_eq!(payload["kind"], "query");
     Ok(())
@@ -348,17 +366,25 @@ fn document_kind_is_serialized_on_the_wire() -> Result<(), PortError> {
     let body = transport
         .body
         .lock()
-        .map_err(|_| PortError::Internal {
-            message: "recording mutex poisoned".to_string(),
+        .map_err(|_| {
+            PortError::internal(
+                "maestria sparse local test",
+                "recording mutex poisoned".to_string(),
+            )
         })?
         .clone()
-        .ok_or_else(|| PortError::Internal {
-            message: "request body was not recorded".to_string(),
+        .ok_or_else(|| {
+            PortError::internal(
+                "maestria sparse local test",
+                "request body was not recorded".to_string(),
+            )
         })?;
-    let payload: serde_json::Value =
-        serde_json::from_slice(&body).map_err(|error| PortError::Internal {
-            message: format!("decode recorded request: {error}"),
-        })?;
+    let payload: serde_json::Value = serde_json::from_slice(&body).map_err(|error| {
+        PortError::internal(
+            "maestria sparse local test",
+            format!("decode recorded request: {error}"),
+        )
+    })?;
     assert_eq!(payload["text"], "fn main() {}");
     assert_eq!(payload["kind"], "document");
     Ok(())

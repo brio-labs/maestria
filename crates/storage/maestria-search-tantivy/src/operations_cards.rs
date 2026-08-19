@@ -1,22 +1,16 @@
 use crate::{
     error::to_port_error,
-    execution::{Meter, validate_limit},
+    execution::{Meter, budget_usize, finish_results, validate_limit},
     keys::card_key,
     scoring::{descending_score, score_to_u32},
-    search_helpers::collect_bounded,
+    search_helpers::{collect_bounded, parse_query, scope_by_keys},
     tantivy_index::TantivyFullTextIndex,
 };
 use maestria_domain::{ArtifactId, CardId, SearchExecutionCompletion, SearchExecutionResource};
 use maestria_ports::{BoundedSearch, CardHit, IndexedCard, PortError, SearchQuery};
+use std::collections::BTreeSet;
 use tantivy::schema::Value;
-use tantivy::{
-    TantivyDocument, Term,
-    query::{AllQuery, BooleanQuery, QueryParser, TermSetQuery},
-};
-
-fn budget_usize(value: u64) -> usize {
-    maestria_domain::saturating_usize(value)
-}
+use tantivy::{TantivyDocument, Term, query::AllQuery};
 
 type ScoredCards = (
     Vec<(f32, u64, u64, maestria_ports::IndexedCard)>,
@@ -25,27 +19,21 @@ type ScoredCards = (
 
 impl TantivyFullTextIndex {
     pub(crate) fn index_cards_impl(&self, cards: Vec<IndexedCard>) -> Result<(), PortError> {
-        let mut writer_guard = self.writer.lock().map_err(|_| PortError::InternalContext {
-            context: "Tantivy writer lock poisoned",
-            source: "Tantivy writer mutex is poisoned".to_string(),
-        })?;
-        let writer = writer_guard
-            .as_mut()
-            .ok_or_else(|| PortError::DownstreamContext {
-                context: "index cards requires a writable full-text index",
-                source: "full-text index is read-only".to_string(),
-            })?;
-        for card in cards {
-            writer.delete_term(Term::from_field_text(
-                self.fields.card_key,
-                &card_key(card.artifact_id, card.card_id),
-            ));
-            writer
-                .add_document(self.card_document(&card))
-                .map_err(to_port_error)?;
-        }
-        writer.commit().map_err(to_port_error)?;
-        self.reader.reload().map_err(to_port_error)
+        self.with_writer(
+            "index cards requires a writable full-text index",
+            |writer| {
+                for card in cards {
+                    writer.delete_term(Term::from_field_text(
+                        self.fields.card_key,
+                        &card_key(card.artifact_id, card.card_id),
+                    ));
+                    writer
+                        .add_document(self.card_document(&card))
+                        .map_err(to_port_error)?;
+                }
+                Ok(())
+            },
+        )
     }
 
     pub(crate) fn search_cards_impl(
@@ -69,17 +57,8 @@ impl TantivyFullTextIndex {
             return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Complete));
         }
         let searcher = self.reader.searcher();
-        let parser = QueryParser::for_index(
-            &self.index,
-            vec![self.fields.card_title, self.fields.card_body],
-        );
-        let parsed_query =
-            parser
-                .parse_query(trimmed)
-                .map_err(|error| PortError::InvalidInputContext {
-                    context: "invalid search query",
-                    source: error.to_string(),
-                })?;
+        let fields = vec![self.fields.card_title, self.fields.card_body];
+        let parsed_query = parse_query(&self.index, fields, trimmed)?;
         let collection = collect_bounded(
             &searcher,
             &parsed_query,
@@ -140,35 +119,19 @@ impl TantivyFullTextIndex {
             }
             return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Complete));
         }
-        if meter.usage.candidates >= query.execution_budget.max_candidates() {
+        if meter.usage().candidates >= query.execution_budget.max_candidates() {
             return Ok(meter.done(
                 Vec::new(),
                 SearchExecutionCompletion::Exhausted(SearchExecutionResource::Candidates),
             ));
         }
-        let parser = QueryParser::for_index(
-            &self.index,
-            vec![self.fields.card_title, self.fields.card_body],
-        );
-        let parsed_query =
-            parser
-                .parse_query(trimmed)
-                .map_err(|error| PortError::InvalidInputContext {
-                    context: "invalid search query",
-                    source: error.to_string(),
-                })?;
-        let scoped_query = BooleanQuery::intersection(vec![
-            parsed_query,
-            Box::new(TermSetQuery::new(
-                allowed
-                    .into_iter()
-                    .map(|key| Term::from_field_text(self.fields.card_key, &key)),
-            )),
-        ]);
+        let fields = vec![self.fields.card_title, self.fields.card_body];
+        let parsed_query = parse_query(&self.index, fields, trimmed)?;
+        let scoped_query = scope_by_keys(parsed_query, self.fields.card_key, allowed);
         let remaining = query
             .execution_budget
             .max_candidates()
-            .saturating_sub(meter.usage.candidates);
+            .saturating_sub(meter.usage().candidates);
         let collection = collect_bounded(
             &searcher,
             &scoped_query,
@@ -251,12 +214,12 @@ impl TantivyFullTextIndex {
         searcher: &tantivy::Searcher,
         filter: &dyn Fn(CardId, ArtifactId) -> Result<bool, PortError>,
         meter: &mut Meter,
-    ) -> Result<(Vec<String>, Option<SearchExecutionResource>), PortError> {
+    ) -> Result<(BTreeSet<String>, Option<SearchExecutionResource>), PortError> {
         // Same one-past-the-end candidate limit as the chunk walk: a full
         // AllQuery collection must never carry the truncation marker.
         let limit = budget_usize(searcher.num_docs());
         if limit == 0 {
-            return Ok((Vec::new(), Some(SearchExecutionResource::Candidates)));
+            return Ok((BTreeSet::new(), Some(SearchExecutionResource::Candidates)));
         }
         let collection = collect_bounded(
             searcher,
@@ -267,7 +230,7 @@ impl TantivyFullTextIndex {
             meter,
         )?;
         if let Some(resource) = collection.stopped {
-            return Ok((Vec::new(), Some(resource)));
+            return Ok((BTreeSet::new(), Some(resource)));
         }
         let mut allowed = std::collections::BTreeSet::new();
         let mut stopped = None;
@@ -289,24 +252,6 @@ impl TantivyFullTextIndex {
         if stopped.is_none() && collection.truncated {
             stopped = Some(SearchExecutionResource::Candidates);
         }
-        Ok((allowed.into_iter().collect(), stopped))
+        Ok((allowed, stopped))
     }
-}
-
-fn finish_results(
-    meter: &mut Meter,
-    count: usize,
-    stopped: Option<SearchExecutionResource>,
-) -> SearchExecutionCompletion {
-    let mut stopped = stopped;
-    for _ in 0..count {
-        if let Some(resource) = meter.result() {
-            stopped = Some(resource);
-            break;
-        }
-    }
-    stopped.map_or(
-        SearchExecutionCompletion::Complete,
-        SearchExecutionCompletion::Exhausted,
-    )
 }

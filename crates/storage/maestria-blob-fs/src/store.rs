@@ -48,10 +48,6 @@ impl FsBlobStore {
         })
     }
 
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
-
     pub fn put_with_digest(&self, bytes: Vec<u8>) -> Result<(BlobId, String), PortError> {
         let digest = sha256_digest(&bytes);
         let digest_hex = maestria_domain::hex_digest(&digest);
@@ -144,49 +140,55 @@ impl FsBlobStore {
         self.rename_new_blob_file(&path, bytes)
     }
 
+    fn atomic_publish_file<F>(
+        &self,
+        final_path: &Path,
+        bytes: &[u8],
+        publish: F,
+    ) -> Result<(), PortError>
+    where
+        F: FnOnce(&Path, &Path) -> Result<(), PortError>,
+    {
+        let temp_path = self.write_temp_file(bytes)?;
+        let result = publish(&temp_path, final_path);
+        match fs::remove_file(&temp_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) if result.is_ok() => {
+                return Err(io_error("remove blob temp file", &temp_path, error));
+            }
+            Err(error) => {
+                tracing::warn!(
+                    "failed to remove blob temp file {}: {error}",
+                    temp_path.display()
+                );
+            }
+        }
+        result
+    }
+
     fn rename_new_blob_file(&self, final_path: &Path, bytes: &[u8]) -> Result<(), PortError> {
         if final_path.exists() {
             return Ok(());
         }
-
-        let temp_path = self.write_temp_file(bytes)?;
-        let rename_result = if final_path.exists() {
-            Ok(())
-        } else {
-            fs::rename(&temp_path, final_path)
-                .map_err(|error| io_error("rename blob file", final_path, error))
-        };
-
-        match fs::remove_file(&temp_path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) if rename_result.is_ok() => {
-                return Err(io_error("remove blob temp file", &temp_path, error));
+        self.atomic_publish_file(final_path, bytes, |temp, target| {
+            if target.exists() {
+                Ok(())
+            } else {
+                fs::rename(temp, target)
+                    .map_err(|error| io_error("rename blob file", target, error))
             }
-            Err(_) => {}
-        }
-
-        rename_result
+        })
     }
 
     fn link_new_index_file(&self, final_path: &Path, bytes: &[u8]) -> Result<(), PortError> {
-        let temp_path = self.write_temp_file(bytes)?;
-        let link_result = match fs::hard_link(&temp_path, final_path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
-            Err(error) => Err(io_error("link blob index", final_path, error)),
-        };
-
-        match fs::remove_file(&temp_path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) if link_result.is_ok() => {
-                return Err(io_error("remove blob temp file", &temp_path, error));
+        self.atomic_publish_file(final_path, bytes, |temp, target| {
+            match fs::hard_link(temp, target) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+                Err(error) => Err(io_error("link blob index", target, error)),
             }
-            Err(_) => {}
-        }
-
-        link_result
+        })
     }
 
     fn write_temp_file(&self, bytes: &[u8]) -> Result<PathBuf, PortError> {

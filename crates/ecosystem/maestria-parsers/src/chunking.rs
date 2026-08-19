@@ -9,6 +9,23 @@ use maestria_domain::{
 use maestria_ports::{
     FileHandle, FileMetadata, ParsedArtifact, ParsedCard, ParsedChunk, PortError, SourceSpan,
 };
+pub(crate) const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
+
+pub(crate) const CODE_EXTENSIONS: &[&str] = &["rs", "py", "ts", "tsx", "js", "jsx", "mjs", "cjs"];
+pub(crate) const DOC_EXTENSIONS: &[&str] = &["md", "markdown", "txt"];
+
+fn is_text_byte(byte: u8) -> bool {
+    byte >= 0x20 || matches!(byte, b'\n' | b'\r' | b'\t' | 0x0b | 0x0c)
+}
+
+pub(crate) fn looks_like_text(bytes: &[u8]) -> bool {
+    if bytes.contains(&0) {
+        return false;
+    }
+    let sample = &bytes[..bytes.len().min(8192)];
+    let suspicious = sample.iter().filter(|byte| !is_text_byte(**byte)).count();
+    suspicious * 100 <= sample.len() * 5
+}
 
 pub(crate) const ID_STRIDE: u64 = 1_000_003;
 pub(crate) const CARD_OFFSET: u64 = 900_001;
@@ -26,9 +43,11 @@ pub fn chunk_id_for(artifact_id: ArtifactId, chunk_order: usize) -> Result<Chunk
         .checked_mul(ID_STRIDE)
         .and_then(|value| value.checked_add(chunk_order as u64))
         .and_then(|value| value.checked_add(1))
-        .ok_or_else(|| PortError::InvalidInputContext {
-            context: "artifact id cannot be expanded into deterministic chunk ids",
-            source: artifact_id.value().to_string(),
+        .ok_or_else(|| {
+            PortError::invalid_input(
+                "artifact id cannot be expanded into deterministic chunk ids",
+                artifact_id.value().to_string(),
+            )
         })?;
     Ok(ChunkId::new(id))
 }
@@ -70,10 +89,8 @@ pub(crate) fn decode_utf8(bytes: Vec<u8>) -> Result<String, PortError> {
         });
     }
 
-    String::from_utf8(bytes).map_err(|err| PortError::InvalidInputContext {
-        context: "file bytes are not utf8",
-        source: err.to_string(),
-    })
+    String::from_utf8(bytes)
+        .map_err(|err| PortError::invalid_input("file bytes are not utf8", err.to_string()))
 }
 
 pub(crate) fn parsed_artifact(
@@ -303,4 +320,92 @@ fn push_range(chunks: &mut Vec<(String, SourceSpan)>, lines: &[&str], start: usi
             },
         ));
     }
+}
+pub(crate) fn structural_chunks(
+    text: &str,
+    is_pending: fn(&str) -> bool,
+    is_start: fn(&str) -> bool,
+    is_comment: fn(&str) -> bool,
+) -> Vec<(String, SourceSpan)> {
+    let mut starts = Vec::new();
+    let mut pending: Option<usize> = None;
+    for (index, line) in text.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if is_pending(trimmed) {
+            pending.get_or_insert(index);
+            continue;
+        }
+        if is_start(trimmed) {
+            let start = match pending.take() {
+                Some(start) => start,
+                None => index,
+            };
+            starts.push(start);
+        } else if !trimmed.is_empty() && !is_comment(trimmed) {
+            pending = None;
+        }
+    }
+    if starts.is_empty() {
+        return paragraph_chunks(text);
+    }
+    starts.sort_unstable();
+    starts.dedup();
+    ranges_from_starts(text, starts)
+}
+
+#[macro_export]
+macro_rules! text_parser {
+    (
+        $name:ident, $id:expr, $supports:expr, $parser_gen:expr,
+        $schema_gen:expr, $lang:expr, $chunk_fn:expr
+    ) => {
+        $crate::text_parser!(
+            $name,
+            $id,
+            $supports,
+            $parser_gen,
+            $schema_gen,
+            $lang,
+            $chunk_fn,
+            |_: &[u8]| Ok(())
+        );
+    };
+    (
+        $name:ident, $id:expr, $supports:expr, $parser_gen:expr,
+        $schema_gen:expr, $lang:expr, $chunk_fn:expr, $precheck:expr
+    ) => {
+        #[derive(Debug, Clone, Copy, Default)]
+        pub struct $name;
+        impl $name {
+            pub const fn new() -> Self {
+                Self
+            }
+        }
+        impl maestria_ports::Parser for $name {
+            fn id(&self) -> &'static str {
+                $id
+            }
+            fn supports(&self, file: &maestria_ports::FileMetadata) -> bool {
+                $supports(file)
+            }
+            fn parse(
+                &self,
+                file: maestria_ports::FileHandle,
+                context: maestria_ports::ParseContext,
+            ) -> Result<maestria_ports::ParsedArtifact, maestria_ports::PortError> {
+                $precheck(&file.bytes)?;
+                let text = $crate::chunking::decode_utf8(file.bytes.clone())?;
+                let chunks = $chunk_fn(&text);
+                $crate::chunking::parsed_artifact(
+                    context.artifact_id,
+                    &file.path,
+                    &file.bytes,
+                    chunks,
+                    $parser_gen.to_string(),
+                    $schema_gen.to_string(),
+                    Some($lang.to_string()),
+                )
+            }
+        }
+    };
 }

@@ -26,10 +26,7 @@ impl MemoryCandidate {
         security: SecurityMetadata,
     ) -> Result<Self, crate::DomainError> {
         if evidence_ids.is_empty() {
-            return Err(crate::DomainError::EvidenceRequired {
-                kind: "memory_candidate",
-                id: id.value(),
-            });
+            return Err(crate::DomainError::MemoryCandidateRequiresEvidence { id });
         }
         if confidence_milli > 1000 {
             return Err(crate::DomainError::InvalidConfidence {
@@ -83,8 +80,6 @@ pub enum MemoryStatus {
 pub struct Memory {
     pub id: MemoryId,
     pub candidate_id: MemoryCandidateId,
-    pub claim_id: ClaimId,
-    pub evidence_ids: BTreeSet<EvidenceId>,
     pub status: MemoryStatus,
     pub security: SecurityMetadata,
 }

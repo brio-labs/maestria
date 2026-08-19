@@ -1,12 +1,7 @@
 use crate::TantivyFullTextIndex;
-use maestria_domain::{ArtifactId, CardId, ChunkId, SearchExecutionBudget};
+use maestria_domain::{ArtifactId, CardId, ChunkId};
 use maestria_ports::{FullTextIndex, IndexedCard, IndexedChunk, SearchQuery};
-
-fn search_budget(
-    limit: u64,
-) -> Result<maestria_domain::SearchExecutionBudget, maestria_domain::SearchCompatibilityError> {
-    SearchExecutionBudget::new(limit, 10_000, 100_000, 0)
-}
+use maestria_test_support::search_budget;
 
 fn card(artifact_id: u64, card_id: u64, title: &str, body: &str) -> IndexedCard {
     IndexedCard {

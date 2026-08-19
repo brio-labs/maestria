@@ -35,6 +35,29 @@ pub struct SearchOutcome {
 }
 
 impl SearchOutcome {
+    /// Builds an outcome from a trace and its plan, propagating the model
+    /// fingerprint and index generation once.
+    pub fn from_trace(
+        trace: super::SearchTrace,
+        plan: &crate::search::SearchPlan,
+        status: SearchStatus,
+        evidence: Vec<super::EvidenceCandidate>,
+        coverage: super::EvidenceCoverage,
+        conflicts: Vec<ConflictSet>,
+    ) -> Self {
+        let trace_id = trace.deterministic_id();
+        Self {
+            trace: trace_id,
+            trace_data: Some(Box::new(trace)),
+            fingerprint: plan.fingerprint().clone(),
+            index_generation: plan.index_generation(),
+            status,
+            evidence,
+            coverage,
+            conflicts,
+        }
+    }
+
     pub fn canonicalize_score_provenance(
         &mut self,
     ) -> Result<(), crate::search::SearchCompatibilityError> {

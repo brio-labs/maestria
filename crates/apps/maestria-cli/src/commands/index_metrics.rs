@@ -4,13 +4,13 @@
 //! embedding row count read from the vector projection while the session
 //! writer commits (WAL allows concurrent readers).
 
+use anyhow::Context as _;
 use std::time::Duration;
 
 use maestria_core::InstanceLayout;
 use maestria_core::{format_duration, rate_per_second};
 use maestria_retrieval::MonotonicInstant;
 use maestria_vector_sqlite::SqliteVectorIndex;
-
 /// Status lines are emitted at most every five seconds during a run.
 const STATUS_REPORT_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -47,17 +47,32 @@ pub(crate) struct ProjectionObserver {
 }
 
 impl ProjectionObserver {
-    /// Open the instance projection for counting; unavailable when the
-    /// projection is absent or unreadable (progress falls back to file
-    /// metrics only).
-    pub(crate) fn open(layout: &InstanceLayout) -> Self {
-        let index = SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db")).ok();
-        let initial = row_count_or(&index, 0);
-        Self {
-            index,
+    /// Open the instance projection for counting; returns an error when the
+    /// existing projection is corrupt so file-progress does not mask storage
+    /// failure (absent projection falls back to file metrics only).
+    pub(crate) fn open(layout: &InstanceLayout) -> anyhow::Result<Self> {
+        let path = layout.vector_index_dir.join("projection.db");
+        if !path.exists() {
+            return Ok(Self {
+                index: None,
+                initial: 0,
+                last: 0,
+            });
+        }
+        let index = SqliteVectorIndex::open(&path)
+            .with_context(|| format!("open vector projection {}", path.display()))?;
+        let initial = match index.embedding_row_count() {
+            Ok(count) => count,
+            Err(error) => {
+                tracing::debug!("failed to read initial vector row count: {error}");
+                0
+            }
+        };
+        Ok(Self {
+            index: Some(index),
             initial,
             last: initial,
-        }
+        })
     }
 
     /// Re-read the committed row count; a transient read failure keeps the
@@ -78,8 +93,6 @@ impl ProjectionObserver {
         self.last.saturating_sub(self.initial)
     }
 }
-
-/// Aggregate counters and live status for one `index` run.
 pub(crate) struct IndexMetrics {
     total: usize,
     started: MonotonicInstant,
@@ -89,17 +102,16 @@ pub(crate) struct IndexMetrics {
 }
 
 impl IndexMetrics {
-    pub(crate) fn new(total: usize, layout: &InstanceLayout) -> Self {
+    pub(crate) fn new(total: usize, layout: &InstanceLayout) -> anyhow::Result<Self> {
         let now = MonotonicInstant::now();
-        Self {
+        Ok(Self {
             total,
             started: now,
             bytes_read: 0,
             last_status: now,
-            projection: ProjectionObserver::open(layout),
-        }
+            projection: ProjectionObserver::open(layout)?,
+        })
     }
-
     pub(crate) fn add_bytes(&mut self, bytes: u64) {
         self.bytes_read = self.bytes_read.saturating_add(bytes);
     }

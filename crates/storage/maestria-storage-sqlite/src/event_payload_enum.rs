@@ -124,14 +124,9 @@ pub(crate) enum StoredEventPayload {
         passed: bool,
         warnings: Vec<String>,
     },
-    UserIntentObserved {
-        task_id: u64,
-        title: String,
-    },
     ArtifactParsed {
         artifact_id: u64,
         status: crate::payloads::StoredParseStatus,
-        chunks_added: u32,
     },
     DocumentTreeCaptured {
         artifact_id: u64,
@@ -142,7 +137,6 @@ pub(crate) enum StoredEventPayload {
     },
     SearchCompleted {
         artifact_id: u64,
-        cards_added: u32,
     },
     HarnessRunCompleted {
         task_id: Option<u64>,

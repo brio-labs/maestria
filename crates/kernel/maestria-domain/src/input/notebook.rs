@@ -1,5 +1,6 @@
 use super::notebook_support::{
-    draft_title, invalid_draft, notebook_title, source_key, validate_draft_body,
+    DraftDeletionViolation, draft_title, invalid_draft, notebook_title, source_key,
+    validate_draft_body, validate_draft_deletion,
 };
 use crate::notebook_inputs::*;
 use crate::types::*;
@@ -89,18 +90,14 @@ impl KernelState {
             return Ok(KernelOutput::default());
         }
         let Some(artifact_id) = self.active_sources.get(&source_key).copied() else {
-            return Err(DomainError::NotebookSourceUnavailable {
-                key: source_key.to_string(),
-            });
+            return Err(DomainError::NotebookSourceUnavailable { key: source_key });
         };
         let indexed = self
             .artifacts
             .get(&artifact_id)
             .is_some_and(|artifact| artifact.index_status == IndexStatus::Indexed);
         if !indexed {
-            return Err(DomainError::NotebookSourceUnavailable {
-                key: source_key.to_string(),
-            });
+            return Err(DomainError::NotebookSourceUnavailable { key: source_key });
         }
         let tick = self.current_notebook_tick();
         let notebook =
@@ -215,20 +212,25 @@ impl KernelState {
         &mut self,
         input: DeleteNotebookDraftInput,
     ) -> Result<KernelOutput, DomainError> {
-        let draft = self
-            .notebook_drafts
-            .get(&input.draft_id)
-            .ok_or(DomainError::MissingNotebookDraft { id: input.draft_id })?;
-        if draft.notebook_id != input.notebook_id {
-            return Err(DomainError::MissingNotebookDraft { id: input.draft_id });
-        }
-        if draft.revision != input.expected_revision {
-            return Err(DomainError::NotebookDraftRevisionConflict {
-                notebook_id: input.notebook_id,
-                draft_id: Some(input.draft_id),
-                expected: Some(input.expected_revision.value()),
-                actual: Some(draft.revision.value()),
-            });
+        match validate_draft_deletion(
+            self,
+            input.notebook_id,
+            input.draft_id,
+            input.expected_revision,
+        ) {
+            Ok(()) => {}
+            Err(DraftDeletionViolation::MissingNotebookDraft)
+            | Err(DraftDeletionViolation::NotebookMismatch { .. }) => {
+                return Err(DomainError::MissingNotebookDraft { id: input.draft_id });
+            }
+            Err(DraftDeletionViolation::RevisionMismatch { actual }) => {
+                return Err(DomainError::NotebookDraftRevisionConflict {
+                    notebook_id: input.notebook_id,
+                    draft_id: Some(input.draft_id),
+                    expected: Some(input.expected_revision.value()),
+                    actual: Some(actual.value()),
+                });
+            }
         }
         let event = self.emit_event(DomainEvent::NotebookDraftDeleted {
             notebook_id: input.notebook_id,
@@ -340,8 +342,8 @@ impl KernelState {
                         .is_some_and(|artifact| artifact.index_status == IndexStatus::Indexed)
             });
             if !selected {
-                return Err(DomainError::NotebookSourceUnavailable {
-                    key: citation.artifact_id.to_string(),
+                return Err(DomainError::NotebookSourceArtifactUnavailable {
+                    artifact_id: citation.artifact_id,
                 });
             }
         }

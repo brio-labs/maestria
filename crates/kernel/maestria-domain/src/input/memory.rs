@@ -10,58 +10,26 @@ impl KernelState {
         &mut self,
         input: CreateMemoryCandidateInput,
     ) -> Result<DomainEventEnvelope, DomainError> {
-        if input.confidence_milli > 1000 {
-            return Err(DomainError::InvalidConfidence {
-                max: 1000,
-                actual: input.confidence_milli,
-            });
+        // The shared apply owns candidate validation; the event carries the
+        // live-derived security so replay re-taints it against current state.
+        let mut security = SecurityMetadata::from_optional(input.security);
+        if let Some(claim) = self.claims.get(&input.claim_id) {
+            security = security.taint_from(&claim.security);
         }
-        if self.memory_candidates.contains_key(&input.candidate_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "memory_candidate",
-                id: input.candidate_id.value(),
-            });
-        }
-        let claim = self
-            .claims
-            .get(&input.claim_id)
-            .ok_or(DomainError::MissingClaim { id: input.claim_id })?;
-
         let mut evidence_ids = BTreeSet::new();
         for evidence_id in input.evidence_ids {
-            let evidence = self
-                .evidences
-                .get(&evidence_id)
-                .ok_or(DomainError::MissingEvidence { id: evidence_id })?;
-            if evidence.artifact_id != claim.artifact_id {
-                return Err(DomainError::ArtifactMismatch {
-                    expected: claim.artifact_id,
-                    actual: evidence.artifact_id,
-                });
+            if let Some(evidence) = self.evidences.get(&evidence_id) {
+                security = security.taint_from(&evidence.security);
             }
             evidence_ids.insert(evidence_id);
         }
-        if evidence_ids.is_empty() {
-            return Err(DomainError::EvidenceRequired {
-                kind: "memory_candidate",
-                id: input.candidate_id.value(),
-            });
-        }
-        let mut security = SecurityMetadata::from_optional(input.security);
-        security = security.taint_from(&claim.security);
-        for ev_id in &evidence_ids {
-            if let Some(ev) = self.evidences.get(ev_id) {
-                security = security.taint_from(&ev.security);
-            }
-        }
-        let candidate = MemoryCandidate::try_new(
+        self.apply_memory_candidate_created(
             input.candidate_id,
             input.claim_id,
-            evidence_ids.clone(),
+            &evidence_ids,
             input.confidence_milli,
-            security.clone(),
+            &security,
         )?;
-        self.memory_candidates.insert(input.candidate_id, candidate);
         Ok(self.emit_event(DomainEvent::MemoryCandidateCreated {
             candidate_id: input.candidate_id,
             claim_id: input.claim_id,
@@ -145,21 +113,16 @@ impl KernelState {
             });
         }
         if input.evidence_ids.is_empty() {
-            return Err(DomainError::EvidenceRequired {
-                kind: "memory_candidate",
-                id: input.candidate_id.value(),
+            return Err(DomainError::MemoryCandidateRequiresEvidence {
+                id: input.candidate_id,
             });
         }
         if self.claims.contains_key(&input.claim_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "claim",
-                id: input.claim_id.value(),
-            });
+            return Err(DomainError::DuplicateClaim { id: input.claim_id });
         }
         if self.memory_candidates.contains_key(&input.candidate_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "memory_candidate",
-                id: input.candidate_id.value(),
+            return Err(DomainError::DuplicateMemoryCandidate {
+                id: input.candidate_id,
             });
         }
 
@@ -167,10 +130,7 @@ impl KernelState {
         let mut artifact_id = None;
         for &evidence_id in &input.evidence_ids {
             if !evidence_ids.insert(evidence_id) {
-                return Err(DomainError::DuplicateId {
-                    kind: "evidence_in_claim",
-                    id: evidence_id.value(),
-                });
+                return Err(DomainError::DuplicateEvidenceInClaim { id: evidence_id });
             }
             let evidence = self
                 .evidences
@@ -179,10 +139,7 @@ impl KernelState {
             if let Some(existing_claim) = evidence.claim_id
                 && existing_claim != input.claim_id
             {
-                return Err(DomainError::DuplicateId {
-                    kind: "evidence_claim",
-                    id: evidence_id.value(),
-                });
+                return Err(DomainError::DuplicateEvidenceClaim { id: evidence_id });
             }
             match artifact_id {
                 None => artifact_id = Some(evidence.artifact_id),
@@ -195,9 +152,8 @@ impl KernelState {
                 Some(_) => {}
             }
         }
-        let artifact_id = artifact_id.ok_or(DomainError::EvidenceRequired {
-            kind: "memory_candidate",
-            id: input.candidate_id.value(),
+        let artifact_id = artifact_id.ok_or(DomainError::MemoryCandidateRequiresEvidence {
+            id: input.candidate_id,
         })?;
         if !self.artifacts.contains_key(&artifact_id) {
             return Err(DomainError::MissingArtifact { id: artifact_id });
@@ -222,65 +178,15 @@ impl KernelState {
         &mut self,
         input: PromoteMemoryInput,
     ) -> Result<DomainEventEnvelope, DomainError> {
+        // The shared apply owns the promotion gates; the event carries the
+        // live-derived security so replay re-taints it against current state.
         let candidate = self.memory_candidates.get(&input.candidate_id).ok_or(
             DomainError::MissingMemoryCandidate {
                 id: input.candidate_id,
             },
         )?;
-        if candidate.evidence_ids().is_empty() {
-            return Err(DomainError::MemoryCandidateIneligibleForPromotion {
-                candidate_id: candidate.id(),
-                confidence_milli: candidate.confidence_milli(),
-                minimum_confidence_milli: MIN_PROMOTION_CONFIDENCE_MILLI,
-                reason: "no evidence ids",
-            });
-        }
-        if !candidate
-            .evidence_ids()
-            .iter()
-            .all(|evidence_id| self.evidences.contains_key(evidence_id))
-        {
-            return Err(DomainError::MemoryCandidateIneligibleForPromotion {
-                candidate_id: candidate.id(),
-                confidence_milli: candidate.confidence_milli(),
-                minimum_confidence_milli: MIN_PROMOTION_CONFIDENCE_MILLI,
-                reason: "missing evidence",
-            });
-        }
         let security = self.current_memory_security(candidate);
-        if !security.memory_promotion_allowed() {
-            return Err(DomainError::MemoryCandidateIneligibleForPromotion {
-                candidate_id: candidate.id(),
-                confidence_milli: candidate.confidence_milli(),
-                minimum_confidence_milli: MIN_PROMOTION_CONFIDENCE_MILLI,
-                reason: "security metadata blocks promotion",
-            });
-        }
-        if candidate.confidence_milli() < MIN_PROMOTION_CONFIDENCE_MILLI {
-            return Err(DomainError::MemoryCandidateIneligibleForPromotion {
-                candidate_id: candidate.id(),
-                confidence_milli: candidate.confidence_milli(),
-                minimum_confidence_milli: MIN_PROMOTION_CONFIDENCE_MILLI,
-                reason: "insufficient confidence",
-            });
-        }
-        if self.memories.contains_key(&input.memory_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "memory",
-                id: input.memory_id.value(),
-            });
-        }
-
-        let memory = Memory {
-            id: input.memory_id,
-            candidate_id: input.candidate_id,
-            claim_id: candidate.claim_id(),
-            evidence_ids: candidate.evidence_ids().clone(),
-            status: MemoryStatus::Active,
-            security: security.clone(),
-        };
-        self.memories.insert(input.memory_id, memory);
-
+        self.apply_memory_promoted(input.memory_id, input.candidate_id, &security)?;
         Ok(self.emit_event(DomainEvent::MemoryPromoted {
             memory_id: input.memory_id,
             candidate_id: input.candidate_id,

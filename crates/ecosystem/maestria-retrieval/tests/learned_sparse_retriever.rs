@@ -177,9 +177,8 @@ impl LearnedSparseIndex for OverproducingSparseIndex {
             u64::from(u32::MAX),
             0,
         )
-        .map_err(|error| PortError::InvalidInputContext {
-            context: "overproducing sparse test budget",
-            source: error.to_string(),
+        .map_err(|error| {
+            PortError::invalid_input("overproducing sparse test budget", error.to_string())
         })?;
         self.inner.search(query)
     }
@@ -196,9 +195,8 @@ impl LearnedSparseIndex for OverproducingSparseIndex {
             u64::from(u32::MAX),
             0,
         )
-        .map_err(|error| PortError::InvalidInputContext {
-            context: "overproducing sparse test budget",
-            source: error.to_string(),
+        .map_err(|error| {
+            PortError::invalid_input("overproducing sparse test budget", error.to_string())
         })?;
         self.inner.search_filtered(query, filter)
     }
@@ -363,7 +361,7 @@ fn request_with_limit(
     let execution_budget =
         maestria_domain::SearchExecutionBudget::new(limit as u64, limit as u64, limit as u64, 0)?;
     Ok(CandidateRequest {
-        plan,
+        plan: std::sync::Arc::new(plan),
         query: SearchQuery {
             q: query.to_string(),
             limit,

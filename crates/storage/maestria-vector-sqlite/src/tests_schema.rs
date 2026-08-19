@@ -19,14 +19,16 @@ fn rejects_unsupported_schema_version() -> Result<(), PortError> {
             assert_eq!(source, "999");
         }
         Err(_) => {
-            return Err(PortError::Internal {
-                message: "Expected unsupported version error, got different error".to_string(),
-            });
+            return Err(PortError::internal(
+                "maestria vector sqlite test",
+                "Expected unsupported version error, got different error".to_string(),
+            ));
         }
         Ok(_) => {
-            return Err(PortError::Internal {
-                message: "Expected error but got Ok".to_string(),
-            });
+            return Err(PortError::internal(
+                "maestria vector sqlite test",
+                "Expected error but got Ok".to_string(),
+            ));
         }
     }
     Ok(())
@@ -46,14 +48,16 @@ fn rejects_zero_schema_version() -> Result<(), PortError> {
             assert_eq!(source, "0");
         }
         Err(_) => {
-            return Err(PortError::Internal {
-                message: "Expected unsupported version error, got different error".to_string(),
-            });
+            return Err(PortError::internal(
+                "maestria vector sqlite test",
+                "Expected unsupported version error, got different error".to_string(),
+            ));
         }
         Ok(_) => {
-            return Err(PortError::Internal {
-                message: "Expected error but got Ok".to_string(),
-            });
+            return Err(PortError::internal(
+                "maestria vector sqlite test",
+                "Expected error but got Ok".to_string(),
+            ));
         }
     }
     Ok(())

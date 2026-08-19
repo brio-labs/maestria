@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use super::store::lock_map;
 use crate::PortError;
 use maestria_domain::BlobId;
 
@@ -43,10 +44,7 @@ impl crate::BlobStore for InMemoryBlobStore {
                 context: "blob store lock poisoned",
                 source: "blob store mutex is poisoned".to_string(),
             })?;
-        let mut blob_guard = self.blobs.lock().map_err(|_| PortError::InternalContext {
-            context: "blob store lock poisoned",
-            source: "blob store mutex is poisoned".to_string(),
-        })?;
+        let mut blob_guard = lock_map(&self.blobs, "blob store lock poisoned")?;
 
         let id = BlobId::new(*id_guard);
         *id_guard = id.value().saturating_add(1);
@@ -56,10 +54,7 @@ impl crate::BlobStore for InMemoryBlobStore {
     }
 
     fn get(&self, id: BlobId) -> Result<Vec<u8>, PortError> {
-        let guard = self.blobs.lock().map_err(|_| PortError::InternalContext {
-            context: "blob store lock poisoned",
-            source: "blob store mutex is poisoned".to_string(),
-        })?;
+        let guard = lock_map(&self.blobs, "blob store lock poisoned")?;
         guard.get(&id).cloned().ok_or(PortError::NotFound)
     }
 }

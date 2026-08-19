@@ -10,73 +10,22 @@ impl KernelState {
         &mut self,
         input: CreateClaimInput,
     ) -> Result<DomainEventEnvelope, DomainError> {
-        if self.claims.contains_key(&input.claim_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "claim",
-                id: input.claim_id.value(),
-            });
-        }
-        if !self.artifacts.contains_key(&input.artifact_id) {
-            return Err(DomainError::MissingArtifact {
-                id: input.artifact_id,
-            });
-        }
-
         let mut security = SecurityMetadata::from_optional(input.security);
         if let Some(artifact) = self.artifacts.get(&input.artifact_id) {
             security = security.taint_from(&artifact.security);
-        }
-        let mut claim = Claim::new(
-            input.claim_id,
-            input.artifact_id,
-            input.text.clone(),
-            security.clone(),
-        );
-        let mut seen = BTreeSet::new();
-        for evidence_id in &input.evidence_ids {
-            if !seen.insert(*evidence_id) {
-                return Err(DomainError::DuplicateId {
-                    kind: "evidence_in_claim",
-                    id: evidence_id.value(),
-                });
-            }
-            let evidence = self
-                .evidences
-                .get(evidence_id)
-                .ok_or(DomainError::MissingEvidence { id: *evidence_id })?;
-            if evidence.artifact_id != input.artifact_id {
-                return Err(DomainError::ArtifactMismatch {
-                    expected: input.artifact_id,
-                    actual: evidence.artifact_id,
-                });
-            }
-            if let Some(existing_claim) = evidence.claim_id
-                && existing_claim != input.claim_id
-            {
-                return Err(DomainError::DuplicateId {
-                    kind: "evidence_claim",
-                    id: evidence_id.value(),
-                });
-            }
-            claim.evidence_ids.insert(*evidence_id);
         }
         for evidence_id in &input.evidence_ids {
             if let Some(evidence) = self.evidences.get(evidence_id) {
                 security = security.taint_from(&evidence.security);
             }
         }
-        claim.security = security.clone();
-        for evidence_id in &input.evidence_ids {
-            if let Some(evidence) = self.evidences.get_mut(evidence_id) {
-                evidence.claim_id = Some(input.claim_id);
-            }
-        }
-
-        self.claims.insert(input.claim_id, claim);
-        if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
-            artifact.claim_ids.insert(input.claim_id);
-        }
-
+        self.apply_claim_created(
+            input.claim_id,
+            input.artifact_id,
+            &input.text,
+            &input.evidence_ids,
+            &security,
+        )?;
         Ok(self.emit_event(DomainEvent::ClaimCreated {
             claim_id: input.claim_id,
             artifact_id: input.artifact_id,
@@ -109,9 +58,8 @@ impl KernelState {
         if let Some(existing_claim) = evidence.claim_id
             && existing_claim != input.claim_id
         {
-            return Err(DomainError::DuplicateId {
-                kind: "evidence_claim",
-                id: input.evidence_id.value(),
+            return Err(DomainError::DuplicateEvidenceClaim {
+                id: input.evidence_id,
             });
         }
 
@@ -141,18 +89,12 @@ impl KernelState {
             return Err(DomainError::MissingArtifact { id: artifact_id });
         }
         if self.claims.contains_key(&claim_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "claim",
-                id: claim_id.value(),
-            });
+            return Err(DomainError::DuplicateClaim { id: claim_id });
         }
         let mut seen = BTreeSet::new();
         for evidence_id in evidence_ids {
             if !seen.insert(*evidence_id) {
-                return Err(DomainError::DuplicateId {
-                    kind: "evidence_in_claim",
-                    id: evidence_id.value(),
-                });
+                return Err(DomainError::DuplicateEvidenceInClaim { id: *evidence_id });
             }
             let evidence = self
                 .evidences
@@ -167,10 +109,7 @@ impl KernelState {
             if let Some(existing_claim) = evidence.claim_id
                 && existing_claim != claim_id
             {
-                return Err(DomainError::DuplicateId {
-                    kind: "evidence_claim",
-                    id: evidence_id.value(),
-                });
+                return Err(DomainError::DuplicateEvidenceClaim { id: *evidence_id });
             }
         }
         let mut claim = Claim::new(claim_id, artifact_id, text.to_string(), security.clone());
@@ -222,10 +161,7 @@ impl KernelState {
         if let Some(existing_claim) = evidence.claim_id
             && existing_claim != claim_id
         {
-            return Err(DomainError::DuplicateId {
-                kind: "evidence_claim",
-                id: evidence_id.value(),
-            });
+            return Err(DomainError::DuplicateEvidenceClaim { id: evidence_id });
         }
         claim.security = claim.security.taint_from(&evidence.security);
         claim.evidence_ids.insert(evidence_id);

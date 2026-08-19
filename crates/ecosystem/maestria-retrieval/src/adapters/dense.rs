@@ -199,11 +199,7 @@ impl DenseChunkRetriever {
             return Ok(None);
         };
         self.verifier.verify(&evidence, &artifact)?;
-        let score = if hit.score.is_finite() && hit.score > 0.0 {
-            (hit.score.min(1.0) * 1_000_000.0).floor() as u32
-        } else {
-            0
-        };
+        let score = super::common::similarity_micros(hit.score);
         candidate_from_records(
             artifact.id,
             artifact.content_hash.as_ref(),
@@ -225,8 +221,8 @@ impl DenseChunkRetriever {
 
 #[async_trait]
 impl CandidateRetriever for DenseChunkRetriever {
-    fn descriptor(&self) -> RetrieverDescriptor {
-        self.descriptor.clone()
+    fn descriptor(&self) -> &RetrieverDescriptor {
+        &self.descriptor
     }
 
     async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {

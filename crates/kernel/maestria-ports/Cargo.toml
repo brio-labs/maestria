@@ -9,11 +9,9 @@ rust-version.workspace = true
 contract-tests = ["dep:maestria-test-support"]
 
 [dependencies]
-maestria_domain = { package = "maestria-domain", path = "../maestria-domain" }
-serde = { version = "1", features = ["derive"] }
-maestria-test-support = { path = "../../test-support/maestria-test-support", optional = true }
-
-
+maestria-domain = { workspace = true }
+serde = { workspace = true }
+maestria-test-support = { workspace = true, optional = true }
 
 [dev-dependencies]
-maestria-test-support = { path = "../../test-support/maestria-test-support" }
+maestria-test-support = { workspace = true }

@@ -134,7 +134,6 @@ fn ingestion_replay_full_flow_reconstructs_state() -> Result<(), Box<dyn std::er
 fn ingestion_replay_rejects_duplicate_detection_events() -> Result<(), Box<dyn std::error::Error>> {
     let event = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
@@ -146,7 +145,6 @@ fn ingestion_replay_rejects_duplicate_detection_events() -> Result<(), Box<dyn s
 
     let duplicate = DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
@@ -159,10 +157,7 @@ fn ingestion_replay_rejects_duplicate_detection_events() -> Result<(), Box<dyn s
     )?;
     assert!(matches!(
         err,
-        DomainError::DuplicateId {
-            kind: "artifact",
-            id: 1,
-        }
+        DomainError::DuplicateArtifact { id } if id.value() == 1
     ));
     Ok(())
 }

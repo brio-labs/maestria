@@ -61,7 +61,7 @@ fn migrate_v1_to_v2(conn: &Connection) -> Result<(), PortError> {
 }
 
 fn create_initial_schema(conn: &Connection) -> Result<(), PortError> {
-    conn.execute_batch(
+    let sql = format!(
         r#"CREATE TABLE relations (
              id TEXT PRIMARY KEY,
              source_type TEXT NOT NULL,
@@ -71,15 +71,16 @@ fn create_initial_schema(conn: &Connection) -> Result<(), PortError> {
              target_id TEXT NOT NULL,
              evidence_id TEXT,
              confidence_milli INTEGER NOT NULL,
-             security_json TEXT NOT NULL DEFAULT '{"trust_zone":"Untrusted","authority":"External","integrity":"Unverified","sensitivity":"Internal","review_status":"Unreviewed","prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}'
+             security_json TEXT NOT NULL DEFAULT '{}'
          );
          CREATE INDEX idx_relations_source
              ON relations(source_type, source_id);
          CREATE INDEX idx_relations_target
              ON relations(target_type, target_id);
          INSERT INTO graph_projection_schema (id, version) VALUES (1, 2);"#,
-    )
-    .map_err(to_port_error)
+        maestria_sqlite_support::DEFAULT_SECURITY_JSON
+    );
+    conn.execute_batch(&sql).map_err(to_port_error)
 }
 
 fn validate_relations_columns(conn: &Connection, expected: usize) -> Result<(), PortError> {

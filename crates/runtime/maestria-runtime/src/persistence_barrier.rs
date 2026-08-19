@@ -73,13 +73,9 @@ pub(crate) fn validation_report_created(
     report_id: ValidationReportId,
 ) -> impl Fn(&DomainEventEnvelope) -> bool {
     move |env| {
-        matches!(
-            &env.event,
-            DomainEvent::ValidationReportCreated {
-                report_id: id,
-                ..
-            } if *id == report_id
-        )
+        env.event
+            .validation_report()
+            .is_some_and(|(id, _, _)| id == report_id)
     }
 }
 
@@ -130,13 +126,10 @@ pub(crate) fn approval_resolved(
         if env.id != event_id {
             return false;
         }
-        let event_matches = matches!(
-            &env.event,
-            DomainEvent::ApprovalRecorded {
-                approval_id: id,
-                outcome,
-            } if *id == approval_id && outcome.approved() == approved
-        );
+        let event_matches = env
+            .event
+            .approval_record()
+            .is_some_and(|(id, outcome)| id == approval_id && outcome.approved() == approved);
         if !event_matches {
             return false;
         }

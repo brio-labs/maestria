@@ -7,25 +7,12 @@ impl KernelState {
         &mut self,
         input: RecordValidationReportInput,
     ) -> Result<DomainEventEnvelope, DomainError> {
-        if self.validation_reports.contains_key(&input.report_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "validation_report",
-                id: input.report_id.value(),
-            });
-        }
-        if let Some(task_id) = input.task_id
-            && !self.tasks.contains_key(&task_id)
-        {
-            return Err(DomainError::MissingTask { id: task_id });
-        }
-        self.validation_reports.insert(
+        self.apply_validation_report_created(
             input.report_id,
-            ValidationReportRecord {
-                task_id: input.task_id,
-                passed: input.passed,
-                warnings: input.warnings.clone(),
-            },
-        );
+            input.task_id,
+            input.passed,
+            &input.warnings,
+        )?;
         Ok(self.emit_event(DomainEvent::ValidationReportCreated {
             report_id: input.report_id,
             task_id: input.task_id,
@@ -66,10 +53,7 @@ impl KernelState {
         warnings: &[String],
     ) -> Result<(), DomainError> {
         if self.validation_reports.contains_key(&report_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "validation_report",
-                id: report_id.value(),
-            });
+            return Err(DomainError::DuplicateValidationReport { id: report_id });
         }
         if let Some(tid) = task_id
             && !self.tasks.contains_key(&tid)

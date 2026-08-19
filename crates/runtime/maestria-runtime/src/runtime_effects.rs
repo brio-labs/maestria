@@ -3,8 +3,8 @@ use crate::effect_dispatch::EffectWork;
 use crate::effect_execution_dispatch::PreparedEffect;
 use crate::effect_result::EffectFailure;
 use crate::runtime::MaestriaRuntime;
-use maestria_domain::{KernelState, MaestriaEffect, ValidationReportId};
-use std::sync::{Arc, atomic::Ordering};
+use maestria_domain::{KernelState, MaestriaEffect};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// Dedicated lane for `IndexVector` effects: a degraded vector flood must
@@ -32,15 +32,6 @@ enum AdmitOutcome {
 }
 
 impl MaestriaRuntime {
-    pub(crate) fn seed_next_validation_report_id(state: &KernelState) -> u64 {
-        state
-            .validation_reports
-            .keys()
-            .map(|id| id.value())
-            .max()
-            .map_or(1, |value| value.saturating_add(1))
-    }
-
     /// Seed the command correlation-id counter from persisted state so the
     /// per-process counter never reuses a correlation id already recorded in
     /// the event log (R27: persisted identity namespaces must not be coupled
@@ -106,18 +97,6 @@ impl MaestriaRuntime {
                 );
                 false
             }
-        }
-    }
-
-    /// Assign the next validation-report id to a pending `RunValidation`
-    /// work item before admission.
-    fn assign_validation_report_id(
-        work: &mut EffectWork,
-        next_validation_report_id: &std::sync::atomic::AtomicU64,
-    ) {
-        if let EffectWork::Pending(MaestriaEffect::RunValidation(request)) = work {
-            request.validation_report_id =
-                ValidationReportId::new(next_validation_report_id.fetch_add(1, Ordering::Relaxed));
         }
     }
 
@@ -225,22 +204,20 @@ impl MaestriaRuntime {
         }
     }
 
-    /// Admit one effect: assign its validation-report id, execute inline
-    /// persist events, and spawn the task. `IndexVector` effects (pending
-    /// and prepared forms) run under the dedicated vector lane.
+    /// Admit one effect: execute inline persist events and spawn the task.
+    /// `IndexVector` effects (pending and prepared forms) run under the
+    /// dedicated vector lane.
     async fn admit_effect(
         in_flight: &mut tokio::task::JoinSet<()>,
         lanes: &EffectLanes,
         execution_context: EffectExecutionContext,
-        next_validation_report_id: &std::sync::atomic::AtomicU64,
-        mut work: EffectWork,
+        work: EffectWork,
         effect_shutdown: &tokio_util::sync::CancellationToken,
         runtime_shutdown: &tokio_util::sync::CancellationToken,
     ) -> AdmitOutcome {
         if effect_shutdown.is_cancelled() {
             return AdmitOutcome::DropBatch;
         }
-        Self::assign_validation_report_id(&mut work, next_validation_report_id);
         let work = match Self::run_persist_event(execution_context.clone(), work).await {
             Ok(None) => return AdmitOutcome::Persisted,
             Ok(Some(work)) => work,
@@ -281,7 +258,6 @@ impl MaestriaRuntime {
     ) -> tokio::task::JoinHandle<()> {
         let execution_context = self.effect_execution_context();
         let max_concurrent_effects = self.config.max_concurrent_effects;
-        let next_validation_report_id = Arc::clone(&self.next_validation_report_id);
         let drain_effects_on_shutdown = self.config.drain_effects_on_shutdown;
         #[cfg(test)]
         let test_pre_failed_effect_task = self.test_pre_failed_effect_task;
@@ -327,7 +303,6 @@ impl MaestriaRuntime {
                         &mut in_flight,
                         &lanes,
                         execution_context.clone(),
-                        &next_validation_report_id,
                         work,
                         &effect_shutdown,
                         &runtime_shutdown,

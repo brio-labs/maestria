@@ -2,9 +2,9 @@ use crate::config::EffectExecutionContext;
 use crate::effect_result::EffectFailure;
 use maestria_domain::{
     ApprovalId, LogicalTick, MaestriaEffect, ModelAgentProposalExecution,
-    ModelAgentProposalRequest, QueryHarnessProposalRequest, QueryHarnessRequest,
+    ModelAgentProposalRequest, QueryHarnessRequest,
 };
-use maestria_governance::{RiskClass, ScopeGuard};
+use maestria_governance::RiskClass;
 use maestria_ports::{
     ApprovalRecord, ApprovalRiskLevel, ApprovalStatus, EffectJournalEntry, EffectJournalIntent,
     EffectJournalStatus,
@@ -66,9 +66,8 @@ pub fn decode_pending_continuation(
 /// approval record awaiting external resolution.
 pub(super) async fn persist_pending_harness(
     context: &EffectExecutionContext,
-    request: &QueryHarnessProposalRequest,
+    proposal: &ModelAgentProposalRequest,
 ) -> Result<(), EffectFailure> {
-    let proposal = &request.proposal;
     if !matches!(&proposal.execution, ModelAgentProposalExecution::Fresh) {
         return Err(EffectFailure::Failed(
             "only a fresh proposal can create an approval continuation".to_string(),
@@ -80,12 +79,8 @@ pub(super) async fn persist_pending_harness(
         .id_allocator
         .allocate_approval_id()
         .map_err(|error| EffectFailure::Failed(format!("allocate harness approval id: {error}")))?;
-    let capability = build_approval_continuation(
-        proposal,
-        approval_id,
-        maestria_domain::JournalGeneration::new(entry.generation),
-    )?;
-    persist_approval_record(context, request, approval_id, capability).await?;
+    let capability = build_approval_continuation(proposal, approval_id, entry.generation)?;
+    persist_approval_record(context, proposal, approval_id, capability).await?;
     tracing::info!(approval_id = %approval_id, correlation_id = %proposal.correlation_id, "harness proposal pending approval");
     Ok(())
 }
@@ -131,22 +126,18 @@ fn build_approval_continuation(
 /// Persist the pending approval record for a harness proposal.
 async fn persist_approval_record(
     context: &EffectExecutionContext,
-    request: &QueryHarnessProposalRequest,
+    proposal: &ModelAgentProposalRequest,
     approval_id: ApprovalId,
     capability: String,
 ) -> Result<(), EffectFailure> {
-    let proposal = &request.proposal;
     let tick = {
         let state = context.state.read().await;
-        state
-            .event_log
-            .last()
-            .map_or(0, |event| event.sequence.value())
+        state.event_log.last().map_or(0, |event| event.id.value())
     };
-    let scope_guard = ScopeGuard::new(context.scope.clone());
+    let scope = &context.scope;
     let risk = context.governance.classifier.classify(
-        &MaestriaEffect::QueryHarnessProposal(request.clone()),
-        &scope_guard,
+        &MaestriaEffect::QueryHarnessProposal(Box::new(proposal.clone())),
+        scope,
     );
     let record = ApprovalRecord {
         id: approval_id,
@@ -178,7 +169,10 @@ pub(super) fn record_denied_harness(
             capability: request.capability.clone(),
             command: request.command.clone(),
             scope_id: request.scope_id,
-            requested_generation: request.execution.generation(),
+            requested_generation: request
+                .execution
+                .generation()
+                .map(maestria_domain::JournalGeneration::new),
         })
         .map_err(|error| EffectFailure::Failed(format!("record denied harness intent: {error}")))?;
     context

@@ -16,6 +16,17 @@ pub enum MemoryPromotionDecision {
     Deny { reason: String },
 }
 
+impl From<MemoryPromotionDecision> for maestria_domain::ModelAgentMemoryDecision {
+    fn from(decision: MemoryPromotionDecision) -> Self {
+        match decision {
+            MemoryPromotionDecision::Promote => Self::Promote,
+            MemoryPromotionDecision::RequireEvidence { .. } => Self::RequireEvidence,
+            MemoryPromotionDecision::RequireReview { .. } => Self::RequireReview,
+            MemoryPromotionDecision::Deny { .. } => Self::Deny,
+        }
+    }
+}
+
 /// Gate that decides whether a memory candidate should be promoted.
 pub trait MemoryPromotionGate {
     fn evaluate(&self, request: &MemoryPromotionRequest) -> MemoryPromotionDecision;

@@ -4,7 +4,10 @@
 use super::*;
 use maestria_domain::{HarnessRunId, ScopeId};
 
-fn intent(run_id: u64, generation: Option<u64>) -> EffectJournalIntent {
+fn intent(
+    run_id: u64,
+    generation: Option<maestria_domain::JournalGeneration>,
+) -> EffectJournalIntent {
     EffectJournalIntent {
         run_id: HarnessRunId::new(run_id),
         task_id: None,
@@ -37,7 +40,8 @@ pub fn assert_effect_journal_lifecycle(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let entry = journal.record_intent(intent(1, None))?;
     assert_eq!(
-        entry.generation, 1,
+        entry.generation.value(),
+        1,
         "first intent must allocate generation 1"
     );
     assert_eq!(entry.status, EffectJournalStatus::Intent);
@@ -53,7 +57,10 @@ pub fn assert_effect_journal_lifecycle(
 
     assert!(journal.is_current(entry.run_id, entry.generation)?);
     assert!(
-        !journal.is_current(entry.run_id, entry.generation.saturating_add(1))?,
+        !journal.is_current(
+            entry.run_id,
+            maestria_domain::JournalGeneration::new(entry.generation.value().saturating_add(1))
+        )?,
         "a different generation must not be current"
     );
 
@@ -79,11 +86,11 @@ pub fn assert_effect_journal_supersedes(
     journal: &dyn EffectJournal,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let first = journal.record_intent(intent(2, None))?;
-    assert_eq!(first.generation, 1);
+    assert_eq!(first.generation.value(), 1);
     let second = journal.record_intent(intent(2, None))?;
     assert_eq!(
-        second.generation,
-        first.generation.saturating_add(1),
+        second.generation.value(),
+        first.generation.value().saturating_add(1),
         "superseding intent must allocate the next generation"
     );
 
@@ -101,11 +108,18 @@ pub fn assert_effect_journal_preconditions(
     journal: &dyn EffectJournal,
 ) -> Result<(), Box<dyn std::error::Error>> {
     assert!(matches!(
-        journal.record_started(HarnessRunId::new(99), 1),
+        journal.record_started(
+            HarnessRunId::new(99),
+            maestria_domain::JournalGeneration::new(1)
+        ),
         Err(PortError::NotFound)
     ));
     assert!(matches!(
-        journal.record_terminal(HarnessRunId::new(42), 1, EffectJournalStatus::Completed),
+        journal.record_terminal(
+            HarnessRunId::new(42),
+            maestria_domain::JournalGeneration::new(1),
+            EffectJournalStatus::Completed
+        ),
         Err(PortError::NotFound)
     ));
     Ok(())
@@ -159,7 +173,10 @@ pub fn assert_effect_journal_feedback(
         !journal.is_current(second.run_id, second.generation)?,
         "feedback-accepted entries must be superseded like in-flight ones"
     );
-    assert_eq!(superseding.generation, second.generation.saturating_add(1));
+    assert_eq!(
+        superseding.generation.value(),
+        second.generation.value().saturating_add(1)
+    );
     Ok(())
 }
 

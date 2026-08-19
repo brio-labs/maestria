@@ -33,7 +33,7 @@ pub(crate) fn usage_within_budget(
 #[path = "engine_budget_tests.rs"]
 mod tests;
 
-fn partition_allowance(total: u64, lanes: usize, lane: usize) -> u64 {
+pub(crate) fn partition_allowance(total: u64, lanes: usize, lane: usize) -> u64 {
     let lanes = lanes.max(1) as u64;
     let base = total / lanes;
     let remainder = total % lanes;
@@ -47,7 +47,13 @@ pub fn lane_budget(
     lanes: usize,
     lane: usize,
 ) -> Option<SearchExecutionBudget> {
-    let global = plan.execution_budget().ok()?;
+    let global = match plan.execution_budget() {
+        Ok(budget) => budget,
+        Err(error) => {
+            tracing::warn!(%error, "lane_budget: invalid execution budget");
+            return None;
+        }
+    };
     let max_results = global.max_results().saturating_sub(remaining.results);
     let max_candidates = global.max_candidates().saturating_sub(remaining.candidates);
     let max_work_units = global.max_work_units().saturating_sub(remaining.work_units);
@@ -65,7 +71,7 @@ pub fn lane_budget(
         return None;
     }
     let max_bytes = partitioned_bytes.and_then(std::num::NonZeroU64::new);
-    SearchExecutionBudget::with_byte_limit(
+    match SearchExecutionBudget::with_byte_limit(
         // `max_results` is the plan's final-result ceiling, not a shared
         // consumable resource: every lane must be able to produce up to the
         // full result count so fusion can select from all lanes. Partitioning
@@ -74,15 +80,25 @@ pub fn lane_budget(
         partition_allowance(max_candidates, lanes, lane),
         partition_allowance(max_work_units, lanes, lane),
         max_bytes,
-    )
-    .ok()
+    ) {
+        Ok(budget) => Some(budget),
+        Err(error) => {
+            tracing::warn!(%error, "lane_budget: invalid byte-limited budget");
+            None
+        }
+    }
 }
-
 pub(crate) fn remaining_budget(
     plan: &SearchPlan,
     usage: SearchExecutionUsage,
 ) -> Option<SearchExecutionBudget> {
-    let global = plan.execution_budget().ok()?;
+    let global = match plan.execution_budget() {
+        Ok(budget) => budget,
+        Err(error) => {
+            tracing::warn!(%error, "remaining_budget: invalid execution budget");
+            return None;
+        }
+    };
     // `usage.results` counts lane-produced candidates and can legitimately
     // exceed the final-result ceiling (each lane produces up to
     // `max_results` for fusion); the ceiling applies to the final
@@ -99,11 +115,16 @@ pub(crate) fn remaining_budget(
     if max_bytes == Some(0) {
         return None;
     }
-    SearchExecutionBudget::with_byte_limit(
+    match SearchExecutionBudget::with_byte_limit(
         max_results,
         max_candidates,
         max_work_units,
         max_bytes.and_then(std::num::NonZeroU64::new),
-    )
-    .ok()
+    ) {
+        Ok(budget) => Some(budget),
+        Err(error) => {
+            tracing::warn!(%error, "remaining_budget: invalid byte-limited budget");
+            None
+        }
+    }
 }

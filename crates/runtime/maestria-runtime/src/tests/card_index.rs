@@ -18,9 +18,10 @@ impl EmbeddingProvider for ProviderWithoutIdentity {
         }
     }
     fn embed(&self, _request: EmbeddingRequest) -> Result<EmbeddingResponse, PortError> {
-        Err(PortError::Internal {
-            message: "test provider must not be called without a model".into(),
-        })
+        Err(PortError::internal(
+            "maestria runtime test",
+            "test provider must not be called without a model",
+        ))
     }
 }
 
@@ -71,7 +72,6 @@ async fn index_full_text_effect_indexes_cards_before_chunks()
         },
         title: "indexed card title".into(),
         body: "indexed card body".into(),
-        claim_ids: BTreeSet::new(),
         security: maestria_domain::SecurityMetadata::default(),
     };
 
@@ -93,7 +93,7 @@ async fn index_full_text_effect_indexes_cards_before_chunks()
     let governance = Arc::new(crate::test_helpers::test_governance());
 
     let result = MaestriaRuntime::test_execute_effect(
-        MaestriaEffect::IndexFullText(maestria_domain::IndexFullTextRequest {
+        MaestriaEffect::IndexFullText(maestria_domain::IndexChunkRequest {
             artifact_id,
             chunk_id,
         }),
@@ -168,7 +168,7 @@ async fn index_full_text_effect_no_cards_when_state_has_none()
     let governance = Arc::new(crate::test_helpers::test_governance());
 
     let result = MaestriaRuntime::test_execute_effect(
-        MaestriaEffect::IndexFullText(maestria_domain::IndexFullTextRequest {
+        MaestriaEffect::IndexFullText(maestria_domain::IndexChunkRequest {
             artifact_id,
             chunk_id,
         }),
@@ -235,7 +235,6 @@ async fn index_full_text_effect_reindexing_is_idempotent() -> Result<(), Box<dyn
         },
         title: "reindexed card".into(),
         body: "reindexed body".into(),
-        claim_ids: BTreeSet::new(),
         security: maestria_domain::SecurityMetadata::default(),
     };
 
@@ -256,7 +255,7 @@ async fn index_full_text_effect_reindexing_is_idempotent() -> Result<(), Box<dyn
     });
     let governance = Arc::new(crate::test_helpers::test_governance());
 
-    let effect = MaestriaEffect::IndexFullText(maestria_domain::IndexFullTextRequest {
+    let effect = MaestriaEffect::IndexFullText(maestria_domain::IndexChunkRequest {
         artifact_id,
         chunk_id,
     });
@@ -329,7 +328,7 @@ async fn index_full_text_rejects_secret_bearing_chunk() -> Result<(), Box<dyn st
     let search_index = Arc::new(InMemoryFullTextIndex::new());
     let (input_tx, _input_rx) = mpsc::channel(8);
     let result = MaestriaRuntime::test_execute_effect(
-        MaestriaEffect::IndexFullText(maestria_domain::IndexFullTextRequest {
+        MaestriaEffect::IndexFullText(maestria_domain::IndexChunkRequest {
             artifact_id,
             chunk_id,
         }),
@@ -366,7 +365,7 @@ async fn vector_effect_without_provider_reports_degraded_failure()
 -> Result<(), Box<dyn std::error::Error>> {
     let (input_tx, _input_rx) = mpsc::channel(8);
     let result = MaestriaRuntime::test_execute_effect(
-        MaestriaEffect::IndexVector(maestria_domain::IndexVectorRequest {
+        MaestriaEffect::IndexVector(maestria_domain::IndexChunkRequest {
             artifact_id: ArtifactId::new(1),
             chunk_id: ChunkId::new(10),
         }),
@@ -403,7 +402,7 @@ async fn vector_effect_without_model_reports_degraded_failure()
     );
 
     let result = MaestriaRuntime::test_execute_effect(
-        MaestriaEffect::IndexVector(maestria_domain::IndexVectorRequest {
+        MaestriaEffect::IndexVector(maestria_domain::IndexChunkRequest {
             artifact_id: ArtifactId::new(1),
             chunk_id: ChunkId::new(10),
         }),

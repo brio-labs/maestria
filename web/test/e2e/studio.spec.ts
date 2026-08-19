@@ -58,7 +58,7 @@ async function installFixture(page: Page, conflict = false): Promise<void> {
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: notebook }) });
       return;
     }
-    if (path === '/api/notebooks/1/sources' && request.method() === 'GET') {
+    if ((path === '/api/sources' || path === '/api/notebooks/1/sources') && request.method() === 'GET') {
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { sources: [source] } }) });
       return;
     }

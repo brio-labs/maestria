@@ -1,21 +1,24 @@
 /// Normalize a query string for prompt-injection matching.
 ///
-/// Normalization preserves only lower-case alphanumeric and whitespace
-/// characters so punctuation cannot break marker matching.
+/// Normalization preserves only lower-case alphanumeric tokens separated by
+/// single spaces so punctuation cannot break marker matching. Single pass
+/// into one pre-sized buffer.
 fn normalized_prompt_text(text: &str) -> String {
-    text.to_ascii_lowercase()
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || character.is_ascii_whitespace() {
-                character
-            } else {
-                ' '
+    let mut normalized = String::with_capacity(text.len());
+    let mut pending_separator = false;
+    for character in text.chars() {
+        if character.is_ascii_alphanumeric() {
+            if pending_separator && !normalized.is_empty() {
+                normalized.push(' ');
             }
-        })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+            pending_separator = false;
+            normalized.push(character.to_ascii_lowercase());
+        } else {
+            // Whitespace and non-alphanumeric characters are separators.
+            pending_separator = true;
+        }
+    }
+    normalized
 }
 
 /// Detect canonical prompt-injection phrases in user text.

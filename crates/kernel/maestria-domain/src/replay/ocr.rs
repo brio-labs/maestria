@@ -69,16 +69,7 @@ impl KernelState {
                 detail: "OCR completion replay has no pending intent",
             });
         }
-        if artifact_id != intent.artifact_id() {
-            return Err(DomainError::InternalInvariantViolation {
-                detail: "OCR completion replay artifact does not correlate with intent",
-            });
-        }
-        completion.validate_against(&intent).map_err(|_| {
-            DomainError::InternalInvariantViolation {
-                detail: "OCR completion replay does not correlate with intent",
-            }
-        })?;
+        self.validate_ocr_correlation(artifact_id, completion, &intent)?;
         self.pending_ocr.remove(completion.request_id());
         self.ocr_results
             .insert(completion.request_id().clone(), completion.clone());

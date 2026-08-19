@@ -54,9 +54,6 @@ impl OcrPageSet {
     pub fn as_slice(&self) -> &[u32] {
         &self.0
     }
-    pub fn into_vec(self) -> Vec<u32> {
-        self.0
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

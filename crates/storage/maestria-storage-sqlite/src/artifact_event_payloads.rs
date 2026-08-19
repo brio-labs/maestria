@@ -139,18 +139,12 @@ impl StoredEventPayload {
             DomainEvent::ArtifactParsed {
                 artifact_id,
                 status,
-                chunks_added,
             } => Some(Self::ArtifactParsed {
                 artifact_id: artifact_id.value(),
-                status: (*status).into(),
-                chunks_added: *chunks_added,
+                status: crate::payloads::StoredParseStatus::from_domain(*status),
             }),
-            DomainEvent::SearchCompleted {
-                artifact_id,
-                cards_added,
-            } => Some(Self::SearchCompleted {
+            DomainEvent::SearchCompleted { artifact_id } => Some(Self::SearchCompleted {
                 artifact_id: artifact_id.value(),
-                cards_added: *cards_added,
             }),
             DomainEvent::PendingIndex {
                 artifact_id,
@@ -211,18 +205,14 @@ impl StoredEventPayload {
             Self::ArtifactParsed {
                 artifact_id,
                 status,
-                chunks_added,
             } => Ok(DomainEvent::ArtifactParsed {
                 artifact_id: ArtifactId::new(artifact_id),
-                status: status.into(),
-                chunks_added,
+                status: status
+                    .try_into_domain()
+                    .map_err(FamilyDecodeError::Invalid)?,
             }),
-            Self::SearchCompleted {
-                artifact_id,
-                cards_added,
-            } => Ok(DomainEvent::SearchCompleted {
+            Self::SearchCompleted { artifact_id } => Ok(DomainEvent::SearchCompleted {
                 artifact_id: ArtifactId::new(artifact_id),
-                cards_added,
             }),
             Self::PendingIndex {
                 artifact_id,
@@ -333,7 +323,11 @@ impl StoredEventPayload {
             artifact_id: ArtifactId::new(artifact_id),
             node_id: StructureNodeId::new(node_id),
             source_span: source_span.try_into().map_err(FamilyDecodeError::Invalid)?,
-            representations: representations.into_iter().map(Into::into).collect(),
+            representations: representations
+                .into_iter()
+                .map(|r| r.try_into_domain())
+                .collect::<Result<_, _>>()
+                .map_err(FamilyDecodeError::Invalid)?,
             order,
             text,
         })

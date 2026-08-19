@@ -161,6 +161,7 @@ fn is_missing_vec_module(message: &str) -> bool {
     message.to_ascii_lowercase().contains("no such module")
 }
 
+#[cfg(test)]
 pub(crate) fn sqlite_vec_available(connection: &Connection) -> Result<bool, PortError> {
     let sql: Option<String> = connection
         .query_row(

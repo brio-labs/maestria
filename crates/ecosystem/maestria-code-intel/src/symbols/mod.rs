@@ -1,13 +1,10 @@
 //! Rust symbol extraction from workspace sources.
-use maestria_domain::content_hash;
-
 use crate::identity::RepositoryIdentity;
 use crate::query::execute_query;
 use crate::{
     CodeIntelError, CodeQuery, FileContextRecord, PackageRecord, QueryResult, SymbolRecord,
 };
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
 use std::path::Path;
 
 pub(crate) mod collect_rust;
@@ -181,16 +178,8 @@ fn extract_file(
         })?
         .to_string_lossy()
         .into_owned();
-    let source_bytes = fs::read(&file).map_err(|error| CodeIntelError::Io {
-        operation: "read source file".to_string(),
-        path: file.to_string_lossy().into_owned(),
-        details: error.to_string(),
-    })?;
-    let source_content_hash = content_hash(&source_bytes);
-    let source = String::from_utf8(source_bytes).map_err(|error| CodeIntelError::Parse {
-        context: format!("decode Rust source {}", file.display()),
-        details: error.to_string(),
-    })?;
+    let (source, source_content_hash) =
+        crate::language::compose::load_source_file(&file, "read source file")?;
     let module_context = match module_contexts.get(&file) {
         Some(context) => context.clone(),
         None => collect_rust::ModuleContext {

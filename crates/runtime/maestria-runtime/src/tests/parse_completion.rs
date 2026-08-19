@@ -171,9 +171,10 @@ async fn parse_artifact_unsupported_parser_emits_terminal_status()
             _file: FileHandle,
             _context: ParseContext,
         ) -> Result<ParsedArtifact, PortError> {
-            Err(PortError::InvalidInput {
-                message: "never called".into(),
-            })
+            Err(PortError::invalid_input(
+                "maestria runtime test",
+                "never called",
+            ))
         }
     }
     let artifact_repo = InMemoryArtifactRepository::new();
@@ -304,9 +305,10 @@ async fn parse_artifact_repository_error_returns_failure() -> Result<(), Box<dyn
         }
 
         fn get(&self, _id: ArtifactId) -> Result<Option<Artifact>, PortError> {
-            Err(PortError::Internal {
-                message: "simulated repo failure".into(),
-            })
+            Err(PortError::internal(
+                "maestria runtime test",
+                "simulated repo failure",
+            ))
         }
     }
 
@@ -376,9 +378,10 @@ impl Parser for MismatchedHashParser {
         let actual_hash = maestria_domain::content_hash(&file.bytes);
         let wrong_hash = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
         if actual_hash == wrong_hash {
-            return Err(PortError::Internal {
-                message: "test hash must differ from source hash".to_string(),
-            });
+            return Err(PortError::internal(
+                "maestria runtime test",
+                "test hash must differ from source hash".to_string(),
+            ));
         }
         let node_id = maestria_domain::StructureNodeId::new(context.artifact_id.value());
         let tree = maestria_ports::DocumentTree::new(
@@ -388,11 +391,8 @@ impl Parser for MismatchedHashParser {
                 parent_id: None,
                 sibling_id: None,
                 node_type: maestria_domain::StructureNodeType::Document,
-                source_range: maestria_domain::ContentRange::new(0, 1).map_err(|e| {
-                    PortError::Internal {
-                        message: e.to_string(),
-                    }
-                })?,
+                source_range: maestria_domain::ContentRange::new(0, 1)
+                    .map_err(|e| PortError::internal("maestria runtime test", e.to_string()))?,
                 page: None,
                 section_path: vec![],
                 parser_generation: "test".to_string(),
@@ -400,9 +400,7 @@ impl Parser for MismatchedHashParser {
                 language: None,
             }],
         )
-        .map_err(|e| PortError::Internal {
-            message: format!("{e:?}"),
-        })?;
+        .map_err(|e| PortError::internal("maestria runtime test", format!("{e:?}")))?;
         let chunk = ParsedChunk {
             chunk_id: maestria_domain::ChunkId::new(context.artifact_id.value()),
             artifact_id: context.artifact_id,
@@ -417,11 +415,8 @@ impl Parser for MismatchedHashParser {
         Ok(ParsedArtifact {
             artifact_id: context.artifact_id,
             artifact_version_id: maestria_domain::ArtifactVersionId::new(1),
-            content_hash: maestria_domain::ContentHash::new(wrong_hash.to_string()).map_err(
-                |e| PortError::Internal {
-                    message: e.to_string(),
-                },
-            )?,
+            content_hash: maestria_domain::ContentHash::new(wrong_hash.to_string())
+                .map_err(|e| PortError::internal("maestria runtime test", e.to_string()))?,
             tree,
             status: maestria_ports::ParseStatus::Parsed,
             chunks: vec![chunk],

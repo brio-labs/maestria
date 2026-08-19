@@ -22,15 +22,17 @@ pub enum RetrievalScoreKind {
 }
 
 impl RetrievalScoreKind {
-    fn validation_key(&self) -> String {
+    fn validation_key(&self) -> std::borrow::Cow<'static, str> {
         match self {
-            Self::Exact => "exact".to_string(),
-            Self::LexicalBm25 => "lexical_bm25".to_string(),
-            Self::DenseSimilarity => "dense_similarity".to_string(),
-            Self::LearnedSparse => "learned_sparse".to_string(),
-            Self::LateInteraction => "late_interaction".to_string(),
-            Self::Graph => "graph".to_string(),
-            Self::SpecializedRetrieval { route } => format!("specialized_retrieval:{route}"),
+            Self::Exact => "exact".into(),
+            Self::LexicalBm25 => "lexical_bm25".into(),
+            Self::DenseSimilarity => "dense_similarity".into(),
+            Self::LearnedSparse => "learned_sparse".into(),
+            Self::LateInteraction => "late_interaction".into(),
+            Self::Graph => "graph".into(),
+            Self::SpecializedRetrieval { route } => {
+                std::borrow::Cow::Owned(format!("specialized_retrieval:{route}"))
+            }
         }
     }
 
@@ -298,23 +300,31 @@ impl RetrievalScoreSet {
         Self::new(vec![score])
     }
 
-    pub fn new(mut lanes: Vec<RetrievalLaneScore>) -> Result<Self, SearchCompatibilityError> {
+    pub fn new(lanes: Vec<RetrievalLaneScore>) -> Result<Self, SearchCompatibilityError> {
         for lane in &lanes {
             lane.validate()?;
         }
-        lanes.sort_by_key(|lane| lane.score_kind.validation_key());
-        let mut seen = BTreeSet::new();
-        if lanes
+        // Compute each lane's validation key exactly once, then sort and
+        // dedup the (key, lane) pairs — the key Vec replaces the
+        // per-comparison String allocations of sort_by_key.
+        let keys: Vec<std::borrow::Cow<'static, str>> = lanes
             .iter()
-            .any(|lane| !seen.insert(lane.score_kind.validation_key()))
-        {
-            return Err(SearchCompatibilityError::InvalidScoreProvenance(
-                "duplicate score kind in one candidate",
-            ));
+            .map(|lane| lane.score_kind.validation_key())
+            .collect();
+        let mut pairs: Vec<(std::borrow::Cow<'static, str>, RetrievalLaneScore)> =
+            keys.into_iter().zip(lanes).collect();
+        pairs.sort_by(|left, right| left.0.cmp(&right.0));
+        let mut seen = BTreeSet::new();
+        for (key, _) in &pairs {
+            if !seen.insert(key.as_ref()) {
+                return Err(SearchCompatibilityError::InvalidScoreProvenance(
+                    "duplicate score kind in one candidate",
+                ));
+            }
         }
         Ok(Self {
             schema_version: RETRIEVAL_SCORE_SCHEMA_VERSION,
-            lanes,
+            lanes: pairs.into_iter().map(|(_, lane)| lane).collect(),
         })
     }
 

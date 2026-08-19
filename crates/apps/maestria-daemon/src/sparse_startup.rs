@@ -210,17 +210,7 @@ pub fn reconcile_sparse_projection_for_layout(
         .map_err(|error| anyhow!("open sparse projection: {error}"))?;
     activate_projection(&index)?;
 
-    let eligible = state
-        .chunks
-        .values()
-        .filter(|chunk| {
-            let artifact_allowed = state
-                .artifacts
-                .get(&chunk.artifact_id)
-                .is_some_and(|artifact| artifact.security.retrieval_allowed());
-            artifact_allowed && maestria_governance::scan_secrets(&chunk.text).is_clean()
-        })
-        .collect::<Vec<_>>();
+    let eligible = crate::projection_recovery::retrieval_eligible_chunks(state).collect::<Vec<_>>();
     // An empty chunk set reconciles to an empty projection; do not call the
     // provider at all (the batch contract requires at least one text).
     let Some(first) = eligible.first() else {

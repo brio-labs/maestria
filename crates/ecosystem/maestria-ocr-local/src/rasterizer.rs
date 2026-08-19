@@ -33,9 +33,8 @@ impl PdfRasterizer for PdftoppmRasterizer {
         }
         let temporary = temporary_directory()?;
         let pdf_path = temporary.join("input.pdf");
-        fs::write(&pdf_path, pdf).map_err(|error| PortError::InternalContext {
-            context: "write temporary PDF for OCR",
-            source: error.to_string(),
+        fs::write(&pdf_path, pdf).map_err(|error| {
+            PortError::internal("write temporary PDF for OCR", error.to_string())
         })?;
         let mut rendered = Vec::with_capacity(pages.len());
         for &page in pages {
@@ -63,10 +62,7 @@ impl PdfRasterizer for PdftoppmRasterizer {
                 .arg(&pdf_path)
                 .arg(&output_prefix)
                 .output()
-                .map_err(|error| PortError::DownstreamContext {
-                    context: "launch pdftoppm",
-                    source: error.to_string(),
-                })?;
+                .map_err(|error| PortError::downstream("launch pdftoppm", error.to_string()))?;
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 let _ = fs::remove_dir_all(&temporary);
@@ -76,9 +72,8 @@ impl PdfRasterizer for PdftoppmRasterizer {
                 });
             }
             let image_path = output_prefix.with_extension("png");
-            let bytes = fs::read(&image_path).map_err(|error| PortError::DownstreamContext {
-                context: "read rendered OCR page",
-                source: error.to_string(),
+            let bytes = fs::read(&image_path).map_err(|error| {
+                PortError::downstream("read rendered OCR page", error.to_string())
             })?;
             rendered.push(RasterizedPage {
                 page,
@@ -94,10 +89,7 @@ impl PdfRasterizer for PdftoppmRasterizer {
         let output = Command::new("pdftoppm")
             .arg("-v")
             .output()
-            .map_err(|error| PortError::DownstreamContext {
-                context: "pdftoppm is unavailable",
-                source: error.to_string(),
-            })?;
+            .map_err(|error| PortError::downstream("pdftoppm is unavailable", error.to_string()))?;
         if output.status.success() || !output.stderr.is_empty() {
             return Ok(());
         }
@@ -111,16 +103,17 @@ impl PdfRasterizer for PdftoppmRasterizer {
 fn temporary_directory() -> Result<PathBuf, PortError> {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|error| PortError::InternalContext {
-            context: "read system clock for OCR temporary directory",
-            source: error.to_string(),
+        .map_err(|error| {
+            PortError::internal(
+                "read system clock for OCR temporary directory",
+                error.to_string(),
+            )
         })?
         .as_nanos();
     let path =
         std::env::temp_dir().join(format!("maestria-ocr-{}-{timestamp}", std::process::id()));
-    fs::create_dir(&path).map_err(|error| PortError::InternalContext {
-        context: "create OCR temporary directory",
-        source: error.to_string(),
+    fs::create_dir(&path).map_err(|error| {
+        PortError::internal("create OCR temporary directory", error.to_string())
     })?;
     Ok(path)
 }

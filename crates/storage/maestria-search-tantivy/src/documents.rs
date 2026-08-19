@@ -67,58 +67,34 @@ impl TantivyFullTextIndex {
             .get_first(self.fields.artifact_id)
             .and_then(|value| value.as_u64())
             .map(ArtifactId::new)
-            .ok_or_else(|| PortError::InternalContext {
-                context: "decode indexed chunk artifact id",
-                source: "indexed chunk is missing artifact id".to_string(),
+            .ok_or_else(|| {
+                PortError::internal(
+                    "decode indexed chunk artifact id",
+                    "indexed chunk is missing artifact id",
+                )
             })?;
         let chunk_id = document
             .get_first(self.fields.chunk_id)
             .and_then(|value| value.as_u64())
             .map(ChunkId::new)
-            .ok_or_else(|| PortError::InternalContext {
-                context: "decode indexed chunk id",
-                source: "indexed chunk is missing chunk id".to_string(),
+            .ok_or_else(|| {
+                PortError::internal(
+                    "decode indexed chunk id",
+                    "indexed chunk is missing chunk id",
+                )
             })?;
         let text = document
             .get_first(self.fields.text)
             .and_then(|value| value.as_str())
             .map(str::to_string)
-            .ok_or_else(|| PortError::InternalContext {
-                context: "decode indexed chunk text",
-                source: "indexed chunk is missing text".to_string(),
+            .ok_or_else(|| {
+                PortError::internal("decode indexed chunk text", "indexed chunk is missing text")
             })?;
 
         Ok(IndexedChunk {
             artifact_id,
             chunk_id,
             text,
-        })
-    }
-
-    pub(crate) fn read_lexical_chunk(
-        &self,
-        document: &TantivyDocument,
-    ) -> Result<IndexedLexicalChunk, PortError> {
-        let base = self.read_chunk(document)?;
-        let path = document
-            .get_first(self.fields.path)
-            .and_then(|value| value.as_str())
-            .map(str::to_string);
-        let filename = document
-            .get_first(self.fields.filename)
-            .and_then(|value| value.as_str())
-            .map(str::to_string);
-        let symbol = document
-            .get_first(self.fields.symbol)
-            .and_then(|value| value.as_str())
-            .map(str::to_string);
-        Ok(IndexedLexicalChunk {
-            artifact_id: base.artifact_id,
-            chunk_id: base.chunk_id,
-            text: base.text,
-            path,
-            filename,
-            symbol,
         })
     }
 
@@ -177,33 +153,32 @@ impl TantivyFullTextIndex {
             .get_first(self.fields.card_artifact_id)
             .and_then(|value| value.as_u64())
             .map(ArtifactId::new)
-            .ok_or_else(|| PortError::InternalContext {
-                context: "decode indexed card artifact id",
-                source: "indexed card is missing artifact id".to_string(),
+            .ok_or_else(|| {
+                PortError::internal(
+                    "decode indexed card artifact id",
+                    "indexed card is missing artifact id",
+                )
             })?;
         let card_id = document
             .get_first(self.fields.card_id)
             .and_then(|value| value.as_u64())
             .map(CardId::new)
-            .ok_or_else(|| PortError::InternalContext {
-                context: "decode indexed card id",
-                source: "indexed card is missing card id".to_string(),
+            .ok_or_else(|| {
+                PortError::internal("decode indexed card id", "indexed card is missing card id")
             })?;
         let title = document
             .get_first(self.fields.card_title)
             .and_then(|value| value.as_str())
             .map(str::to_string)
-            .ok_or_else(|| PortError::InternalContext {
-                context: "decode indexed card title",
-                source: "indexed card is missing title".to_string(),
+            .ok_or_else(|| {
+                PortError::internal("decode indexed card title", "indexed card is missing title")
             })?;
         let body = document
             .get_first(self.fields.card_body)
             .and_then(|value| value.as_str())
             .map(str::to_string)
-            .ok_or_else(|| PortError::InternalContext {
-                context: "decode indexed card body",
-                source: "indexed card is missing body".to_string(),
+            .ok_or_else(|| {
+                PortError::internal("decode indexed card body", "indexed card is missing body")
             })?;
 
         Ok(IndexedCard {
@@ -211,34 +186,6 @@ impl TantivyFullTextIndex {
             card_id,
             title,
             body,
-        })
-    }
-
-    pub(crate) fn read_lexical_card(
-        &self,
-        document: &TantivyDocument,
-    ) -> Result<IndexedLexicalCard, PortError> {
-        let base = self.read_card(document)?;
-        let path = document
-            .get_first(self.fields.card_path)
-            .and_then(|value| value.as_str())
-            .map(str::to_string);
-        let filename = document
-            .get_first(self.fields.card_filename)
-            .and_then(|value| value.as_str())
-            .map(str::to_string);
-        let symbol = document
-            .get_first(self.fields.card_symbol)
-            .and_then(|value| value.as_str())
-            .map(str::to_string);
-        Ok(IndexedLexicalCard {
-            artifact_id: base.artifact_id,
-            card_id: base.card_id,
-            title: base.title,
-            body: base.body,
-            path,
-            filename,
-            symbol,
         })
     }
 }

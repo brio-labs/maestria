@@ -1,5 +1,6 @@
 use super::*;
 use maestria_domain::{BlobId, ContentHash, IndexFingerprint, IndexGenerationId};
+use maestria_ports::RetentionPolicy;
 use std::sync::{
     Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -59,8 +60,11 @@ impl ProviderTransport for RecordingTransport {
     }
 
     fn post(&self, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
-        *self.body.lock().map_err(|_| PortError::Internal {
-            message: "recording mutex poisoned".to_string(),
+        *self.body.lock().map_err(|_| {
+            PortError::internal(
+                "maestria visual local test",
+                "recording mutex poisoned".to_string(),
+            )
         })? = Some(body);
         Ok(self.response.clone())
     }
@@ -109,20 +113,28 @@ impl ProviderTransport for StaticTransport {
         self.post_count.fetch_add(1, Ordering::Relaxed);
         self.response
             .lock()
-            .map_err(|_| PortError::Internal {
-                message: "static mutex poisoned".to_string(),
+            .map_err(|_| {
+                PortError::internal(
+                    "maestria visual local test",
+                    "static mutex poisoned".to_string(),
+                )
             })?
             .take()
-            .ok_or_else(|| PortError::Internal {
-                message: "static response already consumed".to_string(),
+            .ok_or_else(|| {
+                PortError::internal(
+                    "maestria visual local test",
+                    "static response already consumed".to_string(),
+                )
             })?
     }
 }
 fn identity() -> Result<EmbeddingIdentity, PortError> {
-    let artifact_hash =
-        maestria_test_support::content_hash(0).map_err(|error| PortError::Internal {
-            message: format!("create test artifact hash: {error}"),
-        })?;
+    let artifact_hash = maestria_test_support::content_hash(0).map_err(|error| {
+        PortError::internal(
+            "maestria visual local test",
+            format!("create test artifact hash: {error}"),
+        )
+    })?;
     Ok(EmbeddingIdentity {
         generation_id: IndexGenerationId::new(1),
         fingerprint: IndexFingerprint {
@@ -136,17 +148,15 @@ fn identity() -> Result<EmbeddingIdentity, PortError> {
                 "sha256:5555555555555555555555555555555555555555555555555555555555555555"
                     .to_string(),
             )
-            .map_err(|error| PortError::InternalContext {
-                context: "create test query template hash",
-                source: error.to_string(),
+            .map_err(|error| {
+                PortError::internal("create test query template hash", error.to_string())
             })?,
             document_template_hash: ContentHash::new(
                 "sha256:6666666666666666666666666666666666666666666666666666666666666666"
                     .to_string(),
             )
-            .map_err(|error| PortError::InternalContext {
-                context: "create test document template hash",
-                source: error.to_string(),
+            .map_err(|error| {
+                PortError::internal("create test document template hash", error.to_string())
             })?,
             preprocessing_version: maestria_domain::PreprocessingVersion::new("siglip-224-r1"),
         },
@@ -293,15 +303,24 @@ fn sends_text_query_and_preserves_identity() -> Result<(), PortError> {
     let body = transport
         .body
         .lock()
-        .map_err(|_| PortError::Internal {
-            message: "recording mutex poisoned".to_string(),
+        .map_err(|_| {
+            PortError::internal(
+                "maestria visual local test",
+                "recording mutex poisoned".to_string(),
+            )
         })?
         .clone()
-        .ok_or_else(|| PortError::Internal {
-            message: "missing request body".to_string(),
+        .ok_or_else(|| {
+            PortError::internal(
+                "maestria visual local test",
+                "missing request body".to_string(),
+            )
         })?;
-    let body = String::from_utf8(body).map_err(|error| PortError::Internal {
-        message: format!("request body was not UTF-8: {error}"),
+    let body = String::from_utf8(body).map_err(|error| {
+        PortError::internal(
+            "maestria visual local test",
+            format!("request body was not UTF-8: {error}"),
+        )
     })?;
     assert!(body.contains("table latency"));
     Ok(())

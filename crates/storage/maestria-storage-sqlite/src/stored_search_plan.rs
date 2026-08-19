@@ -28,53 +28,20 @@ pub(crate) use crate::payloads::stored_search_plan_requirements::{
 };
 pub(crate) use crate::payloads::stored_search_route::StoredSearchRouteDecision;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredSearchIntent {
-    ExactLookup,
-    FactualLocal,
-    SemanticDiscovery,
-    CompositionalConstraints,
-    MultiHop,
-    CorpusSynthesis,
-    RepositoryCode,
-    VisualDocument,
-    TemporalMemory,
-    CurrentWeb,
-    ContradictionAudit,
-}
-
-impl StoredSearchIntent {
-    pub(crate) fn from_domain(value: &SearchIntent) -> Self {
-        match value {
-            SearchIntent::ExactLookup => Self::ExactLookup,
-            SearchIntent::FactualLocal => Self::FactualLocal,
-            SearchIntent::SemanticDiscovery => Self::SemanticDiscovery,
-            SearchIntent::CompositionalConstraints => Self::CompositionalConstraints,
-            SearchIntent::MultiHop => Self::MultiHop,
-            SearchIntent::CorpusSynthesis => Self::CorpusSynthesis,
-            SearchIntent::RepositoryCode => Self::RepositoryCode,
-            SearchIntent::VisualDocument => Self::VisualDocument,
-            SearchIntent::TemporalMemory => Self::TemporalMemory,
-            SearchIntent::CurrentWeb => Self::CurrentWeb,
-            SearchIntent::ContradictionAudit => Self::ContradictionAudit,
-        }
-    }
-
-    pub(crate) fn try_into_domain(self) -> Result<SearchIntent, PortError> {
-        Ok(match self {
-            Self::ExactLookup => SearchIntent::ExactLookup,
-            Self::FactualLocal => SearchIntent::FactualLocal,
-            Self::SemanticDiscovery => SearchIntent::SemanticDiscovery,
-            Self::CompositionalConstraints => SearchIntent::CompositionalConstraints,
-            Self::MultiHop => SearchIntent::MultiHop,
-            Self::CorpusSynthesis => SearchIntent::CorpusSynthesis,
-            Self::RepositoryCode => SearchIntent::RepositoryCode,
-            Self::VisualDocument => SearchIntent::VisualDocument,
-            Self::TemporalMemory => SearchIntent::TemporalMemory,
-            Self::CurrentWeb => SearchIntent::CurrentWeb,
-            Self::ContradictionAudit => SearchIntent::ContradictionAudit,
-        })
+crate::stored_enum! {
+    #[serde(rename_all = "snake_case")]
+    pub(crate) enum StoredSearchIntent <=> SearchIntent {
+        ExactLookup,
+        FactualLocal,
+        SemanticDiscovery,
+        CompositionalConstraints,
+        MultiHop,
+        CorpusSynthesis,
+        RepositoryCode,
+        VisualDocument,
+        TemporalMemory,
+        CurrentWeb,
+        ContradictionAudit,
     }
 }
 
@@ -131,41 +98,16 @@ impl StoredFreshnessRequirement {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredModality {
-    Text,
-    Image,
-    Code,
-    Pdf,
-    Table,
-    Web,
-    Command,
-}
-
-impl StoredModality {
-    pub(crate) fn from_domain(value: &Modality) -> Self {
-        match value {
-            Modality::Text => Self::Text,
-            Modality::Image => Self::Image,
-            Modality::Code => Self::Code,
-            Modality::Pdf => Self::Pdf,
-            Modality::Table => Self::Table,
-            Modality::Web => Self::Web,
-            Modality::Command => Self::Command,
-        }
-    }
-
-    pub(crate) fn try_into_domain(self) -> Result<Modality, PortError> {
-        Ok(match self {
-            Self::Text => Modality::Text,
-            Self::Image => Modality::Image,
-            Self::Code => Modality::Code,
-            Self::Pdf => Modality::Pdf,
-            Self::Table => Modality::Table,
-            Self::Web => Modality::Web,
-            Self::Command => Modality::Command,
-        })
+crate::stored_enum! {
+    #[serde(rename_all = "snake_case")]
+    pub(crate) enum StoredModality <=> Modality {
+        Text,
+        Image,
+        Code,
+        Pdf,
+        Table,
+        Web,
+        Command,
     }
 }
 
@@ -252,7 +194,7 @@ impl StoredSearchPlan {
         Self {
             query_id: value.query_id().value(),
             original_query: value.original_query().to_string(),
-            intent: StoredSearchIntent::from_domain(&value.intent()),
+            intent: StoredSearchIntent::from_domain(value.intent()),
             scope: StoredCorpusScope::from_domain(value.scope()),
             corpus_snapshot: value.corpus_snapshot().value(),
             index_generation: value.index_generation().value(),
@@ -272,9 +214,7 @@ impl StoredSearchPlan {
             authorization: Some(StoredRetrievalPolicySnapshot::from_domain(
                 value.authorization(),
             )),
-            original_intent: value
-                .original_intent()
-                .map(|value| StoredSearchIntent::from_domain(&value)),
+            original_intent: value.original_intent().map(StoredSearchIntent::from_domain),
             route_decision: value
                 .route_decision()
                 .map(StoredSearchRouteDecision::from_domain),
@@ -321,9 +261,8 @@ impl StoredSearchPlan {
             )
             .route_decision(route_decision)
             .build()
-            .map_err(|error| PortError::InvalidInputContext {
-                context: "decode stored search plan",
-                source: error.to_string(),
+            .map_err(|error| {
+                PortError::invalid_input("decode stored search plan", error.to_string())
             })
     }
 }

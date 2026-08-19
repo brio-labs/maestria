@@ -12,7 +12,6 @@ fn resume_after_crash_replays_and_completes() -> Result<(), Box<dyn std::error::
     let content_hash = fixtures::test_content_hash()?;
     let events = vec![DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ParserStarted {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
@@ -78,11 +77,10 @@ fn parser_completed_cleanup_idempotent_on_resume_retry() -> Result<(), Box<dyn s
     let content_hash = fixtures::test_content_hash()?;
     let events = vec![DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ParserStarted {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
-            source_path: String::new(),
+            source_path: "/tmp/notes.md".to_string(),
             content_hash: content_hash.clone(),
             blob_id: BlobId::new(42),
         },
@@ -91,7 +89,7 @@ fn parser_completed_cleanup_idempotent_on_resume_retry() -> Result<(), Box<dyn s
     state.apply_input(DomainInput::ResumeParser(ParserStarted {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
-        source_path: String::new(),
+        source_path: "/tmp/notes.md".to_string(),
         content_hash: content_hash.clone(),
         blob_id: BlobId::new(42),
     }))?;

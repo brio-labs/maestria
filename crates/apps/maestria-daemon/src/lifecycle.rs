@@ -238,24 +238,19 @@ impl InstanceLifecycle {
                 .as_mut()
                 .ok_or_else(|| anyhow!("recovery inputs already queued"))?;
 
-            queue_recovery_inputs(
-                &self.runtime_handle,
-                &mut recovery.resume_parsers,
-                RecoveryQueueStage::ResumeParser,
-            )
-            .await?;
-            queue_recovery_inputs(
-                &self.runtime_handle,
-                &mut recovery.start_full_text,
-                RecoveryQueueStage::FullText,
-            )
-            .await?;
-            queue_recovery_inputs(
-                &self.runtime_handle,
-                &mut recovery.run_validations,
-                RecoveryQueueStage::Validation,
-            )
-            .await?;
+            for (stage, inputs) in [
+                (
+                    RecoveryQueueStage::ResumeParser,
+                    &mut recovery.resume_parsers,
+                ),
+                (RecoveryQueueStage::FullText, &mut recovery.start_full_text),
+                (
+                    RecoveryQueueStage::Validation,
+                    &mut recovery.run_validations,
+                ),
+            ] {
+                queue_recovery_inputs(&self.runtime_handle, inputs, stage).await?;
+            }
         }
 
         self.recovery = None;

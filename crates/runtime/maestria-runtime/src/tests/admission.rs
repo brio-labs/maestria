@@ -10,8 +10,8 @@ use crate::effect_result::EffectFailure;
 use crate::test_helpers;
 use maestria_domain::{
     ApprovalId, DomainEvent, DomainEventEnvelope, DomainInput, EventId, HarnessRunId, KernelState,
-    LogicalTick, MaestriaEffect, ModelAgentProposalExecution, QueryHarnessProposalRequest,
-    QueryHarnessRequest, RequestApprovalRequest, ScopeId, SequenceNumber, TaskId,
+    LogicalTick, MaestriaEffect, ModelAgentProposalExecution, QueryHarnessRequest,
+    RequestApprovalRequest, ScopeId, TaskId,
 };
 use maestria_governance::{AutonomyProfile, PolicyDecision};
 use maestria_ports::{
@@ -35,12 +35,15 @@ async fn approval_repository_errors_are_rejected_typed_and_fail_closed()
     let calls = Arc::new(AtomicUsize::new(0));
     let (context, journal, mut receiver) =
         default_context(Arc::new(ErrorApprovalRepository), calls.clone());
-    let effect =
-        MaestriaEffect::QueryHarnessProposal(QueryHarnessProposalRequest { proposal: request });
+    let effect = MaestriaEffect::QueryHarnessProposal(Box::new(request));
 
     match admit(&context, &effect) {
         EffectAdmission::Rejected {
-            cause: RejectionCause::ApprovalLookup(PortError::Internal { message }),
+            cause:
+                RejectionCause::ApprovalLookup(PortError::InternalContext {
+                    context: _,
+                    source: message,
+                }),
             handling: RejectionHandling::ObserveOnly,
             ..
         } => assert_eq!(message, "approval lookup test failure"),
@@ -49,7 +52,7 @@ async fn approval_repository_errors_are_rejected_typed_and_fail_closed()
     let result = context.execute_effect(effect, None).await;
     assert!(matches!(
         result,
-        Err(EffectFailure::ApprovalLookup(PortError::Internal { message }))
+        Err(EffectFailure::ApprovalLookup(PortError::InternalContext { context: _, source: message }))
             if message == "approval lookup test failure"
     ));
     assert!(journal.scan_in_flight()?.is_empty());
@@ -68,7 +71,7 @@ fn providerless_index_vector_is_admitted_to_degrade_under_read_only()
     let calls = Arc::new(AtomicUsize::new(0));
     let (mut context, _, _) = default_context(Arc::new(InMemoryApprovalRepository::new()), calls);
     context.profile = AutonomyProfile::ReadOnly;
-    let effect = MaestriaEffect::IndexVector(maestria_domain::IndexVectorRequest {
+    let effect = MaestriaEffect::IndexVector(maestria_domain::IndexChunkRequest {
         artifact_id: maestria_domain::ArtifactId::new(1),
         chunk_id: maestria_domain::ChunkId::new(10),
     });
@@ -95,9 +98,7 @@ fn fresh_execution_uses_generic_policy_without_authorization_coordinates()
     let request = proposal(ModelAgentProposalExecution::Fresh);
     match admit(
         &context,
-        &MaestriaEffect::QueryHarnessProposal(QueryHarnessProposalRequest {
-            proposal: request.clone(),
-        }),
+        &MaestriaEffect::QueryHarnessProposal(Box::new(request.clone())),
     ) {
         EffectAdmission::Execute { claim: None, .. } => {}
         other => return Err(format!("fresh proposal was not policy-admitted: {other:?}").into()),
@@ -126,8 +127,7 @@ async fn missing_and_malformed_stored_proposals_are_observe_only()
             repository.save(&record)?;
         }
         let (context, journal, mut receiver) = default_context(Arc::new(repository), calls.clone());
-        let effect =
-            MaestriaEffect::QueryHarnessProposal(QueryHarnessProposalRequest { proposal: request });
+        let effect = MaestriaEffect::QueryHarnessProposal(Box::new(request));
         let result = context.execute_effect(effect, None).await;
         assert!(
             matches!(result, Err(EffectFailure::Denied(_))),
@@ -162,7 +162,7 @@ async fn stored_identity_mismatch_is_observe_only_without_coordinates_mutation()
     let (context, journal, mut receiver) = default_context(Arc::new(repository), calls.clone());
     let result = context
         .execute_effect(
-            MaestriaEffect::QueryHarnessProposal(QueryHarnessProposalRequest { proposal: request }),
+            MaestriaEffect::QueryHarnessProposal(Box::new(request)),
             None,
         )
         .await;
@@ -184,9 +184,7 @@ fn approved_proposal_claim_requires_exact_journal_intent() -> Result<(), Box<dyn
     let (context, journal, _) = seed_exact_approval(&request, ApprovalStatus::Approved, calls)?;
     match admit(
         &context,
-        &MaestriaEffect::QueryHarnessProposal(QueryHarnessProposalRequest {
-            proposal: request.clone(),
-        }),
+        &MaestriaEffect::QueryHarnessProposal(Box::new(request.clone())),
     ) {
         EffectAdmission::Execute {
             claim: Some(claim), ..
@@ -232,13 +230,11 @@ fn approved_proposals_reject_missing_mismatched_and_non_intent_journal_entries()
             capability,
             command,
             scope_id,
-            Some(2),
+            Some(maestria_domain::JournalGeneration::new(2)),
         )?;
         let admission = admit(
             &context,
-            &MaestriaEffect::QueryHarnessProposal(QueryHarnessProposalRequest {
-                proposal: request.clone(),
-            }),
+            &MaestriaEffect::QueryHarnessProposal(Box::new(request.clone())),
         );
         assert!(matches!(admission, EffectAdmission::Rejected { .. }));
     }
@@ -254,11 +250,17 @@ fn approved_proposals_reject_missing_mismatched_and_non_intent_journal_entries()
         let calls = Arc::new(AtomicUsize::new(0));
         let (context, journal, _) = seed_exact_approval(&request, ApprovalStatus::Approved, calls)?;
         match status {
-            EffectJournalStatus::Started => journal.record_started(request.run_id, 2)?,
-            EffectJournalStatus::FeedbackAccepted => journal.claim_feedback(request.run_id, 2)?,
+            EffectJournalStatus::Started => journal
+                .record_started(request.run_id, maestria_domain::JournalGeneration::new(2))?,
+            EffectJournalStatus::FeedbackAccepted => journal
+                .claim_feedback(request.run_id, maestria_domain::JournalGeneration::new(2))?,
             EffectJournalStatus::Completed
             | EffectJournalStatus::Failed
-            | EffectJournalStatus::Paused => journal.record_terminal(request.run_id, 2, status)?,
+            | EffectJournalStatus::Paused => journal.record_terminal(
+                request.run_id,
+                maestria_domain::JournalGeneration::new(2),
+                status,
+            )?,
             EffectJournalStatus::Superseded => {
                 journal.record_intent(EffectJournalIntent {
                     run_id: request.run_id,
@@ -266,7 +268,7 @@ fn approved_proposals_reject_missing_mismatched_and_non_intent_journal_entries()
                     capability: request.capability.clone(),
                     command: request.command.clone(),
                     scope_id: ScopeId::new(1),
-                    requested_generation: Some(3),
+                    requested_generation: Some(maestria_domain::JournalGeneration::new(3)),
                 })?;
             }
             EffectJournalStatus::Intent => {
@@ -275,9 +277,7 @@ fn approved_proposals_reject_missing_mismatched_and_non_intent_journal_entries()
         }
         let admission = admit(
             &context,
-            &MaestriaEffect::QueryHarnessProposal(QueryHarnessProposalRequest {
-                proposal: request.clone(),
-            }),
+            &MaestriaEffect::QueryHarnessProposal(Box::new(request.clone())),
         );
         assert!(
             matches!(admission, EffectAdmission::Rejected { .. }),
@@ -299,7 +299,7 @@ async fn approved_claim_happens_before_proposal_search_and_provider_dispatch()
         seed_exact_approval(&request, ApprovalStatus::Approved, calls.clone())?;
     let result = context
         .execute_effect(
-            MaestriaEffect::QueryHarnessProposal(QueryHarnessProposalRequest { proposal: request }),
+            MaestriaEffect::QueryHarnessProposal(Box::new(request)),
             None,
         )
         .await;
@@ -327,8 +327,7 @@ async fn concurrent_approved_replays_allow_only_one_provider_call()
     let calls = Arc::new(AtomicUsize::new(0));
     let (context, _journal, _receiver) =
         seed_exact_approval(&request, ApprovalStatus::Approved, calls.clone())?;
-    let effect =
-        MaestriaEffect::QueryHarnessProposal(QueryHarnessProposalRequest { proposal: request });
+    let effect = MaestriaEffect::QueryHarnessProposal(Box::new(request));
     let (first, second) = tokio::join!(
         context.clone().execute_effect(effect.clone(), None),
         context.execute_effect(effect, None),
@@ -352,9 +351,7 @@ async fn exact_denied_stored_proposal_terminalizes_decoded_proposal()
     let calls = Arc::new(AtomicUsize::new(0));
     let (context, journal, mut receiver) =
         seed_exact_approval(&request, ApprovalStatus::Denied, calls)?;
-    let effect = MaestriaEffect::QueryHarnessProposal(QueryHarnessProposalRequest {
-        proposal: request.clone(),
-    });
+    let effect = MaestriaEffect::QueryHarnessProposal(Box::new(request.clone()));
     let result = context.clone().execute_effect(effect.clone(), None).await;
     assert!(matches!(result, Err(EffectFailure::Denied(_))));
     assert!(journal.scan_in_flight()?.is_empty());
@@ -398,9 +395,7 @@ async fn fresh_policy_denial_and_legacy_harness_denial_keep_trusted_terminalizat
         calls.clone(),
     );
     let fresh_request = proposal(ModelAgentProposalExecution::Fresh);
-    let fresh = MaestriaEffect::QueryHarnessProposal(QueryHarnessProposalRequest {
-        proposal: fresh_request.clone(),
-    });
+    let fresh = MaestriaEffect::QueryHarnessProposal(Box::new(fresh_request.clone()));
     assert!(matches!(
         context.clone().execute_effect(fresh, None).await,
         Err(EffectFailure::Denied(_))
@@ -415,7 +410,8 @@ async fn fresh_policy_denial_and_legacy_harness_denial_keep_trusted_terminalizat
         requested_generation: None,
     })?;
     assert_eq!(
-        generation_probe.generation, 1,
+        generation_probe.generation.value(),
+        1,
         "fresh denial consumed or superseded a hidden journal generation"
     );
     journal.record_terminal(
@@ -523,7 +519,6 @@ async fn persist_event_failure_cancels_effect_and_runtime_executors()
         .send(vec![EffectWork::Pending(MaestriaEffect::PersistEvent {
             envelope: Box::new(DomainEventEnvelope {
                 id: EventId::new(1),
-                sequence: SequenceNumber::new(1),
                 event: DomainEvent::TickObserved {
                     at: LogicalTick::new(1),
                 },
@@ -553,7 +548,7 @@ async fn journal_recovery_canonical_mismatch_is_rejected_without_effects()
     let result = context
         .clone()
         .execute_effect(
-            MaestriaEffect::QueryHarnessProposal(QueryHarnessProposalRequest { proposal: request }),
+            MaestriaEffect::QueryHarnessProposal(Box::new(request)),
             None,
         )
         .await;
@@ -582,12 +577,14 @@ async fn journal_recovery_claim_is_shared_atomic_and_prunes_stale_entries()
             .journal_recovery_claims
             .lock()
             .map_err(|_| "claim lock poisoned")?;
-        claims.insert((HarnessRunId::new(999), 77));
+        claims.insert((
+            HarnessRunId::new(999),
+            maestria_domain::JournalGeneration::new(77),
+        ));
     }
     let first = context.clone();
     let second = context.clone();
-    let effect =
-        MaestriaEffect::QueryHarnessProposal(QueryHarnessProposalRequest { proposal: request });
+    let effect = MaestriaEffect::QueryHarnessProposal(Box::new(request));
     let (left, right) = tokio::join!(
         first.execute_effect(effect.clone(), None),
         second.execute_effect(effect, None)
@@ -618,7 +615,10 @@ async fn journal_recovery_claim_is_shared_atomic_and_prunes_stale_entries()
         .lock()
         .map_err(|_| "claim lock poisoned")?;
     assert_eq!(claims.len(), 1);
-    assert!(claims.contains(&(HarnessRunId::new(41), 2)));
+    assert!(claims.contains(&(
+        HarnessRunId::new(41),
+        maestria_domain::JournalGeneration::new(2)
+    )));
     assert_eq!(journal.scan_in_flight()?.len(), 1);
     Ok(())
 }

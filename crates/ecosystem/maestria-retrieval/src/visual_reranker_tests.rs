@@ -283,7 +283,7 @@ async fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
     let second = candidate(second_id, 2, 20)?;
     let result = reranker
         .rerank(RerankRequest {
-            plan: plan()?,
+            plan: std::sync::Arc::new(plan()?),
             candidates: vec![
                 RankedCandidate {
                     candidate: first,
@@ -339,7 +339,7 @@ async fn visual_reranker_returns_traced_fallback_for_secret_queries()
     let evidence_id = EvidenceId::new(103);
     let result = reranker
         .rerank(RerankRequest {
-            plan: secret_plan,
+            plan: std::sync::Arc::new(secret_plan),
             candidates: vec![RankedCandidate {
                 candidate: candidate(evidence_id, 1, 1)?,
                 rank: 0,

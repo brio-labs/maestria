@@ -12,22 +12,18 @@ use super::common;
 
 struct FixedRetriever {
     candidate: EvidenceCandidate,
+    descriptor: RetrieverDescriptor,
 }
 
 #[async_trait]
 impl CandidateRetriever for FixedRetriever {
-    fn descriptor(&self) -> RetrieverDescriptor {
-        RetrieverDescriptor {
-            id: "fixed".to_string(),
-            modality: "text".to_string(),
-            representation: maestria_domain::RepresentationName::new("text"),
-            generation: maestria_domain::IndexGenerationId::new(1),
-        }
+    fn descriptor(&self) -> &RetrieverDescriptor {
+        &self.descriptor
     }
 
     async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
         Ok(CandidateBatch {
-            descriptor: self.descriptor(),
+            descriptor: (*self.descriptor()).clone(),
             query: request.query.q,
             candidates: vec![self.candidate.clone()],
             status: SearchLaneStatus::Succeeded,
@@ -49,7 +45,7 @@ fn request() -> RetrievalResult<CandidateRequest> {
     let execution_budget = maestria_domain::SearchExecutionBudget::new(10, 10, 10, 0)
         .map_err(|error| RetrievalError::Internal(format!("{error:?}")))?;
     Ok(CandidateRequest {
-        plan,
+        plan: std::sync::Arc::new(plan),
         query: maestria_ports::SearchQuery {
             q: "notes".to_string(),
             limit: 10,
@@ -67,6 +63,12 @@ fn filter() -> RetrievalResult<CurrentVersionFilter> {
     Ok(CurrentVersionFilter::new(
         std::sync::Arc::new(FixedRetriever {
             candidate: common::candidate_fixture()?,
+            descriptor: RetrieverDescriptor {
+                id: "fixed".to_string(),
+                modality: "text".to_string(),
+                representation: maestria_domain::RepresentationName::new("text"),
+                generation: maestria_domain::IndexGenerationId::new(1),
+            },
         }),
         BTreeSet::new(),
     ))
@@ -85,6 +87,12 @@ async fn active_versions_retain_matching_candidates() -> RetrievalResult<()> {
     let filtered = CurrentVersionFilter::new(
         std::sync::Arc::new(FixedRetriever {
             candidate: common::candidate_fixture()?,
+            descriptor: RetrieverDescriptor {
+                id: "fixed".to_string(),
+                modality: "text".to_string(),
+                representation: maestria_domain::RepresentationName::new("text"),
+                generation: maestria_domain::IndexGenerationId::new(1),
+            },
         }),
         BTreeSet::from([ArtifactVersionId::new(19)]),
     );

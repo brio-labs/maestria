@@ -29,10 +29,9 @@ pub(super) fn artifact(id: u64) -> Artifact {
     }
 }
 
-pub(super) fn registered(event_id: u64, sequence: u64, artifact_id: u64) -> DomainEventEnvelope {
+pub(super) fn registered(event_id: u64, artifact_id: u64) -> DomainEventEnvelope {
     DomainEventEnvelope {
         id: EventId::new(event_id),
-        sequence: SequenceNumber::new(sequence),
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(artifact_id),
             title: format!("artifact {artifact_id}"),

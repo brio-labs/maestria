@@ -39,8 +39,7 @@ fn task_workspace_directory_is_deterministic_and_created() -> Result<(), Box<dyn
 fn database_busy_matcher_identifies_lock_and_busy_errors() -> Result<(), Box<dyn std::error::Error>>
 {
     use anyhow::anyhow;
-    use maestria_daemon::db_retry::is_database_busy;
-
+    use maestria_storage_sqlite::db_retry::is_database_busy;
     let locked = anyhow!("database is locked");
     assert!(is_database_busy(&locked));
 

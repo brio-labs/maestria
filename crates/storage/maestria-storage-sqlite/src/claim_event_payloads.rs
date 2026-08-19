@@ -73,7 +73,9 @@ impl StoredEventPayload {
             Self::ClaimValidationUpdated { claim_id, status } => {
                 Ok(DomainEvent::ClaimValidationUpdated {
                     claim_id: maestria_domain::ClaimId::new(claim_id),
-                    status: status.into_domain(),
+                    status: status
+                        .try_into_domain()
+                        .map_err(FamilyDecodeError::Invalid)?,
                 })
             }
             Self::ClaimEvidenceLinked {

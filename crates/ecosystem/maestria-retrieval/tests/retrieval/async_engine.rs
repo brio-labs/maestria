@@ -20,6 +20,20 @@ use std::sync::{
 
 use crate::common::{candidate_fixture, dummy_plan};
 
+fn desc(
+    id: &str,
+    modality: &str,
+    representation: &str,
+    generation: u64,
+) -> maestria_retrieval::types::RetrieverDescriptor {
+    maestria_retrieval::types::RetrieverDescriptor {
+        id: id.to_string(),
+        modality: modality.to_string(),
+        representation: maestria_domain::RepresentationName::new(representation),
+        generation: maestria_domain::IndexGenerationId::new(generation),
+    }
+}
+
 fn execution(
     request: &maestria_retrieval::types::CandidateRequest,
     results: u64,
@@ -33,20 +47,25 @@ fn execution(
 }
 
 struct AsyncLane {
-    id: &'static str,
     fail: bool,
     candidate: Option<EvidenceCandidate>,
+    descriptor: maestria_retrieval::types::RetrieverDescriptor,
+}
+
+impl AsyncLane {
+    fn new(id: &'static str, fail: bool, candidate: Option<EvidenceCandidate>) -> Self {
+        Self {
+            fail,
+            candidate,
+            descriptor: desc(id, "text", "text", 1),
+        }
+    }
 }
 
 #[async_trait]
 impl CandidateRetriever for AsyncLane {
-    fn descriptor(&self) -> maestria_retrieval::types::RetrieverDescriptor {
-        maestria_retrieval::types::RetrieverDescriptor {
-            id: self.id.to_string(),
-            modality: "text".to_string(),
-            representation: maestria_domain::RepresentationName::new("text"),
-            generation: maestria_domain::IndexGenerationId::new(1),
-        }
+    fn descriptor(&self) -> &maestria_retrieval::types::RetrieverDescriptor {
+        &self.descriptor
     }
 
     async fn retrieve(
@@ -58,7 +77,7 @@ impl CandidateRetriever for AsyncLane {
         }
         let candidate_count = if self.candidate.is_some() { 1 } else { 0 };
         Ok(maestria_retrieval::types::CandidateBatch {
-            descriptor: self.descriptor(),
+            descriptor: (*self.descriptor()).clone(),
             query: "test query".to_string(),
             candidates: self.candidate.clone().into_iter().collect(),
             status: maestria_domain::SearchLaneStatus::Succeeded,
@@ -70,17 +89,22 @@ impl CandidateRetriever for AsyncLane {
 
 struct StaleCodeLane {
     candidate: EvidenceCandidate,
+    descriptor: maestria_retrieval::types::RetrieverDescriptor,
+}
+
+impl StaleCodeLane {
+    fn new(candidate: EvidenceCandidate) -> Self {
+        Self {
+            candidate,
+            descriptor: desc("code_intel", "code", "repository_code_v2", 1),
+        }
+    }
 }
 
 #[async_trait]
 impl CandidateRetriever for StaleCodeLane {
-    fn descriptor(&self) -> maestria_retrieval::types::RetrieverDescriptor {
-        maestria_retrieval::types::RetrieverDescriptor {
-            id: "code_intel".to_string(),
-            modality: "code".to_string(),
-            representation: maestria_domain::RepresentationName::new("repository_code_v2"),
-            generation: IndexGenerationId::new(1),
-        }
+    fn descriptor(&self) -> &maestria_retrieval::types::RetrieverDescriptor {
+        &self.descriptor
     }
 
     async fn retrieve(
@@ -88,7 +112,7 @@ impl CandidateRetriever for StaleCodeLane {
         request: maestria_retrieval::types::CandidateRequest,
     ) -> Result<maestria_retrieval::types::CandidateBatch, RetrievalError> {
         Ok(maestria_retrieval::types::CandidateBatch {
-            descriptor: self.descriptor(),
+            descriptor: (*self.descriptor()).clone(),
             query: request.query.q.clone(),
             candidates: vec![self.candidate.clone()],
             status: maestria_domain::SearchLaneStatus::Succeeded,
@@ -142,17 +166,22 @@ fn promoted_exact_symbol_policy() -> Result<RepositoryExecutionPolicy, Box<dyn s
 
 struct CountingWebLane {
     calls: Arc<AtomicUsize>,
+    descriptor: maestria_retrieval::types::RetrieverDescriptor,
+}
+
+impl CountingWebLane {
+    fn new(calls: Arc<AtomicUsize>) -> Self {
+        Self {
+            calls,
+            descriptor: desc("web", "web", "text", 1),
+        }
+    }
 }
 
 #[async_trait]
 impl CandidateRetriever for CountingWebLane {
-    fn descriptor(&self) -> maestria_retrieval::types::RetrieverDescriptor {
-        maestria_retrieval::types::RetrieverDescriptor {
-            id: "web".to_string(),
-            modality: "web".to_string(),
-            representation: maestria_domain::RepresentationName::new("text"),
-            generation: maestria_domain::IndexGenerationId::new(1),
-        }
+    fn descriptor(&self) -> &maestria_retrieval::types::RetrieverDescriptor {
+        &self.descriptor
     }
 
     async fn retrieve(
@@ -161,7 +190,7 @@ impl CandidateRetriever for CountingWebLane {
     ) -> Result<maestria_retrieval::types::CandidateBatch, RetrievalError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(maestria_retrieval::types::CandidateBatch {
-            descriptor: self.descriptor(),
+            descriptor: (*self.descriptor()).clone(),
             candidates: Vec::new(),
             query: String::new(),
             status: maestria_domain::SearchLaneStatus::Empty,
@@ -173,17 +202,22 @@ impl CandidateRetriever for CountingWebLane {
 
 struct StaleGenerationLane {
     calls: Arc<AtomicUsize>,
+    descriptor: maestria_retrieval::types::RetrieverDescriptor,
+}
+
+impl StaleGenerationLane {
+    fn new(calls: Arc<AtomicUsize>) -> Self {
+        Self {
+            calls,
+            descriptor: desc("stale", "text", "text", 2),
+        }
+    }
 }
 
 #[async_trait]
 impl CandidateRetriever for StaleGenerationLane {
-    fn descriptor(&self) -> maestria_retrieval::types::RetrieverDescriptor {
-        maestria_retrieval::types::RetrieverDescriptor {
-            id: "stale".to_string(),
-            modality: "text".to_string(),
-            representation: maestria_domain::RepresentationName::new("text"),
-            generation: IndexGenerationId::new(2),
-        }
+    fn descriptor(&self) -> &maestria_retrieval::types::RetrieverDescriptor {
+        &self.descriptor
     }
 
     async fn retrieve(
@@ -200,17 +234,23 @@ impl CandidateRetriever for StaleGenerationLane {
 struct SpecializedGenerationLane {
     calls: Arc<AtomicUsize>,
     candidate: EvidenceCandidate,
+    descriptor: maestria_retrieval::types::RetrieverDescriptor,
+}
+
+impl SpecializedGenerationLane {
+    fn new(calls: Arc<AtomicUsize>, candidate: EvidenceCandidate) -> Self {
+        Self {
+            calls,
+            candidate,
+            descriptor: desc("dense_chunks", "dense", "dense_text_v1", 2),
+        }
+    }
 }
 
 #[async_trait]
 impl CandidateRetriever for SpecializedGenerationLane {
-    fn descriptor(&self) -> maestria_retrieval::types::RetrieverDescriptor {
-        maestria_retrieval::types::RetrieverDescriptor {
-            id: "dense_chunks".to_string(),
-            modality: "dense".to_string(),
-            representation: maestria_domain::RepresentationName::new("dense_text_v1"),
-            generation: IndexGenerationId::new(2),
-        }
+    fn descriptor(&self) -> &maestria_retrieval::types::RetrieverDescriptor {
+        &self.descriptor
     }
 
     async fn retrieve(
@@ -225,7 +265,7 @@ impl CandidateRetriever for SpecializedGenerationLane {
         }
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(maestria_retrieval::types::CandidateBatch {
-            descriptor,
+            descriptor: descriptor.clone(),
             query: request.query.q.clone(),
             candidates: vec![self.candidate.clone()],
             status: maestria_domain::SearchLaneStatus::Succeeded,
@@ -238,17 +278,23 @@ impl CandidateRetriever for SpecializedGenerationLane {
 struct ByteOverrunLane {
     candidate: EvidenceCandidate,
     bytes_read: u64,
+    descriptor: maestria_retrieval::types::RetrieverDescriptor,
+}
+
+impl ByteOverrunLane {
+    fn new(candidate: EvidenceCandidate, bytes_read: u64) -> Self {
+        Self {
+            candidate,
+            bytes_read,
+            descriptor: desc("local", "text", "text", 1),
+        }
+    }
 }
 
 #[async_trait]
 impl CandidateRetriever for ByteOverrunLane {
-    fn descriptor(&self) -> maestria_retrieval::types::RetrieverDescriptor {
-        maestria_retrieval::types::RetrieverDescriptor {
-            id: "local".to_string(),
-            modality: "text".to_string(),
-            representation: maestria_domain::RepresentationName::new("text"),
-            generation: IndexGenerationId::new(1),
-        }
+    fn descriptor(&self) -> &maestria_retrieval::types::RetrieverDescriptor {
+        &self.descriptor
     }
 
     async fn retrieve(
@@ -256,7 +302,7 @@ impl CandidateRetriever for ByteOverrunLane {
         request: maestria_retrieval::types::CandidateRequest,
     ) -> Result<maestria_retrieval::types::CandidateBatch, RetrievalError> {
         Ok(maestria_retrieval::types::CandidateBatch {
-            descriptor: self.descriptor(),
+            descriptor: (*self.descriptor()).clone(),
             query: "test query".to_string(),
             candidates: vec![self.candidate.clone()],
             status: maestria_domain::SearchLaneStatus::Succeeded,
@@ -319,16 +365,11 @@ async fn failed_lane_is_degraded_without_losing_successful_evidence() -> Retriev
     let plan = plan.with_authorization(authorization)?;
     let engine = RetrievalEngine::new(
         vec![
-            Arc::new(AsyncLane {
-                id: "lexical",
-                fail: false,
-                candidate: Some(candidate_fixture()?),
-            }),
-            Arc::new(AsyncLane {
-                id: "dense",
-                fail: true,
-                candidate: None,
-            }),
+            Arc::new(AsyncLane::new("lexical", false, Some(candidate_fixture()?))),
+            // A failing non-dense lane: the Shadow default policy does not
+            // dispatch dense lanes (4.3), so lane-failure degradation is
+            // exercised with a text lane.
+            Arc::new(AsyncLane::new("failing_lane", true, None)),
         ],
         Arc::new(AsyncEvaluator),
         maestria_governance::RetrievalSecurityPolicy::new()
@@ -360,7 +401,7 @@ async fn failed_lane_is_degraded_without_losing_successful_evidence() -> Retriev
             .iter()
             .map(|lane| lane.retriever_id.as_str())
             .collect::<Vec<_>>(),
-        vec!["lexical", "dense"]
+        vec!["lexical", "failing_lane"]
     );
     assert!(matches!(
         trace.lanes[0].status,
@@ -401,7 +442,7 @@ async fn stale_code_only_evidence_is_not_served_and_retains_stale_trace() -> Ret
         coverage_keys: candidate.coverage_keys().to_vec(),
     })?;
     let engine = RetrievalEngine::new(
-        vec![Arc::new(StaleCodeLane { candidate })],
+        vec![Arc::new(StaleCodeLane::new(candidate))],
         Arc::new(AsyncEvaluator),
         maestria_governance::RetrievalSecurityPolicy::default(),
     )
@@ -434,9 +475,7 @@ async fn stale_generation_lane_is_rejected_before_dispatch() -> RetrievalResult<
     let plan = dummy_plan()?;
     let calls = Arc::new(AtomicUsize::new(0));
     let engine = RetrievalEngine::new(
-        vec![Arc::new(StaleGenerationLane {
-            calls: Arc::clone(&calls),
-        })],
+        vec![Arc::new(StaleGenerationLane::new(Arc::clone(&calls)))],
         Arc::new(AsyncEvaluator),
         maestria_governance::RetrievalSecurityPolicy::default(),
     )
@@ -495,13 +534,11 @@ async fn specialized_generation_is_served_while_primary_stale_lane_is_rejected()
     .ok_or_else(|| RetrievalError::Internal("invalid hybrid promotion fixture".to_string()))?;
     let engine = RetrievalEngine::new(
         vec![
-            Arc::new(SpecializedGenerationLane {
-                calls: Arc::clone(&specialized_calls),
-                candidate: candidate_fixture()?,
-            }),
-            Arc::new(StaleGenerationLane {
-                calls: Arc::clone(&stale_calls),
-            }),
+            Arc::new(SpecializedGenerationLane::new(
+                Arc::clone(&specialized_calls),
+                candidate_fixture()?,
+            )),
+            Arc::new(StaleGenerationLane::new(Arc::clone(&stale_calls))),
         ],
         Arc::new(AsyncEvaluator),
         maestria_governance::RetrievalSecurityPolicy::new()
@@ -559,10 +596,7 @@ async fn local_lane_byte_overrun_is_rejected_before_scoring() -> RetrievalResult
         1_000, 1_000, 1, 1, 0, 4, 1,
     )?)?;
     let engine = RetrievalEngine::new(
-        vec![Arc::new(ByteOverrunLane {
-            candidate: candidate_fixture()?,
-            bytes_read: 5,
-        })],
+        vec![Arc::new(ByteOverrunLane::new(candidate_fixture()?, 5))],
         Arc::new(AsyncEvaluator),
         maestria_governance::RetrievalSecurityPolicy::default(),
     )
@@ -609,9 +643,7 @@ async fn web_budget_applies_across_deterministic_rewrites() -> RetrievalResult<(
         ]))?;
     let calls = Arc::new(AtomicUsize::new(0));
     let engine = RetrievalEngine::new(
-        vec![Arc::new(CountingWebLane {
-            calls: Arc::clone(&calls),
-        })],
+        vec![Arc::new(CountingWebLane::new(Arc::clone(&calls)))],
         Arc::new(AsyncEvaluator),
         maestria_governance::RetrievalSecurityPolicy::default(),
     );

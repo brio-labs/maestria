@@ -1,7 +1,7 @@
 use crate::test_support::*;
 use maestria_domain::{
     Artifact, ArtifactId, BlobId, ContentHash, DomainEventEnvelope, EventId, Evidence, EvidenceId,
-    EvidenceKind, IndexStatus, LineRange, LogicalTick, SequenceNumber, SnapshotRef,
+    EvidenceKind, IndexStatus, LineRange, LogicalTick, SnapshotRef,
 };
 use maestria_ports::{BlobStore, EvidenceRepository};
 use std::collections::BTreeSet;
@@ -77,7 +77,6 @@ async fn evidence_recorded_persistence_replaces_malformed_record()
 
     let envelope = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::EvidenceRecorded {
             evidence_id,
             artifact_id,

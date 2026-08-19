@@ -72,9 +72,10 @@ impl HttpTransport for FixtureTransport {
             });
         };
         if body.len() > max_bytes {
-            return Err(PortError::InvalidInput {
-                message: "web response exceeds max_bytes".to_string(),
-            });
+            return Err(PortError::invalid_input(
+                "maestria web evidence test",
+                "web response exceeds max_bytes".to_string(),
+            ));
         }
         Ok(HttpResponse {
             body,
@@ -147,20 +148,18 @@ fn test_fetch_extracts_metadata_with_html_attribute_variants()
 }
 
 #[test]
-fn test_fetch_extracts_unquoted_metadata_and_trusted_primary_source()
--> Result<(), Box<dyn std::error::Error>> {
+fn test_fetch_extracts_unquoted_metadata() -> Result<(), Box<dyn std::error::Error>> {
     let url = "https://example.com/primary";
     let html = "<meta name=datePublished content=2026-07-23>";
     let mut responses = BTreeMap::new();
     responses.insert(url.to_string(), Ok(html.to_string()));
     let fetcher =
-        UreqWebFetcher::with_transport(std::sync::Arc::new(FixtureTransport::new(responses)))
-            .with_primary_domains(vec!["example.com".to_string()]);
+        UreqWebFetcher::with_transport(std::sync::Arc::new(FixtureTransport::new(responses)));
 
     let data = fetcher.fetch(url, 4096)?;
 
     assert_eq!(data.metadata.published_at.as_deref(), Some("2026-07-23"));
-    assert!(data.metadata.primary_source);
+    assert!(!data.metadata.primary_source);
     Ok(())
 }
 

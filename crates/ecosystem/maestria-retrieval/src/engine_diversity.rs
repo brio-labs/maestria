@@ -176,7 +176,7 @@ pub(crate) async fn run_diversity_stage(
         .collect();
     let report = evaluator
         .evaluate(RetrievalExperiment {
-            plan: plan.clone(),
+            plan: std::sync::Arc::new(plan.clone()),
             candidates,
         })
         .await?;

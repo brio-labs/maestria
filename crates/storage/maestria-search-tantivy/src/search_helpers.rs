@@ -1,8 +1,10 @@
 use maestria_domain::SearchExecutionResource;
 use maestria_ports::PortError;
+use std::collections::BTreeSet;
 use tantivy::{
-    DocAddress, Searcher, TERMINATED,
-    query::{EnableScoring, Query, Scorer},
+    DocAddress, Index, Searcher, TERMINATED, Term,
+    query::{BooleanQuery, EnableScoring, Query, QueryParser, Scorer, TermSetQuery},
+    schema::Field,
 };
 
 use crate::error::to_port_error;
@@ -73,4 +75,28 @@ pub(super) fn collect_bounded(
         truncated,
         stopped,
     })
+}
+pub(crate) fn parse_query(
+    index: &Index,
+    fields: Vec<Field>,
+    text: &str,
+) -> Result<Box<dyn Query>, PortError> {
+    let parser = QueryParser::for_index(index, fields);
+    parser
+        .parse_query(text)
+        .map_err(|error| PortError::invalid_input("invalid search query", error.to_string()))
+}
+
+pub(crate) fn scope_by_keys(
+    parsed: Box<dyn Query>,
+    key_field: Field,
+    keys: BTreeSet<String>,
+) -> BooleanQuery {
+    BooleanQuery::intersection(vec![
+        parsed,
+        Box::new(TermSetQuery::new(
+            keys.into_iter()
+                .map(|key| Term::from_field_text(key_field, &key)),
+        )),
+    ])
 }

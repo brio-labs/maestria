@@ -1,3 +1,4 @@
+use crate::input::notebook_support::DraftDeletionViolation;
 use crate::types::*;
 use std::collections::BTreeSet;
 
@@ -48,10 +49,7 @@ impl KernelState {
         updated_at: LogicalTick,
     ) -> Result<(), DomainError> {
         if self.notebooks.contains_key(notebook_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "notebook",
-                id: notebook_id.value(),
-            });
+            return Err(DomainError::DuplicateNotebook { id: *notebook_id });
         }
         self.notebooks.insert(
             *notebook_id,
@@ -176,17 +174,27 @@ impl KernelState {
         draft_id: &NotebookDraftId,
         revision: NotebookDraftRevision,
     ) -> Result<(), DomainError> {
-        let draft = self
-            .notebook_drafts
-            .get(draft_id)
-            .ok_or(DomainError::MissingNotebookDraft { id: *draft_id })?;
-        if draft.notebook_id != *notebook_id || draft.revision != revision {
-            return Err(DomainError::NotebookDraftRevisionConflict {
-                notebook_id: *notebook_id,
-                draft_id: Some(*draft_id),
-                expected: Some(revision.value()),
-                actual: Some(draft.revision.value()),
-            });
+        match crate::input::notebook_support::validate_draft_deletion(
+            self,
+            *notebook_id,
+            *draft_id,
+            revision,
+        ) {
+            Ok(()) => {}
+            Err(DraftDeletionViolation::MissingNotebookDraft) => {
+                return Err(DomainError::MissingNotebookDraft { id: *draft_id });
+            }
+            Err(
+                DraftDeletionViolation::NotebookMismatch { actual }
+                | DraftDeletionViolation::RevisionMismatch { actual },
+            ) => {
+                return Err(DomainError::NotebookDraftRevisionConflict {
+                    notebook_id: *notebook_id,
+                    draft_id: Some(*draft_id),
+                    expected: Some(revision.value()),
+                    actual: Some(actual.value()),
+                });
+            }
         }
         self.notebook_drafts.remove(draft_id);
         Ok(())

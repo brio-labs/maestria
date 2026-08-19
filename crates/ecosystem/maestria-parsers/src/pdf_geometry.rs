@@ -68,24 +68,24 @@ fn parse_media_box(values: &[lopdf::Object]) -> Result<PageGeometry, PortError> 
     let c = |i: usize, label: &'static str| {
         values[i]
             .as_float()
-            .map_err(|e| PortError::InvalidInputContext {
-                context: label,
-                source: e.to_string(),
-            })
+            .map_err(|e| PortError::invalid_input(label, e.to_string()))
     };
     let left = c(0, "left")?;
     let bottom = c(1, "bottom")?;
     let right = c(2, "right")?;
     let top = c(3, "top")?;
-    let width = positive_dimension(right - left).ok_or_else(|| PortError::InvalidInputContext {
-        context: "PDF MediaBox non-positive width",
-        source: (right - left).to_string(),
+    let width = positive_dimension(right - left).ok_or_else(|| {
+        PortError::invalid_input(
+            "PDF MediaBox non-positive width",
+            (right - left).to_string(),
+        )
     })?;
-    let height =
-        positive_dimension(top - bottom).ok_or_else(|| PortError::InvalidInputContext {
-            context: "PDF MediaBox non-positive height",
-            source: (top - bottom).to_string(),
-        })?;
+    let height = positive_dimension(top - bottom).ok_or_else(|| {
+        PortError::invalid_input(
+            "PDF MediaBox non-positive height",
+            (top - bottom).to_string(),
+        )
+    })?;
     Ok(PageGeometry {
         origin_x: left,
         origin_y: bottom,
@@ -149,10 +149,7 @@ impl PdfTransform {
 pub(super) fn as_float_result(object: &lopdf::Object) -> Result<f32, PortError> {
     object
         .as_float()
-        .map_err(|e| PortError::InvalidInputContext {
-            context: "PDF operand is not a number",
-            source: e.to_string(),
-        })
+        .map_err(|e| PortError::invalid_input("PDF operand is not a number", e.to_string()))
 }
 
 pub(super) fn transform_from_operands(values: &[lopdf::Object]) -> Result<PdfTransform, PortError> {
@@ -208,9 +205,11 @@ pub(super) fn rectangle(
         ],
         geometry,
     )
-    .ok_or_else(|| PortError::InvalidInputContext {
-        context: "PDF rectangle bounds are invalid",
-        source: "rectangle falls outside page geometry".to_string(),
+    .ok_or_else(|| {
+        PortError::invalid_input(
+            "PDF rectangle bounds are invalid",
+            "rectangle falls outside page geometry",
+        )
     })
 }
 

@@ -3,10 +3,9 @@ use crate::effect_execution_dispatch::PreparedEffect;
 use crate::effect_result::EffectFailure;
 use crate::proposal_persistence::risk_class_to_approval_risk_level;
 use maestria_domain::{
-    DiagnosticEvent, DomainInput, LogicalTick, MaestriaEffect, RequestApprovalRequest,
-    SearchKnowledgeCompleted, SearchKnowledgeRequest, UpdateGraphRequest,
+    DomainInput, LogicalTick, MaestriaEffect, RequestApprovalRequest, SearchKnowledgeCompleted,
+    SearchKnowledgeRequest, UpdateGraphRequest,
 };
-use maestria_governance::ScopeGuard;
 use maestria_ports::{ApprovalRecord, ApprovalStatus};
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -24,9 +23,9 @@ impl EffectExecutionContext {
         );
         let watchdog = self.default_effect_timeout + Duration::from_secs(5);
         let result = tokio::time::timeout(watchdog, async {
-            let mut attempts = 0;
+            let mut attempts: u32 = 0;
             loop {
-                match self
+                let is_busy = match self
                     .clone()
                     .execute_effect(effect.clone(), Some(self.default_effect_timeout))
                     .await
@@ -43,14 +42,35 @@ impl EffectExecutionContext {
                         } else {
                             tracing::error!(%error, "effect execution did not complete");
                         }
-                        if !error.retryable() || non_idempotent || attempts >= self.max_retries {
+                        let is_busy = match &error {
+                            EffectFailure::Failed(message) => {
+                                maestria_sqlite_support::is_database_busy(message)
+                            }
+                            EffectFailure::ApprovalLookup(port_error) => {
+                                maestria_sqlite_support::is_database_busy(&port_error.to_string())
+                            }
+                            _ => false,
+                        };
+                        if is_busy {
+                            if attempts >= maestria_sqlite_support::RETRY_ATTEMPTS {
+                                return Err(error);
+                            }
+                        } else if !error.retryable()
+                            || non_idempotent
+                            || attempts >= self.max_retries
+                        {
                             return Err(error);
                         }
+                        is_busy
                     }
-                }
+                };
                 attempts += 1;
                 tracing::warn!("Retrying effect execution (attempt {})", attempts);
-                tokio::time::sleep(Duration::from_millis(500 * (1 << attempts))).await;
+                if is_busy {
+                    tokio::time::sleep(maestria_sqlite_support::RETRY_DELAY).await;
+                } else {
+                    tokio::time::sleep(Duration::from_millis(500 * (1 << attempts))).await;
+                }
             }
         })
         .await;
@@ -214,18 +234,16 @@ impl EffectExecutionContext {
             }
         };
 
-        // Compute risk using the governance classifier.
-        let scope_guard = ScopeGuard::new(self.scope.clone());
         let effect = MaestriaEffect::RequestApproval(RequestApprovalRequest {
             task_id: request.task_id,
         });
-        let risk = self.governance.classifier.classify(&effect, &scope_guard);
+        let risk = self.governance.classifier.classify(&effect, &self.scope);
         let risk_level = risk_class_to_approval_risk_level(risk);
 
         let tick = {
             let state = self.state.read().await;
             match state.event_log.last() {
-                Some(e) => LogicalTick::new(e.sequence.value()),
+                Some(e) => LogicalTick::new(e.id.value()),
                 None => LogicalTick::new(0),
             }
         };
@@ -250,15 +268,6 @@ impl EffectExecutionContext {
             approval_id = %approval_id,
             task_id = %request.task_id,
             "approval request persisted; awaiting external resolution"
-        );
-        true
-    }
-
-    pub(crate) async fn handle_emit_diagnostic(&self, diagnostic: DiagnosticEvent) -> bool {
-        tracing::info!(
-            task_id = ?diagnostic.task_id,
-            message = %diagnostic.message,
-            "domain diagnostic"
         );
         true
     }

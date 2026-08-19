@@ -6,9 +6,6 @@ pub enum PortError {
     Conflict {
         message: String,
     },
-    InvalidInput {
-        message: String,
-    },
     InvalidInputContext {
         context: &'static str,
         source: String,
@@ -19,9 +16,6 @@ pub enum PortError {
     DownstreamContext {
         context: &'static str,
         source: String,
-    },
-    Internal {
-        message: String,
     },
     InternalContext {
         context: &'static str,
@@ -34,7 +28,6 @@ impl fmt::Display for PortError {
         match self {
             Self::NotFound => write!(f, "not found"),
             Self::Conflict { message } => write!(f, "conflict: {message}"),
-            Self::InvalidInput { message } => write!(f, "invalid input: {message}"),
             Self::InvalidInputContext { context, source } => {
                 write!(f, "invalid input ({context}): {source}")
             }
@@ -42,7 +35,6 @@ impl fmt::Display for PortError {
             Self::DownstreamContext { context, source } => {
                 write!(f, "downstream error ({context}): {source}")
             }
-            Self::Internal { message } => write!(f, "internal error: {message}"),
             Self::InternalContext { context, source } => {
                 write!(f, "internal error ({context}): {source}")
             }
@@ -51,11 +43,31 @@ impl fmt::Display for PortError {
 }
 
 impl PortError {
+    pub fn invalid_input(context: &'static str, source: impl Into<String>) -> Self {
+        Self::InvalidInputContext {
+            context,
+            source: source.into(),
+        }
+    }
+
+    pub fn downstream(context: &'static str, source: impl Into<String>) -> Self {
+        Self::DownstreamContext {
+            context,
+            source: source.into(),
+        }
+    }
+
+    pub fn internal(context: &'static str, source: impl Into<String>) -> Self {
+        Self::InternalContext {
+            context,
+            source: source.into(),
+        }
+    }
+}
+
+impl PortError {
     pub fn is_invalid_input(&self) -> bool {
-        matches!(
-            self,
-            Self::InvalidInput { .. } | Self::InvalidInputContext { .. }
-        )
+        matches!(self, Self::InvalidInputContext { .. })
     }
 
     pub fn is_downstream(&self) -> bool {
@@ -66,7 +78,7 @@ impl PortError {
     }
 
     pub fn is_internal(&self) -> bool {
-        matches!(self, Self::Internal { .. } | Self::InternalContext { .. })
+        matches!(self, Self::InternalContext { .. })
     }
 
     pub fn is_not_found(&self) -> bool {

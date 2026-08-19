@@ -6,8 +6,8 @@ use crate::entities::{
 use crate::events::DomainEventEnvelope;
 use crate::ids::{
     ApprovalId, ArtifactId, ArtifactVersionId, CardId, ChunkId, ClaimId, EvidenceId, HarnessRunId,
-    MemoryCandidateId, MemoryId, NotebookDraftId, NotebookId, RelationId, StructureNodeId, TaskId,
-    ValidationReportId,
+    LogicalTick, MemoryCandidateId, MemoryId, NotebookDraftId, NotebookId, RelationId,
+    StructureNodeId, TaskId, ValidationReportId,
 };
 use crate::inputs::ParserStarted;
 use crate::notebook::{Notebook, NotebookDraft, SourceIdentityKey};
@@ -26,7 +26,6 @@ pub struct KernelState {
     pub ocr_intents: BTreeMap<crate::ocr::OcrRequestId, crate::ocr::OcrIntent>,
     pub ocr_results: BTreeMap<crate::ocr::OcrRequestId, crate::ocr::OcrCompletion>,
     pub ocr_failures: BTreeMap<crate::ocr::OcrRequestId, String>,
-    pub chunk_nodes: BTreeMap<ChunkId, StructureNodeId>,
     pub chunks: BTreeMap<ChunkId, Chunk>,
     pub cards: BTreeMap<CardId, Card>,
     pub evidences: BTreeMap<EvidenceId, Evidence>,
@@ -48,5 +47,9 @@ pub struct KernelState {
     pub index_generations: crate::generations::IndexGenerationRegistry,
     /// Rebuildable provider grant current state. The event log is authoritative.
     pub realm_read_grants: BTreeMap<GrantTokenDigest, RealmReadGrant>,
+    /// Cached latest observed clock tick. Written by `apply_tick_observed`
+    /// (replay) and `process_clock_tick` (live), both from the same event
+    /// content, so the cache is deterministic. `None` until the first tick.
+    pub current_tick: Option<LogicalTick>,
     pub event_log: Vec<DomainEventEnvelope>,
 }

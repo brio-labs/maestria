@@ -12,7 +12,6 @@ pub fn malformed_deterministic_evidence_events(
     Ok(vec![
         DomainEventEnvelope {
             id: EventId::new(1),
-            sequence: SequenceNumber::new(1),
             event: DomainEvent::ArtifactRegistered {
                 artifact_id: art_id,
                 title: "Test".to_string(),
@@ -21,7 +20,6 @@ pub fn malformed_deterministic_evidence_events(
         },
         DomainEventEnvelope {
             id: EventId::new(2),
-            sequence: SequenceNumber::new(2),
             event: DomainEvent::ParserStarted {
                 artifact_id: art_id,
                 title: "Test".to_string(),
@@ -32,7 +30,6 @@ pub fn malformed_deterministic_evidence_events(
         },
         DomainEventEnvelope {
             id: EventId::new(3),
-            sequence: SequenceNumber::new(3),
             event: DomainEvent::PendingIndex {
                 artifact_id: art_id,
                 content_hash: content_hash.clone(),
@@ -40,16 +37,13 @@ pub fn malformed_deterministic_evidence_events(
         },
         DomainEventEnvelope {
             id: EventId::new(4),
-            sequence: SequenceNumber::new(4),
             event: DomainEvent::ArtifactParsed {
                 status: maestria_domain::ParseStatus::Parsed,
                 artifact_id: art_id,
-                chunks_added: 1,
             },
         },
         DomainEventEnvelope {
             id: EventId::new(5),
-            sequence: SequenceNumber::new(5),
             event: DomainEvent::ChunkRegistered {
                 node_id: StructureNodeId::new(1),
                 source_span: SourceSpan::text_span(1, 1)?,
@@ -63,7 +57,6 @@ pub fn malformed_deterministic_evidence_events(
         // Malformed evidence record (CommandOutput, not FileSpan).
         DomainEventEnvelope {
             id: EventId::new(6),
-            sequence: SequenceNumber::new(6),
             event: DomainEvent::EvidenceRecorded {
                 evidence_id: ev_id,
                 artifact_id: art_id,
@@ -92,7 +85,6 @@ pub fn valid_duplicate_evidence_events()
     Ok(vec![
         DomainEventEnvelope {
             id: EventId::new(1),
-            sequence: SequenceNumber::new(1),
             event: DomainEvent::ArtifactRegistered {
                 artifact_id: art_id,
                 title: "Test".to_string(),
@@ -101,7 +93,6 @@ pub fn valid_duplicate_evidence_events()
         },
         DomainEventEnvelope {
             id: EventId::new(2),
-            sequence: SequenceNumber::new(2),
             event: DomainEvent::ParserStarted {
                 artifact_id: art_id,
                 title: "Test".to_string(),
@@ -112,7 +103,6 @@ pub fn valid_duplicate_evidence_events()
         },
         DomainEventEnvelope {
             id: EventId::new(3),
-            sequence: SequenceNumber::new(3),
             event: DomainEvent::PendingIndex {
                 artifact_id: art_id,
                 content_hash: content_hash.clone(),
@@ -120,16 +110,13 @@ pub fn valid_duplicate_evidence_events()
         },
         DomainEventEnvelope {
             id: EventId::new(4),
-            sequence: SequenceNumber::new(4),
             event: DomainEvent::ArtifactParsed {
                 status: maestria_domain::ParseStatus::Parsed,
                 artifact_id: art_id,
-                chunks_added: 1,
             },
         },
         DomainEventEnvelope {
             id: EventId::new(5),
-            sequence: SequenceNumber::new(5),
             event: DomainEvent::ChunkRegistered {
                 node_id: StructureNodeId::new(1),
                 source_span: SourceSpan::text_span(1, 1)?,
@@ -143,7 +130,6 @@ pub fn valid_duplicate_evidence_events()
         // Valid evidence.
         DomainEventEnvelope {
             id: EventId::new(6),
-            sequence: SequenceNumber::new(6),
             event: DomainEvent::EvidenceRecorded {
                 evidence_id: ev_id,
                 artifact_id: art_id,
@@ -161,7 +147,6 @@ pub fn valid_duplicate_evidence_events()
         // Different valid evidence at same ID — must error.
         DomainEventEnvelope {
             id: EventId::new(7),
-            sequence: SequenceNumber::new(7),
             event: DomainEvent::EvidenceRecorded {
                 evidence_id: ev_id,
                 artifact_id: art_id,

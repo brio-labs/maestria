@@ -8,9 +8,9 @@
 //! `crate::payloads::stored_search`.
 
 use maestria_domain::{
-    ConflictSet, ConflictSetId, ContentRange, DuplicateClusterId, EvidenceCandidate,
-    EvidenceCandidateDto, EvidenceCoverage, EvidenceCoverageDto, EvidenceSpan, FreshnessStatus,
-    SourceLocation, StructureNodeId, TrustLabel,
+    ConflictSet, ConflictSetId, DuplicateClusterId, EvidenceCandidate, EvidenceCandidateDto,
+    EvidenceCoverage, EvidenceCoverageDto, EvidenceSpan, FreshnessStatus, SourceLocation,
+    StructureNodeId, TrustLabel,
 };
 use maestria_ports::PortError;
 use serde::{Deserialize, Serialize};
@@ -117,25 +117,7 @@ impl StoredSourceLocation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct StoredContentRange {
-    pub(crate) start: usize,
-    pub(crate) end: usize,
-}
-
-impl StoredContentRange {
-    pub(crate) fn from_domain(value: &ContentRange) -> Self {
-        Self {
-            start: value.start(),
-            end: value.end(),
-        }
-    }
-
-    pub(crate) fn try_into_domain(self) -> Result<ContentRange, PortError> {
-        ContentRange::new(self.start, self.end).map_err(span_decode_error)
-    }
-}
+pub(crate) use crate::payloads::stored_structure::StoredContentRange;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -150,7 +132,7 @@ impl StoredEvidenceSpan {
         Self {
             node_id: value.node_id().map(|id| id.value()),
             location: StoredSourceLocation::from_domain(value.location()),
-            range: StoredContentRange::from_domain(&value.range()),
+            range: StoredContentRange::from_domain(value.range()),
         }
     }
 
@@ -160,65 +142,26 @@ impl StoredEvidenceSpan {
             self.location.try_into_domain()?,
             self.range.try_into_domain()?,
         )
-        .map_err(|error| PortError::InvalidInputContext {
-            context: "decode stored evidence span",
-            source: error.to_string(),
-        })
+        .map_err(|error| PortError::invalid_input("decode stored evidence span", error.to_string()))
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredTrustLabel {
-    Verified,
-    Unverified,
-    Disputed,
-    Deprecated,
-}
-
-impl StoredTrustLabel {
-    pub(crate) fn from_domain(value: &TrustLabel) -> Self {
-        match value {
-            TrustLabel::Verified => Self::Verified,
-            TrustLabel::Unverified => Self::Unverified,
-            TrustLabel::Disputed => Self::Disputed,
-            TrustLabel::Deprecated => Self::Deprecated,
-        }
-    }
-
-    pub(crate) fn try_into_domain(self) -> Result<TrustLabel, PortError> {
-        Ok(match self {
-            Self::Verified => TrustLabel::Verified,
-            Self::Unverified => TrustLabel::Unverified,
-            Self::Disputed => TrustLabel::Disputed,
-            Self::Deprecated => TrustLabel::Deprecated,
-        })
+crate::stored_enum! {
+    #[serde(rename_all = "snake_case")]
+    pub(crate) enum StoredTrustLabel <=> TrustLabel {
+        Verified,
+        Unverified,
+        Disputed,
+        Deprecated,
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredFreshnessStatus {
-    UpToDate,
-    Stale,
-    Unknown,
-}
-
-impl StoredFreshnessStatus {
-    pub(crate) fn from_domain(value: &FreshnessStatus) -> Self {
-        match value {
-            FreshnessStatus::UpToDate => Self::UpToDate,
-            FreshnessStatus::Stale => Self::Stale,
-            FreshnessStatus::Unknown => Self::Unknown,
-        }
-    }
-
-    pub(crate) fn try_into_domain(self) -> Result<FreshnessStatus, PortError> {
-        Ok(match self {
-            Self::UpToDate => FreshnessStatus::UpToDate,
-            Self::Stale => FreshnessStatus::Stale,
-            Self::Unknown => FreshnessStatus::Unknown,
-        })
+crate::stored_enum! {
+    #[serde(rename_all = "snake_case")]
+    pub(crate) enum StoredFreshnessStatus <=> FreshnessStatus {
+        UpToDate,
+        Stale,
+        Unknown,
     }
 }
 
@@ -243,8 +186,8 @@ impl StoredEvidenceCandidate {
             artifact_version: value.artifact_version().value(),
             source_span: StoredEvidenceSpan::from_domain(value.source_span()),
             scores: StoredRetrievalScoreSet::from_domain(value.scores()),
-            trust: StoredTrustLabel::from_domain(&value.trust()),
-            freshness: StoredFreshnessStatus::from_domain(&value.freshness()),
+            trust: StoredTrustLabel::from_domain(value.trust()),
+            freshness: StoredFreshnessStatus::from_domain(value.freshness()),
             duplicate_cluster: value.duplicate_cluster().map(|id| id.value()),
             reasons: value
                 .reasons()
@@ -271,9 +214,8 @@ impl StoredEvidenceCandidate {
                 .collect::<Result<Vec<_>, _>>()?,
             coverage_keys: self.coverage_keys,
         })
-        .map_err(|error| PortError::InvalidInputContext {
-            context: "decode stored evidence candidate",
-            source: error.to_string(),
+        .map_err(|error| {
+            PortError::invalid_input("decode stored evidence candidate", error.to_string())
         })
     }
 }
@@ -353,9 +295,8 @@ impl StoredEvidenceCoverage {
             distinct_sections: self.distinct_sections,
             candidate_coverage_keys: self.candidate_coverage_keys,
         })
-        .map_err(|error| PortError::InvalidInputContext {
-            context: "decode stored evidence coverage",
-            source: error.to_string(),
+        .map_err(|error| {
+            PortError::invalid_input("decode stored evidence coverage", error.to_string())
         })
     }
 }

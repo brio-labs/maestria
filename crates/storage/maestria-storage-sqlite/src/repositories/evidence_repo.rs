@@ -37,56 +37,56 @@ impl EvidenceRepository for crate::SqliteStore {
         let claim_id = optional_u64_to_i64(evidence.claim_id.map(|id| id.value()))?;
         let observed_at = u64_to_i64(evidence.observed_at.value())?;
 
-        let mut connection = self.lock()?;
-        let transaction = connection.transaction().map_err(to_port_error)?;
-        transaction
-            .execute(
-                "INSERT INTO evidence
-                     (id, artifact_id, claim_id, kind_json, excerpt, observed_at, security_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                 ON CONFLICT(id) DO NOTHING",
-                params![
-                    evidence_id,
-                    artifact_id,
-                    claim_id,
-                    &kind_json,
-                    &evidence.excerpt,
-                    observed_at,
-                    &security_json,
-                ],
-            )
-            .map_err(to_port_error)?;
-
-        let existing = {
-            let mut statement = transaction
-                .prepare(
-                    "SELECT id, artifact_id, claim_id, kind_json, excerpt, observed_at, security_json
-                     FROM evidence
-                     WHERE id = ?1",
+        self.with_transaction(|transaction| {
+            transaction
+                .execute(
+                    "INSERT INTO evidence
+                         (id, artifact_id, claim_id, kind_json, excerpt, observed_at, security_json)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                     ON CONFLICT(id) DO NOTHING",
+                    params![
+                        evidence_id,
+                        artifact_id,
+                        claim_id,
+                        &kind_json,
+                        &evidence.excerpt,
+                        observed_at,
+                        &security_json,
+                    ],
                 )
                 .map_err(to_port_error)?;
-            let mut rows = statement
-                .query(params![evidence_id])
-                .map_err(to_port_error)?;
-            rows.next()
-                .map_err(to_port_error)?
-                .map(read_evidence)
-                .transpose()?
-        };
 
-        match existing {
-            Some(existing) if existing == evidence => transaction.commit().map_err(to_port_error),
-            Some(_) => Err(PortError::Conflict {
-                message: format!(
-                    "evidence {} already exists with different content; evidence is immutable",
-                    evidence.id.value()
-                ),
-            }),
-            None => Err(PortError::InternalContext {
-                context: "inserted evidence row is missing",
-                source: evidence.id.value().to_string(),
-            }),
-        }
+            let existing = {
+                let mut statement = transaction
+                    .prepare(
+                        "SELECT id, artifact_id, claim_id, kind_json, excerpt, observed_at, security_json
+                         FROM evidence
+                         WHERE id = ?1",
+                    )
+                    .map_err(to_port_error)?;
+                let mut rows = statement
+                    .query(params![evidence_id])
+                    .map_err(to_port_error)?;
+                rows.next()
+                    .map_err(to_port_error)?
+                    .map(read_evidence)
+                    .transpose()?
+            };
+
+            match existing {
+                Some(existing) if existing == evidence => Ok(()),
+                Some(_) => Err(PortError::Conflict {
+                    message: format!(
+                        "evidence {} already exists with different content; evidence is immutable",
+                        evidence.id.value()
+                    ),
+                }),
+                None => Err(PortError::internal(
+                    "verify inserted evidence",
+                    "evidence row was not inserted",
+                )),
+            }
+        })
     }
 
     fn replace(&self, evidence: Evidence) -> Result<(), PortError> {
@@ -138,10 +138,7 @@ fn read_evidence(row: &Row<'_>) -> Result<Evidence, PortError> {
     let kind = serde_json::from_str::<StoredEvidenceKind>(&kind_json)
         .map_err(json_error)?
         .try_into_domain()
-        .map_err(|error| PortError::InternalContext {
-            context: "decode stored evidence kind",
-            source: error.to_string(),
-        })?;
+        .map_err(|error| PortError::internal("decode stored evidence kind", error.to_string()))?;
     let security_json = row.get::<_, String>(6).map_err(to_port_error)?;
     let security = serde_json::from_str(&security_json).map_err(json_error)?;
 

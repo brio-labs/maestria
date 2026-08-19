@@ -8,9 +8,7 @@ use super::{error::StudioError, extract::ApiPath, state::StudioState};
 /// Dropping the future cancels the daemon source catalog request.
 pub async fn catalog(
     State(state): State<StudioState>,
-    ApiPath(notebook_id): ApiPath<u64>,
 ) -> Result<Json<ClientResponse>, StudioError> {
-    let _ = notebook_id;
     Ok(Json(
         state
             .client

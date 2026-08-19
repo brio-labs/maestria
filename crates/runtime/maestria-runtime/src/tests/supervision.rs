@@ -402,14 +402,32 @@ fn feedback_reports_capacity_without_waiting() -> Result<(), FeedbackError> {
         crate::test_helpers::test_governance(),
     );
     let handle = runtime.handle();
-    handle.try_send_feedback(DomainInput::ClockTick(LogicalTick::new(1)))?;
+    handle
+        .feedback_sender()
+        .try_send(DomainInput::ClockTick(LogicalTick::new(1)))
+        .map_err(|err| match err {
+            tokio::sync::mpsc::error::TrySendError::Full(_) => FeedbackError::CapacityFull,
+            tokio::sync::mpsc::error::TrySendError::Closed(_) => FeedbackError::RuntimeShutdown,
+        })?;
     assert_eq!(
-        handle.try_send_feedback(DomainInput::ClockTick(LogicalTick::new(2))),
+        handle
+            .feedback_sender()
+            .try_send(DomainInput::ClockTick(LogicalTick::new(2)))
+            .map_err(|err| match err {
+                tokio::sync::mpsc::error::TrySendError::Full(_) => FeedbackError::CapacityFull,
+                tokio::sync::mpsc::error::TrySendError::Closed(_) => FeedbackError::RuntimeShutdown,
+            }),
         Err(FeedbackError::CapacityFull)
     );
     drop(input_rx);
     assert_eq!(
-        handle.try_send_feedback(DomainInput::ClockTick(LogicalTick::new(3))),
+        handle
+            .feedback_sender()
+            .try_send(DomainInput::ClockTick(LogicalTick::new(3)))
+            .map_err(|err| match err {
+                tokio::sync::mpsc::error::TrySendError::Full(_) => FeedbackError::CapacityFull,
+                tokio::sync::mpsc::error::TrySendError::Closed(_) => FeedbackError::RuntimeShutdown,
+            }),
         Err(FeedbackError::RuntimeShutdown)
     );
     Ok(())
@@ -438,7 +456,7 @@ async fn approval_ack_includes_inline_continuation_admission_before_shutdown()
         &proposal.capability,
         &proposal.command,
         ScopeId::new(1),
-        Some(generation),
+        Some(maestria_domain::JournalGeneration::new(generation)),
     )?;
     let mut canonical = proposal.clone();
     canonical.execution = ModelAgentProposalExecution::Fresh;

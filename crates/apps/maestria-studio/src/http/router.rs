@@ -30,7 +30,7 @@ pub fn build_router(state: StudioState) -> Router {
                 .patch(notebooks::rename)
                 .delete(notebooks::delete),
         )
-        .route("/notebooks/{notebook_id}/sources", get(sources::catalog))
+        .route("/sources", get(sources::catalog))
         .route(
             "/notebooks/{notebook_id}/sources/{source_key}",
             post(sources::attach).delete(sources::detach),

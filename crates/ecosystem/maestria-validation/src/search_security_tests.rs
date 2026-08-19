@@ -1,9 +1,20 @@
 use maestria_domain::{EvidenceId, SearchTraceFilter, TrustZone};
 
-use super::RetrievalSecurityValidator;
-use super::Validator;
+use super::{SEARCH_CHECKS, SearchCheck, Validator};
 
 use crate::search_validator_fixtures::*;
+
+fn retrieval_validator() -> SearchCheck {
+    for c in SEARCH_CHECKS {
+        if c.name == "retrieval_security" {
+            return SearchCheck {
+                name: c.name,
+                check: c.check,
+            };
+        }
+    }
+    SEARCH_CHECKS[0]
+}
 
 #[test]
 fn retrieval_security_validator_requires_required_filters() -> Result<(), Box<dyn std::error::Error>>
@@ -12,7 +23,7 @@ fn retrieval_security_validator_requires_required_filters() -> Result<(), Box<dy
     if let Some(trace) = fixture.outcome.trace_data.as_mut() {
         trace.filters = vec![SearchTraceFilter::Acl, SearchTraceFilter::Quarantine];
     }
-    let check = RetrievalSecurityValidator.validate(&fixture.context());
+    let check = retrieval_validator().validate(&fixture.context());
     assert!(!check.passed);
     assert!(check.message.contains("required filter"));
     Ok(())
@@ -57,7 +68,7 @@ fn security_validator_blocks_poisoning_prompt_injection_secret_acl_and_quarantin
             return Err(format!("fixture lost evidence for {label}").into());
         };
         mutate(evidence);
-        let check = RetrievalSecurityValidator.validate(&fixture.context());
+        let check = retrieval_validator().validate(&fixture.context());
         assert!(!check.passed, "security case should fail: {label}");
         assert!(check.message.contains("1 denied candidate(s)"));
     }
@@ -82,7 +93,7 @@ fn security_validator_enforces_typed_policy_values() -> Result<(), Box<dyn std::
             SearchTraceFilter::Freshness,
         ];
     }
-    let check = RetrievalSecurityValidator.validate(&fixture.context());
+    let check = retrieval_validator().validate(&fixture.context());
     assert!(!check.passed);
     assert!(check.message.contains("denied candidate"));
     assert!(check.message.contains("1 denied candidate(s)"));
@@ -93,7 +104,7 @@ fn security_validator_enforces_typed_policy_values() -> Result<(), Box<dyn std::
 fn retrieval_security_validator_requires_complete_policy_provenance()
 -> Result<(), Box<dyn std::error::Error>> {
     let mut fixture = fixture()?;
-    let check = RetrievalSecurityValidator.validate(&fixture.context());
+    let check = retrieval_validator().validate(&fixture.context());
     assert!(
         check.passed,
         "complete policy provenance should pass: {}",
@@ -104,7 +115,7 @@ fn retrieval_security_validator_requires_complete_policy_provenance()
         return Err("fixture lost its trace".into());
     };
     trace.policy_fingerprint = None;
-    let check = RetrievalSecurityValidator.validate(&fixture.context());
+    let check = retrieval_validator().validate(&fixture.context());
     assert!(!check.passed);
     assert!(check.message.contains("requires a policy fingerprint"));
 
@@ -115,7 +126,7 @@ fn retrieval_security_validator_requires_complete_policy_provenance()
         "trust=Some(Verified);sensitivity=Some(Internal);read_allowed=true;scope=None;unscoped=true"
             .to_string(),
     );
-    let check = RetrievalSecurityValidator.validate(&fixture.context());
+    let check = retrieval_validator().validate(&fixture.context());
     assert!(!check.passed);
     assert!(check.message.contains("denied candidate"));
     Ok(())

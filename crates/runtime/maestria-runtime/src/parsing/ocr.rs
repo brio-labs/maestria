@@ -127,13 +127,7 @@ impl EffectExecutionContext {
         };
         let identity = provider.identity();
         let disclosure = provider.disclosure();
-        let Ok(provider_identity) = OcrProviderIdentity::new(
-            identity.provider,
-            identity.model,
-            identity.revision,
-            identity.artifact_hash,
-            identity.preprocessing_version,
-        ) else {
+        let Ok(provider_identity) = OcrProviderIdentity::try_from(identity.clone()) else {
             return false;
         };
         let retention = if matches!(

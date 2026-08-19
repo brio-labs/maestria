@@ -40,8 +40,7 @@ pub use protocol_repository_index::{
     RepositoryIndexRunResponse, RepositoryIndexSelectionResponse, RepositoryIndexStatusResponse,
     RepositoryIndexSummary,
 };
-
-const MAX_SEARCH_LIMIT: usize = 100;
+pub(crate) const MAX_SEARCH_LIMIT: usize = 100;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]

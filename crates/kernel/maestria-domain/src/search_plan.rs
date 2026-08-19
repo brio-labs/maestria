@@ -44,19 +44,19 @@ impl TryFrom<ModalitySetDto> for ModalitySet {
     type Error = SearchCompatibilityError;
 
     fn try_from(dto: ModalitySetDto) -> Result<Self, Self::Error> {
-        let mut values = dto.values;
-        values.sort();
-        values.dedup();
-        Ok(Self { values })
+        Ok(Self::sorted(dto.values))
     }
 }
 
 impl ModalitySet {
-    pub fn new(values: Vec<Modality>) -> Self {
-        let mut values = values;
+    fn sorted(mut values: Vec<Modality>) -> Self {
         values.sort();
         values.dedup();
         Self { values }
+    }
+
+    pub fn new(values: Vec<Modality>) -> Self {
+        Self::sorted(values)
     }
 
     pub fn values(&self) -> &[Modality] {
@@ -114,8 +114,7 @@ pub struct SearchPlan {
 }
 
 fn validate_web_budget(plan: &SearchPlan) -> Result<(), SearchCompatibilityError> {
-    if plan.intent == SearchIntent::CurrentWeb || plan.modalities.values().contains(&Modality::Web)
-    {
+    if plan.is_web_plan() {
         if plan.budgets.max_web_requests() == 0 {
             return Err(SearchCompatibilityError::InvalidPlan(
                 "web plans require a positive web request budget",
@@ -165,6 +164,12 @@ impl SearchPlan {
 
     pub fn modalities(&self) -> &ModalitySet {
         &self.modalities
+    }
+
+    /// True when the plan targets the web: the intent is current-web or the
+    /// web modality is present.
+    pub fn is_web_plan(&self) -> bool {
+        self.intent == SearchIntent::CurrentWeb || self.modalities.values().contains(&Modality::Web)
     }
 
     pub fn stages(&self) -> &[SearchStage] {

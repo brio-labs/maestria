@@ -1,7 +1,7 @@
 use crate::config::EffectExecutionContext;
 use crate::effect_dispatch::EffectWork;
 use crate::effect_result::EffectFailure;
-use crate::harness::truncate_output;
+use crate::harness::model_agent_harness_result;
 use crate::runtime::MaestriaRuntime;
 use maestria_domain::{
     KernelState, MaestriaEffect, ModelAgentHarnessResult, ModelAgentProposalExecution,
@@ -62,7 +62,7 @@ impl MaestriaRuntime {
             }
             let mut resumed = proposal.clone();
             resumed.execution = ModelAgentProposalExecution::JournalRecovery {
-                journal_generation: maestria_domain::JournalGeneration::new(entry.generation),
+                journal_generation: entry.generation,
             };
             proposals.insert(entry.run_id, resumed);
         }
@@ -114,7 +114,7 @@ impl MaestriaRuntime {
             tokio::select! {
                 () = shutdown_token.cancelled() => break,
                 result = effect_tx.send(vec![EffectWork::Pending(
-                    MaestriaEffect::QueryHarnessProposal(proposal.into_harness_request()),
+                    MaestriaEffect::QueryHarnessProposal(Box::new(proposal)),
                 )]) => {
                     if let Err(error) = result {
                         tracing::warn!(%error, "model-agent recovery effect channel closed");
@@ -141,7 +141,7 @@ impl EffectExecutionContext {
             })?
             .into_iter()
             .find(|entry| {
-                entry.generation == generation.value()
+                entry.generation == generation
                     && journal_entry_matches_proposal(entry, proposal, self.scope_id)
             })
             .ok_or_else(|| {
@@ -175,11 +175,6 @@ impl EffectExecutionContext {
         .map_err(|error| {
             EffectFailure::Degraded(format!("deliver recovered harness result: {error}"))
         })?;
-        Ok(Some(ModelAgentHarnessResult {
-            exit_code: outcome.exit_code,
-            stdout: truncate_output(&outcome.stdout),
-            stderr: truncate_output(&outcome.stderr),
-            duration_ms: outcome.duration.as_millis().min(u128::from(u64::MAX)) as u64,
-        }))
+        Ok(Some(model_agent_harness_result(&outcome)))
     }
 }

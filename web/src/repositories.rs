@@ -5,7 +5,7 @@ use crate::{
         ApiClient, RepositoryIndexCandidatesWire, RepositoryIndexProgressWire,
         RepositoryIndexRunWire, RepositoryIndexStatusWire,
     },
-    components::{Shell, WorkspaceContext, alert},
+    components::{Shell, WorkspaceContext, alert, bootstrap_root},
     index::collect_recommended,
     repository_tree::{BrowseTree, ChildrenCache, Expanded, FilesCache},
     state::LoadState,
@@ -19,11 +19,7 @@ type Included = crate::index::Included;
 pub(crate) fn RepositoryIndexWorkspace() -> Element {
     let context = use_context::<Signal<WorkspaceContext>>();
     let api = use_hook(ApiClient::new);
-    let root = use_signal(|| match context.read().bootstrap_status.as_ref() {
-        Some(status) if !status.instance_root_path.is_empty() => status.instance_root_path.clone(),
-        Some(status) if status.instance_root.starts_with('/') => status.instance_root.clone(),
-        _ => String::new(),
-    });
+    let root = use_signal(|| bootstrap_root(&context.read().bootstrap_status));
     let candidates: Signal<LoadState<RepositoryIndexCandidatesWire>> =
         use_signal(|| LoadState::Empty);
     let included: Signal<Included> = use_signal(Included::default);

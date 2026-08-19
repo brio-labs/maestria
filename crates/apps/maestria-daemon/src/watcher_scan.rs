@@ -19,26 +19,15 @@ pub(super) struct Observation {
 /// Scan manifest roots using `ignore::WalkBuilder` for gitignore/.ignore-aware
 /// traversal. The walker respects `.gitignore`, `.ignore`, and hidden-file
 /// conventions automatically.
-fn normalize_path(path: &Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                normalized.pop();
-            }
-            component => normalized.push(component.as_os_str()),
-        }
-    }
-    normalized
-}
-
 fn is_instance_path(path: &Path, normalized_instance_root: &Path) -> bool {
-    normalize_path(path).starts_with(normalized_instance_root)
+    maestria_governance::lexical_normalize(path)
+        .is_some_and(|normalized| normalized.starts_with(normalized_instance_root))
 }
 
 fn is_instance_internal_path(path: &Path, normalized_instance_root: &Path) -> bool {
-    let normalized_path = normalize_path(path);
+    let Some(normalized_path) = maestria_governance::lexical_normalize(path) else {
+        return false;
+    };
     let Some(relative) = normalized_path.strip_prefix(normalized_instance_root).ok() else {
         return false;
     };
@@ -60,11 +49,17 @@ pub(super) fn scan_manifest(
     let mut observations = Vec::new();
     let mut signatures = BTreeMap::new();
     let instance_root = manifest.root.clone();
-    let normalized_instance_root = normalize_path(&instance_root);
+    let normalized_instance_root = match maestria_governance::lexical_normalize(&instance_root) {
+        Some(normalized) => normalized,
+        None => instance_root.clone(),
+    };
 
     for root in &manifest.read_roots {
         let root = root.clone();
-        let normalized_root = normalize_path(&root);
+        let normalized_root = match maestria_governance::lexical_normalize(&root) {
+            Some(normalized) => normalized,
+            None => root.clone(),
+        };
         let exclude_instance = normalized_root != normalized_instance_root
             && normalized_instance_root.starts_with(&normalized_root);
         let normalized_instance_root = normalized_instance_root.clone();

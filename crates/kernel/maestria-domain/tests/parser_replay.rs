@@ -11,7 +11,6 @@ fn replay_reconstructs_pending_parsers() -> Result<(), Box<dyn std::error::Error
     let mut state = KernelState::new();
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ParserStarted {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
@@ -34,7 +33,6 @@ fn replay_artifact_parsed_cleans_up_pending_parsers() -> Result<(), Box<dyn std:
     // Set up: artifact registered (from first-time commit) + parser started
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
@@ -43,7 +41,6 @@ fn replay_artifact_parsed_cleans_up_pending_parsers() -> Result<(), Box<dyn std:
     })?;
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::ParserStarted {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
@@ -56,11 +53,9 @@ fn replay_artifact_parsed_cleans_up_pending_parsers() -> Result<(), Box<dyn std:
     // pending_parsers is NOT removed here — only ArtifactIndexed clears it.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(3),
-        sequence: SequenceNumber::new(3),
         event: DomainEvent::ArtifactParsed {
             status: maestria_domain::ParseStatus::Parsed,
             artifact_id: ArtifactId::new(1),
-            chunks_added: 0,
         },
     })?;
 

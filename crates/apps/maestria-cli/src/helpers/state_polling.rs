@@ -1,11 +1,28 @@
 use anyhow::{Context, Result};
 use maestria_core::InstanceLayout;
-use maestria_daemon::db_retry::{is_database_busy, run_database_retry};
 use maestria_domain::KernelState;
+use maestria_storage_sqlite::db_retry::{is_database_busy, run_database_retry};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
-
+fn event_count(layout: &InstanceLayout) -> Result<i64> {
+    let connection = rusqlite::Connection::open_with_flags(
+        &layout.database_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+    )
+    .with_context(|| "open database for event count while counting events")?;
+    let count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM domain_events", [], |row| row.get(0))
+        .or_else(|error| {
+            if error.to_string().contains("no such table") {
+                Ok(0)
+            } else {
+                Err(error)
+            }
+        })
+        .with_context(|| "count domain events for kernel poll")?;
+    Ok(count)
+}
 pub(crate) fn load_kernel_state_with_retry(
     layout: &InstanceLayout,
     context: &'static str,
@@ -16,10 +33,10 @@ pub(crate) fn load_kernel_state_with_retry(
 }
 
 /// Retry a synchronous database operation while the instance is transiently
-/// locked, delegating the retry cadence to the shared daemon policy
-/// (`maestria_daemon::db_retry`).
+/// locked, delegating the retry cadence to the shared storage policy
+/// (`maestria_storage_sqlite::db_retry`).
 ///
-/// The shared daemon constants (`RETRY_ATTEMPTS` / `RETRY_DELAY`) drive the
+/// The shared storage constants (`RETRY_ATTEMPTS` / `RETRY_DELAY`) drive the
 /// loop. A busy error that outlives the retry budget is reported as a
 /// timeout with the last underlying error, matching the historical CLI
 /// wording.
@@ -102,8 +119,31 @@ pub(crate) async fn wait_for_kernel_state(
 ) -> Result<KernelState> {
     let last_error = Arc::new(Mutex::new(None::<String>));
     let last_error_for_wait = Arc::clone(&last_error);
+    let mut last_count: Option<i64> = None;
     let result = timeout(timeout_budget, async {
         loop {
+            let count = match retry_db_busy(&wait_context, || event_count(layout)) {
+                Ok(count) => count,
+                Err(error) if is_database_busy(&error) => {
+                    match last_error_for_wait.lock() {
+                        Ok(mut slot) => *slot = Some(error.to_string()),
+                        Err(_) => {
+                            return Err(anyhow::anyhow!(
+                                "record last database-busy error: state-poll mutex poisoned"
+                            ));
+                        }
+                    }
+                    sleep(Duration::from_millis(25)).await;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            let count_changed = last_count != Some(count);
+            if !count_changed {
+                sleep(Duration::from_millis(25)).await;
+                continue;
+            }
+            last_count = Some(count);
             match maestria_daemon::load_kernel_state(layout)
                 .with_context(|| format!("load kernel state while {wait_context}"))
             {

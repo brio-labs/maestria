@@ -1,33 +1,33 @@
 #[path = "search_runtime_construction.rs"]
 mod construction;
+#[path = "search_executor_dispatch.rs"]
+mod dispatch;
 #[path = "search_runtime_engine.rs"]
 mod engine;
+#[path = "search_runtime_parts.rs"]
+pub(crate) mod parts;
 #[path = "search_executor_port.rs"]
 mod port;
 #[path = "search_executor_projection.rs"]
 pub(crate) mod projection;
-#[path = "repository_code_loader.rs"]
-mod repository_code_loader;
-#[path = "search_visual_runtime.rs"]
-mod visual_runtime;
+pub(crate) use construction::load_repository_code_index_with_exclusions;
 pub use construction::{
     prepare_search_runtime, prepare_search_runtime_read_only,
     prepare_search_runtime_read_only_for_federation,
     prepare_search_runtime_read_only_with_repository_policy,
     prepare_search_runtime_with_repository_policy,
 };
-pub(crate) use repository_code_loader::load_repository_code_index_with_exclusions;
 #[cfg(test)]
 #[path = "search_executor_tests.rs"]
 mod tests;
-use std::{collections::BTreeSet, sync::Arc};
+use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use maestria_code_intel::RepositoryCodeIndex;
 use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_domain::{
-    ArtifactVersionId, CorpusSnapshotId, DomainEventEnvelope, IndexGenerationId, KernelState,
-    RetrievalModelFingerprint, SearchOutcome, SearchPlan,
+    CorpusSnapshotId, DomainEventEnvelope, IndexGenerationId, KernelState,
+    RetrievalModelFingerprint,
 };
 use maestria_ports::{
     ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EmbeddingProvider, EventFilter,
@@ -39,33 +39,22 @@ use maestria_retrieval::{
     VisualExecutionPolicy,
 };
 use maestria_storage_sqlite::SqliteStore;
+use parking_lot::RwLock;
 
-pub(crate) struct SearchRuntimeParts {
-    pub(crate) artifacts: Arc<dyn ArtifactRepository + Send + Sync>,
-    pub(crate) cards: Arc<dyn CardRepository + Send + Sync>,
-    pub(crate) chunks: Arc<dyn ChunkRepository + Send + Sync>,
-    pub(crate) evidence: Arc<dyn EvidenceRepository + Send + Sync>,
-    pub(crate) search_index: Arc<dyn FullTextIndex + Send + Sync>,
-    pub(crate) blobs: Arc<dyn BlobStore + Send + Sync>,
-    pub(crate) vector_index: Option<Arc<dyn VectorIndex + Send + Sync>>,
-    pub(crate) graph_index: Option<Arc<dyn GraphIndex + Send + Sync>>,
-    pub(crate) event_log: Arc<SqliteStore>,
-    pub(crate) primary_generation: IndexGenerationId,
-    pub(crate) dense_generation: Option<IndexGenerationId>,
-    pub(crate) repository_code_index: Option<Arc<RepositoryCodeIndex>>,
-    pub(crate) repository_execution_policy: RepositoryExecutionPolicy,
-    pub(crate) hybrid_execution_policy: maestria_retrieval::HybridExecutionPolicy,
-    pub(crate) learned_sparse_execution_policy: maestria_retrieval::LearnedSparseExecutionPolicy,
-    pub(crate) sparse_retriever: Option<Arc<dyn CandidateRetriever>>,
-    pub(crate) corpus_snapshot: CorpusSnapshotId,
-    pub(crate) scope_id: maestria_domain::ScopeId,
-}
+pub(crate) type EngineSignature = (
+    usize,
+    Option<u64>,
+    IndexGenerationId,
+    Option<IndexGenerationId>,
+    CorpusSnapshotId,
+);
+pub(crate) type CachedEngine = (EngineSignature, Arc<maestria_retrieval::RetrievalEngine>);
+pub(crate) type EngineCache = Arc<RwLock<Option<CachedEngine>>>;
 
 /// One immutable set of repositories, generations, and indexes used for a search request.
 ///
 /// The daemon owns construction so direct CLI search, explain, and background
 /// search effects cannot drift into separate retrieval implementations.
-#[derive(Clone)]
 pub struct SearchRuntime {
     pub(crate) artifacts: Arc<dyn ArtifactRepository + Send + Sync>,
     pub(crate) cards: Arc<dyn CardRepository + Send + Sync>,
@@ -95,8 +84,10 @@ pub struct SearchRuntime {
     pub(crate) corpus_snapshot: CorpusSnapshotId,
     pub(crate) scope_id: maestria_domain::ScopeId,
     pub(crate) fingerprint: RetrievalModelFingerprint,
+    pub(crate) engine_cache: EngineCache,
 }
 
+pub(crate) use parts::SearchRuntimeParts;
 pub(crate) use projection::reconcile_active_versions;
 
 impl SearchRuntime {
@@ -136,7 +127,96 @@ impl SearchRuntime {
             corpus_snapshot: parts.corpus_snapshot,
             scope_id: parts.scope_id,
             fingerprint,
+            engine_cache: Arc::new(RwLock::new(None)),
         })
+    }
+
+    pub(crate) fn assemble(
+        layout: &InstanceLayout,
+        state: &KernelState,
+        manifest: &InstanceManifest,
+        retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
+        repository_execution_policy: RepositoryExecutionPolicy,
+        allow_projection_writes: bool,
+        federation_read_only: bool,
+    ) -> Result<Arc<Self>> {
+        use crate::projection_open::{
+            open_base_stores, open_base_stores_read_only, open_full_text_index, open_graph_index,
+            open_vector_index, reconcile_vector_projection, resolve_index_generations,
+        };
+        let (sqlite_store, blob_store) = if federation_read_only {
+            open_base_stores_read_only(layout)?
+        } else {
+            open_base_stores(layout)?
+        };
+        let search_index = open_full_text_index(
+            layout,
+            state,
+            allow_projection_writes,
+            allow_projection_writes,
+        )?;
+        let repository_code_index =
+            crate::search_executor::load_repository_code_index_with_exclusions(
+                layout,
+                Some(manifest),
+            )
+            .context("load repository code index")?;
+        let embedding_provider = if federation_read_only {
+            None
+        } else {
+            crate::vector_startup::build_embedding_provider(manifest, state)?
+        };
+        let vector_index = if federation_read_only {
+            None
+        } else {
+            open_vector_index(layout, embedding_provider.is_some())?
+        };
+        reconcile_vector_projection(
+            state,
+            manifest,
+            &embedding_provider,
+            &vector_index,
+            allow_projection_writes,
+        );
+        let graph_index: Option<Arc<dyn GraphIndex + Send + Sync>> = if federation_read_only {
+            None
+        } else {
+            Some(open_graph_index(layout, state, allow_projection_writes)?)
+        };
+        let (primary_generation, corpus_snapshot, dense_generation) =
+            resolve_index_generations(state)?;
+        let (hybrid_execution_policy, learned_sparse_execution_policy, sparse_retriever) =
+            crate::runtime_construction::search_lane_bundle(
+                state,
+                manifest,
+                sqlite_store.clone(),
+                blob_store.clone(),
+            );
+        let parts = SearchRuntimeParts {
+            artifacts: sqlite_store.clone(),
+            cards: sqlite_store.clone(),
+            chunks: sqlite_store.clone(),
+            evidence: sqlite_store.clone(),
+            search_index,
+            blobs: blob_store,
+            vector_index,
+            graph_index,
+            event_log: sqlite_store,
+            primary_generation,
+            dense_generation,
+            repository_code_index,
+            repository_execution_policy,
+            hybrid_execution_policy,
+            learned_sparse_execution_policy,
+            sparse_retriever,
+            corpus_snapshot,
+            scope_id: maestria_domain::DEFAULT_INSTANCE_SCOPE_ID,
+        };
+        Ok(Arc::new(Self::from_parts(
+            parts,
+            embedding_provider,
+            retrieval_policy,
+        )?))
     }
 
     pub fn append_events(
@@ -147,17 +227,14 @@ impl SearchRuntime {
             EventLog::append(self.event_log.as_ref(), event)
                 .map_err(|error| anyhow!("append search event: {error}"))?;
         }
+        // Invalidate the cached engine: the event count changed.
+        *self.engine_cache.write() = None;
         Ok(())
     }
 
     fn domain_events(&self) -> Result<Vec<DomainEventEnvelope>> {
         EventLog::scan(self.event_log.as_ref(), EventFilter { artifact_id: None })
             .map_err(|error| anyhow!("scan domain history for retrieval: {error}"))
-    }
-
-    pub(crate) fn current_artifact_versions(&self) -> Result<BTreeSet<ArtifactVersionId>> {
-        let events = self.domain_events()?;
-        Ok(reconcile_active_versions(&events))
     }
 
     /// Produces a request-bound runtime that cannot materialize graph
@@ -167,6 +244,8 @@ impl SearchRuntime {
         let mut runtime = self.clone();
         runtime.graph_index = None;
         runtime.persist_learned_sparse_observations = false;
+        // The cloned runtime serves a different lane set; its cache must not be shared.
+        runtime.engine_cache = Arc::new(RwLock::new(None));
         runtime
     }
 
@@ -179,128 +258,34 @@ impl SearchRuntime {
         }
     }
 
-    fn execute_plan_blocking(&self, plan: SearchPlan) -> Result<SearchOutcome> {
-        // R43: direct CLI/API searches enforce the same scope dimension as the
-        // runtime effect path; the shared transition rejects out-of-scope plans.
-        let plan = plan
-            .confine_to_scope(self.scope_id)
-            .map_err(anyhow::Error::new)?;
+    pub(crate) fn engine_signature(&self, events: &[DomainEventEnvelope]) -> EngineSignature {
+        let last = events.last().map(|e| e.id.value());
+        (
+            events.len(),
+            last,
+            self.primary_generation,
+            self.dense_generation,
+            self.corpus_snapshot,
+        )
+    }
+
+    pub(crate) fn cached_retrieval_engine(
+        &self,
+    ) -> Result<Arc<maestria_retrieval::RetrievalEngine>> {
+        let events = self.domain_events()?;
+        let sig = self.engine_signature(&events);
+        {
+            let cache = self.engine_cache.read();
+            if let Some((cached_sig, engine)) = cache.as_ref()
+                && *cached_sig == sig
+            {
+                return Ok(engine.clone());
+            }
+        }
+        // Build fresh engine (single scan shared by base retrievers).
         let engine = self.retrieval_engine()?;
-        tokio::runtime::Handle::current()
-            .block_on(engine.search(&plan))
-            .map_err(anyhow::Error::new)
-    }
-
-    fn execute_search_blocking(
-        &self,
-        query: String,
-        limit: usize,
-    ) -> Result<(SearchPlan, SearchOutcome)> {
-        let engine = self.retrieval_engine()?;
-        // The plan is built already confined to the instance scope; the typed
-        // transition is kept as a guard so scope enforcement cannot drift
-        // (R28/R43).
-        let plan = engine
-            .plan(query, limit, &self.planner_context())
-            .map_err(anyhow::Error::new)?
-            .confine_to_scope(self.scope_id)
-            .map_err(anyhow::Error::new)?;
-        let outcome = tokio::runtime::Handle::current()
-            .block_on(engine.search(&plan))
-            .map_err(anyhow::Error::new)?;
-        Ok((plan, outcome))
-    }
-
-    fn execute_pre_authorized_blocking(
-        &self,
-        query: String,
-        limit: usize,
-        authorization: maestria_governance::RetrievalAuthorizationContext,
-    ) -> Result<(SearchPlan, SearchOutcome)> {
-        let engine = self.retrieval_engine()?;
-        let plan = engine
-            .plan(query, limit, &self.planner_context())
-            .map_err(anyhow::Error::new)?
-            .confine_to_scope(self.scope_id)
-            .map_err(anyhow::Error::new)?;
-        let outcome = tokio::runtime::Handle::current()
-            .block_on(engine.search_pre_authorized(&plan, authorization))
-            .map_err(anyhow::Error::new)?;
-        Ok((plan, outcome))
-    }
-
-    fn execute_selected_blocking(
-        &self,
-        query: String,
-        limit: usize,
-        authorization: maestria_governance::RetrievalAuthorizationContext,
-        source_filter: maestria_retrieval::CandidateSourceFilter,
-    ) -> Result<(SearchPlan, SearchOutcome)> {
-        let engine = self.retrieval_engine()?;
-        let plan = engine
-            .plan(query, limit, &self.planner_context())
-            .map_err(anyhow::Error::new)?
-            .confine_to_scope(self.scope_id)
-            .map_err(anyhow::Error::new)?;
-        let outcome = tokio::runtime::Handle::current()
-            .block_on(engine.search_pre_authorized_selected(&plan, authorization, source_filter))
-            .map_err(anyhow::Error::new)?;
-        Ok((plan, outcome))
-    }
-
-    /// Build and execute the same plan used by daemon search effects.
-    ///
-    /// # Cancellation
-    /// Cancelling the returned future does not abort the blocking search worker; the spawned
-    /// blocking task continues until completion.
-    pub async fn execute(
-        &self,
-        query: String,
-        limit: usize,
-    ) -> Result<(SearchPlan, SearchOutcome)> {
-        let runtime = self.clone();
-        tokio::task::spawn_blocking(move || runtime.execute_search_blocking(query, limit))
-            .await
-            .map_err(|error| anyhow!("search worker failed: {error}"))?
-    }
-
-    /// Executes a provider-composed authorization context without rebuilding
-    /// policy in any retrieval lane.
-    ///
-    /// # Cancellation
-    /// Cancelling the returned future does not abort the blocking search worker; the spawned
-    /// blocking task continues until completion.
-    pub async fn execute_pre_authorized(
-        &self,
-        query: String,
-        limit: usize,
-        authorization: maestria_governance::RetrievalAuthorizationContext,
-    ) -> Result<(SearchPlan, SearchOutcome)> {
-        let runtime = self.clone();
-        tokio::task::spawn_blocking(move || {
-            runtime.execute_pre_authorized_blocking(query, limit, authorization)
-        })
-        .await
-        .map_err(|error| anyhow!("search worker failed: {error}"))?
-    }
-    /// Executes a search restricted to the explicitly selected artifact set.
-    ///
-    /// # Cancellation
-    ///
-    /// Dropping the future stops awaiting the bounded worker; the worker
-    /// itself does not mutate shared state after cancellation.
-    pub async fn execute_selected_sources(
-        &self,
-        query: String,
-        limit: usize,
-        authorization: maestria_governance::RetrievalAuthorizationContext,
-        source_filter: maestria_retrieval::CandidateSourceFilter,
-    ) -> Result<(SearchPlan, SearchOutcome)> {
-        let runtime = self.clone();
-        tokio::task::spawn_blocking(move || {
-            runtime.execute_selected_blocking(query, limit, authorization, source_filter)
-        })
-        .await
-        .map_err(|error| anyhow!("search worker failed: {error}"))?
+        let engine = Arc::new(engine);
+        *self.engine_cache.write() = Some((sig, engine.clone()));
+        Ok(engine)
     }
 }

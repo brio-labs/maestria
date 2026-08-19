@@ -35,13 +35,9 @@ pub fn has_current_validation_report(state: &KernelState, task_id: TaskId) -> bo
         .iter()
         .skip(transition_index + 1)
         .any(|envelope| {
-            matches!(
-                envelope.event,
-                DomainEvent::ValidationReportCreated {
-                    report_id: _,
-                    task_id: Some(event_task_id),
-                    ..
-                } if event_task_id == task_id
-            )
+            envelope
+                .event
+                .validation_report()
+                .is_some_and(|(_, task, _)| task == Some(task_id))
         })
 }

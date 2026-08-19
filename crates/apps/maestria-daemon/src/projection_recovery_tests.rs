@@ -14,6 +14,7 @@ use maestria_domain::{
     ParseStatus, ParserResult, RecordEvidenceInput, RegisterChunkInput, SnapshotRef, SourceSpan,
     StructureNode, StructureNodeId, StructureNodeType,
 };
+use maestria_test_support::search_budget;
 #[path = "projection_recovery_tests/providers.rs"]
 mod providers;
 
@@ -24,12 +25,6 @@ use maestria_ports::{
 use providers::{
     CountingEmbeddingProvider, FlakyRecoveryEmbeddingProvider, RecoveryEmbeddingProvider,
 };
-
-fn search_budget(
-    limit: u64,
-) -> Result<maestria_domain::SearchExecutionBudget, maestria_domain::SearchCompatibilityError> {
-    maestria_domain::SearchExecutionBudget::new(limit, 10_000, 100_000, 0)
-}
 
 /// Fixture carrying entity IDs produced during domain-state setup.
 struct RecoveryTestFixture {
@@ -265,7 +260,6 @@ fn reconcile_projections_removes_stale_children_and_preserves_valid_rows()
 
     let mut corrected_state = state.clone();
     corrected_state.chunks.remove(&fixture.chunk_id_b);
-    corrected_state.chunk_nodes.remove(&fixture.chunk_id_b);
     corrected_state.cards.clear();
     corrected_state.evidences.clear();
     let artifact = corrected_state
