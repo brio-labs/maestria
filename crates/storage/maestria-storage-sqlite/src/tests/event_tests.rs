@@ -11,10 +11,9 @@ const DEFAULT_SECURITY: &str = r#"{"trust_zone":"untrusted","authority":"externa
 #[test]
 fn event_append_scan_order_and_filter() -> Result<(), Box<dyn std::error::Error>> {
     let store = SqliteStore::in_memory()?;
-    let first = registered(1, 1, 7);
+    let first = registered(1, 7);
     let second = DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::TaskOpened {
             task_id: TaskId::new(99),
             title: "task".to_string(),
@@ -24,7 +23,6 @@ fn event_append_scan_order_and_filter() -> Result<(), Box<dyn std::error::Error>
     };
     let third = DomainEventEnvelope {
         id: EventId::new(3),
-        sequence: SequenceNumber::new(3),
         event: DomainEvent::ChunkRegistered {
             chunk_id: ChunkId::new(8),
             artifact_id: ArtifactId::new(7),
@@ -37,7 +35,6 @@ fn event_append_scan_order_and_filter() -> Result<(), Box<dyn std::error::Error>
     };
     let out_of_order = DomainEventEnvelope {
         id: EventId::new(5),
-        sequence: SequenceNumber::new(5),
         event: DomainEvent::TickObserved {
             at: LogicalTick::new(1),
         },
@@ -69,7 +66,6 @@ fn artifact_filter_includes_evidence_and_search_events() -> Result<(), Box<dyn s
     let store = SqliteStore::in_memory()?;
     let evidence = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::EvidenceRecorded {
             evidence_id: EvidenceId::new(40),
             artifact_id: ArtifactId::new(7),
@@ -89,13 +85,11 @@ fn artifact_filter_includes_evidence_and_search_events() -> Result<(), Box<dyn s
     };
     let search = DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::SearchCompleted {
             artifact_id: ArtifactId::new(7),
-            cards_added: 2,
         },
     };
-    let unrelated = registered(3, 3, 9);
+    let unrelated = registered(3, 9);
 
     store.append(evidence.clone())?;
     store.append(search.clone())?;
@@ -124,20 +118,18 @@ fn artifact_filter_includes_ocr_request_and_terminals() -> Result<(), Box<dyn st
     let completion = OcrCompletion::new(&request, [OcrPageText::new(1, "one")?])?;
     let requested = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::OcrRequested {
             intent: request.clone(),
         },
     };
     let completed = DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::OcrCompleted {
             artifact_id: request.artifact_id(),
             completion,
         },
     };
-    let unrelated = registered(3, 3, 9);
+    let unrelated = registered(3, 9);
     store.append(requested.clone())?;
     store.append(completed.clone())?;
     store.append(unrelated)?;
@@ -152,30 +144,30 @@ fn artifact_filter_includes_ocr_request_and_terminals() -> Result<(), Box<dyn st
 }
 
 #[test]
-fn duplicate_event_id_or_sequence_conflicts() -> Result<(), Box<dyn std::error::Error>> {
+fn duplicate_event_id_or_gap_conflicts() -> Result<(), Box<dyn std::error::Error>> {
     let store = SqliteStore::in_memory()?;
-    store.append(registered(1, 1, 1))?;
+    store.append(registered(1, 1))?;
 
     assert!(matches!(
-        store.append(registered(1, 2, 1)),
+        store.append(registered(1, 1)),
         Err(PortError::Conflict { .. })
     ));
     assert!(matches!(
-        store.append(registered(2, 1, 1)),
+        store.append(registered(3, 1)),
         Err(PortError::Conflict { .. })
     ));
     Ok(())
 }
 
 #[test]
-fn append_rejects_swapped_existing_event_rows() -> Result<(), PortError> {
+fn append_rejects_gapped_existing_event_rows() -> Result<(), PortError> {
     let store = SqliteStore::in_memory()?;
     {
         let connection = store.lock()?;
         connection
             .execute(
-                "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 2, 'artifact_registered', 1, ?1, 4)",
+                "INSERT INTO domain_events (id, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 'artifact_registered', 1, ?1, 4)",
                 params![format!(
                     r#"{{"event_kind":"artifact_registered","artifact_id":1,"title":"first","security":{DEFAULT_SECURITY}}}"#
                 )],
@@ -183,25 +175,25 @@ fn append_rejects_swapped_existing_event_rows() -> Result<(), PortError> {
             .map_err(to_port_error)?;
         connection
             .execute(
-                "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (2, 1, 'artifact_registered', 1, ?1, 4)",
+                "INSERT INTO domain_events (id, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (3, 'artifact_registered', 1, ?1, 4)",
                 params![format!(
-                    r#"{{"event_kind":"artifact_registered","artifact_id":1,"title":"second","security":{DEFAULT_SECURITY}}}"#
+                    r#"{{"event_kind":"artifact_registered","artifact_id":1,"title":"third","security":{DEFAULT_SECURITY}}}"#
                 )],
             )
             .map_err(to_port_error)?;
     }
     assert!(matches!(
-        store.append(registered(3, 3, 1)),
+        store.append(registered(2, 1)),
         Err(PortError::Conflict { .. })
     ));
     Ok(())
 }
 
 #[test]
-fn fresh_schema_writes_payload_version_six() -> Result<(), PortError> {
+fn fresh_schema_writes_payload_version_seven() -> Result<(), PortError> {
     let store = SqliteStore::in_memory()?;
-    store.append(registered(1, 1, 1))?;
+    store.append(registered(1, 1))?;
     let connection = store.lock()?;
     let version: i64 = connection
         .query_row(
@@ -210,7 +202,7 @@ fn fresh_schema_writes_payload_version_six() -> Result<(), PortError> {
             |row| row.get(0),
         )
         .map_err(to_port_error)?;
-    assert_eq!(version, 6);
+    assert_eq!(version, 7);
     Ok(())
 }
 
@@ -221,8 +213,8 @@ fn malformed_payload_is_rejected_without_defaults() -> Result<(), PortError> {
         let connection = store.lock()?;
         connection
             .execute(
-                "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'chunk_registered', 1, ?1, 4)",
+                "INSERT INTO domain_events (id, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 'chunk_registered', 1, ?1, 4)",
                 params![r#"{"event_kind":"chunk_registered","chunk_id":1,"artifact_id":1,"order":0}"#],
             )
             .map_err(to_port_error)?;
@@ -242,8 +234,8 @@ fn strict_payloads_reject_missing_and_unknown_fields() -> Result<(), PortError> 
         let connection = missing_warnings.lock()?;
         connection
             .execute(
-                "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'validation_report_created', NULL, ?1, 4)",
+                "INSERT INTO domain_events (id, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 'validation_report_created', NULL, ?1, 4)",
                 params![
                     r#"{"event_kind":"validation_report_created","report_id":1,"task_id":null,"passed":true}"#
                 ],
@@ -261,8 +253,8 @@ fn strict_payloads_reject_missing_and_unknown_fields() -> Result<(), PortError> 
         let connection = unknown_field.lock()?;
         connection
             .execute(
-                "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'artifact_registered', 1, ?1, 4)",
+                "INSERT INTO domain_events (id, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 'artifact_registered', 1, ?1, 4)",
                 params![format!(
                     r#"{{"event_kind":"artifact_registered","artifact_id":1,"title":"artifact","security":{DEFAULT_SECURITY},"unexpected":true}}"#
                 )],
@@ -279,8 +271,8 @@ fn strict_payloads_reject_missing_and_unknown_fields() -> Result<(), PortError> 
         let connection = unknown_nested_field.lock()?;
         connection
             .execute(
-                "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'relation_created', NULL, ?1, 4)",
+                "INSERT INTO domain_events (id, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 'relation_created', NULL, ?1, 4)",
                 params![format!(
                     r#"{{"event_kind":"relation_created","relation_id":1,"source":{{"kind":"artifact","artifact_id":1,"unexpected":true}},"kind":"supports","target":{{"kind":"artifact","artifact_id":2}},"evidence_id":null,"confidence_milli":1000,"security":{DEFAULT_SECURITY}}}"#
                 )],
@@ -298,8 +290,8 @@ fn strict_payloads_reject_missing_and_unknown_fields() -> Result<(), PortError> 
         let connection = mismatched_metadata.lock()?;
         connection
             .execute(
-                "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'artifact_registered', NULL, ?1, 4)",
+                "INSERT INTO domain_events (id, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 'artifact_registered', NULL, ?1, 4)",
                 params![format!(
                     r#"{{"event_kind":"artifact_registered","artifact_id":1,"title":"artifact","security":{DEFAULT_SECURITY}}}"#
                 )],
@@ -320,7 +312,6 @@ fn task_evidence_linked_event_round_trips() -> Result<(), PortError> {
     let store = SqliteStore::in_memory()?;
     let envelope = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::TaskEvidenceLinked {
             task_id: TaskId::new(3),
             evidence_id: EvidenceId::new(10),
@@ -343,7 +334,6 @@ fn source_became_stale_round_trips_after_restart_and_rebuilds_stale_sources()
     let db_path = directory.path().join("stale-source.db");
     let envelope = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::SourceBecameStale {
             artifact_id: ArtifactId::new(7),
             source_path: "notes/source.md".to_string(),
@@ -421,7 +411,6 @@ fn search_executed_roundtrips_through_appended_scan() -> Result<(), Box<dyn std:
     };
     let envelope = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::SearchExecuted {
             query: "test query".to_string(),
             limit: 5,
@@ -443,9 +432,7 @@ fn search_knowledge_completed_roundtrips_through_appended_scan() -> Result<(), P
         trace: SearchTraceId::new(7),
         trace_data: None,
         fingerprint: RetrievalModelFingerprint::new("test-model".to_string()).map_err(|error| {
-            PortError::Internal {
-                message: error.to_string(),
-            }
+            PortError::internal("maestria storage sqlite test", error.to_string())
         })?,
         index_generation: IndexGenerationId::new(3),
         status: SearchStatus::NoEvidenceFound,
@@ -460,14 +447,11 @@ fn search_knowledge_completed_roundtrips_through_appended_scan() -> Result<(), P
             distinct_sections: 0,
             candidate_coverage_keys: vec![],
         })
-        .map_err(|error| PortError::Internal {
-            message: error.to_string(),
-        })?,
+        .map_err(|error| PortError::internal("maestria storage sqlite test", error.to_string()))?,
         conflicts: Vec::new(),
     };
     let envelope = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::SearchKnowledgeCompleted {
             task_id: Some(TaskId::new(7)),
             plan: None,
@@ -500,7 +484,6 @@ fn document_tree_captured_event_round_trips() -> Result<(), Box<dyn std::error::
 
     let envelope = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::DocumentTreeCaptured {
             artifact_id: ArtifactId::new(3),
             artifact_version_id: ArtifactVersionId::new(5),
@@ -526,8 +509,8 @@ fn chunk_registered_missing_source_span_is_rejected() -> Result<(), PortError> {
         let connection = store.lock()?;
         connection
             .execute(
-                "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'chunk_registered', 1, ?1, 4)",
+                "INSERT INTO domain_events (id, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 'chunk_registered', 1, ?1, 4)",
                 params![
                     r#"{"event_kind":"chunk_registered","chunk_id":1,"artifact_id":1,"order":0,"text":"t","node_id":0,"representations":[]}"#
                 ],
@@ -549,8 +532,8 @@ fn card_created_missing_source_span_is_rejected() -> Result<(), PortError> {
         let connection = store.lock()?;
         connection
             .execute(
-                "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'card_created', 1, ?1, 4)",
+                "INSERT INTO domain_events (id, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 'card_created', 1, ?1, 4)",
                 params![
                     r#"{"event_kind":"card_created","card_id":1,"artifact_id":1,"title":"t","body":"b","node_id":0}"#
                 ],
@@ -585,7 +568,6 @@ fn model_agent_proposal_request_payload_round_trips_with_event_kind() -> Result<
     };
     let envelope = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ModelAgentProposalRequested {
             request: request.clone(),
         },

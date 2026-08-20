@@ -1,7 +1,7 @@
 use crate::test_support::*;
 use maestria_domain::{
     Artifact, ArtifactId, ContentHash, DomainEvent, DomainEventEnvelope, EventId, IndexStatus,
-    ParseArtifactRequest, SequenceNumber, content_hash,
+    ParseArtifactRequest, content_hash,
 };
 use maestria_ports::{
     ArtifactRepository, BlobStore, EventLog, InMemoryArtifactRepository, InMemoryBlobStore,
@@ -31,7 +31,6 @@ async fn parse_artifact_barrier_blocks_parse_until_persistence_observable()
     // content must never satisfy the barrier.
     let _ = event_log.append(DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ParserStarted {
             artifact_id,
             title: "barrier-test".to_string(),

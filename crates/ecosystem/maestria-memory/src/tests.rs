@@ -1,4 +1,4 @@
-use crate::MemoryService;
+use crate::review_queue;
 use std::collections::{BTreeMap, BTreeSet};
 
 use maestria_domain::{
@@ -28,12 +28,10 @@ fn candidate(
     )
 }
 
-fn memory(id: u64, candidate_id: u64, claim_id: u64, status: MemoryStatus) -> Memory {
+fn memory(id: u64, candidate_id: u64, status: MemoryStatus) -> Memory {
     Memory {
         id: MemoryId::new(id),
         candidate_id: MemoryCandidateId::new(candidate_id),
-        claim_id: maestria_domain::ClaimId::new(claim_id),
-        evidence_ids: evidence_ids(&[id]),
         status,
         security: SecurityMetadata::default(),
     }
@@ -47,14 +45,11 @@ fn review_queue_filters_already_promoted_candidates() -> Result<(), Box<dyn std:
         (MemoryCandidateId::new(12), candidate(12, 22, &[32])?),
     ]);
     let existing = BTreeMap::from([
-        (MemoryId::new(1), memory(1, 10, 20, MemoryStatus::Active)),
-        (
-            MemoryId::new(2),
-            memory(2, 12, 22, MemoryStatus::Superseded),
-        ),
+        (MemoryId::new(1), memory(1, 10, MemoryStatus::Active)),
+        (MemoryId::new(2), memory(2, 12, MemoryStatus::Superseded)),
     ]);
 
-    let queue = MemoryService::review_queue(&candidates, &existing);
+    let queue = review_queue(&candidates, &existing);
 
     assert_eq!(queue, vec![MemoryCandidateId::new(11)]);
     Ok(())

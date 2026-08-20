@@ -177,8 +177,8 @@ impl CardRetriever {
 
 #[async_trait]
 impl CandidateRetriever for CardRetriever {
-    fn descriptor(&self) -> RetrieverDescriptor {
-        self.descriptor.clone()
+    fn descriptor(&self) -> &RetrieverDescriptor {
+        &self.descriptor
     }
 
     async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {

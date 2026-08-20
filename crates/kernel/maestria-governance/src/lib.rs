@@ -19,7 +19,6 @@
 /// - `scope`: module responsibility.
 /// - `secret_scanning`: credential and secret classification.
 /// - `validation`: task-completion validation.
-/// - `version`: governance version metadata.
 // ── modules ─────────────────────────────────────────────────────────
 mod approval;
 mod autonomy;
@@ -33,11 +32,12 @@ mod risk;
 mod scope;
 mod secret_scanning;
 mod validation;
-mod version;
 
 // ── re-exports ──────────────────────────────────────────────────────
 
-pub use approval::{ApprovalGate, ApprovalGateDecision, ApprovalRequest, DefaultApprovalGate};
+pub use approval::{
+    AdmissionPolicy, ApprovalGate, ApprovalGateDecision, ApprovalRequest, DefaultApprovalGate,
+};
 pub use autonomy::AutonomyProfile;
 pub use federation::{FederatedGrantDecision, FederatedGrantDenial, authorize_federated_read};
 pub use memory::{
@@ -52,16 +52,12 @@ pub use retrieval::{
     RetrievalSecurityPolicy,
 };
 pub use risk::{ClassifyRisk, DefaultRiskClassifier, PolicyDecision, RiskClass};
-pub use scope::{ContainmentError, Scope, ScopeGuard};
+pub use scope::{ContainmentError, Scope, lexical_normalize};
 pub use secret_scanning::{SecretFinding, SecretKind, SecretScan, scan_secrets};
 pub use validation::{
     DefaultValidationGate, ProposedCompletion, ValidationDecision, ValidationGate,
     ValidationRequest,
 };
-
-// ── metadata ────────────────────────────────────────────────────────
-
-pub use version::GOVERNANCE_VERSION;
 
 // ── tests ────────────────────────────────────────────────────────────
 
@@ -79,8 +75,6 @@ mod privacy_exclusions_tests;
 mod prompt_injection_tests;
 #[cfg(test)]
 mod risk_tests;
-#[cfg(test)]
-mod scope_guard_tests;
 #[cfg(test)]
 #[path = "secret_scanning_tests.rs"]
 mod secret_scanning_tests;

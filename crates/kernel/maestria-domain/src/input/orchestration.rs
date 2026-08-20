@@ -14,17 +14,12 @@ impl KernelState {
 
         let open = self.handle_open_task(OpenTaskInput {
             task_id: input.task_id,
-            title: input.title.clone(),
+            title: input.title,
             priority: input.priority,
             artifact_id: None,
         })?;
 
-        let observed = self.emit_event(DomainEvent::UserIntentObserved {
-            task_id: input.task_id,
-            title: input.title,
-        });
-
-        Ok(vec![open, observed])
+        Ok(vec![open])
     }
 
     pub(super) fn handle_parser_completed(
@@ -76,7 +71,6 @@ impl KernelState {
             let parsed = self.emit_event(DomainEvent::ArtifactParsed {
                 artifact_id: input.artifact_id,
                 status: input.status,
-                chunks_added: new_chunks,
             });
             generated.push(parsed);
             self.parsed_artifact_ids.insert(input.artifact_id);
@@ -107,12 +101,9 @@ impl KernelState {
             generated.push(self.handle_create_card(card)?);
         }
 
-        let cards_added = (generated.len().min(u32::MAX as usize)) as u32;
-        let event = self.emit_event(DomainEvent::SearchCompleted {
+        generated.push(self.emit_event(DomainEvent::SearchCompleted {
             artifact_id: input.artifact_id,
-            cards_added,
-        });
-        generated.push(event);
+        }));
         Ok(generated)
     }
 

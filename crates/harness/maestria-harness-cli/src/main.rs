@@ -5,7 +5,7 @@ use maestria_domain::{
 };
 use maestria_governance::{
     ApprovalGate, ApprovalRequest, AutonomyProfile, ClassifyRisk, DefaultApprovalGate,
-    DefaultRiskClassifier, PolicyDecision, PrivacyExclusions, Scope, ScopeGuard,
+    DefaultRiskClassifier, PolicyDecision, PrivacyExclusions, Scope,
 };
 use maestria_harness::LocalShellHarnessAdapter;
 use maestria_ports::{HarnessAdapter, HarnessCommandClass, HarnessRequest};
@@ -20,18 +20,6 @@ struct Cli {
 
     #[arg(short, long, default_value = ".")]
     working_directory: PathBuf,
-}
-
-fn privacy_patterns() -> Vec<String> {
-    let privacy = PrivacyExclusions::default();
-    let mut patterns: Vec<String> = privacy.sensitive_names().to_vec();
-    patterns.extend(
-        privacy
-            .sensitive_extensions()
-            .iter()
-            .map(|ext| format!("*.{ext}")),
-    );
-    patterns
 }
 
 fn enforce_policy_decision(decision: &PolicyDecision) -> Result<()> {
@@ -65,8 +53,6 @@ async fn main() -> Result<()> {
         vec![],
         false,
     );
-    let guard = ScopeGuard::new(scope.clone());
-
     // Governance authorization — decide before execution.
     if !scope.harness_allowed("shell") {
         println!("Governance: Denied. Shell harness not permitted by scope.");
@@ -82,12 +68,12 @@ async fn main() -> Result<()> {
         scope_id: ScopeId::new(1),
         command: cli.command.clone(),
     });
-    let risk = DefaultRiskClassifier.classify(&effect, &guard);
+    let risk = DefaultRiskClassifier.classify(&effect, &scope);
     let decision = gate.decide(&ApprovalRequest {
         effect: &effect,
         profile,
         risk,
-        scope: &guard,
+        scope: &scope,
     });
     enforce_policy_decision(&decision.decision)?;
     println!("Governance: Approved. Risk: {:?}", decision.risk);
@@ -101,7 +87,7 @@ async fn main() -> Result<()> {
         class: HarnessCommandClass::Shell,
         readable_roots: scope.readable_roots().to_vec(),
         blocked_paths: vec![],
-        blocked_patterns: privacy_patterns(),
+        blocked_patterns: PrivacyExclusions::default().privacy_blocked_patterns(),
     };
 
     let outcome = adapter.execute(request).await?;

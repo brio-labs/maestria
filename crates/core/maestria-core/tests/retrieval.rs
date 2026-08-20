@@ -47,7 +47,6 @@ fn seed_records(
         source_span: SourceSpan::text_span(1, 1)?,
         title: "card-title summary".to_string(),
         body: "card body text".to_string(),
-        claim_ids: Default::default(),
         security: Default::default(),
     })?;
     for (id, order, text) in [

@@ -7,8 +7,6 @@
 
 /// Responsibility map:
 /// - `constructors`: module responsibility.
-/// - `lexical_scoring`: module responsibility.
-/// - `lexical_helpers`: lexical query construction and scoring helpers.
 /// - `lexical_operations`: module responsibility.
 /// - `migration`: module responsibility.
 /// - `operations`: module responsibility.
@@ -27,9 +25,7 @@ mod documents;
 mod error;
 mod execution;
 mod keys;
-mod lexical_helpers;
 mod lexical_operations;
-mod lexical_scoring;
 mod migration;
 mod operations;
 mod operations_cards;

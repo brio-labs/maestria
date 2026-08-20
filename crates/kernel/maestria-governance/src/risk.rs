@@ -1,6 +1,6 @@
 use maestria_domain::MaestriaEffect;
 
-use crate::scope::ScopeGuard;
+use crate::scope::Scope;
 
 /// Granularity of risk for an effect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -23,19 +23,26 @@ impl PolicyDecision {
     pub fn is_allowed(&self) -> bool {
         matches!(self, Self::Allow)
     }
-
-    pub fn requires_approval(&self) -> bool {
-        matches!(self, Self::RequireApproval { .. })
-    }
-
-    pub fn is_denied(&self) -> bool {
-        matches!(self, Self::Deny { .. })
-    }
 }
 
 /// Classify an effect by risk given the current scope.
 pub trait ClassifyRisk {
-    fn classify(&self, effect: &MaestriaEffect, scope: &ScopeGuard) -> RiskClass;
+    fn classify(&self, effect: &MaestriaEffect, scope: &Scope) -> RiskClass;
+}
+
+/// Risk of a shell command under the current scope: destructive commands
+/// escalate to High (web-enabled) or Critical; everything else is Medium.
+fn classify_command_risk(command: &str, scope: &Scope) -> RiskClass {
+    let command = command.to_lowercase();
+    if command.starts_with("rm") || command.contains("delete") {
+        if scope.web_allowed() {
+            RiskClass::High
+        } else {
+            RiskClass::Critical
+        }
+    } else {
+        RiskClass::Medium
+    }
 }
 
 /// Default risk classifier based on effect variant and scope.
@@ -43,19 +50,18 @@ pub trait ClassifyRisk {
 pub struct DefaultRiskClassifier;
 
 impl ClassifyRisk for DefaultRiskClassifier {
-    fn classify(&self, effect: &MaestriaEffect, scope: &ScopeGuard) -> RiskClass {
+    fn classify(&self, effect: &MaestriaEffect, scope: &Scope) -> RiskClass {
         match effect {
             // Rebuildable projections: low-risk, no user-facing write or action authorization.
             MaestriaEffect::PersistEvent { .. }
             | MaestriaEffect::PersistNotebookDraftBlob(_)
             | MaestriaEffect::ParseArtifact(_)
-            | MaestriaEffect::EmitDiagnostic(_)
             | MaestriaEffect::IndexFullText(_) => RiskClass::Low,
-            MaestriaEffect::Ocr(request) => {
-                if request.intent.disclosure().remote() {
+            MaestriaEffect::Ocr(intent) => {
+                if intent.disclosure().remote() {
                     RiskClass::High
                 } else if matches!(
-                    request.intent.disclosure().retention(),
+                    intent.disclosure().retention(),
                     maestria_domain::OcrRetentionPolicy::NoRetention
                 ) {
                     RiskClass::Low
@@ -75,30 +81,8 @@ impl ClassifyRisk for DefaultRiskClassifier {
                     RiskClass::High
                 }
             }
-            MaestriaEffect::QueryHarnessProposal(req) => {
-                let command = req.proposal.command.to_lowercase();
-                if command.starts_with("rm") || command.contains("delete") {
-                    if scope.web_allowed() {
-                        RiskClass::High
-                    } else {
-                        RiskClass::Critical
-                    }
-                } else {
-                    RiskClass::Medium
-                }
-            }
-            MaestriaEffect::QueryHarness(req) => {
-                let command = req.command.to_lowercase();
-                if command.starts_with("rm") || command.contains("delete") {
-                    if scope.web_allowed() {
-                        RiskClass::High
-                    } else {
-                        RiskClass::Critical
-                    }
-                } else {
-                    RiskClass::Medium
-                }
-            }
+            MaestriaEffect::QueryHarnessProposal(req) => classify_command_risk(&req.command, scope),
+            MaestriaEffect::QueryHarness(req) => classify_command_risk(&req.command, scope),
         }
     }
 }

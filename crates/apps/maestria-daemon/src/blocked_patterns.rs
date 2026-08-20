@@ -13,12 +13,6 @@ use maestria_governance::PrivacyExclusions;
 pub fn runtime_blocked_patterns(manifest: &InstanceManifest) -> Vec<String> {
     let default_privacy = PrivacyExclusions::default();
     let mut blocked_patterns = manifest.excluded_patterns.clone();
-    blocked_patterns.extend(default_privacy.sensitive_names().iter().cloned());
-    blocked_patterns.extend(
-        default_privacy
-            .sensitive_extensions()
-            .iter()
-            .map(|extension| format!("*.{extension}")),
-    );
+    blocked_patterns.extend(default_privacy.privacy_blocked_patterns());
     blocked_patterns
 }

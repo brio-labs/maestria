@@ -43,9 +43,7 @@ impl Parser for PageFivePdfParser {
                 sibling_id: None,
                 node_type: maestria_domain::StructureNodeType::Document,
                 source_range: maestria_domain::ContentRange::new(0, 100).map_err(|e| {
-                    maestria_ports::PortError::Internal {
-                        message: e.to_string(),
-                    }
+                    maestria_ports::PortError::internal("maestria runtime test", e.to_string())
                 })?,
                 page: None,
                 section_path: vec![],
@@ -60,8 +58,8 @@ impl Parser for PageFivePdfParser {
             content_hash: maestria_domain::ContentHash::new(maestria_domain::content_hash(
                 &file.bytes,
             ))
-            .map_err(|e| maestria_ports::PortError::Internal {
-                message: e.to_string(),
+            .map_err(|e| {
+                maestria_ports::PortError::internal("maestria runtime test", e.to_string())
             })?,
             tree,
             status: maestria_ports::ParseStatus::Parsed,
@@ -100,9 +98,7 @@ impl Parser for PageOnePdfParser {
                 sibling_id: None,
                 node_type: maestria_domain::StructureNodeType::Document,
                 source_range: maestria_domain::ContentRange::new(0, 100).map_err(|e| {
-                    maestria_ports::PortError::Internal {
-                        message: e.to_string(),
-                    }
+                    maestria_ports::PortError::internal("maestria runtime test", e.to_string())
                 })?,
                 page: None,
                 section_path: vec![],
@@ -117,8 +113,8 @@ impl Parser for PageOnePdfParser {
             content_hash: maestria_domain::ContentHash::new(maestria_domain::content_hash(
                 &file.bytes,
             ))
-            .map_err(|e| maestria_ports::PortError::Internal {
-                message: e.to_string(),
+            .map_err(|e| {
+                maestria_ports::PortError::internal("maestria runtime test", e.to_string())
             })?,
             tree,
             status: maestria_ports::ParseStatus::Parsed,
@@ -328,9 +324,10 @@ async fn scanned_pdf_no_extractable_text_emits_terminal_parser_failure()
             _file: FileHandle,
             _context: ParseContext,
         ) -> Result<ParsedArtifact, PortError> {
-            Err(PortError::InvalidInput {
-                message: "PDF has no extractable text".to_string(),
-            })
+            Err(PortError::invalid_input(
+                "maestria runtime test",
+                "PDF has no extractable text".to_string(),
+            ))
         }
     }
 

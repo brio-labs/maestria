@@ -62,7 +62,7 @@ impl MaestriaRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use maestria_domain::DiagnosticEvent;
+    use maestria_domain::UpdateGraphRequest;
 
     #[tokio::test]
     async fn admission_carries_a_large_transition_batch_as_one_item()
@@ -70,9 +70,8 @@ mod tests {
         let (sender, mut receiver) = mpsc::channel::<EffectBatch>(1);
         let batch = (0..8)
             .map(|index| {
-                EffectWork::Pending(MaestriaEffect::EmitDiagnostic(DiagnosticEvent {
-                    task_id: None,
-                    message: format!("effect-{index}"),
+                EffectWork::Pending(MaestriaEffect::UpdateGraph(UpdateGraphRequest {
+                    relation_id: maestria_domain::RelationId::new(index as u64),
                 }))
             })
             .collect::<Vec<_>>();

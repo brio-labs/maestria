@@ -7,12 +7,13 @@
 //! generic indexer uses), then waited on until all are durably indexed.
 //! Code queries authorize symbols against these artifacts and their
 //! evidence, so a code index without registered sources cannot be searched.
-
 use anyhow::{Context, Result, anyhow};
 use maestria_code_intel::RepositoryCodeIndex;
-use maestria_core::{InstanceLayout, artifact_id_for, content_hash, format_duration};
-use maestria_domain::{ArtifactDetected, ArtifactId, ContentHash, DomainInput, IndexStatus};
-use maestria_governance::scan_secrets;
+use maestria_core::{
+    InstanceLayout, artifact_id_for_content_hash, build_artifact_detected_input, content_hash,
+    format_duration,
+};
+use maestria_domain::{ArtifactId, ContentHash, DomainInput, IndexStatus};
 use maestria_runtime::{DomainApplicationResult, RuntimeHandle, RuntimeSubmissionError};
 use maestria_storage_sqlite::SqliteStore;
 use std::collections::VecDeque;
@@ -30,17 +31,23 @@ static REPOSITORY_INDEX_PROGRESS: Mutex<Option<crate::api::RepositoryIndexProgre
 
 /// Publish the live run progress; `None` clears it.
 pub(crate) fn set_repository_index_progress(progress: Option<crate::api::RepositoryIndexProgress>) {
-    if let Ok(mut slot) = REPOSITORY_INDEX_PROGRESS.lock() {
-        *slot = progress;
+    match REPOSITORY_INDEX_PROGRESS.lock() {
+        Ok(mut slot) => *slot = progress,
+        Err(error) => {
+            tracing::warn!(%error, "repository index progress lock poisoned on set");
+        }
     }
 }
 
 /// The current live run progress, when a run is active.
 pub(crate) fn repository_index_progress() -> Option<crate::api::RepositoryIndexProgress> {
-    REPOSITORY_INDEX_PROGRESS
-        .lock()
-        .ok()
-        .and_then(|guard| (*guard).clone())
+    match REPOSITORY_INDEX_PROGRESS.lock() {
+        Ok(guard) => (*guard).clone(),
+        Err(error) => {
+            tracing::warn!(%error, "repository index progress lock poisoned on get");
+            (*error.into_inner()).clone()
+        }
+    }
 }
 
 /// Maximum number of repository source artifacts kept in flight (submitted
@@ -250,12 +257,9 @@ where
         // effect fails and the runtime shuts down), so files the same scanner
         // flags are left unbound up front; their symbols are then skipped by
         // the query authorization instead of erroring.
-        if !scan_secrets(&String::from_utf8_lossy(&bytes)).is_clean() {
-            skipped += 1;
-            continue;
-        }
-        let artifact_id = artifact_id_for(&path, &bytes);
-        let hash = ContentHash::new(content_hash)?;
+        let artifact_id = artifact_id_for_content_hash(&path, &content_hash);
+        let hash = maestria_domain::ContentHash::new(content_hash.clone())
+            .with_context(|| format!("invalid content hash for {}", path.display()))?;
         // Already-indexed files (a previous run, the watcher, or another
         // instance path) are skipped: re-submitting them re-runs the whole
         // durable pipeline for no new evidence.
@@ -263,19 +267,11 @@ where
             skipped += 1;
             continue;
         }
-        let title = match path.file_name().and_then(|name| name.to_str()) {
-            Some(name) => name.to_string(),
-            None => "artifact".to_string(),
-        };
-        submit(DomainInput::ArtifactDetected(ArtifactDetected {
-            artifact_id,
-            title,
-            source_path: path.display().to_string(),
-            source_bytes: bytes,
-            content_hash: hash,
-        }))
-        .await
-        .with_context(|| format!("submit repository source artifact for {}", path.display()))?;
+        let input = build_artifact_detected_input(&path, bytes, content_hash.clone())
+            .with_context(|| format!("build artifact input for {}", path.display()))?;
+        submit(input)
+            .await
+            .with_context(|| format!("submit repository source artifact for {}", path.display()))?;
         in_flight.push_back((artifact_id, path));
         if in_flight.len() == REGISTRATION_IN_FLIGHT {
             let (artifact_id, path) = in_flight

@@ -25,8 +25,7 @@ impl EffectExecutionContext {
         };
 
         // ── scope capability gate ────────────────────────────────
-        let scope_guard = maestria_governance::ScopeGuard::new(self.scope.clone());
-        let scope = scope_guard.scope();
+        let scope = &self.scope;
         if !scope.harness_allowed(&request.capability) {
             tracing::warn!(capability = %request.capability, "Scope does not allow this harness; not spawning");
             return Err(EffectFailure::Denied(format!(
@@ -67,7 +66,7 @@ impl EffectExecutionContext {
         if class == HarnessCommandClass::Shell && request.command.trim().starts_with("cat") {
             for arg in cat_path_args(&request.command) {
                 let path = resolve_cat_path(arg, &working_directory);
-                if let Err(containment_err) = scope_guard.check_read_containment(&path) {
+                if let Err(containment_err) = scope.check_read_containment(&path) {
                     tracing::warn!(
                         path = %path.display(),
                         ?containment_err,
@@ -75,16 +74,6 @@ impl EffectExecutionContext {
                     );
                     return Err(EffectFailure::Denied(format!(
                         "cat path `{}` is outside readable scope ({containment_err:?})",
-                        path.display()
-                    )));
-                }
-                if path_is_blocked(&path, &working_directory, scope.blocked_paths()) {
-                    tracing::warn!(
-                        path = %path.display(),
-                        "cat path blocked by scope; not spawning"
-                    );
-                    return Err(EffectFailure::Denied(format!(
-                        "cat path `{}` is blocked by scope",
                         path.display()
                     )));
                 }
@@ -112,32 +101,6 @@ fn resolve_cat_path(raw_path: &str, working_directory: &Path) -> PathBuf {
     } else {
         working_directory.join(path)
     }
-}
-
-fn normalize_path(path: &Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                normalized.pop();
-            }
-            other => normalized.push(other.as_os_str()),
-        }
-    }
-    normalized
-}
-
-fn path_is_blocked(path: &Path, working_directory: &Path, blocked_paths: &[PathBuf]) -> bool {
-    let normalized = normalize_path(path);
-    blocked_paths.iter().any(|blocked| {
-        let blocked = if blocked.is_absolute() {
-            blocked.clone()
-        } else {
-            working_directory.join(blocked)
-        };
-        normalized.starts_with(normalize_path(&blocked))
-    })
 }
 
 fn path_matches_blocked_pattern(path: &Path, patterns: &[String]) -> bool {

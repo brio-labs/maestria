@@ -60,8 +60,7 @@ impl KernelState {
             .clone();
         let replaced_active_id = if input.to == crate::generations::IndexLifecycle::Active {
             self.index_generations
-                .active_id(&generation.name)
-                .filter(|active_id| *active_id != input.id)
+                .active_generation_other_than(&generation.name, input.id)
         } else {
             None
         };
@@ -108,8 +107,7 @@ impl KernelState {
         }
         let expected_replaced_active_id = if to == crate::generations::IndexLifecycle::Active {
             self.index_generations
-                .active_id(&generation.name)
-                .filter(|active_id| *active_id != id)
+                .active_generation_other_than(&generation.name, id)
         } else {
             None
         };

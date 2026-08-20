@@ -41,4 +41,8 @@ pub trait SearchKnowledgeExecutor: Send + Sync {
             })
         })
     }
+
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        None
+    }
 }

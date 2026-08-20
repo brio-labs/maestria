@@ -7,11 +7,10 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-libc = "0.2"
-maestria-ports = { path = "../../kernel/maestria-ports" }
-tokio = { version = "1.37", features = ["time", "io-util", "rt", "macros", "fs"] }
-
+libc = { workspace = true }
+maestria-ports = { workspace = true }
+tokio = { workspace = true, features = ["time", "io-util", "rt", "macros", "fs"] }
 
 [dev-dependencies]
-maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }
-tempfile = "3"
+maestria-ports = { workspace = true, features = ["contract-tests"] }
+tempfile = { workspace = true }

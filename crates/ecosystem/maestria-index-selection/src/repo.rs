@@ -127,17 +127,19 @@ pub fn repository_features(_dir: &Path, files: &[PathBuf]) -> DirFeatures {
 /// noise rule; numeric rules only).
 pub fn scan_repository_candidates(root: &Path) -> Result<crate::CandidateDir> {
     let files = collect_repository_files(root)?;
-    let total_bytes = files
-        .iter()
-        .map(|file| std::fs::metadata(file).map_or(0, |metadata| metadata.len()))
-        .sum();
-    let node = build_node_generic(root, &files, false, repository_features)?;
+    let node = build_node_generic(
+        root,
+        &files,
+        false,
+        &REPO_DOC_EXTENSIONS,
+        &REPO_CODE_EXTENSIONS,
+    )?;
     Ok(crate::CandidateDir {
         path: root.to_path_buf(),
         class: Class::Recommended,
         policy: IndexPolicy::everything(),
         file_count: node.file_count,
-        total_bytes,
+        total_bytes: node.total_bytes,
         children: node.children,
     })
 }

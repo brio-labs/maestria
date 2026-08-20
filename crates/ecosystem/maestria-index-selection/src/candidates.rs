@@ -2,8 +2,8 @@
 //! default policy, and its direct children.
 
 use crate::classify::{Class, classify, default_policy};
-use crate::policy::{IndexPolicy, partition_by_child};
-use crate::scan::{DirFeatures, collect_files, dir_features, is_home_root};
+use crate::policy::partition_by_child;
+use crate::scan::{collect_files, dir_features_buckets, is_home_root};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 pub struct CandidateDir {
     pub path: PathBuf,
     pub class: Class,
-    pub policy: IndexPolicy,
+    pub policy: crate::policy::IndexPolicy,
     pub file_count: usize,
     pub total_bytes: u64,
     pub children: Vec<CandidateDir>,
@@ -27,15 +27,18 @@ pub struct CandidateDir {
 pub fn scan_candidates(root: &Path) -> Result<CandidateDir> {
     let files = collect_files(root, true)?;
     let home_root = is_home_root(root);
-    let total_bytes = files
-        .iter()
-        .map(|file| std::fs::metadata(file).map_or(0, |metadata| metadata.len()))
-        .sum();
-    let node = build_node_generic(root, &files, home_root, dir_features)?;
+    let node = build_node_generic(
+        root,
+        &files,
+        home_root,
+        crate::repo::REPO_DOC_EXTENSIONS.as_slice(),
+        &crate::repo::REPO_CODE_EXTENSIONS[0..4],
+    )?;
+    let total_bytes = node.total_bytes;
     Ok(CandidateDir {
         path: root.to_path_buf(),
         class: Class::Recommended,
-        policy: IndexPolicy::everything(),
+        policy: crate::policy::IndexPolicy::everything(),
         file_count: node.file_count,
         total_bytes,
         children: node.children,
@@ -43,17 +46,18 @@ pub fn scan_candidates(root: &Path) -> Result<CandidateDir> {
 }
 
 /// Shared candidate-tree recursion: classify `dir` from its `files` and
-/// recurse into every direct child group, using `features` to compute the
-/// per-directory numerics. Used by both the home-directory scan
-/// ([`scan_candidates`]) and the repository scan (`repo.rs`) — one
-/// recursion, two feature functions.
+/// recurse into every direct child group, using `doc_extensions` /
+/// `code_extensions` to compute the per-directory numerics. Used by both
+/// the home-directory scan ([`scan_candidates`]) and the repository scan
+/// (`repo.rs`) — one recursion, two extension buckets.
 pub(crate) fn build_node_generic(
     dir: &Path,
     files: &[PathBuf],
     home_root: bool,
-    features_fn: fn(&Path, &[PathBuf]) -> DirFeatures,
+    doc_extensions: &[&str],
+    code_extensions: &[&str],
 ) -> Result<CandidateDir> {
-    let features = features_fn(dir, files);
+    let features = dir_features_buckets(dir, files, doc_extensions, code_extensions);
     let class = classify(&features, home_root, dir);
     let mut children = Vec::new();
     for (child, _, _, child_files) in partition_by_child(dir, files) {
@@ -61,7 +65,8 @@ pub(crate) fn build_node_generic(
             &child,
             &child_files,
             home_root,
-            features_fn,
+            doc_extensions,
+            code_extensions,
         )?);
     }
     Ok(CandidateDir {

@@ -21,9 +21,6 @@ impl ApiClient {
             session: Session::from_browser(),
         }
     }
-    pub fn with_session(session: Session) -> Self {
-        Self { session }
-    }
     fn builder(&self, method: &str, path: &str) -> Result<RequestBuilder, ClientError> {
         let builder = match method {
             "GET" => Request::get(path),
@@ -111,18 +108,10 @@ impl ApiClient {
     }
     /// # Cancellation
     /// Dropping the future cancels the browser request.
-    pub async fn notebooks(&self) -> Result<Vec<NotebookSummary>, ClientError> {
-        let response: Envelope<NotebookListPayload> =
-            self.send(self.empty("GET", "/api/notebooks")?).await?;
-        Ok(response.data.notebooks)
-    }
-    /// # Cancellation
-    /// Dropping the future cancels the browser request.
     pub async fn notebook(&self, id: u64) -> Result<Notebook, ClientError> {
         self.send(self.empty("GET", &format!("/api/notebooks/{id}"))?)
             .await
     }
-    /// # Cancellation
     /// Dropping the future cancels the browser request.
     pub async fn create_notebook(&self, title: String) -> Result<NotebookSummary, ClientError> {
         self.send(self.json(
@@ -150,10 +139,9 @@ impl ApiClient {
     }
     /// # Cancellation
     /// Dropping the future cancels the browser request.
-    pub async fn sources(&self, id: u64) -> Result<Vec<CatalogSource>, ClientError> {
-        let response: Envelope<SourceCatalogWire> = self
-            .send(self.empty("GET", &format!("/api/notebooks/{id}/sources"))?)
-            .await?;
+    pub async fn sources(&self) -> Result<Vec<CatalogSource>, ClientError> {
+        let response: Envelope<SourceCatalogWire> =
+            self.send(self.empty("GET", "/api/sources")?).await?;
         Ok(response.data.sources)
     }
     /// # Cancellation
@@ -296,23 +284,6 @@ impl ApiClient {
     }
     /// # Cancellation
     /// Dropping the future cancels the browser request.
-    pub async fn index_selection(&self) -> Result<Option<IndexSelectionProfileWire>, ClientError> {
-        let response: Envelope<IndexSelectionResponseWire> = self
-            .send(self.empty("GET", "/api/index/selection")?)
-            .await?;
-        Ok(response.data.profile)
-    }
-    /// # Cancellation
-    /// Dropping the future cancels the browser request.
-    pub async fn index_selection_save(
-        &self,
-        profile: &IndexSelectionProfileWire,
-    ) -> Result<(), ClientError> {
-        self.send_status(self.json("PUT", "/api/index/selection", profile)?)
-            .await
-    }
-    /// # Cancellation
-    /// Dropping the future cancels the browser request.
     pub async fn index_run(
         &self,
         root: &str,
@@ -344,25 +315,6 @@ impl ApiClient {
             ),
         )?)
         .await
-    }
-    /// # Cancellation
-    /// Dropping the future cancels the browser request.
-    pub async fn repository_index_selection(
-        &self,
-    ) -> Result<Option<IndexSelectionProfileWire>, ClientError> {
-        let response: Envelope<RepositoryIndexSelectionResponseWire> = self
-            .send(self.empty("GET", "/api/repository-index/selection")?)
-            .await?;
-        Ok(response.data.profile)
-    }
-    /// # Cancellation
-    /// Dropping the future cancels the browser request.
-    pub async fn repository_index_selection_save(
-        &self,
-        profile: &IndexSelectionProfileWire,
-    ) -> Result<(), ClientError> {
-        self.send_status(self.json("PUT", "/api/repository-index/selection", profile)?)
-            .await
     }
     /// # Cancellation
     /// Dropping the future cancels the browser request.

@@ -354,7 +354,7 @@ pub fn request(
         .authorization_context(plan.scope())
         .map_err(|_| SearchCompatibilityError::InvalidPlan("authorization context"))?;
     Ok(crate::types::CandidateRequest {
-        plan,
+        plan: std::sync::Arc::new(plan),
         query: SearchQuery {
             q: "needle".to_string(),
             limit: 5,

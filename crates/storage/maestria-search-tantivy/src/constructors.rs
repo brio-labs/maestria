@@ -1,8 +1,4 @@
-use crate::{
-    error::to_port_error,
-    schema::{self, schema},
-    tantivy_index::TantivyFullTextIndex,
-};
+use crate::{error::to_port_error, schema, tantivy_index::TantivyFullTextIndex};
 use maestria_domain::{ContentHash, IndexFingerprint, content_hash};
 use maestria_ports::PortError;
 use std::path::Path;
@@ -13,11 +9,9 @@ impl TantivyFullTextIndex {
     pub fn fingerprint(&self) -> Result<IndexFingerprint, PortError> {
         let schema_hash = content_hash(schema::CANONICAL_SCHEMA.as_bytes());
         let revision = env!("CARGO_PKG_VERSION").to_string();
-        let artifact_hash =
-            ContentHash::new(schema_hash.clone()).map_err(|error| PortError::InternalContext {
-                context: "invalid Tantivy schema fingerprint",
-                source: error.to_string(),
-            })?;
+        let artifact_hash = ContentHash::new(schema_hash.clone()).map_err(|error| {
+            PortError::internal("invalid Tantivy schema fingerprint", error.to_string())
+        })?;
         Ok(IndexFingerprint {
             provider: maestria_domain::ProviderName::new("tantivy"),
             model: maestria_domain::ModelName::new("lexical"),
@@ -43,8 +37,9 @@ impl TantivyFullTextIndex {
         })
     }
 
+    #[cfg(test)]
     pub fn in_memory() -> Result<Self, PortError> {
-        Self::from_index(Index::create_in_ram(schema()), false, None, false)
+        Self::from_index(Index::create_in_ram(schema::schema()), false, None, false)
     }
 
     /// Open an existing lexical index without acquiring Tantivy's writer lock.

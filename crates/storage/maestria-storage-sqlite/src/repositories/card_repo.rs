@@ -1,8 +1,6 @@
-use std::collections::BTreeSet;
-
-use maestria_domain::{ArtifactId, Card, CardId, ClaimId};
+use maestria_domain::{ArtifactId, Card, CardId};
 use maestria_ports::{CardRepository, PortError};
-use rusqlite::{Connection, Row, Transaction, params};
+use rusqlite::{Row, params};
 
 use crate::sqlite_store::{i64_to_u64, json_error, to_port_error, u64_to_i64};
 
@@ -17,45 +15,40 @@ impl CardRepository for crate::SqliteStore {
             .map_err(to_port_error)?;
         rows.next()
             .map_err(to_port_error)?
-            .map(|row| read_card(row, &connection))
+            .map(read_card)
             .transpose()
     }
 
     fn put(&self, card: Card) -> Result<(), PortError> {
-        let mut connection = self.lock()?;
-        let transaction = connection.transaction().map_err(to_port_error)?;
-        transaction
-            .execute(
-                "INSERT INTO cards (id, artifact_id, title, body, node_id, source_span_json, security_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                 ON CONFLICT(id) DO UPDATE SET
-                     artifact_id = excluded.artifact_id,
-                     title = excluded.title,
-                     body = excluded.body,
-                     node_id = excluded.node_id,
-                     source_span_json = excluded.source_span_json,
-                     security_json = excluded.security_json",
-                params![
-                    u64_to_i64(card.id.value())?,
-                    u64_to_i64(card.artifact_id.value())?,
-                    card.title,
-                    card.body,
-                    u64_to_i64(card.node_id.value())?,
-                    serde_json::to_string(
-                        &crate::payloads::provenance_payloads::StoredSourceSpan::from(
-                            card.source_span
+        self.with_transaction(|transaction| {
+            transaction
+                .execute(
+                    "INSERT INTO cards (id, artifact_id, title, body, node_id, source_span_json, security_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                     ON CONFLICT(id) DO UPDATE SET
+                         artifact_id = excluded.artifact_id,
+                         title = excluded.title,
+                         body = excluded.body,
+                         node_id = excluded.node_id,
+                         source_span_json = excluded.source_span_json,
+                         security_json = excluded.security_json",
+                    params![
+                        u64_to_i64(card.id.value())?,
+                        u64_to_i64(card.artifact_id.value())?,
+                        card.title,
+                        card.body,
+                        u64_to_i64(card.node_id.value())?,
+                        serde_json::to_string(
+                            &crate::payloads::provenance_payloads::StoredSourceSpan::from(
+                                card.source_span
+                            )
                         )
-                    )
-                    .map_err(json_error)?,
-                    serde_json::to_string(&card.security).map_err(json_error)?,
-                ],
-            )
-            .map_err(to_port_error)?;
-        replace_card_claims(
-            &transaction,
-            card.id,
-            card.claim_ids.iter().map(|id| id.value()),
-        )?;
-        transaction.commit().map_err(to_port_error)
+                        .map_err(json_error)?,
+                        serde_json::to_string(&card.security).map_err(json_error)?,
+                    ],
+                )
+                .map_err(to_port_error)?;
+            Ok(())
+        })
     }
 
     fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Card>, PortError> {
@@ -73,13 +66,13 @@ impl CardRepository for crate::SqliteStore {
             .map_err(to_port_error)?;
         let mut cards = Vec::new();
         while let Some(row) = rows.next().map_err(to_port_error)? {
-            cards.push(read_card(row, &connection)?);
+            cards.push(read_card(row)?);
         }
         Ok(cards)
     }
 }
 
-fn read_card(row: &Row<'_>, connection: &Connection) -> Result<Card, PortError> {
+fn read_card(row: &Row<'_>) -> Result<Card, PortError> {
     let id = CardId::new(i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?);
     let node_id = match row.get::<_, Option<i64>>(4).map_err(to_port_error)? {
         Some(value) => value,
@@ -117,50 +110,6 @@ fn read_card(row: &Row<'_>, connection: &Connection) -> Result<Card, PortError> 
         source_span,
         title: row.get::<_, String>(2).map_err(to_port_error)?,
         body: row.get::<_, String>(3).map_err(to_port_error)?,
-        claim_ids: load_card_claims(connection, id)?,
         security,
     })
-}
-
-fn load_card_claims(
-    connection: &Connection,
-    card_id: CardId,
-) -> Result<BTreeSet<ClaimId>, PortError> {
-    let mut statement = connection
-        .prepare("SELECT claim_id FROM card_claims WHERE card_id = ?1 ORDER BY claim_id")
-        .map_err(to_port_error)?;
-    let mut rows = statement
-        .query(params![u64_to_i64(card_id.value())?])
-        .map_err(to_port_error)?;
-    let mut ids = BTreeSet::new();
-    while let Some(row) = rows.next().map_err(to_port_error)? {
-        ids.insert(ClaimId::new(i64_to_u64(
-            row.get::<_, i64>(0).map_err(to_port_error)?,
-        )?));
-    }
-    Ok(ids)
-}
-
-fn replace_card_claims(
-    transaction: &Transaction<'_>,
-    card_id: CardId,
-    ids: impl Iterator<Item = u64>,
-) -> Result<(), PortError> {
-    transaction
-        .execute(
-            "DELETE FROM card_claims WHERE card_id = ?1",
-            params![u64_to_i64(card_id.value())?],
-        )
-        .map_err(to_port_error)?;
-
-    for id in ids {
-        transaction
-            .execute(
-                "INSERT INTO card_claims (card_id, claim_id) VALUES (?1, ?2)",
-                params![u64_to_i64(card_id.value())?, u64_to_i64(id)?],
-            )
-            .map_err(to_port_error)?;
-    }
-
-    Ok(())
 }

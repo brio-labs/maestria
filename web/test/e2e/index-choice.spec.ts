@@ -73,17 +73,6 @@ async function installFixture(page: Page): Promise<void> {
       });
       return;
     }
-    if (path === '/api/index/selection' && request.method() === 'GET') {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({ type: 'index_selection', data: { profile: null } }),
-      });
-      return;
-    }
-    if (path === '/api/index/selection' && request.method() === 'PUT') {
-      await route.fulfill({ status: 204, body: '' });
-      return;
-    }
     if (path === '/api/index/run' && request.method() === 'POST') {
       await route.fulfill({
         contentType: 'application/json',

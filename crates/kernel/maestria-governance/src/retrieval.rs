@@ -66,7 +66,7 @@ impl RetrievalAuthorizationContext {
             ));
         }
         if let Some(maximum) = &self.max_sensitivity
-            && sensitivity_level(&metadata.sensitivity) > sensitivity_level(maximum)
+            && metadata.sensitivity.level() > maximum.level()
         {
             return RetrievalDecision::Denied(format!(
                 "Sensitivity too high: {:?}",
@@ -119,9 +119,7 @@ impl RetrievalAuthorizationContext {
     pub fn with_sensitivity_ceiling(&self, ceiling: Sensitivity) -> Self {
         let mut context = self.clone();
         context.max_sensitivity = match &context.max_sensitivity {
-            Some(existing) if sensitivity_level(existing) <= sensitivity_level(&ceiling) => {
-                Some(existing.clone())
-            }
+            Some(existing) if existing.level() <= ceiling.level() => Some(existing.clone()),
             _ => Some(ceiling),
         };
         context
@@ -198,19 +196,11 @@ impl RetrievalSecurityPolicy {
             }
             CorpusScope::Restricted(scopes) => Some(scopes.iter().copied().collect()),
         };
-        let mut effective = match (plan_scopes, self.instance_scope_ids.clone()) {
-            (Some(plan), Some(instance)) => Some(plan.intersection(&instance).copied().collect()),
-            (Some(plan), None) => Some(plan),
-            (None, Some(instance)) => Some(instance),
-            (None, None) => None,
-        };
-        if let Some(required) = self.required_scope_id {
-            let required_set = BTreeSet::from([required]);
-            effective = Some(match effective {
-                Some(existing) => existing.intersection(&required_set).copied().collect(),
-                None => required_set,
-            });
-        }
+        let effective = effective_scope_set(
+            plan_scopes.as_ref(),
+            self.instance_scope_ids.as_ref(),
+            self.required_scope_id,
+        );
         if effective.as_ref().is_some_and(BTreeSet::is_empty) {
             return Err(RetrievalAuthorizationError::ScopeDenied);
         }
@@ -241,17 +231,12 @@ impl RetrievalSecurityPolicy {
     }
 
     pub fn policy_snapshot(&self) -> Result<RetrievalPolicySnapshot, RetrievalAuthorizationError> {
-        let effective_scopes = match (&self.instance_scope_ids, self.required_scope_id) {
-            (Some(scopes), Some(required)) => Some(
-                scopes
-                    .intersection(&BTreeSet::from([required]))
-                    .copied()
-                    .collect::<Vec<_>>(),
-            ),
-            (Some(scopes), None) => Some(scopes.iter().copied().collect()),
-            (None, Some(required)) => Some(vec![required]),
-            (None, None) => None,
-        };
+        let effective_scopes = effective_scope_set(
+            None,
+            self.instance_scope_ids.as_ref(),
+            self.required_scope_id,
+        )
+        .map(|scopes| scopes.into_iter().collect::<Vec<_>>());
         RetrievalPolicySnapshot::try_new(
             self.require_trust_zone.clone(),
             self.max_sensitivity.clone(),
@@ -268,13 +253,28 @@ impl RetrievalSecurityPolicy {
     }
 }
 
-fn sensitivity_level(s: &Sensitivity) -> u8 {
-    match s {
-        Sensitivity::Public => 0,
-        Sensitivity::Internal => 1,
-        Sensitivity::Confidential => 2,
-        Sensitivity::Restricted => 3,
+/// Effective scope set from the plan scopes, instance scopes, and the
+/// required scope: plan and instance scopes are intersected, then filtered
+/// to the required scope when one is set.
+fn effective_scope_set(
+    plan_scopes: Option<&BTreeSet<ScopeId>>,
+    instance_scope_ids: Option<&BTreeSet<ScopeId>>,
+    required_scope_id: Option<ScopeId>,
+) -> Option<BTreeSet<ScopeId>> {
+    let mut effective = match (plan_scopes, instance_scope_ids) {
+        (Some(plan), Some(instance)) => Some(plan.intersection(instance).copied().collect()),
+        (Some(plan), None) => Some(plan.clone()),
+        (None, Some(instance)) => Some(instance.clone()),
+        (None, None) => None,
+    };
+    if let Some(required) = required_scope_id {
+        let required_set = BTreeSet::from([required]);
+        effective = Some(match effective {
+            Some(existing) => existing.intersection(&required_set).copied().collect(),
+            None => required_set,
+        });
     }
+    effective
 }
 
 #[cfg(test)]

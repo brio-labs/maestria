@@ -113,7 +113,7 @@ impl StoredEventPayload {
             } => Ok(DomainEvent::RelationCreated {
                 relation_id: maestria_domain::RelationId::new(relation_id),
                 source: source.into_domain(),
-                kind: kind.into_domain(),
+                kind: kind.try_into_domain().map_err(FamilyDecodeError::Invalid)?,
                 target: target.into_domain(),
                 evidence_id: evidence_id.map(maestria_domain::EvidenceId::new),
                 confidence_milli,

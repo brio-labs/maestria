@@ -1,24 +1,9 @@
 use maestria_domain::TaskStatus;
 
-use super::types::{Severity, ValidationCheck, ValidationContext, Validator};
-
-fn passed_check(name: &str, message: &str) -> ValidationCheck {
-    ValidationCheck {
-        name: name.to_string(),
-        passed: true,
-        severity: Severity::Error, // severity doesn't really matter for passed checks, but we'll default to Error
-        message: message.to_string(),
-    }
-}
-
-fn failed_check(name: &str, message: impl Into<String>) -> ValidationCheck {
-    ValidationCheck {
-        name: name.to_string(),
-        passed: false,
-        severity: Severity::Error,
-        message: message.into(),
-    }
-}
+use super::types::{
+    ValidationCheck, ValidationContext, Validator, count_missing_evidence, failed_check,
+    passed_check,
+};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CitationValidator;
@@ -58,12 +43,13 @@ impl Validator for EvidenceExistenceValidator {
     }
 
     fn validate(&self, context: &ValidationContext<'_>) -> ValidationCheck {
-        let missing_count = context
-            .claims
-            .values()
-            .flat_map(|claim| claim.evidence_ids.iter())
-            .filter(|evidence_id| !context.evidences.contains_key(evidence_id))
-            .count();
+        let missing_count = count_missing_evidence(
+            context
+                .claims
+                .values()
+                .flat_map(|claim| claim.evidence_ids.iter().copied()),
+            context.evidences,
+        );
 
         if missing_count == 0 {
             passed_check(
@@ -133,12 +119,13 @@ impl Validator for MemoryValidator {
     }
 
     fn validate(&self, context: &ValidationContext<'_>) -> ValidationCheck {
-        let missing_evidence_refs = context
-            .memory_candidates
-            .values()
-            .flat_map(|candidate| candidate.evidence_ids().iter())
-            .filter(|evidence_id| !context.evidences.contains_key(evidence_id))
-            .count();
+        let missing_evidence_refs = count_missing_evidence(
+            context
+                .memory_candidates
+                .values()
+                .flat_map(|candidate| candidate.evidence_ids().iter().copied()),
+            context.evidences,
+        );
 
         if missing_evidence_refs == 0 {
             passed_check(

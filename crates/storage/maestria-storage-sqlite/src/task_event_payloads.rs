@@ -5,31 +5,13 @@ use maestria_domain::{
 };
 use serde::{Deserialize, Serialize};
 
-/// Stored task priority and status payloads (Rule 13: task payload
-/// conversion lives with the task event family).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredTaskPriority {
-    Low,
-    Normal,
-    High,
-}
-
-impl StoredTaskPriority {
-    pub(crate) fn from_domain(priority: TaskPriority) -> Self {
-        match priority {
-            TaskPriority::Low => Self::Low,
-            TaskPriority::Normal => Self::Normal,
-            TaskPriority::High => Self::High,
-        }
-    }
-
-    pub(crate) fn into_domain(self) -> TaskPriority {
-        match self {
-            Self::Low => TaskPriority::Low,
-            Self::Normal => TaskPriority::Normal,
-            Self::High => TaskPriority::High,
-        }
+crate::stored_enum! {
+    /// Stored task priority payload.
+    #[serde(rename_all = "snake_case")]
+    pub(crate) enum StoredTaskPriority <=> TaskPriority {
+        Low,
+        Normal,
+        High,
     }
 }
 
@@ -125,10 +107,6 @@ impl StoredEventPayload {
                 task_id: task_id.value(),
                 evidence_id: evidence_id.value(),
             }),
-            DomainEvent::UserIntentObserved { task_id, title } => Some(Self::UserIntentObserved {
-                task_id: task_id.value(),
-                title: title.clone(),
-            }),
             DomainEvent::HarnessRunCompleted {
                 task_id,
                 command,
@@ -170,7 +148,9 @@ impl StoredEventPayload {
             } => Ok(DomainEvent::TaskOpened {
                 task_id: TaskId::new(task_id),
                 title,
-                priority: priority.into_domain(),
+                priority: priority
+                    .try_into_domain()
+                    .map_err(FamilyDecodeError::Invalid)?,
                 artifact_id: artifact_id.map(ArtifactId::new),
             }),
             Self::TaskStatusChanged { task_id, from, to } => Ok(DomainEvent::TaskStatusChanged {
@@ -190,10 +170,6 @@ impl StoredEventPayload {
             } => Ok(DomainEvent::TaskEvidenceLinked {
                 task_id: TaskId::new(task_id),
                 evidence_id: EvidenceId::new(evidence_id),
-            }),
-            Self::UserIntentObserved { task_id, title } => Ok(DomainEvent::UserIntentObserved {
-                task_id: TaskId::new(task_id),
-                title,
             }),
             Self::HarnessRunCompleted {
                 task_id,
@@ -232,7 +208,6 @@ impl StoredEventPayload {
             Self::TaskStatusChanged { .. } => Some("task_status_changed"),
             Self::TaskCompletionRecorded { .. } => Some("task_completion_recorded"),
             Self::TaskEvidenceLinked { .. } => Some("task_evidence_linked"),
-            Self::UserIntentObserved { .. } => Some("user_intent_observed"),
             Self::HarnessRunCompleted { .. } => Some("harness_run_completed"),
             Self::ApprovalRecorded { .. } => Some("approval_recorded"),
             Self::ValidationReportCreated { .. } => Some("validation_report_created"),

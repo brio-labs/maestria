@@ -213,6 +213,58 @@ fn sparse_configuration_rejects_missing_fingerprint() -> Result<(), Box<dyn std:
 }
 
 #[test]
+fn embedding_configuration_rejects_remote_provider() -> Result<(), Box<dyn std::error::Error>> {
+    let contents = "schema_version=2\nrealm_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nroot=/tmp/instance\nread_root=/tmp/instance\n\
+            excluded_pattern=.env\nembedding_enabled=true\n\
+            embedding_endpoint=http://127.0.0.1:10001/v1/embeddings\nembedding_model=text-embedding-3-small\n\
+            embedding_dimensions=1536\nembedding_provider=openai\nembedding_revision=v1\n\
+            embedding_artifact_hash=sha256:0000000000000000000000000000000000000000000000000000000000000000\n\
+            embedding_preprocessing_version=v1\nembedding_remote_provider=true\n";
+    let result = InstanceManifest::decode(contents);
+    assert!(matches!(result, Err(CoreError::InvalidManifest { .. })));
+    Ok(())
+}
+
+#[test]
+fn embedding_configuration_rejects_retained_retention() -> Result<(), Box<dyn std::error::Error>> {
+    let contents = "schema_version=2\nrealm_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nroot=/tmp/instance\nread_root=/tmp/instance\n\
+            excluded_pattern=.env\nembedding_enabled=true\n\
+            embedding_endpoint=http://127.0.0.1:10001/v1/embeddings\nembedding_model=text-embedding-3-small\n\
+            embedding_dimensions=1536\nembedding_provider=openai\nembedding_revision=v1\n\
+            embedding_artifact_hash=sha256:0000000000000000000000000000000000000000000000000000000000000000\n\
+            embedding_preprocessing_version=v1\nembedding_retention_policy=provider_defined\n";
+    let result = InstanceManifest::decode(contents);
+    assert!(matches!(result, Err(CoreError::InvalidManifest { .. })));
+    Ok(())
+}
+
+#[test]
+fn visual_configuration_rejects_remote_provider() -> Result<(), Box<dyn std::error::Error>> {
+    let contents = "schema_version=2\nrealm_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nroot=/tmp/instance\nread_root=/tmp/instance\n\
+            excluded_pattern=.env\nvisual_enabled=true\n\
+            visual_endpoint=http://127.0.0.1:10003/v1/embeddings\nvisual_model=siglip\n\
+            visual_dimensions=768\nvisual_provider=google\nvisual_revision=v1\n\
+            visual_artifact_hash=sha256:0000000000000000000000000000000000000000000000000000000000000000\n\
+            visual_preprocessing_version=v1\nvisual_remote_provider=true\n";
+    let result = InstanceManifest::decode(contents);
+    assert!(result.is_err());
+    Ok(())
+}
+
+#[test]
+fn visual_configuration_rejects_retained_retention() -> Result<(), Box<dyn std::error::Error>> {
+    let contents = "schema_version=2\nrealm_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nroot=/tmp/instance\nread_root=/tmp/instance\n\
+            excluded_pattern=.env\nvisual_enabled=true\n\
+            visual_endpoint=http://127.0.0.1:10003/v1/embeddings\nvisual_model=siglip\n\
+            visual_dimensions=768\nvisual_provider=google\nvisual_revision=v1\n\
+            visual_artifact_hash=sha256:0000000000000000000000000000000000000000000000000000000000000000\n\
+            visual_preprocessing_version=v1\nvisual_retention_policy=provider_defined\n";
+    let result = InstanceManifest::decode(contents);
+    assert!(result.is_err());
+    Ok(())
+}
+
+#[test]
 fn migration_requires_explicit_realm_identity_and_preserves_v1_scope()
 -> Result<(), Box<dyn std::error::Error>> {
     let v1 = "schema_version=1\nroot=/tmp/instance\nread_root=/tmp/notes\n\

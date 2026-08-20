@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use super::store::lock_map;
 use crate::{PortError, WebFetcher, WebSnapshotData};
 
 #[derive(Clone, Default)]
@@ -16,10 +17,7 @@ impl InMemoryWebFetcher {
     }
 
     pub fn seed(&self, url: &str, html: &str) -> Result<(), PortError> {
-        let mut guard = self.pages.lock().map_err(|_| PortError::InternalContext {
-            context: "web fetcher lock poisoned",
-            source: "page mutex is poisoned".to_string(),
-        })?;
+        let mut guard = lock_map(&self.pages, "web fetcher lock poisoned")?;
         guard.insert(url.to_string(), html.to_string());
         Ok(())
     }
@@ -39,10 +37,7 @@ impl WebFetcher for InMemoryWebFetcher {
                 source: "max_bytes must be greater than zero".to_string(),
             });
         }
-        let guard = self.pages.lock().map_err(|_| PortError::InternalContext {
-            context: "web fetcher lock poisoned",
-            source: "page mutex is poisoned".to_string(),
-        })?;
+        let guard = lock_map(&self.pages, "web fetcher lock poisoned")?;
         if let Some(html) = guard.get(url) {
             if html.len() > max_bytes {
                 return Err(PortError::InvalidInputContext {

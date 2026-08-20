@@ -1,17 +1,16 @@
 [package]
 name = "maestria-ocr-local"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-version.workspace = true
 
 [dependencies]
-base64 = "0.22"
-maestria-ports = { path = "../../kernel/maestria-ports" }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-ureq = { version = "2", features = ["json"] }
-url = "2"
-
+base64 = { workspace = true }
+maestria-adapter-http = { workspace = true }
+maestria-ports = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+url = { workspace = true }
 [dev-dependencies]
-maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }
+maestria-ports = { workspace = true, features = ["contract-tests"] }

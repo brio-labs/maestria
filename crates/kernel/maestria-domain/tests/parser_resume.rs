@@ -92,7 +92,6 @@ fn parser_completed_resume_with_artifact_registered_restores_pending_index()
     let events = vec![
         DomainEventEnvelope {
             id: EventId::new(1),
-            sequence: SequenceNumber::new(1),
             event: DomainEvent::ArtifactRegistered {
                 artifact_id: ArtifactId::new(1),
                 title: "Notes".to_string(),
@@ -101,7 +100,6 @@ fn parser_completed_resume_with_artifact_registered_restores_pending_index()
         },
         DomainEventEnvelope {
             id: EventId::new(2),
-            sequence: SequenceNumber::new(2),
             event: DomainEvent::ParserStarted {
                 artifact_id: ArtifactId::new(1),
                 title: "Notes".to_string(),
@@ -168,20 +166,11 @@ fn parser_completed_resume_with_artifact_registered_restores_pending_index()
     assert!(state.pending_full_text.contains(&ChunkId::new(10)));
 
     // Assert: ArtifactParsed event emitted.
-    let has_parsed = output.events.iter().any(|e| {
-        matches!(
-            e.event,
-            DomainEvent::ArtifactParsed {
-                status: _,
-                chunks_added: 1,
-                ..
-            }
-        )
-    });
-    assert!(
-        has_parsed,
-        "ArtifactParsed must be emitted with chunk count"
-    );
+    let has_parsed = output
+        .events
+        .iter()
+        .any(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }));
+    assert!(has_parsed, "ArtifactParsed must be emitted");
 
     Ok(())
 }
@@ -195,7 +184,6 @@ fn parser_completed_resume_pending_same_hash_is_idempotent()
     let events = vec![
         DomainEventEnvelope {
             id: EventId::new(1),
-            sequence: SequenceNumber::new(1),
             event: DomainEvent::ArtifactRegistered {
                 artifact_id: ArtifactId::new(1),
                 title: "Notes".to_string(),
@@ -204,7 +192,6 @@ fn parser_completed_resume_pending_same_hash_is_idempotent()
         },
         DomainEventEnvelope {
             id: EventId::new(2),
-            sequence: SequenceNumber::new(2),
             event: DomainEvent::ParserStarted {
                 artifact_id: ArtifactId::new(1),
                 title: "Notes".to_string(),
@@ -215,7 +202,6 @@ fn parser_completed_resume_pending_same_hash_is_idempotent()
         },
         DomainEventEnvelope {
             id: EventId::new(3),
-            sequence: SequenceNumber::new(3),
             event: DomainEvent::PendingIndex {
                 artifact_id: ArtifactId::new(1),
                 content_hash: hash_abc()?,

@@ -146,26 +146,21 @@ impl MaestriaRuntime {
         });
         let approval = approval_barrier.and_then(|(approval_id, approved)| {
             events.iter().find_map(|event| {
-                matches!(
-                    &event.event,
-                    maestria_domain::DomainEvent::ApprovalRecorded {
-                        approval_id: event_approval_id,
-                        outcome,
-                    } if *event_approval_id == approval_id && outcome.approved() == approved
-                )
-                .then_some((event.id, approval_id, approved))
+                event
+                    .event
+                    .approval_record()
+                    .filter(|(id, outcome)| *id == approval_id && outcome.approved() == approved)
+                    .map(|_| (event.id, approval_id, approved))
             })
         });
         let validation_report_id = effects.iter().find_map(|effect| {
             let MaestriaEffect::PersistEvent { envelope } = effect else {
                 return None;
             };
-            let maestria_domain::DomainEvent::ValidationReportCreated { report_id, .. } =
-                &envelope.event
-            else {
-                return None;
-            };
-            Some(*report_id)
+            envelope
+                .event
+                .validation_report()
+                .map(|(report_id, _, _)| report_id)
         });
         let durable_event_ids = if durable {
             effects
@@ -356,9 +351,13 @@ impl MaestriaRuntime {
         correlation_id: Option<u64>,
     ) -> Option<crate::runtime::RuntimeCommand> {
         let correlation_id = correlation_id?;
-        self.pending_notebook_drafts
-            .lock()
-            .ok()?
-            .remove(&correlation_id)
+        let mut pending = match self.pending_notebook_drafts.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::error!("notebook draft pending-command lock poisoned on take");
+                poisoned.into_inner()
+            }
+        };
+        pending.remove(&correlation_id)
     }
 }

@@ -6,9 +6,11 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-maestria_domain = { package = "maestria-domain", path = "../../kernel/maestria-domain" }
-maestria_ports = { package = "maestria-ports", path = "../../kernel/maestria-ports" }
-rusqlite = { version = "0.32", features = ["bundled"] }
+maestria-domain = { workspace = true }
+maestria-ports = { workspace = true }
+maestria-sqlite-support = { workspace = true }
+rusqlite = { workspace = true }
 
 [dev-dependencies]
-maestria_ports = { package = "maestria-ports", path = "../../kernel/maestria-ports", features = ["contract-tests"] }
+maestria-ports = { workspace = true, features = ["contract-tests"] }
+maestria-test-support = { workspace = true }

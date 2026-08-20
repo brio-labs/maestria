@@ -1,4 +1,4 @@
-use maestria_domain::{DomainEventEnvelope, EventId, SearchTraceId, SequenceNumber};
+use maestria_domain::{DomainEventEnvelope, EventId, SearchTraceId};
 use maestria_ports::PortError;
 use rusqlite::Row;
 
@@ -10,7 +10,6 @@ use crate::{
 #[derive(Debug, Clone)]
 pub(super) struct StoredEvent {
     pub(crate) id: u64,
-    pub(crate) sequence: u64,
     pub(crate) kind: &'static str,
     pub(crate) artifact_id: Option<u64>,
     pub(crate) payload_json: String,
@@ -22,7 +21,6 @@ impl StoredEvent {
         let payload = StoredEventPayload::from_domain(&envelope.event)?;
         Ok(Self {
             id: envelope.id.value(),
-            sequence: envelope.sequence.value(),
             kind: payload.kind()?,
             artifact_id: payload.filter_artifact_id(),
             payload_json: serde_json::to_string(&payload).map_err(json_error)?,
@@ -73,25 +71,28 @@ impl StoredEvent {
         }
         Ok(DomainEventEnvelope {
             id: EventId::new(self.id),
-            sequence: SequenceNumber::new(self.sequence),
             event,
         })
     }
 }
 
 pub(super) fn read_stored_event(row: &Row<'_>) -> Result<StoredEvent, PortError> {
+    let kind_ref = row
+        .get_ref(1)
+        .map_err(to_port_error)?
+        .as_str()
+        .map_err(|error| PortError::internal("decode event kind", error.to_string()))?;
     Ok(StoredEvent {
         id: i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?,
-        sequence: i64_to_u64(row.get::<_, i64>(1).map_err(to_port_error)?)?,
-        kind: leaked_kind(row.get::<_, String>(2).map_err(to_port_error)?)?,
-        artifact_id: optional_i64_to_u64(row.get::<_, Option<i64>>(3).map_err(to_port_error)?)?,
-        payload_json: row.get::<_, String>(4).map_err(to_port_error)?,
-        payload_version: row.get::<_, i64>(5).map_err(to_port_error)?,
+        kind: leaked_kind(kind_ref)?,
+        artifact_id: optional_i64_to_u64(row.get::<_, Option<i64>>(2).map_err(to_port_error)?)?,
+        payload_json: row.get::<_, String>(3).map_err(to_port_error)?,
+        payload_version: row.get::<_, i64>(4).map_err(to_port_error)?,
     })
 }
 
-pub(super) fn leaked_kind(kind: String) -> Result<&'static str, PortError> {
-    match kind.as_str() {
+pub(super) fn leaked_kind(kind: &str) -> Result<&'static str, PortError> {
+    match kind {
         "artifact_registered" => Ok("artifact_registered"),
         "chunk_registered" => Ok("chunk_registered"),
         "card_created" => Ok("card_created"),

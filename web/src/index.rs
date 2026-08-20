@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::{
     api::{ApiClient, CandidateDirWire, IndexCandidatesWire, IndexPolicyWire, IndexRunWire},
-    components::{Shell, WorkspaceContext, alert},
+    components::{Shell, WorkspaceContext, alert, bootstrap_root, class_badge},
     route::Route,
     state::LoadState,
 };
@@ -50,11 +50,7 @@ pub(crate) fn IndexTabs() -> Element {
 pub(crate) fn IndexWorkspace() -> Element {
     let context = use_context::<Signal<WorkspaceContext>>();
     let api = use_hook(ApiClient::new);
-    let root = use_signal(|| match context.read().bootstrap_status.as_ref() {
-        Some(status) if !status.instance_root_path.is_empty() => status.instance_root_path.clone(),
-        Some(status) if status.instance_root.starts_with('/') => status.instance_root.clone(),
-        _ => String::new(),
-    });
+    let root = use_signal(|| bootstrap_root(&context.read().bootstrap_status));
     let candidates: Signal<LoadState<IndexCandidatesWire>> = use_signal(|| LoadState::Empty);
     let included: Signal<Included> = use_signal(Included::default);
     let run_result = use_signal(|| None::<IndexRunWire>);
@@ -210,11 +206,7 @@ pub(crate) fn CandidateRow(node: CandidateDirWire, included: Signal<Included>) -
     let class = node.class.clone();
     let checked = included.read().contains_key(&node.path);
     let size_mb = node.total_bytes as f64 / (1024.0 * 1024.0);
-    let class_badge = match class.as_str() {
-        "Recommended" => "bg-success",
-        "Noise" => "bg-muted",
-        _ => "bg-warning",
-    };
+    let badge = class_badge(&class);
     let toggle_path = path.clone();
     let default_policy = node.policy.clone();
     rsx! {
@@ -236,7 +228,7 @@ pub(crate) fn CandidateRow(node: CandidateDirWire, included: Signal<Included>) -
                         }
                     }
                     span { class: "truncate font-mono text-sm", "{node.path}" }
-                    span { class: "rounded px-2 py-1 text-xs text-white {class_badge}", {class} }
+                    span { class: "rounded px-2 py-1 text-xs text-white {badge}", {class} }
                     span { class: "text-xs text-ink-muted",
                         "{node.file_count} files · {size_mb:.1} MB"
                     }

@@ -43,10 +43,8 @@ impl Parser for InMemoryParser {
         }
 
         let content_hash_str = maestria_domain::content_hash(&file.bytes);
-        let text = String::from_utf8(file.bytes).map_err(|err| PortError::InvalidInputContext {
-            context: "input file is not UTF-8",
-            source: err.to_string(),
-        })?;
+        let text = String::from_utf8(file.bytes)
+            .map_err(|err| PortError::invalid_input("input file is not UTF-8", err.to_string()))?;
 
         let root_node_id = StructureNodeId::new(context.artifact_id.value());
         let root_node = StructureNode {
@@ -109,17 +107,15 @@ impl Parser for InMemoryParser {
                 source: content_hash_str.clone(),
             }
         })?;
-        let prefix = digest
-            .get(..16)
-            .ok_or_else(|| PortError::InvalidInputContext {
-                context: "content hash too short for artifact version",
-                source: content_hash_str.clone(),
-            })?;
-        let value =
-            u64::from_str_radix(prefix, 16).map_err(|error| PortError::InvalidInputContext {
-                context: "invalid content hash digest",
-                source: error.to_string(),
-            })?;
+        let prefix = digest.get(..16).ok_or_else(|| {
+            PortError::invalid_input(
+                "content hash too short for artifact version",
+                content_hash_str.clone(),
+            )
+        })?;
+        let value = u64::from_str_radix(prefix, 16).map_err(|error| {
+            PortError::invalid_input("invalid content hash digest", error.to_string())
+        })?;
         let artifact_version_id = ArtifactVersionId::new(value);
 
         Ok(ParsedArtifact {

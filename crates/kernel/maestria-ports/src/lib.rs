@@ -8,6 +8,7 @@
 //!
 //! Responsibility map:
 //! - `version`: package version metadata.
+//! - `execution`: search execution budget + meter plumbing.
 //! - `learned_sparse`: learned sparse capability contracts.
 //! - `learned_sparse_observations`: learned-sparse observation persistence contracts.
 //! - `lexical`: lexical index capability contracts.
@@ -28,6 +29,7 @@
 mod version;
 pub use version::PORTS_VERSION;
 
+pub mod execution;
 pub mod learned_sparse;
 pub use learned_sparse::{
     DEFAULT_MAX_CONTRIBUTIONS, DEFAULT_MAX_SPARSE_TERMS, LearnedSparseIndex,
@@ -46,11 +48,7 @@ pub use learned_sparse_observations::{
     MAX_LEARNED_SPARSE_SHADOW_OBSERVATIONS, MAX_LEARNED_SPARSE_SHADOW_RETRIEVERS,
 };
 pub mod lexical;
-pub use lexical::{
-    CardField, ChunkField, FieldSelector, HitReason, IndexedLexicalCard, IndexedLexicalChunk,
-    LexicalCardHit, LexicalChunkHit, LexicalHitMetadata, LexicalQuery, MatchMode,
-    RetrieverIdentity,
-};
+pub use lexical::{IndexedLexicalCard, IndexedLexicalChunk};
 mod full_text;
 pub use full_text::FullTextIndex;
 

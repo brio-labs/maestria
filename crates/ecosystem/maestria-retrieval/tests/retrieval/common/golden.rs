@@ -142,14 +142,12 @@ pub fn observation_with_profile_and_trace(
     Ok(GoldenObservation {
         query_id: plan.query_id(),
         profile,
-        outcome: SearchOutcome {
-            trace: trace.deterministic_id(),
-            trace_data: Some(Box::new(trace)),
-            fingerprint: plan.fingerprint().clone(),
-            index_generation: plan.index_generation(),
+        outcome: SearchOutcome::from_trace(
+            trace,
+            plan,
             status,
             evidence,
-            coverage: EvidenceCoverage::new(EvidenceCoverageDto {
+            EvidenceCoverage::new(EvidenceCoverageDto {
                 percent_covered: if evidence_empty { 0 } else { 100 },
                 gaps_identified: vec![],
                 required_claims: vec![],
@@ -159,8 +157,8 @@ pub fn observation_with_profile_and_trace(
                 distinct_sections: 0,
                 candidate_coverage_keys: vec![],
             })?,
-            conflicts: vec![],
-        },
+            Vec::new(),
+        ),
         resources: ResourceMetrics {
             latency_ms: 4,
             memory_bytes: 100,

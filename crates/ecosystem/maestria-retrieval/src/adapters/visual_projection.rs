@@ -37,13 +37,19 @@ pub fn rebuild_visual_projection(
         ));
     }
     let disclosure = ensure_local_no_retention(parts.provider)?;
+    // Precompute the authorization once per rebuild instead of re-deriving
+    // the scope intersection per artifact.
+    let authorization = parts
+        .policy
+        .authorization_context(&maestria_domain::CorpusScope::Global)
+        .map_err(|error| RetrievalError::Internal(error.to_string()))?;
     let mut embeddings = Vec::new();
     for artifact_id in artifact_ids {
         let Some(artifact) = parts.artifacts.get(*artifact_id).map_err(port_error)? else {
             continue;
         };
         if artifact.index_status != IndexStatus::Indexed
-            || parts.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
+            || authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
         {
             continue;
         }
@@ -56,6 +62,7 @@ pub fn rebuild_visual_projection(
                 &chunk,
                 &artifact,
                 &parts,
+                &authorization,
                 capability.identity(),
                 &disclosure,
             )? {
@@ -70,6 +77,7 @@ fn visual_embedding_for_chunk(
     chunk: &maestria_domain::Chunk,
     artifact: &maestria_domain::Artifact,
     parts: &VisualProjectionRebuildParts<'_>,
+    authorization: &maestria_governance::RetrievalAuthorizationContext,
     identity: &EmbeddingIdentity,
     disclosure: &ProviderDisclosure,
 ) -> RetrievalResult<Option<VectorEmbedding>> {
@@ -90,7 +98,7 @@ fn visual_embedding_for_chunk(
             record.id, record.artifact_id, chunk.artifact_id
         )));
     }
-    if parts.policy.evaluate(&record.security) != RetrievalDecision::Allowed
+    if authorization.evaluate(&record.security) != RetrievalDecision::Allowed
         || !scan_secrets(&record.excerpt).is_clean()
     {
         return Ok(None);
@@ -289,10 +297,14 @@ mod tests {
             policy: &policy,
             provider: &provider,
         };
+        let authorization = policy
+            .authorization_context(&maestria_domain::CorpusScope::Global)
+            .map_err(|error| RetrievalError::Internal(error.to_string()))?;
         let result = visual_embedding_for_chunk(
             &chunk,
             &artifact,
             &parts,
+            &authorization,
             &identity,
             &provider.disclosure(),
         );

@@ -15,7 +15,6 @@ pub struct WorkspaceContext {
     pub active_notebook: Option<u64>,
     pub agent: Option<Agent>,
     pub evidence: Option<Evidence>,
-    pub invoking_citation: Option<u64>,
     pub bootstrap_status: Option<BootstrapStatus>,
 }
 
@@ -30,18 +29,44 @@ pub fn alert(error: &ClientError) -> Element {
     }
 }
 
+pub(crate) fn set_alert(mut context: Signal<WorkspaceContext>, error: ClientError) {
+    let mut value = context.write();
+    value.model.alert = Some(error);
+    value.model.status = "Action failed".into();
+}
+
+pub(crate) fn class_badge(class: &str) -> &'static str {
+    match class {
+        "Recommended" => "bg-success",
+        "Noise" => "bg-muted",
+        _ => "bg-warning",
+    }
+}
+
+pub(crate) fn bootstrap_root(status: &Option<BootstrapStatus>) -> String {
+    match status {
+        Some(value) if !value.instance_root_path.is_empty() => value.instance_root_path.clone(),
+        Some(value) if value.instance_root.starts_with('/') => value.instance_root.clone(),
+        _ => String::new(),
+    }
+}
+
 #[component]
 pub fn Shell(title: String, active_notebook: Option<u64>, children: Element) -> Element {
     let context = use_context::<Signal<WorkspaceContext>>();
-    let snapshot = context.read().clone();
-    let notebooks = match snapshot.model.notebooks {
-        LoadState::Ready(items) => items,
-        _ => Vec::new(),
+    let (notebooks, agent_ready, status) = {
+        let snapshot = context.read();
+        let notebooks = match &snapshot.model.notebooks {
+            LoadState::Ready(items) => items.clone(),
+            _ => Vec::new(),
+        };
+        let agent_ready = snapshot
+            .agent
+            .as_ref()
+            .is_some_and(|agent| agent.status == "ready");
+        let status = snapshot.model.status.clone();
+        (notebooks, agent_ready, status)
     };
-    let agent_ready = snapshot
-        .agent
-        .as_ref()
-        .is_some_and(|agent| agent.status == "ready");
     let selected_notebook = active_notebook.map_or_else(String::new, |id| id.to_string());
     rsx! {
         div { class: "min-h-screen bg-page text-ink",
@@ -55,7 +80,7 @@ pub fn Shell(title: String, active_notebook: Option<u64>, children: Element) -> 
                             "● "
                             {if agent_ready { "Agent ready" } else { "Agent unavailable" }}
                         }
-                        span { role: "status", aria_live: "polite", "{snapshot.model.status}" }
+                        span { role: "status", aria_live: "polite", {status} }
                     }
                 }
             }
@@ -78,11 +103,6 @@ pub fn Shell(title: String, active_notebook: Option<u64>, children: Element) -> 
             }
         }
     }
-}
-fn record_error(mut context: Signal<WorkspaceContext>, error: ClientError) {
-    let mut value = context.write();
-    value.model.alert = Some(error);
-    value.model.status = "Action failed".into();
 }
 
 fn open_dialog(id: &str) {
@@ -220,20 +240,16 @@ fn RenameNotebookDialog(
                                 Ok(bootstrap) => {
                                     let notebooks = bootstrap.notebooks.into_vec();
                                     let mut value = context.write();
-                                    value.model.notebooks = if notebooks.is_empty() {
-                                        LoadState::Empty
-                                    } else {
-                                        LoadState::Ready(notebooks)
-                                    };
+                                    value.model.notebooks = LoadState::ready_or_empty(notebooks);
                                     value.model.notebook = LoadState::Ready(updated);
                                     value.model.alert = None;
                                     value.model.status = "Notebook renamed".into();
                                     open.set(false);
                                     close_dialog("rename-notebook-dialog");
                                 }
-                                Err(error) => record_error(context, error),
+                                Err(error) => set_alert(context, error),
                             },
-                            Err(error) => record_error(context, error),
+                            Err(error) => set_alert(context, error),
                         }
                     });
                 },
@@ -303,11 +319,8 @@ fn DeleteNotebookDialog(
                                     Ok(bootstrap) => {
                                         let notebooks = bootstrap.notebooks.into_vec();
                                         let mut value = context.write();
-                                        value.model.notebooks = if notebooks.is_empty() {
-                                            LoadState::Empty
-                                        } else {
-                                            LoadState::Ready(notebooks)
-                                        };
+                                        value.model.notebooks =
+                                            LoadState::ready_or_empty(notebooks);
                                         value.model.alert = None;
                                         value.model.status = "Notebook deleted".into();
                                         Session::clear_notebook();
@@ -315,9 +328,9 @@ fn DeleteNotebookDialog(
                                         close_dialog("delete-notebook-dialog");
                                         navigator.push(Route::Dashboard {});
                                     }
-                                    Err(error) => record_error(context, error),
+                                    Err(error) => set_alert(context, error),
                                 },
-                                Err(error) => record_error(context, error),
+                                Err(error) => set_alert(context, error),
                             }
                         });
                     },
@@ -327,7 +340,6 @@ fn DeleteNotebookDialog(
         }
     }
 }
-#[component]
 #[component]
 pub fn CitationList(citations: Vec<Citation>, on_open: EventHandler<u64>) -> Element {
     rsx! {

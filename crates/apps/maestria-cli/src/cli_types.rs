@@ -22,7 +22,6 @@ pub enum Commands {
         #[arg(long = "read-root", value_delimiter = ',', num_args = 1..)]
         read_roots: Vec<PathBuf>,
     },
-    /// Index one local file, files under a directory, or inspect index generations
     Index {
         #[command(subcommand)]
         command: Option<IndexCommands>,
@@ -158,33 +157,25 @@ pub enum PromotionCommands {
 pub enum SearchCommands {
     /// Execute a search and print its durable plan and trace details
     Explain {
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
         #[arg(long)]
         task_id: Option<u64>,
         query: String,
-        #[arg(short, long, default_value = ".maestria-dev")]
-        instance_dir: PathBuf,
         #[arg(short, long, default_value_t = 10)]
         limit: usize,
     },
     /// Show a persisted search trace by deterministic identifier
-    Trace {
-        trace_id: u64,
-        #[arg(short, long, default_value = ".maestria-dev")]
-        instance_dir: PathBuf,
-    },
+    Trace { trace_id: u64 },
     /// Compare two persisted search traces as an experiment pair
     Compare {
         experiment_a: u64,
         experiment_b: u64,
-        #[arg(short, long, default_value = ".maestria-dev")]
-        instance_dir: PathBuf,
     },
     /// Query the persisted exact repository code index
     Code {
         #[command(subcommand)]
         command: CodeSearchCommands,
-        #[arg(short, long, default_value = ".maestria-dev")]
-        instance_dir: PathBuf,
         #[arg(short, long, default_value_t = 20)]
         limit: usize,
     },

@@ -7,31 +7,31 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-maestria-core = { path = "../../core/maestria-core" }
-maestria-studio = { path = "../maestria-studio" }
-maestria-daemon = { path = "../maestria-daemon" }
-maestria-governance = { path = "../../kernel/maestria-governance" }
-maestria-domain = { path = "../../kernel/maestria-domain" }
-maestria-blob-fs = { path = "../../storage/maestria-blob-fs" }
-maestria-storage-sqlite = { path = "../../storage/maestria-storage-sqlite" }
-maestria-search-tantivy = { path = "../../storage/maestria-search-tantivy" }
-maestria-vector-sqlite = { path = "../../storage/maestria-vector-sqlite" }
-maestria-ports = { path = "../../kernel/maestria-ports" }
-maestria-parsers = { path = "../../ecosystem/maestria-parsers" }
-maestria-index-selection = { path = "../../ecosystem/maestria-index-selection" }
-maestria-code-intel = { path = "../../ecosystem/maestria-code-intel" }
-maestria-retrieval = { path = "../../ecosystem/maestria-retrieval" }
+maestria-core = { workspace = true }
+maestria-studio = { workspace = true }
+maestria-daemon = { workspace = true }
+maestria-governance = { workspace = true }
+maestria-domain = { workspace = true }
+maestria-blob-fs = { workspace = true }
+maestria-storage-sqlite = { workspace = true }
+maestria-search-tantivy = { workspace = true }
+maestria-vector-sqlite = { workspace = true }
+maestria-ports = { workspace = true }
+maestria-parsers = { workspace = true }
+maestria-index-selection = { workspace = true }
+maestria-code-intel = { workspace = true }
+maestria-retrieval = { workspace = true }
 
-tokio = { version = "1.37", features = ["full"] }
-tracing-subscriber = "0.3"
-clap = { version = "4.5", features = ["derive"] }
-anyhow = "1.0"
-serde_json = "1.0"
-getrandom = "0.2"
-
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+getrandom = { workspace = true }
+rusqlite = { workspace = true }
 [dev-dependencies]
-tempfile = "3"
-maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }
-maestria-retrieval = { path = "../../ecosystem/maestria-retrieval" }
-
-maestria-test-support = { path = "../../test-support/maestria-test-support" }
+tempfile = { workspace = true }
+maestria-ports = { workspace = true, features = ["contract-tests"] }
+maestria-retrieval = { workspace = true }
+maestria-test-support = { workspace = true }

@@ -25,13 +25,21 @@ fn daemon_unavailable(instance_dir: &std::path::Path) -> anyhow::Error {
 
 async fn run_studio(instance_dir: std::path::PathBuf, no_open: bool) -> Result<()> {
     let layout = InstanceLayout::for_root(instance_dir.clone());
-    let client =
-        DaemonClient::from_instance(&layout).map_err(|_| daemon_unavailable(&instance_dir))?;
+    let client = DaemonClient::from_instance(&layout).map_err(|error| {
+        tracing::warn!(%error, "daemon client connect failed");
+        daemon_unavailable(&instance_dir)
+    })?;
     match client.request(ClientOperation::Status).await {
         Ok(ClientResponse::Status(_)) => {}
-        _ => return Err(daemon_unavailable(&instance_dir)),
+        Ok(other) => {
+            tracing::warn!(?other, "daemon status check returned unexpected response");
+            return Err(daemon_unavailable(&instance_dir));
+        }
+        Err(error) => {
+            tracing::warn!(%error, "daemon status request failed");
+            return Err(daemon_unavailable(&instance_dir));
+        }
     }
-
     let agent_config = instance_dir.join("system").join("studio-agents.toml");
     let server = StudioServer::start(instance_dir.clone(), Some(agent_config)).await?;
     let url = server.url();
@@ -63,17 +71,6 @@ fn open_studio_url(url: &str) {
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 fn open_studio_url(_url: &str) {}
 
-fn resolve_nested_instance_dir(
-    outer: std::path::PathBuf,
-    inner: std::path::PathBuf,
-) -> std::path::PathBuf {
-    if inner == std::path::Path::new(".maestria-dev") {
-        outer
-    } else {
-        inner
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -81,7 +78,6 @@ async fn main() -> Result<()> {
         .init();
     dispatch(Cli::parse().command).await
 }
-
 async fn dispatch(command: Commands) -> Result<()> {
     match command {
         Commands::Init {
@@ -128,8 +124,8 @@ async fn dispatch(command: Commands) -> Result<()> {
         } => commands::evidence::run(instance_dir, evidence_id, chunk_id)?,
         Commands::Evidence {
             command,
-            instance_dir,
-        } => dispatch_evidence(command, instance_dir)?,
+            instance_dir: _,
+        } => dispatch_evidence(command)?,
         Commands::Status { instance_dir } => commands::status::run(instance_dir)?,
         Commands::Doctor { instance_dir } => commands::doctor::run(instance_dir)?,
         Commands::Studio {
@@ -203,24 +199,10 @@ async fn dispatch_index(
     save_selection: bool,
 ) -> Result<()> {
     match command {
-        Some(IndexCommands::Generations {
-            instance_dir: nested_instance_dir,
-        }) => commands::observability::run_index_generations(resolve_nested_instance_dir(
-            instance_dir,
-            nested_instance_dir,
-        )),
+        Some(IndexCommands::Generations { instance_dir }) => {
+            commands::observability::run_index_generations(instance_dir)
+        }
         Some(IndexCommands::Repository { path, selection }) => {
-            // The parent-level index flags apply as defaults when the
-            // subcommand does not override them.
-            let selection = commands::repository_index::RepositoryIndexArgs {
-                list: selection.list,
-                yes: selection.yes || yes,
-                include: selection.include,
-                save_selection: selection.save_selection || save_selection,
-                max_file_bytes: selection.max_file_bytes.or(flags.max_file_bytes),
-                skip_minified: selection.skip_minified || flags.skip_minified,
-                all: selection.all,
-            };
             commands::repository_index::run_index(instance_dir, path, selection).await
         }
         None => {
@@ -247,35 +229,21 @@ async fn dispatch_search(
 ) -> Result<()> {
     match command {
         Some(SearchCommands::Explain {
+            instance_dir,
             query,
-            instance_dir: nested_instance_dir,
             limit,
             task_id,
         }) => {
-            let instance_dir = resolve_nested_instance_dir(instance_dir, nested_instance_dir);
             commands::observability::run_search_explain(instance_dir, task_id, query, limit).await
         }
-        Some(SearchCommands::Trace {
-            trace_id,
-            instance_dir: nested_instance_dir,
-        }) => {
-            let instance_dir = resolve_nested_instance_dir(instance_dir, nested_instance_dir);
+        Some(SearchCommands::Trace { trace_id }) => {
             commands::observability::run_search_trace(instance_dir, trace_id)
         }
         Some(SearchCommands::Compare {
             experiment_a,
             experiment_b,
-            instance_dir: nested_instance_dir,
-        }) => {
-            let instance_dir = resolve_nested_instance_dir(instance_dir, nested_instance_dir);
-            commands::observability::run_search_compare(instance_dir, experiment_a, experiment_b)
-        }
-        Some(SearchCommands::Code {
-            command,
-            instance_dir: nested_instance_dir,
-            limit,
-        }) => {
-            let instance_dir = resolve_nested_instance_dir(instance_dir, nested_instance_dir);
+        }) => commands::observability::run_search_compare(instance_dir, experiment_a, experiment_b),
+        Some(SearchCommands::Code { command, limit }) => {
             let query = match command {
                 CodeSearchCommands::Context {
                     pattern,
@@ -336,15 +304,12 @@ async fn dispatch_search(
     }
 }
 
-fn dispatch_evidence(command: EvidenceCommands, instance_dir: std::path::PathBuf) -> Result<()> {
+fn dispatch_evidence(command: EvidenceCommands) -> Result<()> {
     match command {
         EvidenceCommands::Coverage {
             task_id,
-            instance_dir: nested_instance_dir,
-        } => commands::observability::run_evidence_coverage(
-            resolve_nested_instance_dir(instance_dir, nested_instance_dir),
-            task_id,
-        ),
+            instance_dir,
+        } => commands::observability::run_evidence_coverage(instance_dir, task_id),
     }
 }
 

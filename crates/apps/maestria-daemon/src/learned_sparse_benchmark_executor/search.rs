@@ -152,7 +152,7 @@ impl LearnedSparseBenchmarkExecutor {
             .authorization_context(plan.scope())
             .map_err(anyhow::Error::new)?;
         let request = maestria_retrieval::types::CandidateRequest {
-            plan: plan.clone(),
+            plan: std::sync::Arc::new(plan.clone()),
             query: SearchQuery {
                 q: query.to_string(),
                 limit,

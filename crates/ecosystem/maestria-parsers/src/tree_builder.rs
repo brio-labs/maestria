@@ -56,9 +56,8 @@ pub(crate) fn build_tree_and_chunks(
                 }
             })?,
             SourceSpan::PdfSpan { .. } | SourceSpan::PdfRegion { .. } => ContentRange::new(1, 1)
-                .map_err(|error| PortError::InvalidInputContext {
-                    context: "allocate chunk node content range",
-                    source: error.to_string(),
+                .map_err(|error| {
+                    PortError::invalid_input("allocate chunk node content range", error.to_string())
                 })?,
         };
         let page = match source_span {

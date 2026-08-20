@@ -5,6 +5,7 @@ mod ocr;
 #[path = "replay_dispatch.rs"]
 mod replay_dispatch;
 mod replay_entities;
+mod source;
 impl KernelState {
     pub fn apply_event(&mut self, envelope: DomainEventEnvelope) -> Result<(), DomainError> {
         let expected_id = self.event_log.len() as u64 + 1;
@@ -12,12 +13,6 @@ impl KernelState {
             return Err(DomainError::InvalidEventId {
                 expected: expected_id,
                 actual: envelope.id.value(),
-            });
-        }
-        if envelope.sequence.value() != expected_id {
-            return Err(DomainError::InvalidSequence {
-                expected: expected_id,
-                actual: envelope.sequence.value(),
             });
         }
         match &envelope.event {
@@ -45,8 +40,7 @@ impl KernelState {
             | DomainEvent::MemorySuperseded { .. } => {
                 self.replay_memory_events(&envelope.event)?;
             }
-            DomainEvent::UserIntentObserved { .. }
-            | DomainEvent::SearchCompleted { .. }
+            DomainEvent::SearchCompleted { .. }
             | DomainEvent::SearchExecuted { .. }
             | DomainEvent::SearchKnowledgeCompleted { .. }
             | DomainEvent::HarnessRunCompleted { .. }
@@ -75,14 +69,7 @@ impl KernelState {
                 artifact_id,
                 source_path,
                 ..
-            } => {
-                self.stale_sources.insert(source_path.clone());
-                if let Ok(key) = SourceIdentityKey::try_from(source_path.clone())
-                    && self.active_sources.get(&key) == Some(artifact_id)
-                {
-                    self.active_sources.remove(&key);
-                }
-            }
+            } => self.replay_source_became_stale(*artifact_id, source_path),
             DomainEvent::NotebookCreated { .. }
             | DomainEvent::NotebookRenamed { .. }
             | DomainEvent::NotebookDeleted { .. }

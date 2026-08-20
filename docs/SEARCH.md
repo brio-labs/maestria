@@ -785,7 +785,7 @@ SearchTrace generation
 `maestria-domain` owns domain-shaped state and transitions. It may emit a task-significant effect such as:
 
 ```rust
-MaestriaEffect::SearchKnowledge(SearchRequest)
+MaestriaEffect::SearchKnowledge(Box<SearchKnowledgeRequest>)
 ```
 
 `maestria-runtime` executes effects, invokes adapters, and maps outputs back into `DomainInput`. It must not mutate domain state directly.

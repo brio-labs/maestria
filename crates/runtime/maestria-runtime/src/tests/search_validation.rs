@@ -46,7 +46,6 @@ async fn search_validation_failure_records_a_failed_report()
     };
     state.event_log.push(maestria_domain::DomainEventEnvelope {
         id: maestria_domain::EventId::new(1),
-        sequence: maestria_domain::SequenceNumber::new(1),
         event: DomainEvent::SearchKnowledgeCompleted {
             task_id: Some(task_id),
             plan: None,
@@ -174,7 +173,6 @@ async fn associated_search_coverage_and_conflicts_block_verified_completion()
     );
     state.event_log.push(maestria_domain::DomainEventEnvelope {
         id: maestria_domain::EventId::new(1),
-        sequence: maestria_domain::SequenceNumber::new(1),
         event: DomainEvent::SearchKnowledgeCompleted {
             task_id: Some(task_id),
             plan: None,
@@ -207,10 +205,7 @@ async fn associated_search_coverage_and_conflicts_block_verified_completion()
 
     let report = crate::validation::build_validation_report_from_state(
         &state,
-        &maestria_domain::RunValidationRequest {
-            target: maestria_domain::ValidationTarget::Task(task_id),
-            validation_report_id: ValidationReportId::new(22),
-        },
+        &maestria_domain::RunValidationRequest::for_task(task_id, ValidationReportId::new(22)),
     );
     assert!(!report.passed);
     assert!(

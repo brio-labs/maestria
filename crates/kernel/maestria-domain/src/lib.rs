@@ -60,10 +60,10 @@ mod task_status;
 mod types;
 
 pub use crate::effects::{
-    DiagnosticEvent, FetchWebRequest, HarnessExecution, IndexFullTextRequest, IndexVectorRequest,
-    KernelOutput, MaestriaEffect, NotebookDraftBlobRequest, OcrEffect, ParseArtifactRequest,
-    ParseArtifactSource, QueryHarnessProposalRequest, QueryHarnessRequest, RequestApprovalRequest,
-    RunValidationRequest, SearchKnowledgeRequest, UpdateGraphRequest, ValidationTarget,
+    FetchWebRequest, HarnessExecution, IndexChunkRequest, KernelOutput, MaestriaEffect,
+    NotebookDraftBlobRequest, ParseArtifactRequest, ParseArtifactSource, QueryHarnessRequest,
+    RequestApprovalRequest, RunValidationRequest, SearchKnowledgeRequest, UpdateGraphRequest,
+    ValidationTarget,
 };
 pub use crate::entities::{
     Artifact, Card, Chunk, Claim, ClaimStatus, ContentRange, ContentRangeError, Evidence,
@@ -73,7 +73,9 @@ pub use crate::entities::{
     Task, TaskPriority, TestStatus, ValidationReportRecord,
 };
 pub use crate::errors::DomainError;
-pub use crate::events::{ApprovalOutcome, DomainEvent, DomainEventEnvelope};
+pub use crate::events::{
+    ApprovalOutcome, DomainEvent, DomainEventEnvelope, active_source_versions,
+};
 pub use crate::evidence_pack::{
     ClaimCoverageStatusRecord, ClaimEvidenceCoverageRecord, EvidenceFreshnessRecord,
     EvidencePackCompressionRecord, EvidencePackMetadataRecord, EvidencePackReplayKeyRecord,
@@ -99,8 +101,7 @@ pub use crate::ids::{
     CorpusSnapshotId, CorrelationId, DEFAULT_CORPUS_SNAPSHOT_ID, DEFAULT_INSTANCE_SCOPE_ID,
     DOMAIN_VERSION, DuplicateClusterId, EventId, EvidenceId, HarnessRunId, IndexGenerationId,
     JournalGeneration, LogicalTick, MemoryCandidateId, MemoryId, NotebookDraftId, NotebookId,
-    QueryId, RelationId, ScopeId, SearchTraceId, SequenceNumber, SnapshotId, StructureNodeId,
-    TaskId, ValidationReportId,
+    QueryId, RelationId, ScopeId, SearchTraceId, StructureNodeId, TaskId, ValidationReportId,
 };
 pub use crate::inputs::{
     ApprovalDecision, ArtifactDetected, ChangeTaskStatusInput, CompleteTaskInput,
@@ -136,8 +137,8 @@ pub use crate::ocr::{
 };
 pub use crate::provenance::{
     ParseStatus, ParsedRepresentation, RepresentationKind, SourceSpan, SourceSpanError,
-    content_hash, evidence_id_for, excerpt_for, hex_digest, line_range_for_chunk,
-    web_artifact_id_for, web_evidence_id_for,
+    content_hash, evidence_id_for, excerpt_for, hex_digest, web_artifact_id_for,
+    web_evidence_id_for,
 };
 pub use crate::realm_identity::{RealmId, RealmIdError};
 pub use crate::replay::{replay_events, replay_inputs};

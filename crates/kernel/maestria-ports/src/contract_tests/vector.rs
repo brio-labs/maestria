@@ -1,8 +1,6 @@
 use super::*;
 use maestria_domain::ChunkId;
 
-use super::fixtures::*;
-
 pub fn assert_vector_index_contract(
     index: &impl VectorIndex,
 ) -> Result<(), Box<dyn std::error::Error>> {

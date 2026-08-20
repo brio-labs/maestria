@@ -24,12 +24,14 @@ pub(crate) struct CodeIntelAuthorization {
 pub(crate) fn code_intel_authorization(layout: &InstanceLayout) -> Result<CodeIntelAuthorization> {
     let store = Arc::new(SqliteStore::open_read_only(&layout.database_path)?);
     let events = EventLog::scan(store.as_ref(), EventFilter { artifact_id: None })?;
+    let sources = maestria_domain::active_source_versions(&events);
     let resolver = CodeIntelSecurityResolver::from_events(
         CodeIntelSecurityResolverParts {
             artifacts: store.clone(),
             evidence: store,
             blobs: Arc::new(FsBlobStore::open(&layout.blobs_dir)?),
         },
+        &sources,
         &events,
     )
     .map_err(|error| anyhow::anyhow!("prepare repository code authorization: {error}"))?;

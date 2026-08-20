@@ -3,7 +3,8 @@ use maestria_ports::{PortError, SparseDocument, SparseIdentity, SparseTermWeight
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 
-use crate::{SqliteStore, sqlite_store::to_port_error};
+use crate::SqliteStore;
+pub(super) use crate::sqlite_store::{i64_to_u64, json_error, to_port_error, u64_to_i64 as to_i64};
 
 pub(super) const MAX_SPARSE_VECTOR_BYTES: usize = 1_048_576;
 #[derive(Debug, Clone)]
@@ -40,7 +41,9 @@ pub(super) fn ensure_generation(
     let existing: Option<String> = connection
         .query_row(
             "SELECT identity_json FROM learned_sparse_projections WHERE generation_id = ?1",
-            params![to_i64(identity.generation_id.value())?],
+            params![crate::sqlite_store::u64_to_i64(
+                identity.generation_id.value()
+            )?],
             |row| row.get(0),
         )
         .optional()
@@ -59,8 +62,8 @@ pub(super) fn ensure_generation(
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 identity_json,
-                to_i64(identity.generation_id.value())?,
-                to_i64(identity.corpus_snapshot.value())?,
+                crate::sqlite_store::u64_to_i64(identity.generation_id.value())?,
+                crate::sqlite_store::u64_to_i64(identity.corpus_snapshot.value())?,
                 namespace_json,
                 fingerprint_json,
                 lifecycle,
@@ -150,7 +153,10 @@ pub(super) fn tombstone_documents(
             .execute(
                 "UPDATE learned_sparse_projection_documents
                  SET tombstoned = 1 WHERE identity_json = ?1 AND chunk_id = ?2",
-                params![identity_json, to_i64(chunk_id.value())?],
+                params![
+                    identity_json,
+                    crate::sqlite_store::u64_to_i64(chunk_id.value())?
+                ],
             )
             .map_err(to_port_error)?;
     }
@@ -256,7 +262,7 @@ pub(super) fn load_all_documents(
         documents.push(super::search_storage::CachedDocument {
             encoded_bytes,
             document: StoredDocument {
-                chunk_id: maestria_domain::ChunkId::new(i64_to_u64(chunk_id)?),
+                chunk_id: maestria_domain::ChunkId::new(crate::sqlite_store::i64_to_u64(chunk_id)?),
                 vector,
             },
         });
@@ -322,8 +328,8 @@ fn validate_projection_metadata(
 ) -> Result<IndexLifecycle, PortError> {
     let expected_namespace = serde_json::to_string(&identity.namespace).map_err(json_error)?;
     let expected_fingerprint = serde_json::to_string(&identity.fingerprint).map_err(json_error)?;
-    if generation_id != to_i64(identity.generation_id.value())?
-        || corpus_snapshot != to_i64(identity.corpus_snapshot.value())?
+    if generation_id != crate::sqlite_store::u64_to_i64(identity.generation_id.value())?
+        || corpus_snapshot != crate::sqlite_store::u64_to_i64(identity.corpus_snapshot.value())?
         || namespace_json != expected_namespace
         || fingerprint_json != expected_fingerprint
     {
@@ -366,7 +372,7 @@ fn upsert_document(
                  tombstoned = 0",
             params![
                 identity_json,
-                to_i64(document.chunk_id.value())?,
+                crate::sqlite_store::u64_to_i64(document.chunk_id.value())?,
                 document.content_hash.as_str(),
                 vector_json,
             ],
@@ -403,7 +409,8 @@ fn ensure_vector_size(input: &str) -> Result<(), PortError> {
 
 pub(super) fn decode_vector(input: &str) -> Result<SparseVector, PortError> {
     ensure_vector_size(input)?;
-    let stored: StoredVector = serde_json::from_str(input).map_err(json_error)?;
+    let stored: StoredVector = serde_json::from_str(input)
+        .map_err(|error| PortError::invalid_input("sparse projection JSON", error.to_string()))?;
     let terms = stored
         .terms
         .into_iter()
@@ -413,31 +420,13 @@ pub(super) fn decode_vector(input: &str) -> Result<SparseVector, PortError> {
 }
 
 pub(super) fn lifecycle_json(lifecycle: IndexLifecycle) -> Result<String, PortError> {
-    serde_json::to_string(&lifecycle).map_err(json_error)
+    serde_json::to_string(&lifecycle)
+        .map_err(|error| PortError::invalid_input("sparse projection JSON", error.to_string()))
 }
 
 pub(super) fn lifecycle_from_json(input: &str) -> Result<IndexLifecycle, PortError> {
-    serde_json::from_str(input).map_err(json_error)
-}
-
-pub(super) fn to_i64(value: u64) -> Result<i64, PortError> {
-    i64::try_from(value).map_err(|_| PortError::InvalidInputContext {
-        context: "sparse projection identifier",
-        source: "identifier exceeds SQLite integer range".to_string(),
-    })
-}
-
-pub(super) fn i64_to_u64(value: i64) -> Result<u64, PortError> {
-    u64::try_from(value).map_err(|_| PortError::Downstream {
-        message: "SQLite sparse projection identifier is negative".to_string(),
-    })
-}
-
-fn json_error(error: serde_json::Error) -> PortError {
-    PortError::InvalidInputContext {
-        context: "sparse projection JSON",
-        source: error.to_string(),
-    }
+    serde_json::from_str(input)
+        .map_err(|error| PortError::invalid_input("sparse projection JSON", error.to_string()))
 }
 
 pub(super) fn domain_error(error: impl std::fmt::Display) -> PortError {

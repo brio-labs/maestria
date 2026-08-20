@@ -304,7 +304,6 @@ fn populate_resume_event_log_and_state(
 ) -> Result<(), Box<dyn std::error::Error>> {
     event_log.append(DomainEventEnvelope {
         id: maestria_domain::EventId::new(1),
-        sequence: maestria_domain::SequenceNumber::new(1),
         event: DomainEvent::ParserStarted {
             artifact_id: art_id,
             title: "repair-artifact".to_string(),

@@ -15,7 +15,6 @@ pub(crate) enum EffectPreparation {
 
 pub(crate) struct RuntimeCommand {
     pub(crate) correlation_id: u64,
-    pub(crate) input: DomainInput,
     pub(crate) effect_preparation: EffectPreparation,
     pub(crate) reply: oneshot::Sender<Result<DomainApplicationResult, RuntimeSubmissionError>>,
 }
@@ -31,11 +30,10 @@ pub struct MaestriaRuntime {
     pub(crate) adapters: Arc<Adapters>,
     pub(crate) governance: Arc<Governance>,
     pub(crate) input_tx: mpsc::Sender<DomainInput>,
-    pub(crate) command_tx: mpsc::Sender<RuntimeCommand>,
-    pub(crate) command_rx: Option<mpsc::Receiver<RuntimeCommand>>,
+    pub(crate) command_tx: mpsc::Sender<(DomainInput, RuntimeCommand)>,
+    pub(crate) command_rx: Option<mpsc::Receiver<(DomainInput, RuntimeCommand)>>,
     pub(crate) next_command_id: Arc<AtomicU64>,
     pub(crate) journal_recovery_claims: JournalRecoveryClaims,
-    pub(crate) next_validation_report_id: Arc<AtomicU64>,
     pub(crate) feedback_acks: HarnessFeedbackAcks,
     pub(crate) degraded_vector_artifacts: DegradedVectorArtifacts,
     pub(crate) full_text_locks: FullTextLocks,
@@ -44,7 +42,6 @@ pub struct MaestriaRuntime {
     #[cfg(test)]
     pub(crate) test_pre_failed_effect_task: bool,
 }
-
 /// Correlated result returned after the domain accepted an input and the
 /// complete emitted effect batch crossed runtime admission.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,7 +120,7 @@ impl std::error::Error for RuntimeSubmissionError {}
 #[derive(Clone)]
 pub struct RuntimeHandle {
     pub(crate) input_tx: mpsc::Sender<DomainInput>,
-    pub(crate) command_tx: mpsc::Sender<RuntimeCommand>,
+    pub(crate) command_tx: mpsc::Sender<(DomainInput, RuntimeCommand)>,
     pub(crate) next_command_id: Arc<AtomicU64>,
     pub(crate) id_allocator: Arc<dyn maestria_ports::IdAllocator + Send + Sync>,
     pub(crate) search_executor:
@@ -159,6 +156,19 @@ impl RuntimeHandle {
     pub async fn kernel_state(&self) -> KernelState {
         self.state.read().await.clone()
     }
+
+    /// Read a single artifact without cloning the whole kernel state.
+    ///
+    /// Used by index ingestion to avoid per-file full-state clones.
+    ///
+    /// # Cancellation
+    /// Cancelling while waiting for the read lock leaves runtime state unchanged.
+    pub async fn artifact(
+        &self,
+        id: maestria_domain::ArtifactId,
+    ) -> Option<maestria_domain::Artifact> {
+        self.state.read().await.artifacts.get(&id).cloned()
+    }
 }
 
 /// Reserved capacity for one correlated runtime submission.
@@ -167,7 +177,7 @@ impl RuntimeHandle {
 /// [`RuntimeSubmissionPermit::submit`] accepts the input synchronously on its first poll before
 /// awaiting the correlated result.
 pub struct RuntimeSubmissionPermit {
-    pub(crate) permit: mpsc::OwnedPermit<RuntimeCommand>,
+    pub(crate) permit: mpsc::OwnedPermit<(DomainInput, RuntimeCommand)>,
     pub(crate) correlation_id: u64,
 }
 

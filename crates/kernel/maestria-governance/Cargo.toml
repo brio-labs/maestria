@@ -6,4 +6,4 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-maestria_domain = { package = "maestria-domain", path = "../maestria-domain" }
+maestria-domain = { workspace = true }

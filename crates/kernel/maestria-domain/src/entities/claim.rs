@@ -9,7 +9,6 @@ pub enum ClaimStatus {
     Proposed,
     Verified,
     Disputed,
-    Archived,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

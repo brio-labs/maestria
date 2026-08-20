@@ -3,18 +3,18 @@ use crate::evidence_source::EvidenceKind;
 use crate::ids::StructureNodeId;
 use crate::ids::{
     ApprovalId, ArtifactId, ArtifactVersionId, BlobId, CardId, ChunkId, ClaimId, EventId,
-    EvidenceId, IndexGenerationId, LogicalTick, MemoryCandidateId, MemoryId, RelationId,
-    SequenceNumber, TaskId, ValidationReportId,
+    EvidenceId, IndexGenerationId, LogicalTick, MemoryCandidateId, MemoryId, RelationId, TaskId,
+    ValidationReportId,
 };
 use crate::search::{ContentHash, StructureNode};
 use crate::security::SecurityMetadata;
 use crate::task_status::TaskStatus;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DomainEventEnvelope {
     pub id: EventId,
-    pub sequence: SequenceNumber,
     pub event: DomainEvent,
 }
 
@@ -103,14 +103,9 @@ pub enum DomainEvent {
         confidence_milli: u16,
         security: SecurityMetadata,
     },
-    UserIntentObserved {
-        task_id: TaskId,
-        title: String,
-    },
     ArtifactParsed {
         artifact_id: ArtifactId,
         status: crate::provenance::ParseStatus,
-        chunks_added: u32,
     },
     DocumentTreeCaptured {
         artifact_id: ArtifactId,
@@ -132,7 +127,6 @@ pub enum DomainEvent {
     },
     SearchCompleted {
         artifact_id: ArtifactId,
-        cards_added: u32,
     },
     HarnessRunCompleted {
         task_id: Option<TaskId>,
@@ -278,6 +272,127 @@ pub enum DomainEvent {
         consumer_realm: crate::RealmId,
         record: crate::entities::FederatedAccessRecord,
     },
+}
+
+impl DomainEvent {
+    /// Returns the artifact the event references, when the event is
+    /// artifact-scoped. `TaskOpened` reports its optional artifact binding;
+    /// `OcrRequested` reports the intent's artifact.
+    #[must_use]
+    pub fn artifact_id(&self) -> Option<ArtifactId> {
+        match self {
+            Self::ArtifactRegistered { artifact_id, .. }
+            | Self::ChunkRegistered { artifact_id, .. }
+            | Self::CardCreated { artifact_id, .. }
+            | Self::ClaimCreated { artifact_id, .. }
+            | Self::EvidenceRecorded { artifact_id, .. }
+            | Self::ArtifactParsed { artifact_id, .. }
+            | Self::DocumentTreeCaptured { artifact_id, .. }
+            | Self::SearchCompleted { artifact_id, .. }
+            | Self::PendingIndex { artifact_id, .. }
+            | Self::FullTextIndexed { artifact_id, .. }
+            | Self::ArtifactIndexed { artifact_id }
+            | Self::ParserStarted { artifact_id, .. }
+            | Self::SourceBecameStale { artifact_id, .. }
+            | Self::OcrCompleted { artifact_id, .. }
+            | Self::OcrFailed { artifact_id, .. } => Some(*artifact_id),
+            Self::TaskOpened { artifact_id, .. } => *artifact_id,
+            Self::OcrRequested { intent } => Some(intent.artifact_id()),
+            _ => None,
+        }
+    }
+
+    /// Returns the approval decision recorded by the event, if any.
+    #[must_use]
+    pub fn approval_record(&self) -> Option<(ApprovalId, ApprovalOutcome)> {
+        match self {
+            Self::ApprovalRecorded {
+                approval_id,
+                outcome,
+            } => Some((*approval_id, *outcome)),
+            _ => None,
+        }
+    }
+
+    /// Returns the validation report identity recorded by the event, if any.
+    #[must_use]
+    pub fn validation_report(&self) -> Option<(ValidationReportId, Option<TaskId>, bool)> {
+        match self {
+            Self::ValidationReportCreated {
+                report_id,
+                task_id,
+                passed,
+                ..
+            } => Some((*report_id, *task_id, *passed)),
+            _ => None,
+        }
+    }
+}
+
+/// Projects the currently active source versions from the append-only event
+/// log, keyed by canonical source path.
+///
+/// `ParserStarted` records the source path with a placeholder version
+/// (`ArtifactVersionId` derived from the artifact id); `DocumentTreeCaptured`
+/// carries the real content-addressed version and replaces the placeholder for
+/// that path (R27). A later `SourceBecameStale` removes the path when it
+/// matches the recorded artifact and hash. Consumers share this single
+/// projection so the version namespace never borrows the artifact-id namespace
+/// and stale versions never surface in retrieval.
+pub fn active_source_versions(
+    events: &[DomainEventEnvelope],
+) -> BTreeMap<PathBuf, (ArtifactId, ArtifactVersionId, ContentHash)> {
+    let mut active = BTreeMap::new();
+    let mut path_by_artifact = BTreeMap::new();
+    for envelope in events {
+        match &envelope.event {
+            DomainEvent::ParserStarted {
+                artifact_id,
+                source_path,
+                content_hash,
+                ..
+            } => {
+                path_by_artifact.insert(*artifact_id, source_path.clone());
+                active.insert(
+                    PathBuf::from(source_path),
+                    (
+                        *artifact_id,
+                        ArtifactVersionId::new(artifact_id.value()),
+                        content_hash.clone(),
+                    ),
+                );
+            }
+            DomainEvent::DocumentTreeCaptured {
+                artifact_id,
+                artifact_version_id,
+                ..
+            } => {
+                if let Some(path) = path_by_artifact.get(artifact_id)
+                    && let Some(entry) = active.get_mut(Path::new(path))
+                {
+                    entry.1 = *artifact_version_id;
+                }
+            }
+            DomainEvent::SourceBecameStale {
+                artifact_id,
+                source_path,
+                content_hash,
+            } => {
+                let path = PathBuf::from(source_path);
+                if active
+                    .get(&path)
+                    .is_some_and(|(active_id, _, active_hash)| {
+                        active_id == artifact_id && active_hash == content_hash
+                    })
+                {
+                    active.remove(&path);
+                }
+                path_by_artifact.remove(artifact_id);
+            }
+            _ => {}
+        }
+    }
+    active
 }
 
 /// Outcome recorded by an `ApprovalRecorded` event.

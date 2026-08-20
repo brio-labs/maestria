@@ -1,9 +1,8 @@
 //! Real dense projection lifecycle operations (the hybrid route's durable
 //! projection when a dense provider is configured).
 
-use anyhow::{Result, anyhow};
-use maestria_domain::ContentHash;
-use maestria_ports::{EmbeddingInputKind, EmbeddingProvenance, EmbeddingRequest, VectorEmbedding};
+use anyhow::Result;
+use maestria_ports::VectorEmbedding;
 use maestria_retrieval::LearnedSparseRoute;
 
 use maestria_retrieval::LearnedSparseOperationMeasurement;
@@ -100,6 +99,9 @@ impl LearnedSparseBenchmarkExecutor {
 
     /// Encodes the chunks through the dense provider in stable chunk order,
     /// mirroring the daemon's vector projection recovery path.
+    ///
+    /// Delegates to `crate::projection_recovery::embed_chunk` so the provider
+    /// contract and provenance shape stay single-sourced (R28).
     fn encode_embeddings(
         provider: &(dyn maestria_ports::EmbeddingProvider + Send + Sync),
         identity: &maestria_ports::EmbeddingIdentity,
@@ -108,36 +110,7 @@ impl LearnedSparseBenchmarkExecutor {
     ) -> Result<Vec<VectorEmbedding>> {
         chunks
             .iter()
-            .map(|chunk| {
-                let content_hash =
-                    ContentHash::new(maestria_domain::content_hash(chunk.text.as_bytes()))?;
-                let response = provider
-                    .embed(EmbeddingRequest {
-                        text: chunk.text.clone(),
-                        model: model.to_string(),
-                        kind: EmbeddingInputKind::Document,
-                        identity: identity.clone(),
-                    })
-                    .map_err(|error| anyhow!("embed chunk {}: {error}", chunk.id))?;
-                if response.identity != *identity {
-                    return Err(anyhow!(
-                        "embed chunk {} returned an incompatible generation identity",
-                        chunk.id
-                    ));
-                }
-                Ok(VectorEmbedding {
-                    chunk_id: chunk.id,
-                    vector: response.vector,
-                    provenance: EmbeddingProvenance {
-                        content_hash: content_hash.as_str().to_owned(),
-                        identity: response.identity,
-                        provider_id: response.provider_id,
-                        model: response.model,
-                        model_version: response.model_version,
-                        disclosure: response.disclosure,
-                    },
-                })
-            })
+            .map(|chunk| crate::projection_recovery::embed_chunk(provider, identity, model, chunk))
             .collect()
     }
 }

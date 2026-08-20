@@ -1,13 +1,10 @@
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
-use maestria_domain::{
-    ChunkId, SearchExecution, SearchExecutionBudget, SearchExecutionCompletion,
-    SearchExecutionResource, SearchExecutionUsage,
-};
+use maestria_domain::{ChunkId, SearchExecutionCompletion, SearchExecutionResource};
 use maestria_ports::{
     BoundedSearch, IndexedEmbeddingKey, PortError, VectorEmbedding, VectorIndex, VectorSearchHit,
-    VectorSearchQuery,
+    VectorSearchQuery, execution::Meter,
 };
 use rusqlite::{Connection, params};
 
@@ -16,64 +13,7 @@ use crate::encoding::{
     usize_to_i64, validate_vector,
 };
 use crate::operations::{delete_stale_chunks, upsert_embeddings};
-use crate::schema::{migrate, sqlite_vec_available};
-
-struct Meter {
-    budget: SearchExecutionBudget,
-    usage: SearchExecutionUsage,
-}
-
-impl Meter {
-    fn new(budget: SearchExecutionBudget) -> Self {
-        Self {
-            budget,
-            usage: SearchExecutionUsage::default(),
-        }
-    }
-    fn candidate(&mut self) -> Option<SearchExecutionResource> {
-        if self.usage.candidates >= self.budget.max_candidates() {
-            return Some(SearchExecutionResource::Candidates);
-        }
-        self.usage.candidates = self.usage.candidates.saturating_add(1);
-        None
-    }
-    fn bytes(&mut self, bytes: u64) -> Option<SearchExecutionResource> {
-        let Some(limit) = self.budget.max_bytes_read() else {
-            self.usage.bytes_read = self.usage.bytes_read.saturating_add(bytes);
-            return None;
-        };
-        if bytes > limit.get().saturating_sub(self.usage.bytes_read) {
-            return Some(SearchExecutionResource::BytesRead);
-        }
-        self.usage.bytes_read = self.usage.bytes_read.saturating_add(bytes);
-        None
-    }
-    fn work(&mut self, work: u64) -> Option<SearchExecutionResource> {
-        if work
-            > self
-                .budget
-                .max_work_units()
-                .saturating_sub(self.usage.work_units)
-        {
-            return Some(SearchExecutionResource::WorkUnits);
-        }
-        self.usage.work_units = self.usage.work_units.saturating_add(work);
-        None
-    }
-    fn result(&mut self) -> Option<SearchExecutionResource> {
-        if self.usage.results >= self.budget.max_results() {
-            return Some(SearchExecutionResource::Results);
-        }
-        self.usage.results = self.usage.results.saturating_add(1);
-        None
-    }
-    fn done<T>(self, hits: Vec<T>, completion: SearchExecutionCompletion) -> BoundedSearch<T> {
-        BoundedSearch::new(
-            hits,
-            SearchExecution::new(self.budget, self.usage, completion),
-        )
-    }
-}
+use crate::schema::migrate;
 
 /// SQLite-backed implementation of the vector-search projection.
 pub struct SqliteVectorIndex {
@@ -83,10 +23,7 @@ pub struct SqliteVectorIndex {
 impl SqliteVectorIndex {
     /// Opens a SQLite database at `path` and applies the vector projection schema.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, PortError> {
-        let mut connection = Connection::open(path).map_err(to_port_error)?;
-        connection
-            .busy_timeout(std::time::Duration::from_secs(5))
-            .map_err(to_port_error)?;
+        let mut connection = maestria_sqlite_support::open_connection(path)?;
         migrate(&mut connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
@@ -111,34 +48,15 @@ impl SqliteVectorIndex {
     /// Creates an in-memory vector projection. Useful for adapter tests and callers
     /// that want an ephemeral projection.
     pub fn in_memory() -> Result<Self, PortError> {
-        let mut connection = Connection::open_in_memory().map_err(to_port_error)?;
+        let mut connection = maestria_sqlite_support::open_in_memory_connection()?;
         migrate(&mut connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
         })
-    }
-
-    /// Wraps an existing SQLite connection and applies the vector projection schema.
-    pub fn from_connection(mut connection: Connection) -> Result<Self, PortError> {
-        migrate(&mut connection)?;
-        Ok(Self {
-            connection: Mutex::new(connection),
-        })
-    }
-
-    /// Returns true when the optional `sqlite-vec` virtual table could be created.
-    pub fn sqlite_vec_available(&self) -> Result<bool, PortError> {
-        let connection = self.lock_connection()?;
-        sqlite_vec_available(&connection)
     }
 
     fn lock_connection(&self) -> Result<MutexGuard<'_, Connection>, PortError> {
-        self.connection
-            .lock()
-            .map_err(|_| PortError::InternalContext {
-                context: "vector index lock poisoned",
-                source: "connection mutex is poisoned".to_string(),
-            })
+        maestria_sqlite_support::lock_connection(&self.connection, "vector index lock poisoned")
     }
 }
 

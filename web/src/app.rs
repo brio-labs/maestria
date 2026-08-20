@@ -1,25 +1,29 @@
 use dioxus::prelude::*;
 
-use crate::{api::ApiClient, components::WorkspaceContext, pages::NotebookPage};
+use crate::{
+    api::ApiClient,
+    components::WorkspaceContext,
+    pages::{NotebookPage, NotebookSection},
+};
 
 #[component]
 pub(crate) fn NotebookOverview(notebook_id: u64) -> Element {
-    rsx! { NotebookPage { notebook_id, section: "overview" } }
+    rsx! { NotebookPage { notebook_id, section: NotebookSection::Overview } }
 }
 
 #[component]
 pub(crate) fn NotebookSources(notebook_id: u64) -> Element {
-    rsx! { NotebookPage { notebook_id, section: "sources" } }
+    rsx! { NotebookPage { notebook_id, section: NotebookSection::Sources } }
 }
 
 #[component]
 pub(crate) fn NotebookAsk(notebook_id: u64) -> Element {
-    rsx! { NotebookPage { notebook_id, section: "ask" } }
+    rsx! { NotebookPage { notebook_id, section: NotebookSection::Ask } }
 }
 
 #[component]
 pub(crate) fn NotebookDrafts(notebook_id: u64) -> Element {
-    rsx! { NotebookPage { notebook_id, section: "drafts" } }
+    rsx! { NotebookPage { notebook_id, section: NotebookSection::Drafts } }
 }
 
 #[component]
@@ -92,20 +96,14 @@ pub fn App() -> Element {
             match client.bootstrap().await {
                 Ok(bootstrap) => {
                     let notebooks = bootstrap.notebooks.into_vec();
-                    let remembered = crate::session::Session::remembered_notebook();
-                    let remembered = remembered
+                    let remembered_initial = crate::session::Session::remembered_notebook();
+                    let remembered = remembered_initial
                         .filter(|id| notebooks.iter().any(|notebook| notebook.notebook_id == *id));
-                    if crate::session::Session::remembered_notebook().is_some()
-                        && remembered.is_none()
-                    {
+                    if remembered_initial.is_some() && remembered.is_none() {
                         crate::session::Session::clear_notebook();
                     }
                     let mut value = context.write();
-                    value.model.notebooks = if notebooks.is_empty() {
-                        crate::state::LoadState::Empty
-                    } else {
-                        crate::state::LoadState::Ready(notebooks)
-                    };
+                    value.model.notebooks = crate::state::LoadState::ready_or_empty(notebooks);
                     value.model.agents = bootstrap.agents.clone();
                     value.agent = preferred_agent(
                         &bootstrap.agents,

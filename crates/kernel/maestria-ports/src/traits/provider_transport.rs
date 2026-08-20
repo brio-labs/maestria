@@ -1,7 +1,7 @@
 use super::{PortError, ProviderDisclosure};
 
 /// A canonical, validated endpoint owned by a provider transport.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ProviderEndpoint {
     endpoint: String,
 }

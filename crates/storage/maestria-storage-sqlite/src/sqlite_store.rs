@@ -1,4 +1,5 @@
 use maestria_ports::PortError;
+use maestria_sqlite_support::lock_connection;
 use rusqlite::{Connection, Error, ErrorCode, OpenFlags};
 
 use crate::schema::migrate;
@@ -56,28 +57,25 @@ impl SqliteStore {
     }
 
     pub(crate) fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>, PortError> {
-        self.connection
-            .lock()
-            .map_err(|_| PortError::InternalContext {
-                context: "sqlite connection lock poisoned",
-                source: "connection mutex is poisoned".to_string(),
-            })
+        lock_connection(&self.connection, "sqlite connection lock poisoned")
+    }
+
+    pub(crate) fn with_transaction<T>(
+        &self,
+        f: impl FnOnce(&rusqlite::Transaction<'_>) -> Result<T, PortError>,
+    ) -> Result<T, PortError> {
+        let mut connection = self.lock()?;
+        let transaction = connection.transaction().map_err(to_port_error)?;
+        let result = f(&transaction)?;
+        transaction.commit().map_err(to_port_error)?;
+        Ok(result)
     }
 }
 
-pub(crate) fn to_port_error(error: Error) -> PortError {
-    if let Error::SqliteFailure(failure, _) = &error
-        && failure.code == ErrorCode::ConstraintViolation
-    {
-        return PortError::Conflict {
-            message: error.to_string(),
-        };
-    }
-    PortError::DownstreamContext {
-        context: "sqlite database query failed",
-        source: error.to_string(),
-    }
-}
+pub(crate) use maestria_sqlite_support::{
+    i64_to_u32, i64_to_u64, i64_to_usize, optional_i64_to_u64, optional_u64_to_i64, to_port_error,
+    u64_to_i64, usize_to_i64,
+};
 
 pub(crate) fn map_append_error(error: Error) -> PortError {
     if let Error::SqliteFailure(failure, _) = &error
@@ -95,33 +93,4 @@ pub(crate) fn json_error(error: serde_json::Error) -> PortError {
         context: "event payload serialization failed",
         source: error.to_string(),
     }
-}
-
-pub(crate) fn u64_to_i64(value: u64) -> Result<i64, PortError> {
-    i64::try_from(value).map_err(|_| PortError::InvalidInputContext {
-        context: "identifier exceeds sqlite INTEGER range",
-        source: value.to_string(),
-    })
-}
-
-pub(crate) fn optional_u64_to_i64(value: Option<u64>) -> Result<Option<i64>, PortError> {
-    value.map(u64_to_i64).transpose()
-}
-
-pub(crate) fn i64_to_u64(value: i64) -> Result<u64, PortError> {
-    u64::try_from(value).map_err(|_| PortError::InternalContext {
-        context: "stored identifier is negative",
-        source: value.to_string(),
-    })
-}
-
-pub(crate) fn i64_to_u32(value: i64) -> Result<u32, PortError> {
-    u32::try_from(value).map_err(|_| PortError::InternalContext {
-        context: "stored chunk order is outside u32 range",
-        source: value.to_string(),
-    })
-}
-
-pub(crate) fn optional_i64_to_u64(value: Option<i64>) -> Result<Option<u64>, PortError> {
-    value.map(i64_to_u64).transpose()
 }

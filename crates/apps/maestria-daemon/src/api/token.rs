@@ -9,6 +9,16 @@ use maestria_core::InstanceLayout;
 
 const TOKEN_BYTES: usize = 32;
 
+/// Generate a cryptographically random hex credential of `byte_len` bytes.
+///
+/// Used by both the daemon token and Studio's ephemeral bearer so the
+/// OS randomness and hex-encoding policy are single-sourced.
+pub fn random_hex_credential(byte_len: usize) -> Result<String> {
+    let mut bytes = vec![0u8; byte_len];
+    getrandom::getrandom(&mut bytes).map_err(|error| anyhow!("generate credential: {error}"))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
 pub(crate) fn socket_path(layout: &InstanceLayout) -> PathBuf {
     layout.system_dir.join("daemon.sock")
 }
@@ -24,13 +34,7 @@ pub(crate) fn load_or_create_token(path: &Path) -> Result<String> {
         set_private_permissions(path)?;
         return Ok(token);
     }
-    let mut bytes = [0u8; TOKEN_BYTES];
-    getrandom::getrandom(&mut bytes)
-        .map_err(|error| anyhow!("generate daemon credential: {error}"))?;
-    let token = bytes
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    let token = random_hex_credential(TOKEN_BYTES)?;
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]

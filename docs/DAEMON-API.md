@@ -57,7 +57,7 @@ A provider receives a federated request only through a consumer binding:
     "limit": 10
   }
 }
-Instance-token operations are `status`, `search`, `evidence`, `task`,
+Instance-token operations are `status`, `retrieval_status`, `search`, `evidence`, `task`,
 `model_agent_propose`, `model_agent_status`, `model_agent_resolve`,
 `realm_grant_create`, `realm_grant_list`, `realm_grant_revoke`,
 `install_federation_binding`, and the notebook/draft operations listed below.
@@ -139,7 +139,7 @@ reports `submitted`/`skipped` counts.
 {"type": "index_run", "root": "/home/you", "includes": ["/home/you/docs"], "policies": {}}
 ```
 
-### `repository_index_candidates`, `repository_index_selection_get`, `repository_index_selection_save`, `repository_index_run`, `repository_index_status`
+### `repository_index_candidates`, `repository_index_selection_get`, `repository_index_selection_save`, `repository_index_run`, `repository_index_status`, `repository_index_progress_get`
 
 `repository_index_candidates` scans a repository root (code/document/manifest
 population, generated dumps excluded from the walk) and returns its bounded,
@@ -163,7 +163,7 @@ freshness verdict.
 {"type": "repository_index_status", "root": "/home/you/projects/maestria"}
 {"type": "repository_index_children", "root": "/home/you/projects/maestria", "path": "crates/one"}
 {"type": "repository_index_files", "root": "/home/you/projects/maestria", "path": "crates/one"}
-{"type": "repository_index_progress"}
+{"type": "repository_index_progress_get"}
 ```
 
 `repository_index_children` returns the bounded candidate subtree of a
@@ -171,7 +171,7 @@ repository-relative directory for lazy expansion of the selection tree;
 `repository_index_files` lists the direct files of a repository-relative
 directory (relative paths, classified by the same policy vocabulary, with a
 `truncated` flag when the listing is capped); both validate the path against
-the root with `invalid_input` on escape. `repository_index_progress` returns
+the root with `invalid_input` on escape. `repository_index_progress_get` returns
 the live progress of the active run (`{phase: building|registering, total,
 registered}`, `progress: null` when no run is active); the daemon publishes
 it for the status handler while a run is in flight and clears it on
@@ -234,6 +234,63 @@ the code rather than parse the human-readable string.
 This boundary keeps transport DTOs separate from domain entities while
 preserving stable identifiers, search trace identity, source-selection digests,
 evidence provenance, and validation-relevant task state.
+## Retrieval status
+
+`retrieval_status` (`ClientOperation::RetrievalStatus`, Studio `GET /api/retrieval`) is a
+read-only instance-token operation consumed by Studio to render retrieval health.
+It returns the current index generation and corpus snapshot, the deterministic
+retrieval fingerprint, the live lane execution states, and the stored promotion
+records backing them. Lane states are derived with the same fail-closed
+derivations the live runtime applies at construction
+(`runtime_construction::hybrid_policy`, `runtime_construction::learned_sparse_policy`);
+the repository-code and visual lanes have no promotion path in runtime
+construction today and always report `Shadow`. Any derivation or storage error
+fails the whole read; no partial status is fabricated.
+
+```json
+{"type": "retrieval_status"}
+```
+
+Response (`RetrievalStatusResponse`) shape:
+
+```json
+{
+  "index_generation": 3,
+  "corpus_snapshot": 42,
+  "fingerprint": "maestria-core:deterministic-v1",
+  "lanes": {
+    "hybrid_state": "Active",
+    "hybrid_served_classes": ["DomainTerminology"],
+    "hybrid_evaluation_id": "eval-123",
+    "hybrid_evaluation_date": "2026-01-01",
+    "hybrid_report_hash": "abc...",
+    "learned_sparse_state": "Shadow",
+    "learned_sparse_model": "naver/splade-cocondenser-ensembledistil",
+    "dense_enabled": false,
+    "dense_model": null,
+    "repository_code_state": "Shadow",
+    "visual_state": "Shadow"
+  },
+  "promotion_records": {
+    "learned_sparse": null,
+    "hybrid": {
+      "evaluation_id": "...",
+      "corpus_id": "...",
+      "evaluation_date": "...",
+      "report_hash": "...",
+      "created_at": "..."
+    }
+  }
+}
+```
+
+`hybrid_state` is `Shadow` | `Active`; `learned_sparse_state` is `Disabled` |
+`Shadow` | `Active`; `dense_enabled` reflects the resolved dense generation and
+`dense_model` the enabled manifest embedding model; promotion records are the
+latest stored `RetrievalPromotionRecordWire` rows (`learned_sparse` / `hybrid`)
+when present. See `crates/apps/maestria-daemon/src/api/search_services.rs:85`
+(`retrieval_status`) and `crates/apps/maestria-studio/src/http/retrieval.rs`.
+
 
 ## Studio and ACP
 

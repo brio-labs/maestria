@@ -7,7 +7,6 @@ fn pending_index_event_round_trips() -> Result<(), Box<dyn std::error::Error>> {
     let store = SqliteStore::in_memory()?;
     let event = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::PendingIndex {
             artifact_id: ArtifactId::new(7),
             content_hash: maestria_test_support::content_hash(10)?,
@@ -24,7 +23,6 @@ fn full_text_indexed_event_round_trips() -> Result<(), Box<dyn std::error::Error
     let store = SqliteStore::in_memory()?;
     let event = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::FullTextIndexed {
             artifact_id: ArtifactId::new(7),
             chunk_id: ChunkId::new(42),
@@ -41,7 +39,6 @@ fn artifact_indexed_event_round_trips() -> Result<(), Box<dyn std::error::Error>
     let store = SqliteStore::in_memory()?;
     let event = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ArtifactIndexed {
             artifact_id: ArtifactId::new(7),
         },
@@ -57,7 +54,6 @@ fn parser_started_event_round_trips() -> Result<(), Box<dyn std::error::Error>> 
     let store = SqliteStore::in_memory()?;
     let event = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ParserStarted {
             artifact_id: ArtifactId::new(7),
             title: "test.md".to_string(),
@@ -77,7 +73,6 @@ fn parser_started_event_filters_by_artifact() -> Result<(), Box<dyn std::error::
     let store = SqliteStore::in_memory()?;
     let started = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ParserStarted {
             artifact_id: ArtifactId::new(1),
             title: "a.md".to_string(),
@@ -88,7 +83,6 @@ fn parser_started_event_filters_by_artifact() -> Result<(), Box<dyn std::error::
     };
     let other = DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::ParserStarted {
             artifact_id: ArtifactId::new(2),
             title: "b.md".to_string(),
@@ -112,7 +106,6 @@ fn parser_started_event_has_no_source_bytes_in_payload() -> Result<(), Box<dyn s
     let store = SqliteStore::in_memory()?;
     let event = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ParserStarted {
             artifact_id: ArtifactId::new(7),
             title: "test.md".to_string(),
@@ -140,7 +133,6 @@ fn index_events_filter_by_artifact() -> Result<(), Box<dyn std::error::Error>> {
     let store = SqliteStore::in_memory()?;
     let pending = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::PendingIndex {
             artifact_id: ArtifactId::new(1),
             content_hash: maestria_test_support::content_hash(10)?,
@@ -148,7 +140,6 @@ fn index_events_filter_by_artifact() -> Result<(), Box<dyn std::error::Error>> {
     };
     let full_text = DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::FullTextIndexed {
             artifact_id: ArtifactId::new(1),
             chunk_id: ChunkId::new(10),
@@ -156,14 +147,12 @@ fn index_events_filter_by_artifact() -> Result<(), Box<dyn std::error::Error>> {
     };
     let indexed = DomainEventEnvelope {
         id: EventId::new(3),
-        sequence: SequenceNumber::new(3),
         event: DomainEvent::ArtifactIndexed {
             artifact_id: ArtifactId::new(1),
         },
     };
     let other = DomainEventEnvelope {
         id: EventId::new(4),
-        sequence: SequenceNumber::new(4),
         event: DomainEvent::ArtifactIndexed {
             artifact_id: ArtifactId::new(2),
         },

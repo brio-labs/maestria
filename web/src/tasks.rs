@@ -15,11 +15,7 @@ pub(crate) fn TasksWorkspace() -> Element {
         spawn(async move {
             match api.tasks().await {
                 Ok(value) => {
-                    tasks.set(if value.is_empty() {
-                        LoadState::Empty
-                    } else {
-                        LoadState::Ready(value)
-                    });
+                    tasks.set(LoadState::ready_or_empty(value));
                 }
                 Err(error) => tasks.set(LoadState::Failed(error)),
             }

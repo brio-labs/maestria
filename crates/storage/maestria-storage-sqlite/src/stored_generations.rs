@@ -73,42 +73,17 @@ impl StoredIndexFingerprint {
     }
 }
 
-/// Wire mirror of `maestria_domain::IndexLifecycle`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredIndexLifecycle {
-    Building,
-    Evaluated,
-    Shadow,
-    Active,
-    Retired,
-    Collectable,
-    Tombstoned,
-}
-
-impl StoredIndexLifecycle {
-    pub(crate) fn from_domain(lifecycle: IndexLifecycle) -> Self {
-        match lifecycle {
-            IndexLifecycle::Building => Self::Building,
-            IndexLifecycle::Evaluated => Self::Evaluated,
-            IndexLifecycle::Shadow => Self::Shadow,
-            IndexLifecycle::Active => Self::Active,
-            IndexLifecycle::Retired => Self::Retired,
-            IndexLifecycle::Collectable => Self::Collectable,
-            IndexLifecycle::Tombstoned => Self::Tombstoned,
-        }
-    }
-
-    pub(crate) fn try_into_domain(self) -> Result<IndexLifecycle, maestria_ports::PortError> {
-        Ok(match self {
-            Self::Building => IndexLifecycle::Building,
-            Self::Evaluated => IndexLifecycle::Evaluated,
-            Self::Shadow => IndexLifecycle::Shadow,
-            Self::Active => IndexLifecycle::Active,
-            Self::Retired => IndexLifecycle::Retired,
-            Self::Collectable => IndexLifecycle::Collectable,
-            Self::Tombstoned => IndexLifecycle::Tombstoned,
-        })
+crate::stored_enum! {
+    /// Wire mirror of `maestria_domain::IndexLifecycle`.
+    #[serde(rename_all = "snake_case")]
+    pub(crate) enum StoredIndexLifecycle <=> IndexLifecycle {
+        Building,
+        Evaluated,
+        Shadow,
+        Active,
+        Retired,
+        Collectable,
+        Tombstoned,
     }
 }
 

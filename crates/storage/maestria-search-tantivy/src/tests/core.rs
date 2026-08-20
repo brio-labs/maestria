@@ -1,13 +1,8 @@
 use crate::TantivyFullTextIndex;
 use maestria_domain::{ArtifactId, ChunkId, SearchExecutionBudget};
 use maestria_ports::{FullTextIndex, IndexedChunk, SearchQuery};
+use maestria_test_support::search_budget;
 use tempfile::TempDir;
-
-fn search_budget(
-    limit: u64,
-) -> Result<maestria_domain::SearchExecutionBudget, maestria_domain::SearchCompatibilityError> {
-    SearchExecutionBudget::new(limit, 10_000, 100_000, 0)
-}
 
 fn chunk(artifact_id: u64, chunk_id: u64, text: &str) -> IndexedChunk {
     IndexedChunk {

@@ -1,6 +1,6 @@
 use super::*;
 use maestria_code_intel::REPOSITORY_CODE_INDEX_FILENAME;
-use maestria_domain::{ArtifactId, BlobId, DomainEvent, EventId, SequenceNumber};
+use maestria_domain::{ArtifactId, ArtifactVersionId, BlobId, DomainEvent, EventId};
 use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -51,7 +51,6 @@ fn parser_started_then_source_became_stale_excludes_version()
     let events = vec![
         DomainEventEnvelope {
             id: EventId::new(1),
-            sequence: SequenceNumber::new(1),
             event: DomainEvent::ParserStarted {
                 artifact_id,
                 title: "main".to_string(),
@@ -62,7 +61,6 @@ fn parser_started_then_source_became_stale_excludes_version()
         },
         DomainEventEnvelope {
             id: EventId::new(2),
-            sequence: SequenceNumber::new(2),
             event: DomainEvent::SourceBecameStale {
                 artifact_id,
                 source_path: path.clone(),
@@ -70,7 +68,8 @@ fn parser_started_then_source_became_stale_excludes_version()
             },
         },
     ];
-    let active = reconcile_active_versions(&events);
+    let sources = maestria_domain::active_source_versions(&events);
+    let active = reconcile_active_versions(&sources);
     assert!(active.is_empty());
     Ok(())
 }
@@ -83,7 +82,6 @@ fn re_ingestion_after_stale_reactivates_version() -> Result<(), Box<dyn std::err
     let events = vec![
         DomainEventEnvelope {
             id: EventId::new(1),
-            sequence: SequenceNumber::new(1),
             event: DomainEvent::ParserStarted {
                 artifact_id: artifact_id_v1,
                 title: "main".to_string(),
@@ -94,7 +92,6 @@ fn re_ingestion_after_stale_reactivates_version() -> Result<(), Box<dyn std::err
         },
         DomainEventEnvelope {
             id: EventId::new(2),
-            sequence: SequenceNumber::new(2),
             event: DomainEvent::SourceBecameStale {
                 artifact_id: artifact_id_v1,
                 source_path: path.clone(),
@@ -103,7 +100,6 @@ fn re_ingestion_after_stale_reactivates_version() -> Result<(), Box<dyn std::err
         },
         DomainEventEnvelope {
             id: EventId::new(3),
-            sequence: SequenceNumber::new(3),
             event: DomainEvent::ParserStarted {
                 artifact_id: artifact_id_v2,
                 title: "main".to_string(),
@@ -113,7 +109,8 @@ fn re_ingestion_after_stale_reactivates_version() -> Result<(), Box<dyn std::err
             },
         },
     ];
-    let active = reconcile_active_versions(&events);
+    let sources = maestria_domain::active_source_versions(&events);
+    let active = reconcile_active_versions(&sources);
     assert_eq!(active.len(), 1);
     assert!(active.contains(&ArtifactVersionId::new(artifact_id_v2.value())));
     Ok(())
@@ -130,7 +127,6 @@ fn latest_by_path_semantics_preserved_across_mixed_events() -> Result<(), Box<dy
     let events = vec![
         DomainEventEnvelope {
             id: EventId::new(1),
-            sequence: SequenceNumber::new(1),
             event: DomainEvent::ParserStarted {
                 artifact_id: id_a1,
                 title: "a".to_string(),
@@ -141,7 +137,6 @@ fn latest_by_path_semantics_preserved_across_mixed_events() -> Result<(), Box<dy
         },
         DomainEventEnvelope {
             id: EventId::new(2),
-            sequence: SequenceNumber::new(2),
             event: DomainEvent::ParserStarted {
                 artifact_id: id_b1,
                 title: "b".to_string(),
@@ -152,7 +147,6 @@ fn latest_by_path_semantics_preserved_across_mixed_events() -> Result<(), Box<dy
         },
         DomainEventEnvelope {
             id: EventId::new(3),
-            sequence: SequenceNumber::new(3),
             event: DomainEvent::ParserStarted {
                 artifact_id: id_a2,
                 title: "a".to_string(),
@@ -162,7 +156,8 @@ fn latest_by_path_semantics_preserved_across_mixed_events() -> Result<(), Box<dy
             },
         },
     ];
-    let active = reconcile_active_versions(&events);
+    let sources = maestria_domain::active_source_versions(&events);
+    let active = reconcile_active_versions(&sources);
     assert_eq!(active.len(), 2);
     assert!(active.contains(&ArtifactVersionId::new(id_a2.value())));
     assert!(active.contains(&ArtifactVersionId::new(id_b1.value())));
@@ -184,7 +179,6 @@ fn document_tree_captured_version_overrides_placeholder() -> Result<(), Box<dyn 
     let events = vec![
         DomainEventEnvelope {
             id: EventId::new(1),
-            sequence: SequenceNumber::new(1),
             event: DomainEvent::ParserStarted {
                 artifact_id,
                 title: "main".to_string(),
@@ -195,7 +189,6 @@ fn document_tree_captured_version_overrides_placeholder() -> Result<(), Box<dyn 
         },
         DomainEventEnvelope {
             id: EventId::new(2),
-            sequence: SequenceNumber::new(2),
             event: DomainEvent::DocumentTreeCaptured {
                 artifact_id,
                 artifact_version_id: real_version,
@@ -205,7 +198,8 @@ fn document_tree_captured_version_overrides_placeholder() -> Result<(), Box<dyn 
             },
         },
     ];
-    let active = reconcile_active_versions(&events);
+    let sources = maestria_domain::active_source_versions(&events);
+    let active = reconcile_active_versions(&sources);
     assert_eq!(active.len(), 1);
     assert!(
         active.contains(&real_version),

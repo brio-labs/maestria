@@ -81,7 +81,7 @@ pub use types::{
     CandidateSourceFilter, CandidateSourceFilterError, ContextExpansion, ExpansionPolicy,
     HybridExecutionPolicy, HybridPromotionRecord, RerankConstraintScore, RerankLimits,
     RerankRequest, RerankResult, RerankScoreComponents, RerankScorerInput, RetrievalError,
-    RetrievalMode, RetrievalResult,
+    RetrievalResult,
 };
 pub use visual_benchmark::{
     VisualBenchmarkCase, VisualBenchmarkComparison, VisualBenchmarkCorpus, VisualBenchmarkError,

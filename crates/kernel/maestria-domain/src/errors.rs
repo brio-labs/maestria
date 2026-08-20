@@ -1,3 +1,5 @@
+#[path = "error_display.rs"]
+mod error_display;
 #[path = "error_notebook.rs"]
 mod error_notebook;
 
@@ -6,15 +8,59 @@ use crate::ids::{
     MemoryCandidateId, MemoryId, NotebookDraftId, NotebookId, RelationId, TaskId,
     ValidationReportId,
 };
+use crate::notebook::SourceIdentityKey;
 use crate::task_status::TaskStatus;
 use crate::{GrantTokenDigest, RealmId};
-use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainError {
-    DuplicateId {
-        kind: &'static str,
-        id: u64,
+    DuplicateArtifact {
+        id: ArtifactId,
+    },
+    DuplicateChunk {
+        id: ChunkId,
+    },
+    DuplicateChunkOrder {
+        id: ChunkId,
+    },
+    DuplicateCard {
+        id: CardId,
+    },
+    DuplicateClaim {
+        id: ClaimId,
+    },
+    DuplicateEvidenceInClaim {
+        id: EvidenceId,
+    },
+    DuplicateEvidenceClaim {
+        id: EvidenceId,
+    },
+    DuplicateEvidence {
+        id: EvidenceId,
+    },
+    DuplicateMemoryCandidate {
+        id: MemoryCandidateId,
+    },
+    DuplicateMemory {
+        id: MemoryId,
+    },
+    DuplicateRelation {
+        id: RelationId,
+    },
+    DuplicateTask {
+        id: TaskId,
+    },
+    DuplicateValidationReport {
+        id: ValidationReportId,
+    },
+    DuplicateNotebook {
+        id: NotebookId,
+    },
+    DuplicateNotebookDraft {
+        id: NotebookDraftId,
+    },
+    DuplicateIndexGeneration {
+        id: IndexGenerationId,
     },
     DuplicateModelAgentProposalRunId {
         run_id: HarnessRunId,
@@ -82,9 +128,11 @@ pub enum DomainError {
     ValidationRequired {
         task_id: TaskId,
     },
-    EvidenceRequired {
-        kind: &'static str,
-        id: u64,
+    MemoryCandidateRequiresEvidence {
+        id: MemoryCandidateId,
+    },
+    ArtifactIndexedRequiresEvidence {
+        id: ArtifactId,
     },
     MemoryCandidateIneligibleForPromotion {
         candidate_id: MemoryCandidateId,
@@ -98,10 +146,6 @@ pub enum DomainError {
     },
     EmptyIntent,
     EmptyClaimText,
-    InvalidSequence {
-        expected: u64,
-        actual: u64,
-    },
     InvalidConfidence {
         max: u16,
         actual: u16,
@@ -162,7 +206,13 @@ pub enum DomainError {
         id: NotebookDraftId,
     },
     NotebookSourceUnavailable {
-        key: String,
+        key: SourceIdentityKey,
+    },
+    NotebookSourceArtifactUnavailable {
+        artifact_id: ArtifactId,
+    },
+    InvalidSourceIdentityKey {
+        reason: String,
     },
     NotebookDraftRevisionConflict {
         notebook_id: NotebookId,
@@ -177,210 +227,3 @@ pub enum DomainError {
         detail: &'static str,
     },
 }
-
-impl DomainError {
-    fn fmt_missing(f: &mut fmt::Formatter, kind: &str, id: impl fmt::Display) -> fmt::Result {
-        write!(f, "missing {kind} {id}")
-    }
-
-    fn fmt_validation_report_task_mismatch(
-        f: &mut fmt::Formatter,
-        report_id: ValidationReportId,
-        report_task_id: Option<TaskId>,
-        task_id: TaskId,
-    ) -> fmt::Result {
-        match report_task_id {
-            Some(report_task_id) => write!(
-                f,
-                "validation report {report_id} is for task {report_task_id}, not {task_id}"
-            ),
-            None => write!(
-                f,
-                "validation report {report_id} is not associated with task {task_id}"
-            ),
-        }
-    }
-
-    fn fmt_transition(
-        f: &mut fmt::Formatter,
-        prefix: impl fmt::Display,
-        id: impl fmt::Display,
-        from: impl fmt::Debug,
-        to: impl fmt::Debug,
-    ) -> fmt::Result {
-        write!(f, "{prefix} {id}: {from:?} -> {to:?}")
-    }
-
-    fn fmt_validation_required(f: &mut fmt::Formatter, task_id: TaskId) -> fmt::Result {
-        write!(f, "task {task_id} requires validation before completion")
-    }
-    fn fmt_model_agent(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let (message, run_id) = match self {
-            Self::DuplicateModelAgentProposalRunId { run_id } => {
-                ("duplicate model-agent proposal run id", run_id)
-            }
-            Self::ModelAgentProposalRequestNotFresh { run_id } => {
-                ("model-agent proposal request must be fresh", run_id)
-            }
-            Self::ModelAgentProposalResumeMismatch { run_id } => (
-                "model-agent proposal resume does not match its canonical request",
-                run_id,
-            ),
-            Self::ModelAgentProposalNotResumable { run_id } => {
-                ("model-agent proposal is missing or terminal", run_id)
-            }
-            _ => return Err(fmt::Error),
-        };
-        write!(f, "{message}: {run_id}")
-    }
-
-    fn fmt_memory_candidate(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let Self::MemoryCandidateIneligibleForPromotion {
-            candidate_id,
-            confidence_milli,
-            minimum_confidence_milli,
-            reason,
-        } = self
-        else {
-            return Err(fmt::Error);
-        };
-        write!(
-            f,
-            "memory candidate {candidate_id} cannot be promoted ({reason}): {confidence_milli} < {minimum_confidence_milli}"
-        )
-    }
-
-    fn fmt_realm_read_grant(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::DuplicateRealmReadGrantDigest { digest } => {
-                write!(f, "duplicate realm read grant digest: {digest}")
-            }
-            Self::DuplicateActiveRealmReadGrant { consumer_realm } => {
-                write!(
-                    f,
-                    "consumer realm already has an active read grant: {consumer_realm}"
-                )
-            }
-            Self::MissingRealmReadGrant { digest } => {
-                write!(f, "missing realm read grant: {digest}")
-            }
-            Self::RealmReadGrantAlreadyRevoked { digest } => {
-                write!(f, "realm read grant is already revoked: {digest}")
-            }
-            Self::RealmReadGrantRevoked { digest } => {
-                write!(f, "realm read grant is revoked: {digest}")
-            }
-            Self::RealmReadGrantUnsupportedAccess { digest } => {
-                write!(f, "realm read grant does not allow this access: {digest}")
-            }
-            Self::RealmReadGrantProviderMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "realm read grant provider mismatch: expected {expected}, got {actual}"
-                )
-            }
-            Self::RealmReadGrantConsumerMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "realm read grant consumer mismatch: expected {expected}, got {actual}"
-                )
-            }
-            _ => Err(fmt::Error),
-        }
-    }
-}
-
-impl fmt::Display for DomainError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::DuplicateId { kind, id } => write!(f, "duplicate {kind} id: {id}"),
-            Self::MissingArtifact { id } => Self::fmt_missing(f, "artifact", id),
-            Self::MissingChunk { id } => Self::fmt_missing(f, "chunk", id),
-            Self::MissingCard { id } => Self::fmt_missing(f, "card", id),
-            Self::MissingEvidence { id } => Self::fmt_missing(f, "evidence", id),
-            error @ (Self::DuplicateModelAgentProposalRunId { .. }
-            | Self::ModelAgentProposalRequestNotFresh { .. }
-            | Self::ModelAgentProposalResumeMismatch { .. }
-            | Self::ModelAgentProposalNotResumable { .. }) => error.fmt_model_agent(f),
-            Self::MissingClaim { id } => Self::fmt_missing(f, "claim", id),
-            Self::MissingTask { id } => Self::fmt_missing(f, "task", id),
-            Self::MissingRelation { id } => Self::fmt_missing(f, "relation", id),
-            Self::MissingMemoryCandidate { id } => Self::fmt_missing(f, "memory candidate", id),
-            Self::MissingMemory { id } => Self::fmt_missing(f, "memory", id),
-            Self::MemorySupersedesItself { memory_id } => {
-                write!(f, "memory {memory_id} cannot supersede itself")
-            }
-            Self::MissingValidationReport { id } => Self::fmt_missing(f, "validation report", id),
-            Self::MissingIndexGeneration { id } => Self::fmt_missing(f, "index generation", id),
-            Self::ValidationReportTaskMismatch {
-                report_id,
-                report_task_id,
-                task_id,
-            } => {
-                Self::fmt_validation_report_task_mismatch(f, *report_id, *report_task_id, *task_id)
-            }
-            Self::InvalidTaskTransition { task_id, from, to } => {
-                Self::fmt_transition(f, "invalid task transition", task_id, from, to)
-            }
-            Self::InvalidGenerationTransition { id, from, to } => {
-                Self::fmt_transition(f, "invalid index generation transition for", id, from, to)
-            }
-            Self::ValidationRequired { task_id } => Self::fmt_validation_required(f, *task_id),
-            Self::EmptyClaimText => write!(f, "claim text must not be empty"),
-            Self::EmptyIntent => write!(f, "user intent must not be empty"),
-            Self::EvidenceRequired { kind, id } => {
-                write!(f, "{kind} {id} requires at least one evidence id")
-            }
-            error @ Self::MemoryCandidateIneligibleForPromotion { .. } => {
-                error.fmt_memory_candidate(f)
-            }
-            Self::InvalidSequence { expected, actual } => {
-                write!(
-                    f,
-                    "invalid event sequence: expected {expected}, got {actual}"
-                )
-            }
-            Self::InvalidEventId { expected, actual } => {
-                write!(f, "invalid event id: expected {expected}, got {actual}")
-            }
-            Self::InvalidConfidence { max, actual } => {
-                write!(f, "invalid confidence: max {max}, got {actual}")
-            }
-            Self::ArtifactMismatch { expected, actual } => {
-                write!(f, "artifact mismatch: expected {expected}, got {actual}")
-            }
-            Self::ValidationFailed { task_id } => {
-                write!(f, "task {task_id} validation failed")
-            }
-            error @ (Self::ValidationWarningsRequired { .. }
-            | Self::ValidationWarningsForbidden { .. }
-            | Self::PendingChunksExist { .. }) => error.fmt_validation(f),
-            Self::MalformedDeterministicEvidence {
-                evidence_id,
-                reason,
-            } => write!(
-                f,
-                "malformed deterministic evidence {evidence_id}: {reason}"
-            ),
-            Self::SearchIncompatible { error } => {
-                write!(f, "search contract violation: {error}")
-            }
-            error @ (Self::DuplicateRealmReadGrantDigest { .. }
-            | Self::DuplicateActiveRealmReadGrant { .. }
-            | Self::MissingRealmReadGrant { .. }
-            | Self::RealmReadGrantAlreadyRevoked { .. }
-            | Self::RealmReadGrantRevoked { .. }
-            | Self::RealmReadGrantUnsupportedAccess { .. }
-            | Self::RealmReadGrantProviderMismatch { .. }
-            | Self::RealmReadGrantConsumerMismatch { .. }) => error.fmt_realm_read_grant(f),
-            error @ (Self::MissingNotebook { .. }
-            | Self::MissingNotebookDraft { .. }
-            | Self::NotebookSourceUnavailable { .. }
-            | Self::NotebookDraftRevisionConflict { .. }
-            | Self::InvalidNotebookDraft { .. }
-            | Self::InternalInvariantViolation { .. }) => error.fmt_notebook(f),
-        }
-    }
-}
-
-impl std::error::Error for DomainError {}

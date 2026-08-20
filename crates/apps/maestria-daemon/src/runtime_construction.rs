@@ -1,9 +1,7 @@
-use std::{fs, sync::Arc};
-
 use anyhow::{Context, Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
 use maestria_code_intel::{REPOSITORY_CODE_INDEX_FILENAME, RepositoryCodeIndex};
-use maestria_core::{InstanceLayout, InstanceManifest, InstanceService};
+use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_domain::{DomainInput, KernelState};
 use maestria_governance::{
     AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier, DefaultValidationGate, Scope,
@@ -16,6 +14,7 @@ use maestria_retrieval::RepositoryExecutionPolicy;
 use maestria_runtime::{Adapters, Governance, MaestriaRuntime, RuntimeConfig};
 use maestria_storage_sqlite::SqliteStore;
 use maestria_web_evidence::UreqWebFetcher;
+use std::{fs, sync::Arc};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -32,7 +31,9 @@ use crate::vector_startup::build_embedding_provider;
 #[path = "runtime_construction/policies.rs"]
 mod policies;
 
-pub(crate) use policies::{build_sparse_retriever, hybrid_policy, learned_sparse_policy};
+#[cfg(test)]
+pub(crate) use policies::build_sparse_retriever;
+pub(crate) use policies::{hybrid_policy, learned_sparse_policy, search_lane_bundle};
 
 struct StorageAdapters {
     blob_store: Arc<FsBlobStore>,
@@ -118,14 +119,13 @@ fn build_search_executor(
     repository_execution_policy: RepositoryExecutionPolicy,
 ) -> Result<Arc<dyn SearchKnowledgeExecutor + Send + Sync>> {
     let (primary_generation, corpus_snapshot, dense_generation) = resolve_index_generations(state)?;
-    let learned_sparse_execution_policy = learned_sparse_policy(&storage.sqlite_store, manifest);
-    let hybrid_execution_policy = hybrid_policy(&storage.sqlite_store);
-    let sparse_retriever = build_sparse_retriever(
-        state,
-        manifest,
-        storage.sqlite_store.clone(),
-        storage.blob_store.clone(),
-    );
+    let (hybrid_execution_policy, learned_sparse_execution_policy, sparse_retriever) =
+        crate::runtime_construction::search_lane_bundle(
+            state,
+            manifest,
+            storage.sqlite_store.clone(),
+            storage.blob_store.clone(),
+        );
     let search_executor: Arc<dyn SearchKnowledgeExecutor + Send + Sync> =
         Arc::new(SearchRuntime::from_parts(
             SearchRuntimeParts {
@@ -231,7 +231,7 @@ pub(crate) fn build_runtime_with_repository_policy(
 )> {
     let manifest_contents = fs::read_to_string(&layout.manifest_path)
         .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
-    let manifest = InstanceService::parse_manifest(&manifest_contents)
+    let manifest = InstanceManifest::decode(&manifest_contents)
         .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
     let embedding_model = manifest
         .embeddings

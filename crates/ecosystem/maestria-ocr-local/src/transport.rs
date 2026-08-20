@@ -6,40 +6,9 @@ pub trait OcrTransport: Send + Sync {
     fn post(&self, endpoint: &str, body: Vec<u8>) -> Result<Vec<u8>, PortError>;
 }
 
-#[derive(Debug, Clone)]
-pub struct UreqTransport {
-    agent: ureq::Agent,
-}
-
-impl Default for UreqTransport {
-    fn default() -> Self {
-        Self {
-            agent: ureq::AgentBuilder::new()
-                .timeout(std::time::Duration::from_secs(1200))
-                .redirects(0)
-                .build(),
-        }
-    }
-}
-
-impl OcrTransport for UreqTransport {
+impl OcrTransport for maestria_adapter_http::UreqJsonClient {
     fn post(&self, endpoint: &str, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
-        let response = self
-            .agent
-            .post(endpoint)
-            .set("content-type", "application/json")
-            .send_bytes(&body)
-            .map_err(|error| PortError::DownstreamContext {
-                context: "OCR request failed",
-                source: error.to_string(),
-            })?;
-        response
-            .into_string()
-            .map(String::into_bytes)
-            .map_err(|error| PortError::DownstreamContext {
-                context: "read OCR response",
-                source: error.to_string(),
-            })
+        self.post_url(endpoint, body)
     }
 }
 

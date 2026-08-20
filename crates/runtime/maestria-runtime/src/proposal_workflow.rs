@@ -1,16 +1,14 @@
 use crate::config::EffectExecutionContext;
 use crate::effect_result::EffectFailure;
-use crate::harness::truncate_output;
+use crate::harness::model_agent_harness_result;
 use maestria_domain::{
     CreateMemoryCandidateInput, DomainInput, ModelAgentHarnessResult, ModelAgentMemoryDecision,
     ModelAgentMemoryResult, ModelAgentProposalRequest, ModelAgentProposalResult,
-    ModelAgentSearchResult, ModelAgentValidationResult, QueryHarnessProposalRequest,
-    QueryHarnessRequest, SearchKnowledgeCompleted,
+    ModelAgentSearchResult, ModelAgentValidationResult, QueryHarnessRequest,
+    SearchKnowledgeCompleted,
 };
-use maestria_governance::{
-    MemoryPromotionDecision, MemoryPromotionRequest, ValidationDecision, ValidationRequest,
-};
-use maestria_ports::{EffectJournalIntent, HarnessRequest};
+use maestria_governance::{MemoryPromotionRequest, ValidationDecision, ValidationRequest};
+use maestria_ports::EffectJournalIntent;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -42,9 +40,8 @@ pub(crate) fn model_agent_denial_result(
 impl EffectExecutionContext {
     pub(crate) async fn handle_query_harness_proposal(
         &self,
-        request: QueryHarnessProposalRequest,
+        proposal: ModelAgentProposalRequest,
     ) -> Result<(), EffectFailure> {
-        let proposal = request.proposal;
         match self.execute_model_agent_proposal(&proposal).await {
             Ok(result) => self.persist_model_agent_result(result).await,
             Err(error) => {
@@ -138,7 +135,7 @@ impl EffectExecutionContext {
     fn prepare_fresh_proposal_journal(
         &self,
         proposal: &ModelAgentProposalRequest,
-    ) -> Result<u64, EffectFailure> {
+    ) -> Result<maestria_domain::JournalGeneration, EffectFailure> {
         if !matches!(
             &proposal.execution,
             maestria_domain::ModelAgentProposalExecution::Fresh
@@ -193,25 +190,21 @@ impl EffectExecutionContext {
             command: proposal.command.clone(),
         };
         let (class, default_working_directory) = self.gate_harness_request(&ordinary)?;
-        let scope_guard = maestria_governance::ScopeGuard::new(self.scope.clone());
+        let scope = &self.scope;
         let working_directory = if proposal.working_directory.trim().is_empty() {
             default_working_directory
         } else {
             let requested = PathBuf::from(&proposal.working_directory);
-            scope_guard
-                .check_read_containment(&requested)
-                .map_err(|error| {
-                    EffectFailure::Denied(format!(
-                        "proposal working directory is outside readable scope: {error:?}"
-                    ))
-                })?;
+            scope.check_read_containment(&requested).map_err(|error| {
+                EffectFailure::Denied(format!(
+                    "proposal working directory is outside readable scope: {error:?}"
+                ))
+            })?;
             requested
         };
         let generation = match &proposal.execution {
             maestria_domain::ModelAgentProposalExecution::Fresh => {
-                maestria_domain::JournalGeneration::new(
-                    self.prepare_fresh_proposal_journal(proposal)?,
-                )
+                self.prepare_fresh_proposal_journal(proposal)?
             }
             maestria_domain::ModelAgentProposalExecution::ApprovalContinuation {
                 journal_generation,
@@ -231,25 +224,17 @@ impl EffectExecutionContext {
                     },
                     ..ordinary
                 },
-                HarnessRequest {
-                    run_id: proposal.run_id,
-                    command: proposal.command.clone(),
+                self.harness_request(
+                    proposal.run_id,
+                    proposal.command.clone(),
                     working_directory,
-                    duration_budget: std::time::Duration::from_secs(proposal.timeout_secs),
                     class,
-                    readable_roots: scope_guard.scope().readable_roots().to_vec(),
-                    blocked_paths: scope_guard.scope().blocked_paths().to_vec(),
-                    blocked_patterns: scope_guard.scope().blocked_patterns().to_vec(),
-                },
-                generation.value(),
+                    std::time::Duration::from_secs(proposal.timeout_secs),
+                ),
+                generation,
             )
             .await?;
-        Ok(outcome.map(|outcome| ModelAgentHarnessResult {
-            exit_code: outcome.exit_code,
-            stdout: truncate_output(&outcome.stdout),
-            stderr: truncate_output(&outcome.stderr),
-            duration_ms: outcome.duration.as_millis().min(u128::from(u64::MAX)) as u64,
-        }))
+        Ok(outcome.map(|outcome| model_agent_harness_result(&outcome)))
     }
 
     async fn evaluate_proposal_validation(
@@ -339,16 +324,7 @@ impl EffectExecutionContext {
                 candidate,
                 user_approved: false,
             });
-        let decision = match decision {
-            MemoryPromotionDecision::Promote => ModelAgentMemoryDecision::Promote,
-            MemoryPromotionDecision::RequireEvidence { .. } => {
-                ModelAgentMemoryDecision::RequireEvidence
-            }
-            MemoryPromotionDecision::RequireReview { .. } => {
-                ModelAgentMemoryDecision::RequireReview
-            }
-            MemoryPromotionDecision::Deny { .. } => ModelAgentMemoryDecision::Deny,
-        };
+        let decision = ModelAgentMemoryDecision::from(decision);
         self.input_tx
             .send(DomainInput::CreateMemoryCandidate(
                 CreateMemoryCandidateInput {

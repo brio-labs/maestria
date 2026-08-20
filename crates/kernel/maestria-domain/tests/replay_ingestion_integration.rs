@@ -233,7 +233,6 @@ fn replay_ingestion_duplicate_chunk_rejected() -> Result<(), Box<dyn std::error:
     let next_id = state.event_log.len() as u64 + 1;
     let duplicate_chunk = DomainEventEnvelope {
         id: EventId::new(next_id),
-        sequence: SequenceNumber::new(next_id),
         event: DomainEvent::ChunkRegistered {
             node_id: maestria_domain::StructureNodeId::new(1),
             source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
@@ -250,10 +249,7 @@ fn replay_ingestion_duplicate_chunk_rejected() -> Result<(), Box<dyn std::error:
     )?;
     assert!(matches!(
         err,
-        DomainError::DuplicateId {
-            kind: "chunk",
-            id: 10,
-        }
+        DomainError::DuplicateChunk { id } if id.value() == 10
     ));
     Ok(())
 }
@@ -263,11 +259,9 @@ fn replay_ingestion_parser_without_detection_rejected() -> Result<(), Box<dyn st
     let next_id = 1u64;
     let orphan_artparsed = DomainEventEnvelope {
         id: EventId::new(next_id),
-        sequence: SequenceNumber::new(next_id),
         event: DomainEvent::ArtifactParsed {
             status: maestria_domain::ParseStatus::Parsed,
             artifact_id: ArtifactId::new(99),
-            chunks_added: 0,
         },
     };
     let mut state = KernelState::new();
@@ -288,7 +282,6 @@ fn replay_ingestion_orphan_chunk_rejected() -> Result<(), Box<dyn std::error::Er
     let mut state = KernelState::new();
     let orphan_chunk = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ChunkRegistered {
             node_id: maestria_domain::StructureNodeId::new(1),
             source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
@@ -318,7 +311,6 @@ fn replay_full_text_indexed_rejects_mismatched_chunk_artifact()
     // Set up: artifact 1 owns chunk 10, artifact 2 is separate
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Artifact A".to_string(),
@@ -327,7 +319,6 @@ fn replay_full_text_indexed_rejects_mismatched_chunk_artifact()
     })?;
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(2),
             title: "Artifact B".to_string(),
@@ -336,7 +327,6 @@ fn replay_full_text_indexed_rejects_mismatched_chunk_artifact()
     })?;
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(3),
-        sequence: SequenceNumber::new(3),
         event: DomainEvent::ChunkRegistered {
             node_id: maestria_domain::StructureNodeId::new(1),
             source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
@@ -352,7 +342,6 @@ fn replay_full_text_indexed_rejects_mismatched_chunk_artifact()
     let err = require_error(
         state.apply_event(DomainEventEnvelope {
             id: EventId::new(4),
-            sequence: SequenceNumber::new(4),
             event: DomainEvent::FullTextIndexed {
                 artifact_id: ArtifactId::new(2),
                 chunk_id: ChunkId::new(10),
@@ -378,7 +367,6 @@ fn replay_artifact_indexed_rejects_pending_chunks() -> Result<(), Box<dyn std::e
     // Set up: artifact with a pending chunk
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Test".to_string(),
@@ -387,7 +375,6 @@ fn replay_artifact_indexed_rejects_pending_chunks() -> Result<(), Box<dyn std::e
     })?;
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::PendingIndex {
             artifact_id: ArtifactId::new(1),
             content_hash: hash_abc()?,
@@ -395,7 +382,6 @@ fn replay_artifact_indexed_rejects_pending_chunks() -> Result<(), Box<dyn std::e
     })?;
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(3),
-        sequence: SequenceNumber::new(3),
         event: DomainEvent::ChunkRegistered {
             node_id: maestria_domain::StructureNodeId::new(1),
             source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
@@ -411,7 +397,6 @@ fn replay_artifact_indexed_rejects_pending_chunks() -> Result<(), Box<dyn std::e
     let err = require_error(
         state.apply_event(DomainEventEnvelope {
             id: EventId::new(4),
-            sequence: SequenceNumber::new(4),
             event: DomainEvent::ArtifactIndexed {
                 artifact_id: ArtifactId::new(1),
             },
@@ -433,7 +418,6 @@ fn replay_parser_started_reconstructs_pending_parsers() -> Result<(), Box<dyn st
     let mut state = KernelState::new();
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ParserStarted {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
@@ -457,7 +441,6 @@ fn replay_parser_started_multiple_entries() -> Result<(), Box<dyn std::error::Er
     let mut state = KernelState::new();
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ParserStarted {
             artifact_id: ArtifactId::new(1),
             title: "Doc A".to_string(),
@@ -468,7 +451,6 @@ fn replay_parser_started_multiple_entries() -> Result<(), Box<dyn std::error::Er
     })?;
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::ParserStarted {
             artifact_id: ArtifactId::new(2),
             title: "Doc B".to_string(),
@@ -496,7 +478,6 @@ fn replay_artifact_parsed_retains_pending_parsers() -> Result<(), Box<dyn std::e
     // Full reconstruction: ArtifactRegistered → ParserStarted → ArtifactParsed
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
@@ -505,7 +486,6 @@ fn replay_artifact_parsed_retains_pending_parsers() -> Result<(), Box<dyn std::e
     })?;
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::ParserStarted {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
@@ -519,11 +499,9 @@ fn replay_artifact_parsed_retains_pending_parsers() -> Result<(), Box<dyn std::e
     // ArtifactParsed must NOT clear pending_parsers — only ArtifactIndexed does.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(3),
-        sequence: SequenceNumber::new(3),
         event: DomainEvent::ArtifactParsed {
             status: maestria_domain::ParseStatus::Parsed,
             artifact_id: ArtifactId::new(1),
-            chunks_added: 1,
         },
     })?;
 
@@ -541,7 +519,6 @@ fn replay_artifact_parsed_zero_chunks_retains_pending_parsers()
     // Full reconstruction: ArtifactRegistered → ParserStarted → ArtifactParsed(chunks_added=0)
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
@@ -550,7 +527,6 @@ fn replay_artifact_parsed_zero_chunks_retains_pending_parsers()
     })?;
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::ParserStarted {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
@@ -561,20 +537,18 @@ fn replay_artifact_parsed_zero_chunks_retains_pending_parsers()
     })?;
     assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
 
-    // ArtifactParsed with chunks_added=0 must NOT clean pending_parsers.
+    // ArtifactParsed replay must NOT clean pending_parsers.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(3),
-        sequence: SequenceNumber::new(3),
         event: DomainEvent::ArtifactParsed {
             status: maestria_domain::ParseStatus::Parsed,
             artifact_id: ArtifactId::new(1),
-            chunks_added: 0,
         },
     })?;
 
     assert!(
         state.pending_parsers.contains_key(&ArtifactId::new(1)),
-        "ArtifactParsed with chunks_added=0 must NOT clean pending_parsers on replay"
+        "ArtifactParsed replay must NOT clean pending_parsers"
     );
     Ok(())
 }
@@ -585,7 +559,6 @@ fn replay_search_completed_preserves_pending_parsers() -> Result<(), Box<dyn std
     // Set up: artifact exists and parser is in-flight.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
@@ -594,7 +567,6 @@ fn replay_search_completed_preserves_pending_parsers() -> Result<(), Box<dyn std
     })?;
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::ParserStarted {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
@@ -608,10 +580,8 @@ fn replay_search_completed_preserves_pending_parsers() -> Result<(), Box<dyn std
     // SearchCompleted arrives for the same artifact — must NOT clear pending_parsers.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(3),
-        sequence: SequenceNumber::new(3),
         event: DomainEvent::SearchCompleted {
             artifact_id: ArtifactId::new(1),
-            cards_added: 3,
         },
     })?;
 
@@ -630,7 +600,6 @@ fn replay_parser_started_id_is_sequential() -> Result<(), Box<dyn std::error::Er
     let err = require_error(
         state.apply_event(DomainEventEnvelope {
             id: EventId::new(5),
-            sequence: SequenceNumber::new(5),
             event: DomainEvent::ParserStarted {
                 artifact_id: ArtifactId::new(1),
                 title: "Notes".to_string(),
@@ -656,7 +625,6 @@ fn replay_parser_started_via_convenience() -> Result<(), Box<dyn std::error::Err
     // Replay from event list: ParserStarted entry survives into reconstructed state.
     let events = vec![DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ParserStarted {
             artifact_id: ArtifactId::new(1),
             title: "Doc".to_string(),

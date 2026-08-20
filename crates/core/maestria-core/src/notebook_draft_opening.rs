@@ -27,7 +27,11 @@ pub fn open_notebook_draft_body(
             message: format!("notebook draft body hash mismatch for {}", draft.id),
         });
     }
-    String::from_utf8(bytes).map_err(|_| CoreError::BlobIntegrity {
-        message: "notebook draft body is not valid UTF-8".to_owned(),
+    String::from_utf8(bytes).map_err(|error| CoreError::BlobIntegrity {
+        message: format!(
+            "notebook draft body is not valid UTF-8 at byte {}: {}",
+            error.utf8_error().valid_up_to(),
+            error
+        ),
     })
 }

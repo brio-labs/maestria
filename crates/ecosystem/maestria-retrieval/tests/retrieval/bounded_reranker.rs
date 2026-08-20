@@ -88,7 +88,7 @@ async fn test_bounded_reranker_limits_and_trace() -> RetrievalResult<()> {
     ];
 
     let request = RerankRequest {
-        plan,
+        plan: std::sync::Arc::new(plan),
         candidates,
         max_latency_ms: 100,
     };
@@ -171,7 +171,7 @@ async fn test_bounded_reranker_fallback() -> RetrievalResult<()> {
     ];
 
     let request = RerankRequest {
-        plan,
+        plan: std::sync::Arc::new(plan),
         candidates,
         max_latency_ms: 100,
     };
@@ -215,7 +215,7 @@ async fn test_bounded_reranker_cancellation() -> RetrievalResult<()> {
     ];
 
     let request = RerankRequest {
-        plan,
+        plan: std::sync::Arc::new(plan),
         candidates,
         max_latency_ms: 100,
     };

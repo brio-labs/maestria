@@ -5,24 +5,23 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish = false
-
 [dependencies]
-maestria-domain = { path = "../../kernel/maestria-domain" }
-maestria-governance = { path = "../../kernel/maestria-governance" }
-maestria-memory = { path = "../../ecosystem/maestria-memory" }
-maestria-ports = { path = "../../kernel/maestria-ports" }
-maestria-validation = { path = "../../ecosystem/maestria-validation" }
-
-tokio = { version = "1.37", features = ["full"] }
-tracing = "0.1"
-tokio-util = { version = "0.7.18", features = ["rt"] }
-url = "2"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+maestria-domain = { workspace = true }
+maestria-governance = { workspace = true }
+maestria-memory = { workspace = true }
+maestria-ports = { workspace = true }
+maestria-validation = { workspace = true }
+maestria-sqlite-support = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tokio-util = { workspace = true, features = ["rt"] }
+url = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
-maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }
+maestria-ports = { workspace = true, features = ["contract-tests"] }
 tokio-test = "0.4"
-tracing-subscriber = "0.3"
+tracing-subscriber = { workspace = true }
 parking_lot = "0.12"
-maestria-test-support = { path = "../../test-support/maestria-test-support" }
+maestria-test-support = { workspace = true }

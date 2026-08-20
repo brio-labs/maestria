@@ -283,34 +283,10 @@ fn symbol_pattern(query: &str) -> String {
         .map_or_else(|| query.to_string(), ToString::to_string)
 }
 
-fn retain_authorized_binding(
-    bindings: &mut Vec<AuthorizedCodeBinding>,
-    binding: AuthorizedCodeBinding,
-    limit: usize,
-) {
-    if limit == 0 {
-        return;
-    }
-    bindings.push(binding);
-    bindings.sort_by(|left, right| {
-        (
-            left.symbol.provenance.file_path.as_str(),
-            left.symbol.provenance.source_range.start_line(),
-            left.symbol.qualified_name.as_str(),
-        )
-            .cmp(&(
-                right.symbol.provenance.file_path.as_str(),
-                right.symbol.provenance.source_range.start_line(),
-                right.symbol.qualified_name.as_str(),
-            ))
-    });
-    bindings.truncate(limit);
-}
-
 #[async_trait]
 impl CandidateRetriever for CodeIntelRetriever {
-    fn descriptor(&self) -> crate::types::RetrieverDescriptor {
-        self.descriptor.clone()
+    fn descriptor(&self) -> &crate::types::RetrieverDescriptor {
+        &self.descriptor
     }
 
     async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
@@ -366,10 +342,23 @@ impl CandidateRetriever for CodeIntelRetriever {
                 let Some(binding) = security.resolve(symbol, &request.authorization)? else {
                     return Ok(false);
                 };
-                retain_authorized_binding(&mut authorized_bindings, binding, scan_limit);
+                authorized_bindings.push(binding);
                 Ok(true)
             },
         )?;
+        authorized_bindings.sort_by(|left, right| {
+            (
+                left.symbol.provenance.file_path.as_str(),
+                left.symbol.provenance.source_range.start_line(),
+                left.symbol.qualified_name.as_str(),
+            )
+                .cmp(&(
+                    right.symbol.provenance.file_path.as_str(),
+                    right.symbol.provenance.source_range.start_line(),
+                    right.symbol.qualified_name.as_str(),
+                ))
+        });
+        authorized_bindings.truncate(scan_limit);
         let (candidates, usage, completion) = self.materialize_candidates(
             &request,
             query_result,

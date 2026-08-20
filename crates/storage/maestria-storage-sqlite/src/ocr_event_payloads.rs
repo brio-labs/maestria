@@ -223,9 +223,7 @@ impl StoredOcrPage {
         }
     }
     fn into_domain(self) -> Result<OcrPageText, PortError> {
-        OcrPageText::new(self.page, self.text).map_err(|error| PortError::InvalidInputContext {
-            context: "decode OCR page",
-            source: error.to_string(),
-        })
+        OcrPageText::new(self.page, self.text)
+            .map_err(|error| PortError::invalid_input("decode OCR page", error.to_string()))
     }
 }

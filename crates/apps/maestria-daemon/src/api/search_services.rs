@@ -40,7 +40,7 @@ async fn search(context: &ApiContext, query: String, limit: usize) -> Result<Sea
         }
         None => {
             let runtime = prepare_read_only_search_runtime(context).await?;
-            runtime.execute(query, limit).await?
+            runtime.execute_arc(query, limit).await?
         }
     };
     Ok(search_response(
@@ -95,13 +95,22 @@ pub(super) async fn retrieval_status(context: &ApiContext) -> Result<RetrievalSt
     let learned_sparse = crate::runtime_construction::learned_sparse_policy(&store, &manifest);
     let sparse_record = store.load_latest_promotion_record()?;
     let hybrid_record = store.load_latest_hybrid_promotion_record()?;
-    // Mirrors `SearchRuntime::from_parts`, the one construction path for the
-    // runtime's model fingerprint.
-    let fingerprint = maestria_domain::RetrievalModelFingerprint::new(
-        "maestria-core:deterministic-v1".to_string(),
-    )
-    .map_err(|error| anyhow!("retrieval model fingerprint: {error}"))?;
-
+    let fingerprint = match context
+        .runtime
+        .as_ref()
+        .and_then(|handle| handle.search_executor())
+        .and_then(|executor| {
+            executor
+                .as_any()
+                .and_then(|any| any.downcast_ref::<crate::SearchRuntime>())
+                .map(|runtime| runtime.fingerprint.clone())
+        }) {
+        Some(fingerprint) => fingerprint,
+        None => maestria_domain::RetrievalModelFingerprint::new(
+            "maestria-core:deterministic-v1".to_string(),
+        )
+        .map_err(|error| anyhow!("invalid fallback model fingerprint: {error}"))?,
+    };
     let (hybrid_state, hybrid_served_classes, hybrid_evaluation_id, hybrid_evaluation_date) =
         match &hybrid {
             maestria_retrieval::HybridExecutionPolicy::Shadow => {

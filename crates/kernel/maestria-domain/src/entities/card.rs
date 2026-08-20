@@ -1,6 +1,4 @@
-use std::collections::BTreeSet;
-
-use crate::ids::{ArtifactId, CardId, ClaimId, StructureNodeId};
+use crate::ids::{ArtifactId, CardId, StructureNodeId};
 use crate::provenance::SourceSpan;
 use crate::security::SecurityMetadata;
 
@@ -12,7 +10,6 @@ pub struct Card {
     pub source_span: SourceSpan,
     pub title: String,
     pub body: String,
-    pub claim_ids: BTreeSet<ClaimId>,
     pub security: SecurityMetadata,
 }
 
@@ -33,7 +30,6 @@ impl Card {
             source_span,
             title,
             body,
-            claim_ids: BTreeSet::new(),
             security,
         }
     }

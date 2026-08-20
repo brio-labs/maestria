@@ -13,7 +13,7 @@
 mod error;
 pub use error::TestSupportError;
 mod fixtures;
-pub use fixtures::{content_hash, content_hash_str, realm_id, realm_id_str};
+pub use fixtures::{content_hash, content_hash_str, realm_id, realm_id_str, search_budget};
 mod fs;
 pub use fs::copy_tree;
 mod git;

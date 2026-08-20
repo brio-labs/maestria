@@ -9,7 +9,7 @@ mod rasterizer;
 mod transport;
 
 pub use rasterizer::{PdfRasterizer, PdftoppmRasterizer, RasterizedPage};
-pub use transport::{OcrTransport, UreqTransport};
+pub use transport::OcrTransport;
 
 mod ocr_provider;
 pub use ocr_provider::LocalHttpOcrProvider;

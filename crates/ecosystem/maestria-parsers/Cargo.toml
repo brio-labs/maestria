@@ -1,15 +1,15 @@
 [package]
 name = "maestria-parsers"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-version.workspace = true
 
 [dependencies]
-lopdf = "0.42"
-maestria-domain = { path = "../../kernel/maestria-domain" }
-maestria-ports = { path = "../../kernel/maestria-ports" }
+lopdf = { workspace = true }
+maestria-domain = { workspace = true }
+maestria-ports = { workspace = true }
 
 [dev-dependencies]
-insta = { version = "1", features = ["yaml"] }
-maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }
+insta = { workspace = true }
+maestria-ports = { workspace = true, features = ["contract-tests"] }

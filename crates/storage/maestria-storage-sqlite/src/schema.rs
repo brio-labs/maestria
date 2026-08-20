@@ -13,7 +13,7 @@ use crate::sqlite_store::to_port_error;
 /// Version 14 adds the rebuildable provider realm-read-grant projection.
 /// Version 13 is migrated forward exactly once; newer or older layouts are
 /// rejected rather than guessed.
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 15;
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 16;
 
 /// Captures the pre-migration state of the database.
 struct SchemaState {
@@ -38,12 +38,52 @@ fn detect_schema_state(connection: &Connection) -> Result<SchemaState, PortError
     Ok(SchemaState { version })
 }
 
+const REALM_READ_GRANTS_DDL: &str = r#"CREATE TABLE IF NOT EXISTS realm_read_grants (
+         token_digest TEXT NOT NULL PRIMARY KEY,
+         provider_realm TEXT NOT NULL,
+         consumer_realm TEXT NOT NULL,
+         access TEXT NOT NULL CHECK(access IN ('search_only', 'search_and_open_evidence')),
+         max_sensitivity TEXT NOT NULL CHECK(max_sensitivity IN ('public', 'internal', 'confidential', 'restricted')),
+         max_results INTEGER NOT NULL CHECK(max_results BETWEEN 1 AND 100),
+         max_evidence_bytes INTEGER NOT NULL CHECK(max_evidence_bytes BETWEEN 1 AND 65536),
+         state TEXT NOT NULL CHECK(state IN ('active', 'revoked'))
+     );
+     CREATE INDEX IF NOT EXISTS idx_realm_read_grants_consumer
+         ON realm_read_grants(consumer_realm);
+     CREATE UNIQUE INDEX IF NOT EXISTS idx_realm_read_grants_active_consumer
+         ON realm_read_grants(consumer_realm)
+         WHERE state = 'active';"#;
+
+const LEARNED_SPARSE_PROMOTION_RECORDS_DDL: &str = r#"CREATE TABLE IF NOT EXISTS learned_sparse_promotion_records (
+         evaluation_id TEXT NOT NULL PRIMARY KEY,
+         corpus_id TEXT NOT NULL,
+         evaluation_date TEXT NOT NULL,
+         report_hash TEXT NOT NULL,
+         record_json TEXT NOT NULL,
+         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+     );
+     CREATE INDEX IF NOT EXISTS idx_learned_sparse_promotion_records_order
+         ON learned_sparse_promotion_records(created_at DESC);"#;
+
+const HYBRID_PROMOTION_RECORDS_DDL: &str = r#"CREATE TABLE IF NOT EXISTS hybrid_promotion_records (
+         evaluation_id TEXT NOT NULL PRIMARY KEY,
+         corpus_id TEXT NOT NULL,
+         evaluation_date TEXT NOT NULL,
+         report_hash TEXT NOT NULL,
+         record_json TEXT NOT NULL,
+         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+     );
+     CREATE INDEX IF NOT EXISTS idx_hybrid_promotion_records_order
+         ON hybrid_promotion_records(created_at DESC);"#;
+
 /// SQL that bootstraps every table for a fresh database (all `IF NOT EXISTS`).
 ///
 /// Foreign-key enforcement is enabled and validated by [`migrate`] before the
 /// migration transaction starts. SQLite ignores a `PRAGMA foreign_keys` write
 /// made while a transaction is active.
-const BASE_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS schema_version (
+static BASE_SCHEMA_SQL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!(
+        r#"CREATE TABLE IF NOT EXISTS schema_version (
          version INTEGER NOT NULL PRIMARY KEY,
          applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
      );
@@ -53,7 +93,7 @@ const BASE_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS schema_version (
          content_hash TEXT,
          index_status TEXT NOT NULL DEFAULT 'unindexed',
          parse_status TEXT,
-         security_json TEXT NOT NULL DEFAULT '{"trust_zone":"Untrusted","authority":"External","integrity":"Unverified","sensitivity":"Internal","review_status":"Unreviewed","prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}'
+         security_json TEXT NOT NULL DEFAULT '{}'
      );
      CREATE TABLE IF NOT EXISTS artifact_chunks (
          artifact_id INTEGER NOT NULL,
@@ -97,7 +137,7 @@ const BASE_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS schema_version (
          body TEXT NOT NULL,
          node_id INTEGER,
          source_span_json TEXT,
-         security_json TEXT NOT NULL DEFAULT '{"trust_zone":"Untrusted","authority":"External","integrity":"Unverified","sensitivity":"Internal","review_status":"Unreviewed","prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}'
+         security_json TEXT NOT NULL DEFAULT '{}'
      );
      CREATE INDEX IF NOT EXISTS idx_cards_artifact
          ON cards(artifact_id, id);
@@ -114,35 +154,20 @@ const BASE_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS schema_version (
          kind_json TEXT NOT NULL,
          excerpt TEXT NOT NULL,
          observed_at INTEGER NOT NULL,
-         security_json TEXT NOT NULL DEFAULT '{"trust_zone":"Untrusted","authority":"External","integrity":"Unverified","sensitivity":"Internal","review_status":"Unreviewed","prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}'
+         security_json TEXT NOT NULL DEFAULT '{}'
      );
      CREATE INDEX IF NOT EXISTS idx_evidence_artifact
          ON evidence(artifact_id, id);
      CREATE TABLE IF NOT EXISTS domain_events (
          id INTEGER NOT NULL PRIMARY KEY,
-         sequence INTEGER NOT NULL UNIQUE,
          event_kind TEXT NOT NULL,
          artifact_id INTEGER,
          payload_json TEXT NOT NULL,
          payload_version INTEGER NOT NULL DEFAULT 2
      );
-     CREATE INDEX IF NOT EXISTS idx_domain_events_artifact_sequence
-         ON domain_events(artifact_id, sequence);
-     CREATE TABLE IF NOT EXISTS realm_read_grants (
-         token_digest TEXT NOT NULL PRIMARY KEY,
-         provider_realm TEXT NOT NULL,
-         consumer_realm TEXT NOT NULL,
-         access TEXT NOT NULL CHECK(access IN ('search_only', 'search_and_open_evidence')),
-         max_sensitivity TEXT NOT NULL CHECK(max_sensitivity IN ('public', 'internal', 'confidential', 'restricted')),
-         max_results INTEGER NOT NULL CHECK(max_results BETWEEN 1 AND 100),
-         max_evidence_bytes INTEGER NOT NULL CHECK(max_evidence_bytes BETWEEN 1 AND 65536),
-         state TEXT NOT NULL CHECK(state IN ('active', 'revoked'))
-     );
-     CREATE INDEX IF NOT EXISTS idx_realm_read_grants_consumer
-         ON realm_read_grants(consumer_realm);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_realm_read_grants_active_consumer
-        ON realm_read_grants(consumer_realm)
-        WHERE state = 'active';
+     CREATE INDEX IF NOT EXISTS idx_domain_events_artifact_id
+         ON domain_events(artifact_id, id);
+{realm_read_grants}
      CREATE TABLE IF NOT EXISTS id_counters (
          namespace TEXT PRIMARY KEY,
          next_id INTEGER NOT NULL DEFAULT 1
@@ -181,26 +206,8 @@ const BASE_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS schema_version (
      );
      CREATE INDEX IF NOT EXISTS idx_learned_sparse_shadow_observations_order
          ON learned_sparse_shadow_observations(id);
-     CREATE TABLE IF NOT EXISTS learned_sparse_promotion_records (
-         evaluation_id TEXT NOT NULL PRIMARY KEY,
-         corpus_id TEXT NOT NULL,
-         evaluation_date TEXT NOT NULL,
-         report_hash TEXT NOT NULL,
-         record_json TEXT NOT NULL,
-         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-     );
-     CREATE INDEX IF NOT EXISTS idx_learned_sparse_promotion_records_order
-         ON learned_sparse_promotion_records(created_at DESC);
-     CREATE TABLE IF NOT EXISTS hybrid_promotion_records (
-         evaluation_id TEXT NOT NULL PRIMARY KEY,
-         corpus_id TEXT NOT NULL,
-         evaluation_date TEXT NOT NULL,
-         report_hash TEXT NOT NULL,
-         record_json TEXT NOT NULL,
-         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-     );
-     CREATE INDEX IF NOT EXISTS idx_hybrid_promotion_records_order
-         ON hybrid_promotion_records(created_at DESC);
+{sparse_promotion}
+     {hybrid_promotion}
      CREATE TABLE IF NOT EXISTS learned_sparse_projections (
          identity_json TEXT NOT NULL PRIMARY KEY,
          generation_id INTEGER NOT NULL,
@@ -228,7 +235,15 @@ const BASE_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS schema_version (
          version INTEGER NOT NULL,
          FOREIGN KEY (identity_json) REFERENCES learned_sparse_projections(identity_json)
              ON DELETE CASCADE
-     );"#;
+     );"#,
+        maestria_sqlite_support::DEFAULT_SECURITY_JSON,
+        maestria_sqlite_support::DEFAULT_SECURITY_JSON,
+        maestria_sqlite_support::DEFAULT_SECURITY_JSON,
+        realm_read_grants = REALM_READ_GRANTS_DDL,
+        sparse_promotion = LEARNED_SPARSE_PROMOTION_RECORDS_DDL,
+        hybrid_promotion = HYBRID_PROMOTION_RECORDS_DDL,
+    )
+});
 
 /// Seeds the per-namespace `id_counters` rows from durable identity truth
 /// so that fresh or migrated databases never start at the wrong counter value.
@@ -241,10 +256,7 @@ fn next_counter_value(max_id: Option<i64>, namespace: &str) -> Result<i64, PortE
     max_id.map_or(Ok(1), |value| {
         value
             .checked_add(1)
-            .ok_or_else(|| PortError::InternalContext {
-                context: "id counter exhausted",
-                source: namespace.to_string(),
-            })
+            .ok_or_else(|| PortError::internal("id counter exhausted", namespace))
     })
 }
 
@@ -317,7 +329,7 @@ pub(crate) fn seed_id_counters(connection: &Connection) -> Result<(), PortError>
 /// on both fresh and existing databases.
 fn create_base_schema(connection: &Connection) -> Result<(), PortError> {
     connection
-        .execute_batch(BASE_SCHEMA_SQL)
+        .execute_batch(&BASE_SCHEMA_SQL)
         .map_err(to_port_error)
 }
 /// Enables SQLite foreign-key enforcement before any migration transaction
@@ -340,40 +352,37 @@ fn ensure_foreign_keys(connection: &Connection) -> Result<(), PortError> {
 
 fn migrate_v14_to_v15(connection: &Connection) -> Result<(), PortError> {
     connection
+        .execute_batch(LEARNED_SPARSE_PROMOTION_RECORDS_DDL)
+        .map_err(to_port_error)
+}
+
+/// Drops the `sequence` column from `domain_events` (rows satisfy
+/// `id == sequence` by construction). The column is part of the primary-key
+/// table's implicit `sequence` unique index and the artifact index, so the
+/// table is rebuilt rather than altered in place.
+fn migrate_v15_to_v16(connection: &Connection) -> Result<(), PortError> {
+    connection
         .execute_batch(
-            "CREATE TABLE IF NOT EXISTS learned_sparse_promotion_records (
-                 evaluation_id TEXT NOT NULL PRIMARY KEY,
-                 corpus_id TEXT NOT NULL,
-                 evaluation_date TEXT NOT NULL,
-                 report_hash TEXT NOT NULL,
-                 record_json TEXT NOT NULL,
-                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            "CREATE TABLE domain_events_v16 (
+                 id INTEGER NOT NULL PRIMARY KEY,
+                 event_kind TEXT NOT NULL,
+                 artifact_id INTEGER,
+                 payload_json TEXT NOT NULL,
+                 payload_version INTEGER NOT NULL DEFAULT 2
              );
-             CREATE INDEX IF NOT EXISTS idx_learned_sparse_promotion_records_order
-                 ON learned_sparse_promotion_records(created_at DESC);",
+             INSERT INTO domain_events_v16 (id, event_kind, artifact_id, payload_json, payload_version)
+                 SELECT id, event_kind, artifact_id, payload_json, payload_version FROM domain_events;
+             DROP TABLE domain_events;
+             ALTER TABLE domain_events_v16 RENAME TO domain_events;
+             CREATE INDEX idx_domain_events_artifact_id
+                 ON domain_events(artifact_id, id);",
         )
         .map_err(to_port_error)
 }
 
 fn migrate_v13_to_v14(connection: &Connection) -> Result<(), PortError> {
     connection
-        .execute_batch(
-            "CREATE TABLE IF NOT EXISTS realm_read_grants (
-                 token_digest TEXT NOT NULL PRIMARY KEY,
-                 provider_realm TEXT NOT NULL,
-                 consumer_realm TEXT NOT NULL,
-                 access TEXT NOT NULL CHECK(access IN ('search_only', 'search_and_open_evidence')),
-                 max_sensitivity TEXT NOT NULL CHECK(max_sensitivity IN ('public', 'internal', 'confidential', 'restricted')),
-                 max_results INTEGER NOT NULL CHECK(max_results BETWEEN 1 AND 100),
-                 max_evidence_bytes INTEGER NOT NULL CHECK(max_evidence_bytes BETWEEN 1 AND 65536),
-                 state TEXT NOT NULL CHECK(state IN ('active', 'revoked'))
-             );
-             CREATE INDEX IF NOT EXISTS idx_realm_read_grants_consumer
-                 ON realm_read_grants(consumer_realm);
-             CREATE UNIQUE INDEX IF NOT EXISTS idx_realm_read_grants_active_consumer
-                 ON realm_read_grants(consumer_realm)
-                 WHERE state = 'active';",
-        )
+        .execute_batch(REALM_READ_GRANTS_DDL)
         .map_err(to_port_error)
 }
 
@@ -391,11 +400,12 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     if let Some(version) = state.version
         && version != 13
         && version != 14
+        && version != 15
         && version != CURRENT_SCHEMA_VERSION
     {
         return Err(PortError::InternalContext {
             context: "unsupported sqlite schema version",
-            source: format!("{version}; expected 13, 14, or {CURRENT_SCHEMA_VERSION}"),
+            source: format!("{version}; expected 13, 14, 15, or {CURRENT_SCHEMA_VERSION}"),
         });
     }
 
@@ -406,13 +416,20 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     if state.version == Some(13) || state.version == Some(14) {
         migrate_v14_to_v15(&transaction)?;
     }
+    if state.version == Some(13) || state.version == Some(14) || state.version == Some(15) {
+        migrate_v15_to_v16(&transaction)?;
+    }
     seed_id_counters(&transaction)?;
 
     validate_domain_events_schema(&transaction)?;
     validate_event_order(&transaction)?;
     validate_stored_event_payloads(&transaction)?;
 
-    if state.version.is_none() || state.version == Some(13) || state.version == Some(14) {
+    if state.version.is_none()
+        || state.version == Some(13)
+        || state.version == Some(14)
+        || state.version == Some(15)
+    {
         transaction
             .execute(
                 "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",

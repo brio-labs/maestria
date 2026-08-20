@@ -7,19 +7,8 @@ use std::{
     thread,
 };
 
-#[test]
-fn posts_to_local_http_endpoint() -> Result<(), PortError> {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|error| PortError::Internal {
-        message: format!("bind test embedding server: {error}"),
-    })?;
-    let port = listener
-        .local_addr()
-        .map_err(|error| PortError::Internal {
-            message: format!("read test embedding server address: {error}"),
-        })?
-        .port();
-    let server = thread::spawn(move || {
-        listener.accept().and_then(|(mut stream, _)| {
+fn serve_embedding_request(listener: TcpListener) -> std::io::Result<()> {
+    listener.accept().and_then(|(mut stream, _)| {
             let mut request = Vec::new();
             let mut buffer = [0_u8; 1024];
             let header_end = loop {
@@ -77,7 +66,26 @@ fn posts_to_local_http_endpoint() -> Result<(), PortError> {
             stream.write_all(body)?;
             stream.flush()
         })
-    });
+}
+
+#[test]
+fn posts_to_local_http_endpoint() -> Result<(), PortError> {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|error| {
+        PortError::internal(
+            "maestria embedding openai test",
+            format!("bind test embedding server: {error}"),
+        )
+    })?;
+    let port = listener
+        .local_addr()
+        .map_err(|error| {
+            PortError::internal(
+                "maestria embedding openai test",
+                format!("read test embedding server address: {error}"),
+            )
+        })?
+        .port();
+    let server = thread::spawn(move || serve_embedding_request(listener));
     let provider = LocalHttpEmbeddingProvider::with_profile(
         &format!("http://127.0.0.1:{port}/v1/embeddings"),
         "local-model",
@@ -92,11 +100,17 @@ fn posts_to_local_http_endpoint() -> Result<(), PortError> {
         kind: EmbeddingInputKind::Query,
         identity: provider.identity().clone(),
     })?;
-    let server_result = server.join().map_err(|_| PortError::Internal {
-        message: "test embedding server panicked".to_string(),
+    let server_result = server.join().map_err(|_| {
+        PortError::internal(
+            "maestria embedding openai test",
+            "test embedding server panicked".to_string(),
+        )
     })?;
-    server_result.map_err(|error| PortError::Internal {
-        message: format!("test embedding server failed: {error}"),
+    server_result.map_err(|error| {
+        PortError::internal(
+            "maestria embedding openai test",
+            format!("test embedding server failed: {error}"),
+        )
     })?;
     assert_eq!(result.vector, vec![0.4, 0.6]);
     assert_eq!(result.model_version, "fake-v1");

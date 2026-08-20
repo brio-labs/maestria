@@ -3,27 +3,13 @@
 //! Handlers and replay appliers are independent testable concerns: handlers
 //! validate and transition live state, while appliers reconstruct state from
 //! the immutable event log. This module owns the orchestration replay side
-//! (`UserIntentObserved`, `SearchCompleted`, `HarnessRunCompleted`,
-//! `ApprovalRecorded`, `TickObserved`, `SearchExecuted`,
-//! `SearchKnowledgeCompleted`) so `orchestration.rs` keeps one concept.
+//! (`SearchCompleted`, `HarnessRunCompleted`, `ApprovalRecorded`,
+//! `TickObserved`, `SearchExecuted`, `SearchKnowledgeCompleted`) so
+//! `orchestration.rs` keeps one concept.
 
 use crate::types::*;
 
 impl KernelState {
-    pub(crate) fn apply_user_intent_observed(
-        &mut self,
-        task_id: TaskId,
-        title: &str,
-    ) -> Result<(), DomainError> {
-        if title.trim().is_empty() {
-            return Err(DomainError::EmptyIntent);
-        }
-        if !self.tasks.contains_key(&task_id) {
-            return Err(DomainError::MissingTask { id: task_id });
-        }
-        Ok(())
-    }
-
     pub(crate) fn apply_search_completed(
         &mut self,
         artifact_id: ArtifactId,
@@ -85,7 +71,9 @@ impl KernelState {
         Ok(())
     }
 
-    pub(crate) fn apply_tick_observed(&mut self) {}
+    pub(crate) fn apply_tick_observed(&mut self, at: LogicalTick) {
+        self.current_tick = Some(at);
+    }
 
     pub(crate) fn apply_search_executed(&mut self, query: &str) -> Result<(), DomainError> {
         if query.trim().is_empty() {

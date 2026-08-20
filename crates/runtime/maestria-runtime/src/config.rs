@@ -69,7 +69,8 @@ pub struct Governance {
     pub memory_promotion_gate: Arc<dyn MemoryPromotionGate + Send + Sync>,
 }
 pub(crate) type HarnessFeedbackAcks = Arc<Mutex<BTreeMap<EventId, (HarnessRunId, u64)>>>;
-pub(crate) type JournalRecoveryClaims = Arc<Mutex<BTreeSet<(HarnessRunId, u64)>>>;
+pub(crate) type JournalRecoveryClaims =
+    Arc<Mutex<BTreeSet<(HarnessRunId, maestria_domain::JournalGeneration)>>>;
 
 /// Artifacts whose vector lane permanently degraded (no provider/model);
 /// shared across [`EffectExecutionContext`] clones so later `IndexVector`

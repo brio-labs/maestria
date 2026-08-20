@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use maestria_core::build_artifact_detected_input;
-use maestria_domain::{ArtifactDetected, BlobId, KernelState, replay_inputs};
+use maestria_domain::{ArtifactDetected, BlobId, KernelState, content_hash, replay_inputs};
 
 /// Verify that `build_artifact_detected_input` produces a DomainInput whose
 /// fields reconstruct identically after being replayed through the domain
@@ -11,8 +11,7 @@ fn artifact_detected_input_is_replay_deterministic() -> Result<(), Box<dyn std::
     let path = PathBuf::from("notes/replay.md");
     let bytes = b"# Replay Test\n\nEvidence block for deterministic replay.\n".to_vec();
 
-    let input = build_artifact_detected_input(&path, bytes.clone())?;
-
+    let input = build_artifact_detected_input(&path, bytes.clone(), content_hash(&bytes))?;
     // Apply once.
     let mut state_a = KernelState::new();
     let output_a = state_a.apply_input(input.clone())?;
@@ -28,10 +27,8 @@ fn artifact_detected_input_is_replay_deterministic() -> Result<(), Box<dyn std::
         replay_inputs(std::slice::from_ref(&input))?;
     assert_eq!(replay_state, state_a);
     assert!(replay_events.is_empty());
-    assert!(!replay_effects.is_empty());
-
-    // Reproducibility: same bytes, same path → same input → same KernelState.
-    let input2 = build_artifact_detected_input(&path, bytes)?;
+    assert_eq!(replay_effects, output_a.effects);
+    let input2 = build_artifact_detected_input(&path, bytes.clone(), content_hash(&bytes))?;
     assert_eq!(input2, input);
 
     let mut state_c = KernelState::new();
@@ -122,8 +119,7 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
     let path = PathBuf::from("notes/full-cycle.md");
     let bytes = b"# Full Cycle\n\nParagraph one.\n\nParagraph two.\n".to_vec();
 
-    let detected = build_artifact_detected_input(&path, bytes.clone())?;
-
+    let detected = build_artifact_detected_input(&path, bytes.clone(), content_hash(&bytes))?;
     let maestria_domain::DomainInput::ArtifactDetected(ArtifactDetected {
         artifact_id,
         source_path,

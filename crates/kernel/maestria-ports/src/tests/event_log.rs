@@ -3,17 +3,13 @@ use super::super::*;
 use maestria_domain::{ArtifactId, BlobId, ChunkId, ContentHash, DomainEvent, DomainEventEnvelope};
 
 fn hash_a() -> Result<ContentHash, PortError> {
-    ContentHash::new(format!("sha256:{:064x}", 5)).map_err(|error| PortError::InvalidInputContext {
-        context: "test hash a",
-        source: error.to_string(),
-    })
+    ContentHash::new(format!("sha256:{:064x}", 5))
+        .map_err(|error| PortError::invalid_input("test hash a", error.to_string()))
 }
 
 fn hash_b() -> Result<ContentHash, PortError> {
-    ContentHash::new(format!("sha256:{:064x}", 6)).map_err(|error| PortError::InvalidInputContext {
-        context: "test hash b",
-        source: error.to_string(),
-    })
+    ContentHash::new(format!("sha256:{:064x}", 6))
+        .map_err(|error| PortError::invalid_input("test hash b", error.to_string()))
 }
 
 #[test]
@@ -27,7 +23,6 @@ fn in_memory_event_log_filters_task_artifact_events() -> Result<(), PortError> {
     let log = InMemoryEventLog::new();
     let task = DomainEventEnvelope {
         id: maestria_domain::EventId::new(1),
-        sequence: maestria_domain::SequenceNumber::new(1),
         event: DomainEvent::TaskOpened {
             task_id: maestria_domain::TaskId::new(1),
             title: "task".to_string(),
@@ -50,7 +45,6 @@ fn in_memory_event_log_roundtrips_search_executed() -> Result<(), PortError> {
     let log = InMemoryEventLog::new();
     let envelope = DomainEventEnvelope {
         id: maestria_domain::EventId::new(1),
-        sequence: maestria_domain::SequenceNumber::new(1),
         event: DomainEvent::SearchExecuted {
             query: "audit".to_string(),
             limit: 3,
@@ -82,7 +76,6 @@ fn artifact_filter_events(
     Ok(vec![
         DomainEventEnvelope {
             id: maestria_domain::EventId::new(1),
-            sequence: maestria_domain::SequenceNumber::new(1),
             event: DomainEvent::PendingIndex {
                 artifact_id: artifact_a,
                 content_hash: hash_a()?,
@@ -90,7 +83,6 @@ fn artifact_filter_events(
         },
         DomainEventEnvelope {
             id: maestria_domain::EventId::new(2),
-            sequence: maestria_domain::SequenceNumber::new(2),
             event: DomainEvent::FullTextIndexed {
                 artifact_id: artifact_a,
                 chunk_id: ChunkId::new(1),
@@ -98,14 +90,12 @@ fn artifact_filter_events(
         },
         DomainEventEnvelope {
             id: maestria_domain::EventId::new(3),
-            sequence: maestria_domain::SequenceNumber::new(3),
             event: DomainEvent::ArtifactIndexed {
                 artifact_id: artifact_a,
             },
         },
         DomainEventEnvelope {
             id: maestria_domain::EventId::new(4),
-            sequence: maestria_domain::SequenceNumber::new(4),
             event: DomainEvent::ParserStarted {
                 artifact_id: artifact_a,
                 title: "doc".to_string(),
@@ -116,7 +106,6 @@ fn artifact_filter_events(
         },
         DomainEventEnvelope {
             id: maestria_domain::EventId::new(5),
-            sequence: maestria_domain::SequenceNumber::new(5),
             event: DomainEvent::SourceBecameStale {
                 artifact_id: artifact_a,
                 source_path: "/a.md".to_string(),
@@ -125,7 +114,6 @@ fn artifact_filter_events(
         },
         DomainEventEnvelope {
             id: maestria_domain::EventId::new(6),
-            sequence: maestria_domain::SequenceNumber::new(6),
             event: DomainEvent::PendingIndex {
                 artifact_id: artifact_b,
                 content_hash: hash_b()?,

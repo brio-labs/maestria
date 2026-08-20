@@ -1,8 +1,8 @@
-use std::{fs::File, io::Read, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use maestria_core::InstanceLayout;
-use maestria_daemon::api::DaemonClient;
+use maestria_daemon::api::{DaemonClient, random_hex_credential};
 use tokio::{fs, net::TcpListener};
 use tokio_util::sync::CancellationToken;
 
@@ -42,7 +42,7 @@ impl StudioServer {
             .await
             .with_context(|| format!("canonicalize Studio agent workdir {}", workdir.display()))?;
         let agent = AgentHost::new_with_workdir(agent, workdir);
-        let bearer: Arc<str> = Arc::from(ephemeral_bearer()?);
+        let bearer: Arc<str> = Arc::from(random_hex_credential(32)?);
         let listener = TcpListener::bind(("127.0.0.1", 0))
             .await
             .context("bind Studio loopback")?;
@@ -86,13 +86,4 @@ impl StudioServer {
             Err(error) => Err(anyhow!("Studio server task failed: {error}")),
         }
     }
-}
-
-fn ephemeral_bearer() -> Result<String> {
-    let mut bytes = [0_u8; 32];
-    File::open("/dev/urandom")
-        .context("open operating-system randomness source")?
-        .read_exact(&mut bytes)
-        .context("read ephemeral Studio bearer")?;
-    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }

@@ -1,7 +1,7 @@
 //! Deterministic Recommended / Maybe / Noise classification rules.
 
 use crate::policy::IndexPolicy;
-use crate::scan::DirFeatures;
+use crate::scan::{CANONICAL_EXCLUDED_NAMES, DirFeatures};
 use std::path::Path;
 
 /// The classification of a directory.
@@ -12,22 +12,13 @@ pub enum Class {
     Noise,
 }
 
-/// Directory components that mark machine-generated or build output with
-/// high confidence. The ONLY name-based rule, and it applies only when
-/// scanning the home directory itself.
-const HOME_NOISE_COMPONENTS: &[&str] = &[
-    ".cache",
-    ".config",
-    ".local",
-    "node_modules",
-    "target",
-    "dist",
-    "build",
-    "vendor",
-    ".venv",
-    "__pycache__",
-    ".git",
-];
+/// Extra home-only noise components beyond the canonical build-output set.
+const HOME_EXTRA_NOISE_COMPONENTS: &[&str] = &[".cache", ".config", ".local", "vendor", ".venv"];
+
+fn is_home_noise(component: &str) -> bool {
+    CANONICAL_EXCLUDED_NAMES.contains(&component)
+        || HOME_EXTRA_NOISE_COMPONENTS.contains(&component)
+}
 
 /// The default policy for a class: Recommended directories are indexed
 /// with every switch off; Maybe and Noise directories get the filtered
@@ -52,10 +43,9 @@ pub fn default_policy(class: Class) -> IndexPolicy {
 /// 6. Everything else → `Maybe`.
 pub fn classify(features: &DirFeatures, home_root: bool, path: &Path) -> Class {
     if home_root
-        && path.components().any(|component| {
-            let name = component.as_os_str().to_string_lossy();
-            HOME_NOISE_COMPONENTS.iter().any(|marker| name == *marker)
-        })
+        && path
+            .components()
+            .any(|c| is_home_noise(&c.as_os_str().to_string_lossy()))
     {
         return Class::Noise;
     }

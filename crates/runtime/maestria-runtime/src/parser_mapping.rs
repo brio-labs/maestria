@@ -15,7 +15,7 @@ pub(crate) fn domain_parse_status(status: maestria_ports::ParseStatus) -> ParseS
     }
 }
 
-pub(crate) fn domain_representation_kind(kind: PortRepresentationKind) -> RepresentationKind {
+fn domain_representation_kind(kind: PortRepresentationKind) -> RepresentationKind {
     match kind {
         PortRepresentationKind::Raw => RepresentationKind::Raw,
         PortRepresentationKind::Retrieval => RepresentationKind::Retrieval,

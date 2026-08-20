@@ -85,3 +85,22 @@ pub(crate) fn resolve_merged_relations(
     let relation_summary = crate::symbols::relation::relation_status_summary(relations.len());
     (relations, relation_summary)
 }
+
+/// Reads a source file and computes its `sha256:`-prefixed content hash in one pass.
+pub(crate) fn load_source_file(
+    file: &Path,
+    context: &'static str,
+) -> Result<(String, String), CodeIntelError> {
+    let bytes = std::fs::read(file).map_err(|error| CodeIntelError::Io {
+        operation: context.to_string(),
+        path: file.display().to_string(),
+        details: error.to_string(),
+    })?;
+    let hash = maestria_domain::content_hash(&bytes);
+    let text = String::from_utf8(bytes).map_err(|error| CodeIntelError::Io {
+        operation: context.to_string(),
+        path: file.display().to_string(),
+        details: error.to_string(),
+    })?;
+    Ok((text, hash))
+}

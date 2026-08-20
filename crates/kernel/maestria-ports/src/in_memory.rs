@@ -10,6 +10,7 @@ mod learned_sparse;
 mod lexical;
 mod parser;
 mod repositories;
+mod store;
 mod vector_index;
 mod web;
 

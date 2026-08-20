@@ -219,25 +219,11 @@ impl ApprovalRepository for crate::SqliteStore {
 
 #[cfg(test)]
 mod tests {
-    use maestria_domain::{ApprovalId, LogicalTick, ScopeId, TaskId};
-    use maestria_ports::{
-        ApprovalRecord, ApprovalRepository, ApprovalRiskLevel, ApprovalStatus, PortError,
-    };
+    use maestria_domain::ApprovalId;
+    use maestria_ports::{ApprovalRepository, ApprovalRiskLevel, ApprovalStatus, PortError};
 
     use crate::SqliteStore;
-
-    fn pending_record(id: u64) -> ApprovalRecord {
-        ApprovalRecord {
-            id: ApprovalId::new(id),
-            task_id: Some(TaskId::new(100 + id)),
-            effect_kind: "task_activation".to_string(),
-            risk_level: ApprovalRiskLevel::Medium,
-            capability: String::new(),
-            scope_id: ScopeId::new(0),
-            tick: LogicalTick::new(id),
-            status: ApprovalStatus::Pending,
-        }
-    }
+    use maestria_ports::contract_tests::pending_record;
 
     #[test]
     fn save_and_find_pending() -> Result<(), PortError> {

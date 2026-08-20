@@ -106,8 +106,4 @@ impl InstanceService {
             layout,
         })
     }
-
-    pub fn parse_manifest(contents: &str) -> CoreResult<crate::manifest::InstanceManifest> {
-        crate::manifest::InstanceManifest::decode(contents)
-    }
 }

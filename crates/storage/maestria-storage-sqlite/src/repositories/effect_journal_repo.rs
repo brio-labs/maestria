@@ -1,7 +1,7 @@
 use crate::sqlite_store::{
     i64_to_u64, optional_i64_to_u64, optional_u64_to_i64, to_port_error, u64_to_i64,
 };
-use maestria_domain::{BlobId, HarnessRunId, ScopeId, TaskId};
+use maestria_domain::{BlobId, HarnessRunId, JournalGeneration, ScopeId, TaskId};
 use maestria_ports::{
     EffectJournalEntry, EffectJournalIntent, EffectJournalStatus, HarnessOutcome, PortError,
 };
@@ -77,12 +77,13 @@ pub(crate) fn record_intent(
         .map_err(to_port_error)?;
 
     let max_gen = optional_i64_to_u64(max_gen_i64)?;
-    let next_generation = max_gen.map_or(1, |value| value.saturating_add(1));
+    let next_generation =
+        JournalGeneration::new(max_gen.map_or(1, |value| value.saturating_add(1)));
     let generation = match intent.requested_generation {
-        Some(requested) if requested >= next_generation => requested,
+        Some(requested) if requested.value() >= next_generation.value() => requested,
         _ => next_generation,
     };
-    let generation_i64 = u64_to_i64(generation)?;
+    let generation_i64 = u64_to_i64(generation.value())?;
 
     if let Some(prev_gen) = max_gen_i64 {
         transaction
@@ -97,7 +98,11 @@ pub(crate) fn record_intent(
 
     let task_id_i64 = optional_u64_to_i64(intent.task_id.map(|t| t.value()))?;
     let scope_id_i64 = u64_to_i64(intent.scope_id.value())?;
-    let requested_gen_i64 = optional_u64_to_i64(intent.requested_generation)?;
+    let requested_gen_i64 = optional_u64_to_i64(
+        intent
+            .requested_generation
+            .map(|generation| generation.value()),
+    )?;
     transaction
         .execute(
             "INSERT INTO effect_journal \
@@ -130,10 +135,10 @@ pub(crate) fn record_intent(
 pub(crate) fn record_started(
     connection: &Connection,
     run_id: HarnessRunId,
-    generation: u64,
+    generation: maestria_domain::JournalGeneration,
 ) -> Result<(), PortError> {
     let run_id_i64 = u64_to_i64(run_id.value())?;
-    let generation_i64 = u64_to_i64(generation)?;
+    let generation_i64 = u64_to_i64(generation.value())?;
     let updated = connection.execute(
         "UPDATE effect_journal SET status = 'Started' WHERE run_id = ?1 AND generation = ?2 AND status = 'Intent'",
         params![run_id_i64, generation_i64],
@@ -147,7 +152,7 @@ pub(crate) fn record_started(
 pub(crate) fn claim_feedback(
     connection: &Connection,
     run_id: HarnessRunId,
-    generation: u64,
+    generation: maestria_domain::JournalGeneration,
 ) -> Result<(), PortError> {
     claim_feedback_with_outcome(connection, run_id, generation, None)
 }
@@ -155,21 +160,18 @@ pub(crate) fn claim_feedback(
 pub(crate) fn claim_feedback_with_outcome(
     connection: &Connection,
     run_id: HarnessRunId,
-    generation: u64,
+    generation: maestria_domain::JournalGeneration,
     outcome: Option<&HarnessOutcome>,
 ) -> Result<(), PortError> {
     let transaction = connection.unchecked_transaction().map_err(to_port_error)?;
     let run_id_i64 = u64_to_i64(run_id.value())?;
-    let generation_i64 = u64_to_i64(generation)?;
+    let generation_i64 = u64_to_i64(generation.value())?;
     let feedback = outcome
         .map(StoredHarnessOutcome::from_domain)
         .as_ref()
         .map(serde_json::to_string)
         .transpose()
-        .map_err(|error| PortError::InternalContext {
-            context: "encode harness feedback",
-            source: error.to_string(),
-        })?;
+        .map_err(|error| PortError::internal("encode harness feedback", error.to_string()))?;
     let updated = transaction
         .execute(
             "UPDATE effect_journal SET status = 'FeedbackAccepted', feedback_json = ?3 \
@@ -186,10 +188,10 @@ pub(crate) fn claim_feedback_with_outcome(
 pub(crate) fn feedback_outcome(
     connection: &Connection,
     run_id: HarnessRunId,
-    generation: u64,
+    generation: maestria_domain::JournalGeneration,
 ) -> Result<Option<HarnessOutcome>, PortError> {
     let run_id_i64 = u64_to_i64(run_id.value())?;
-    let generation_i64 = u64_to_i64(generation)?;
+    let generation_i64 = u64_to_i64(generation.value())?;
     let feedback_json: Option<String> = connection
         .query_row(
             "SELECT feedback_json FROM effect_journal WHERE run_id = ?1 AND generation = ?2",
@@ -203,17 +205,14 @@ pub(crate) fn feedback_outcome(
         .as_deref()
         .map(serde_json::from_str::<StoredHarnessOutcome>)
         .transpose()
-        .map_err(|error| PortError::InternalContext {
-            context: "decode harness feedback",
-            source: error.to_string(),
-        })
+        .map_err(|error| PortError::internal("decode harness feedback", error.to_string()))
         .map(|outcome| outcome.map(StoredHarnessOutcome::into_domain))
 }
 
 pub(crate) fn record_terminal(
     connection: &Connection,
     run_id: HarnessRunId,
-    generation: u64,
+    generation: maestria_domain::JournalGeneration,
     status: EffectJournalStatus,
 ) -> Result<(), PortError> {
     let status_str = match status {
@@ -229,7 +228,7 @@ pub(crate) fn record_terminal(
         }
     };
     let run_id_i64 = u64_to_i64(run_id.value())?;
-    let generation_i64 = u64_to_i64(generation)?;
+    let generation_i64 = u64_to_i64(generation.value())?;
     let updated = connection
         .execute(
             "UPDATE effect_journal SET status = ?1 \
@@ -296,10 +295,7 @@ pub(crate) fn scan_in_flight(
             .as_deref()
             .map(serde_json::from_str::<StoredHarnessOutcome>)
             .transpose()
-            .map_err(|error| PortError::InternalContext {
-                context: "decode harness feedback",
-                source: error.to_string(),
-            })?
+            .map_err(|error| PortError::internal("decode harness feedback", error.to_string()))?
             .map(StoredHarnessOutcome::into_domain);
         result.push(EffectJournalEntry {
             run_id: HarnessRunId::new(i64_to_u64(run_id_i64)?),
@@ -307,7 +303,7 @@ pub(crate) fn scan_in_flight(
             capability,
             command,
             scope_id: ScopeId::new(i64_to_u64(scope_id_i64)?),
-            generation: i64_to_u64(generation_i64)?,
+            generation: JournalGeneration::new(i64_to_u64(generation_i64)?),
             status,
             feedback,
         });
@@ -318,10 +314,10 @@ pub(crate) fn scan_in_flight(
 pub(crate) fn is_current(
     connection: &Connection,
     run_id: HarnessRunId,
-    generation: u64,
+    generation: maestria_domain::JournalGeneration,
 ) -> Result<bool, PortError> {
     let run_id_i64 = u64_to_i64(run_id.value())?;
-    let generation_i64 = u64_to_i64(generation)?;
+    let generation_i64 = u64_to_i64(generation.value())?;
     let status: Option<String> = connection
         .query_row(
             "SELECT status FROM effect_journal WHERE run_id = ?1 AND generation = ?2",
@@ -339,10 +335,10 @@ pub(crate) fn is_current(
 pub(crate) fn is_feedback_accepted(
     connection: &Connection,
     run_id: HarnessRunId,
-    generation: u64,
+    generation: maestria_domain::JournalGeneration,
 ) -> Result<bool, PortError> {
     let run_id_i64 = u64_to_i64(run_id.value())?;
-    let generation_i64 = u64_to_i64(generation)?;
+    let generation_i64 = u64_to_i64(generation.value())?;
     let status: Option<String> = connection
         .query_row(
             "SELECT status FROM effect_journal WHERE run_id = ?1 AND generation = ?2",

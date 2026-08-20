@@ -24,44 +24,44 @@ fn fixture_ocr_intent(
 #[test]
 fn ocr_risk_requires_low_for_local_no_retention_and_governs_other_disclosures()
 -> Result<(), Box<dyn std::error::Error>> {
-    let scope = ScopeGuard::new(Scope::new(
+    let scope = Scope::new(
         vec![std::path::PathBuf::from("/data")],
         vec![std::path::PathBuf::from("/data")],
         vec![],
         vec![],
         false,
-    ));
+    );
     let classifier = DefaultRiskClassifier;
 
     let local_no_retention = classifier.classify(
-        &maestria_domain::MaestriaEffect::Ocr(maestria_domain::OcrEffect::new(fixture_ocr_intent(
+        &maestria_domain::MaestriaEffect::Ocr(fixture_ocr_intent(
             maestria_domain::OcrDisclosure::new(
                 false,
                 maestria_domain::OcrRetentionPolicy::NoRetention,
             ),
-        )?)),
+        )?),
         &scope,
     );
     assert_eq!(local_no_retention, RiskClass::Low);
 
     let local_provider_defined = classifier.classify(
-        &maestria_domain::MaestriaEffect::Ocr(maestria_domain::OcrEffect::new(fixture_ocr_intent(
+        &maestria_domain::MaestriaEffect::Ocr(fixture_ocr_intent(
             maestria_domain::OcrDisclosure::new(
                 false,
                 maestria_domain::OcrRetentionPolicy::ProviderDefined,
             ),
-        )?)),
+        )?),
         &scope,
     );
     assert_eq!(local_provider_defined, RiskClass::Medium);
 
     let remote_no_retention = classifier.classify(
-        &maestria_domain::MaestriaEffect::Ocr(maestria_domain::OcrEffect::new(fixture_ocr_intent(
+        &maestria_domain::MaestriaEffect::Ocr(fixture_ocr_intent(
             maestria_domain::OcrDisclosure::new(
                 true,
                 maestria_domain::OcrRetentionPolicy::NoRetention,
             ),
-        )?)),
+        )?),
         &scope,
     );
     assert_eq!(remote_no_retention, RiskClass::High);

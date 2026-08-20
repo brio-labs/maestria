@@ -55,7 +55,7 @@ fn evidence_kind_preserves_provenance_and_triggers_claim_validation()
             },
             MaestriaEffect::RunValidation(RunValidationRequest {
                 target: ValidationTarget::Claim(ClaimId::new(20)),
-                validation_report_id: ValidationReportId::new(0),
+                validation_report_id: ValidationReportId::new(1),
             }),
         ]
     );
@@ -166,7 +166,10 @@ fn record_evidence_rejects_mismatched_duplicate() -> Result<(), Box<dyn std::err
         "mismatched evidence must error",
     )?;
 
-    assert!(matches!(err, DomainError::DuplicateId { kind, id: 40 } if kind == "evidence"));
+    assert!(matches!(
+        err,
+        DomainError::DuplicateEvidence { id } if id.value() == 40
+    ));
     Ok(())
 }
 
@@ -210,8 +213,8 @@ fn record_evidence_rejects_observed_at_mismatch() -> Result<(), Box<dyn std::err
     )?;
 
     assert!(
-        matches!(err, DomainError::DuplicateId { kind, id: 40 } if kind == "evidence"),
-        "expected DuplicateId for evidence, got {:?}",
+        matches!(err, DomainError::DuplicateEvidence { id } if id.value() == 40),
+        "expected DuplicateEvidence for evidence, got {:?}",
         err
     );
     Ok(())

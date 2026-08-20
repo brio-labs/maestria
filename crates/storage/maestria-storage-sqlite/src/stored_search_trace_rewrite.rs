@@ -56,29 +56,12 @@ impl StoredSearchRewriteOrigin {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredSearchRewriteStage {
-    InitialRetrieval,
-    Reranking,
-    IterativeRetrieval,
-}
-
-impl StoredSearchRewriteStage {
-    pub(crate) fn from_domain(value: &SearchRewriteStage) -> Self {
-        match value {
-            SearchRewriteStage::InitialRetrieval => Self::InitialRetrieval,
-            SearchRewriteStage::Reranking => Self::Reranking,
-            SearchRewriteStage::IterativeRetrieval => Self::IterativeRetrieval,
-        }
-    }
-
-    pub(crate) fn try_into_domain(self) -> Result<SearchRewriteStage, maestria_ports::PortError> {
-        Ok(match self {
-            Self::InitialRetrieval => SearchRewriteStage::InitialRetrieval,
-            Self::Reranking => SearchRewriteStage::Reranking,
-            Self::IterativeRetrieval => SearchRewriteStage::IterativeRetrieval,
-        })
+crate::stored_enum! {
+    #[serde(rename_all = "snake_case")]
+    pub(crate) enum StoredSearchRewriteStage <=> SearchRewriteStage {
+        InitialRetrieval,
+        Reranking,
+        IterativeRetrieval,
     }
 }
 
@@ -126,7 +109,7 @@ impl StoredSearchTraceRewrite {
         Self {
             query: value.query.clone(),
             origin: StoredSearchRewriteOrigin::from_domain(&value.origin),
-            stage: StoredSearchRewriteStage::from_domain(&value.stage),
+            stage: StoredSearchRewriteStage::from_domain(value.stage),
             accounting: StoredSearchRewriteAccounting::from_domain(&value.accounting),
             missing_slot,
         }
@@ -174,7 +157,7 @@ mod tests {
             SearchRewriteStage::IterativeRetrieval,
         ] {
             assert_eq!(
-                StoredSearchRewriteStage::from_domain(&stage).try_into_domain()?,
+                StoredSearchRewriteStage::from_domain(stage).try_into_domain()?,
                 stage
             );
         }

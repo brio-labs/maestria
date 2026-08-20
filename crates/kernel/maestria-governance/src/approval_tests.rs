@@ -10,12 +10,10 @@ fn approval_profile_changes_decision_without_domain_changes() {
         vec!["rm -rf".into()],
         true,
     );
-    let guard = ScopeGuard::new(scope);
 
     let effect = maestria_domain::MaestriaEffect::PersistEvent {
         envelope: Box::new(DomainEventEnvelope {
             id: maestria_domain::EventId::new(1),
-            sequence: maestria_domain::SequenceNumber::new(1),
             event: DomainEvent::ArtifactRegistered {
                 artifact_id: maestria_domain::ArtifactId::new(1),
                 title: "notes".to_string(),
@@ -26,7 +24,7 @@ fn approval_profile_changes_decision_without_domain_changes() {
     let read_only = ApprovalRequest {
         effect: &effect,
         profile: AutonomyProfile::ReadOnly,
-        scope: &guard,
+        scope: &scope,
         risk: RiskClass::Low,
     };
     let assisted = ApprovalRequest {
@@ -46,7 +44,7 @@ fn approval_profile_changes_decision_without_domain_changes() {
             profile: AutonomyProfile::StrictResearch,
             risk: RiskClass::Low,
             effect: &effect,
-            scope: &guard,
+            scope: &scope,
         })
         .decision,
         PolicyDecision::Allow
@@ -62,7 +60,7 @@ fn risky_effects_require_approval_gate() {
         vec!["rm -rf".into()],
         false,
     );
-    let guard = ScopeGuard::new(scope);
+
     let risky_effect =
         maestria_domain::MaestriaEffect::QueryHarness(maestria_domain::QueryHarnessRequest {
             run_id: maestria_domain::HarnessRunId::new(1),
@@ -77,7 +75,7 @@ fn risky_effects_require_approval_gate() {
         effect: &risky_effect,
         profile: AutonomyProfile::ScopedAutonomy,
         risk: RiskClass::Critical,
-        scope: &guard,
+        scope: &scope,
     };
     let gate = DefaultApprovalGate;
     let decision = gate.decide(&request);
@@ -98,11 +96,11 @@ fn readonly_allows_full_text_index_but_gates_risky_effects() {
         vec!["rm -rf".into()],
         true,
     );
-    let guard = ScopeGuard::new(scope);
+
     let gate = DefaultApprovalGate;
 
     let index_effect =
-        maestria_domain::MaestriaEffect::IndexFullText(maestria_domain::IndexFullTextRequest {
+        maestria_domain::MaestriaEffect::IndexFullText(maestria_domain::IndexChunkRequest {
             artifact_id: maestria_domain::ArtifactId::new(1),
             chunk_id: maestria_domain::ChunkId::new(10),
         });
@@ -110,7 +108,7 @@ fn readonly_allows_full_text_index_but_gates_risky_effects() {
         effect: &index_effect,
         risk: RiskClass::Low,
         profile: AutonomyProfile::ReadOnly,
-        scope: &guard,
+        scope: &scope,
     };
     let index_decision = gate.decide(&index_req);
     assert!(
@@ -132,7 +130,7 @@ fn readonly_allows_full_text_index_but_gates_risky_effects() {
         effect: &harness_effect,
         risk: RiskClass::Critical,
         profile: AutonomyProfile::ReadOnly,
-        scope: &guard,
+        scope: &scope,
     };
     let harness_decision = gate.decide(&harness_req);
     assert!(
@@ -143,23 +141,23 @@ fn readonly_allows_full_text_index_but_gates_risky_effects() {
 
 #[test]
 fn approval_policy_exhaustively_covers_all_profile_risk_cells() {
-    let scope = ScopeGuard::new(Scope::new(
+    let scope = Scope::new(
         vec![std::path::PathBuf::from("/data")],
         vec![std::path::PathBuf::from("/data")],
         vec!["shell".into()],
         vec![],
         false,
-    ));
-    let low =
-        maestria_domain::MaestriaEffect::IndexFullText(maestria_domain::IndexFullTextRequest {
-            artifact_id: maestria_domain::ArtifactId::new(1),
-            chunk_id: maestria_domain::ChunkId::new(1),
-        });
-    let medium =
-        maestria_domain::MaestriaEffect::RunValidation(maestria_domain::RunValidationRequest {
-            target: maestria_domain::ValidationTarget::Task(maestria_domain::TaskId::new(1)),
-            validation_report_id: maestria_domain::ValidationReportId::new(1),
-        });
+    );
+    let low = maestria_domain::MaestriaEffect::IndexFullText(maestria_domain::IndexChunkRequest {
+        artifact_id: maestria_domain::ArtifactId::new(1),
+        chunk_id: maestria_domain::ChunkId::new(1),
+    });
+    let medium = maestria_domain::MaestriaEffect::RunValidation(
+        maestria_domain::RunValidationRequest::for_task(
+            maestria_domain::TaskId::new(1),
+            maestria_domain::ValidationReportId::new(1),
+        ),
+    );
     let high = maestria_domain::MaestriaEffect::FetchWeb(maestria_domain::FetchWebRequest {
         url: "https://example.test".into(),
         max_bytes: 1024,

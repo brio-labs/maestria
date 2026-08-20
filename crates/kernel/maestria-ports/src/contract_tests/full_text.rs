@@ -1,8 +1,6 @@
 use super::*;
 use maestria_domain::{ArtifactId, CardId, ChunkId};
 
-use super::fixtures::*;
-
 pub fn assert_full_text_index_round_trip(
     index: &impl FullTextIndex,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -15,7 +13,7 @@ pub fn assert_full_text_index_round_trip(
     Ok(())
 }
 
-/// One `index_artifact_chunk` update must make the chunk and its cards
+/// One `index_artifact_chunks` update must make the chunk and its cards
 /// searchable together, and a re-index with updated content must replace
 /// the prior documents (idempotent delete-then-add).
 ///
@@ -25,19 +23,19 @@ pub fn assert_full_text_index_round_trip(
 fn verify_artifact_chunk_batch(
     index: &impl FullTextIndex,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    index.index_artifact_chunk(
-        IndexedChunk {
+    index.index_artifact_chunks(
+        vec![IndexedChunk {
             artifact_id: ArtifactId::new(7),
             chunk_id: ChunkId::new(70),
             text: "zymurgy quuxwobble".to_string(),
-        },
+        }],
         vec![IndexedCard {
             artifact_id: ArtifactId::new(7),
             card_id: CardId::new(700),
             title: "Zymurgy Card".to_string(),
             body: "zymurgy frazzle".to_string(),
         }],
-        None,
+        Vec::new(),
         Vec::new(),
     )?;
 
@@ -61,14 +59,14 @@ fn verify_artifact_chunk_batch(
 
     // Re-index the same chunk with updated content: the old document must be
     // replaced, not duplicated.
-    index.index_artifact_chunk(
-        IndexedChunk {
+    index.index_artifact_chunks(
+        vec![IndexedChunk {
             artifact_id: ArtifactId::new(7),
             chunk_id: ChunkId::new(70),
             text: "zymurgy quuxwobble revv".to_string(),
-        },
+        }],
         Vec::new(),
-        None,
+        Vec::new(),
         Vec::new(),
     )?;
     let revised_hits = index.search(SearchQuery {

@@ -34,6 +34,12 @@ impl DomainError {
             Self::NotebookSourceUnavailable { key } => {
                 write!(f, "notebook source unavailable: {key}")
             }
+            Self::NotebookSourceArtifactUnavailable { artifact_id } => {
+                write!(f, "notebook source unavailable: {artifact_id}")
+            }
+            Self::InvalidSourceIdentityKey { reason } => {
+                write!(f, "notebook source unavailable: {reason}")
+            }
             Self::NotebookDraftRevisionConflict {
                 notebook_id,
                 draft_id,

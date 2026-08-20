@@ -15,7 +15,7 @@ mod index;
 mod memory;
 mod memory_replay;
 mod notebook;
-mod notebook_support;
+pub(crate) mod notebook_support;
 mod ocr;
 mod orchestration;
 mod orchestration_replay;
@@ -125,12 +125,7 @@ impl KernelState {
 
     fn emit_event(&mut self, event: DomainEvent) -> DomainEventEnvelope {
         let id = EventId(self.event_log.len() as u64 + 1);
-        let sequence = SequenceNumber(id.value());
-        let envelope = DomainEventEnvelope {
-            id,
-            sequence,
-            event,
-        };
+        let envelope = DomainEventEnvelope { id, event };
         self.event_log.push(envelope.clone());
         envelope
     }

@@ -77,7 +77,6 @@ fn test_replay_duplicate_rejection() -> Result<(), Box<dyn std::error::Error>> {
 
     let ev = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ArtifactRegistered {
             artifact_id: art_id,
             title: "Test Artifact".to_string(),
@@ -92,7 +91,6 @@ fn test_replay_duplicate_rejection() -> Result<(), Box<dyn std::error::Error>> {
     // But ChunkRegistered does.
     let mut ev_chunk = DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::ChunkRegistered {
             node_id: maestria_domain::StructureNodeId::new(1),
             source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
@@ -106,17 +104,13 @@ fn test_replay_duplicate_rejection() -> Result<(), Box<dyn std::error::Error>> {
     state.apply_event(ev_chunk.clone())?;
 
     ev_chunk.id = EventId::new(3);
-    ev_chunk.sequence = SequenceNumber::new(3);
     let err = match state.apply_event(ev_chunk) {
         Err(e) => e,
         Ok(_) => return Err(Box::new(DomainError::EmptyIntent)),
     };
     assert!(matches!(
         err,
-        DomainError::DuplicateId {
-            kind: "chunk",
-            id: 1
-        }
+        DomainError::DuplicateChunk { id } if id.value() == 1
     ));
     Ok(())
 }
@@ -205,7 +199,6 @@ fn replay_accepts_legacy_completion_noop_status_events() -> Result<(), DomainErr
     let next_event = state.event_log.len() as u64 + 1;
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(next_event),
-        sequence: SequenceNumber::new(next_event),
         event: DomainEvent::TaskStatusChanged {
             task_id,
             from: TaskStatus::CompletedVerified {
@@ -230,7 +223,6 @@ fn replay_rejects_noncompletion_noop_status_events() -> Result<(), Box<dyn std::
     let mut state = KernelState::new();
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::TaskOpened {
             task_id: TaskId::new(1),
             title: "task".to_string(),
@@ -242,7 +234,6 @@ fn replay_rejects_noncompletion_noop_status_events() -> Result<(), Box<dyn std::
     let error = require_error(
         state.apply_event(DomainEventEnvelope {
             id: EventId::new(2),
-            sequence: SequenceNumber::new(2),
             event: DomainEvent::TaskStatusChanged {
                 task_id: TaskId::new(1),
                 from: TaskStatus::Draft,
@@ -263,51 +254,28 @@ fn replay_rejects_noncompletion_noop_status_events() -> Result<(), Box<dyn std::
     Ok(())
 }
 #[test]
-fn test_out_of_order_sequence_rejection() -> Result<(), DomainError> {
+fn test_out_of_order_id_rejection() -> Result<(), DomainError> {
     let mut state = KernelState::new();
 
     let ev_1 = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::TickObserved {
             at: LogicalTick::new(1),
         },
     };
     let ev_2 = DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::TickObserved {
             at: LogicalTick::new(2),
         },
     };
 
     state.apply_event(ev_1)?;
-
     state.apply_event(ev_2)?;
 
-    // Let's test a real failure
-    let ev_invalid = DomainEventEnvelope {
-        id: EventId::new(3),
-        sequence: SequenceNumber::new(5), // expected 3
-        event: DomainEvent::TickObserved {
-            at: LogicalTick::new(5),
-        },
-    };
-
-    let err_invalid = match state.apply_event(ev_invalid) {
-        Err(e) => e,
-        Ok(_) => return Err(DomainError::EmptyIntent),
-    };
-    assert!(matches!(
-        err_invalid,
-        DomainError::InvalidSequence {
-            expected: 3,
-            actual: 5
-        }
-    ));
+    // The next event must carry the next contiguous id.
     let err_id = match state.apply_event(DomainEventEnvelope {
         id: EventId::new(4),
-        sequence: SequenceNumber::new(3),
         event: DomainEvent::TickObserved {
             at: LogicalTick::new(3),
         },
@@ -329,32 +297,31 @@ fn test_out_of_order_sequence_rejection() -> Result<(), DomainError> {
 #[test]
 fn informational_events_validate_referenced_state() -> Result<(), DomainError> {
     let mut state = KernelState::new();
-    let missing_task = DomainEventEnvelope {
+    // TaskOpened replay registers the task.
+    let opened = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
-        event: DomainEvent::UserIntentObserved {
+        event: DomainEvent::TaskOpened {
             task_id: TaskId::new(9),
             title: "intent".to_string(),
+            priority: TaskPriority::Normal,
+            artifact_id: None,
         },
     };
-    assert!(matches!(
-        state.apply_event(missing_task),
-        Err(DomainError::MissingTask { id }) if id == TaskId::new(9)
-    ));
+    state.apply_event(opened)?;
+    assert!(state.tasks.contains_key(&TaskId::new(9)));
 
     let missing_artifact = DomainEventEnvelope {
-        id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
+        id: EventId::new(2),
         event: DomainEvent::SearchCompleted {
             artifact_id: ArtifactId::new(7),
-            cards_added: 0,
         },
     };
     assert!(matches!(
         state.apply_event(missing_artifact),
         Err(DomainError::MissingArtifact { id }) if id == ArtifactId::new(7)
     ));
-    assert!(state.event_log.is_empty());
+    // The rejected apply appended nothing; only TaskOpened is logged.
+    assert_eq!(state.event_log.len(), 1);
     Ok(())
 }
 
@@ -464,10 +431,7 @@ fn test_claim_evidence_constraints() -> Result<(), Box<dyn std::error::Error>> {
 
     assert!(matches!(
         err,
-        DomainError::DuplicateId {
-            kind: "evidence_in_claim",
-            id: 1
-        }
+        DomainError::DuplicateEvidenceInClaim { id } if id.value() == 1
     ));
 
     // Now artifact mismatch
@@ -554,7 +518,6 @@ fn test_task_completion_status_mismatch() -> Result<(), DomainError> {
     // Let's craft an envelope directly because apply_input doesn't allow bypassing the helper's automatic status
     let ev_invalid_status = DomainEventEnvelope {
         id: EventId::new(5),
-        sequence: SequenceNumber::new(5),
         event: DomainEvent::TaskCompletionRecorded {
             task_id,
             status: TaskStatus::CompletedVerified {

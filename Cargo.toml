@@ -33,7 +33,8 @@ members = [
      "crates/storage/maestria-storage-sqlite",
      "crates/storage/maestria-vector-sqlite",
      "crates/storage/maestria-graph-sqlite",
-     "crates/ecosystem/maestria-ocr-local",
+    "crates/ecosystem/maestria-adapter-http",
+    "crates/ecosystem/maestria-ocr-local",
      "crates/ecosystem/maestria-embedding-openai",
      "crates/ecosystem/maestria-visual-local",
      "crates/ecosystem/maestria-sparse-local",
@@ -46,4 +47,73 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
 
+[workspace.dependencies]
+# External
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1.37" }
+tokio-util = "0.7.18"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+url = "2"
+tempfile = "3"
+thiserror = "1.0.59"
+rusqlite = { version = "0.32", features = ["bundled"] }
+ureq = { version = "2", features = ["json", "charset"] }
+ignore = "0.4.28"
+getrandom = "0.2"
+base64 = "0.22"
+lopdf = "0.42"
+tantivy = "0.26"
+syn = { version = "2", features = ["full", "visit"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+toml = "0.8"
+regex = "1"
+libc = "0.2"
+mime_guess = "2.0.5"
+axum = "0.8.9"
+tower = { version = "0.5.3", features = ["limit", "util"] }
+tower-http = { version = "0.7.0", features = ["limit", "set-header", "timeout", "trace"] }
+rust-embed = "8.7"
+gloo-net = "0.7.0"
+gloo-timers = { version = "0.4", features = ["futures"] }
+wasm-bindgen = "0.2.126"
+js-sys = "0.3.103"
+web-sys = { version = "0.3.103", features = ["Document", "Element", "History", "HtmlDialogElement", "HtmlElement", "Location", "Storage", "Window"] }
+pulldown-cmark = "0.13.4"
+dioxus = { version = "0.7.10", features = ["web", "router"] }
+async-trait = "0.1.80"
+insta = { version = "1", features = ["yaml"] }
 
+# Internal
+maestria-core = { path = "crates/core/maestria-core" }
+maestria-studio = { path = "crates/apps/maestria-studio" }
+maestria-daemon = { path = "crates/apps/maestria-daemon" }
+maestria-governance = { path = "crates/kernel/maestria-governance" }
+maestria-domain = { path = "crates/kernel/maestria-domain" }
+maestria-ports = { path = "crates/kernel/maestria-ports" }
+maestria-runtime = { path = "crates/runtime/maestria-runtime" }
+maestria-blob-fs = { path = "crates/storage/maestria-blob-fs" }
+maestria-search-tantivy = { path = "crates/storage/maestria-search-tantivy" }
+maestria-sqlite-support = { path = "crates/storage/maestria-sqlite-support" }
+maestria-storage-sqlite = { path = "crates/storage/maestria-storage-sqlite" }
+maestria-vector-sqlite = { path = "crates/storage/maestria-vector-sqlite" }
+maestria-graph-sqlite = { path = "crates/storage/maestria-graph-sqlite" }
+maestria-memory = { path = "crates/ecosystem/maestria-memory" }
+maestria-code-intel = { path = "crates/ecosystem/maestria-code-intel" }
+maestria-parsers = { path = "crates/ecosystem/maestria-parsers" }
+maestria-index-selection = { path = "crates/ecosystem/maestria-index-selection" }
+maestria-validation = { path = "crates/ecosystem/maestria-validation" }
+maestria-web-evidence = { path = "crates/ecosystem/maestria-web-evidence" }
+maestria-retrieval = { path = "crates/ecosystem/maestria-retrieval" }
+maestria-adapter-http = { path = "crates/ecosystem/maestria-adapter-http" }
+maestria-ocr-local = { path = "crates/ecosystem/maestria-ocr-local" }
+maestria-embedding-openai = { path = "crates/ecosystem/maestria-embedding-openai" }
+maestria-visual-local = { path = "crates/ecosystem/maestria-visual-local" }
+maestria-sparse-local = { path = "crates/ecosystem/maestria-sparse-local" }
+maestria-harness = { path = "crates/harness/maestria-harness" }
+maestria-harness-cli = { path = "crates/harness/maestria-harness-cli" }
+maestria-test-support = { path = "crates/test-support/maestria-test-support" }

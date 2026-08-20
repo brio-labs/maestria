@@ -6,7 +6,7 @@
 //! - `memory_service`: review workflow analysis.
 
 mod memory_service;
-pub use memory_service::MemoryService;
+pub use memory_service::review_queue;
 
 #[cfg(test)]
 mod tests;

@@ -1,4 +1,4 @@
-use maestria_domain::RelationEndpoint;
+use maestria_domain::{RelationEndpoint, RelationKind};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -49,46 +49,17 @@ impl StoredRelationEndpoint {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredRelationKind {
-    Contains,
-    Defines,
-    Supports,
-    Contradicts,
-    UsedEvidence,
-    BasedOn,
-    DerivedFrom,
-    AppliesTo,
-    RelatedTo,
-}
-
-impl StoredRelationKind {
-    pub(crate) fn from_domain(kind: &maestria_domain::RelationKind) -> Self {
-        match kind {
-            maestria_domain::RelationKind::Contains => Self::Contains,
-            maestria_domain::RelationKind::Defines => Self::Defines,
-            maestria_domain::RelationKind::Supports => Self::Supports,
-            maestria_domain::RelationKind::Contradicts => Self::Contradicts,
-            maestria_domain::RelationKind::UsedEvidence => Self::UsedEvidence,
-            maestria_domain::RelationKind::BasedOn => Self::BasedOn,
-            maestria_domain::RelationKind::DerivedFrom => Self::DerivedFrom,
-            maestria_domain::RelationKind::AppliesTo => Self::AppliesTo,
-            maestria_domain::RelationKind::RelatedTo => Self::RelatedTo,
-        }
-    }
-
-    pub(crate) fn into_domain(self) -> maestria_domain::RelationKind {
-        match self {
-            Self::Contains => maestria_domain::RelationKind::Contains,
-            Self::Defines => maestria_domain::RelationKind::Defines,
-            Self::Supports => maestria_domain::RelationKind::Supports,
-            Self::Contradicts => maestria_domain::RelationKind::Contradicts,
-            Self::UsedEvidence => maestria_domain::RelationKind::UsedEvidence,
-            Self::BasedOn => maestria_domain::RelationKind::BasedOn,
-            Self::DerivedFrom => maestria_domain::RelationKind::DerivedFrom,
-            Self::AppliesTo => maestria_domain::RelationKind::AppliesTo,
-            Self::RelatedTo => maestria_domain::RelationKind::RelatedTo,
-        }
+crate::stored_enum! {
+    #[serde(rename_all = "snake_case")]
+    pub(crate) enum StoredRelationKind <=> RelationKind {
+        Contains,
+        Defines,
+        Supports,
+        Contradicts,
+        UsedEvidence,
+        BasedOn,
+        DerivedFrom,
+        AppliesTo,
+        RelatedTo,
     }
 }

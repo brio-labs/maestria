@@ -57,10 +57,7 @@ impl StoredSearchBudget {
             max_candidates: self.max_candidates,
             max_work_units: self.max_work_units,
         })
-        .map_err(|error| PortError::InvalidInputContext {
-            context: "decode stored search budget",
-            source: error.to_string(),
-        })
+        .map_err(|error| PortError::invalid_input("decode stored search budget", error.to_string()))
     }
 }
 
@@ -74,9 +71,11 @@ impl StoredRetrievalModelFingerprint {
     }
 
     pub(crate) fn try_into_domain(self) -> Result<RetrievalModelFingerprint, PortError> {
-        RetrievalModelFingerprint::new(self.0).map_err(|error| PortError::InvalidInputContext {
-            context: "decode stored retrieval model fingerprint",
-            source: error.to_string(),
+        RetrievalModelFingerprint::new(self.0).map_err(|error| {
+            PortError::invalid_input(
+                "decode stored retrieval model fingerprint",
+                error.to_string(),
+            )
         })
     }
 }
@@ -118,9 +117,8 @@ impl StoredRetrievalPolicySnapshot {
                 .map(|scopes| scopes.into_iter().map(ScopeId::new).collect()),
             self.allow_unscoped_items,
         )
-        .map_err(|error| PortError::InvalidInputContext {
-            context: "decode stored retrieval policy snapshot",
-            source: error.to_string(),
+        .map_err(|error| {
+            PortError::invalid_input("decode stored retrieval policy snapshot", error.to_string())
         })
     }
 }

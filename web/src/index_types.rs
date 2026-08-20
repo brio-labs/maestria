@@ -28,20 +28,6 @@ pub struct IndexPolicyWire {
     pub skip_minified: bool,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-pub struct IndexSelectionProfileWire {
-    pub root: String,
-    #[serde(default)]
-    pub includes: Vec<String>,
-    #[serde(default)]
-    pub policies: std::collections::BTreeMap<String, IndexPolicyWire>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct IndexSelectionResponseWire {
-    pub profile: Option<IndexSelectionProfileWire>,
-}
-
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct IndexRunWire {
     pub submitted: usize,

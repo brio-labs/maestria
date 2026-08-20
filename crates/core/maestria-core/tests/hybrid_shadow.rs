@@ -198,18 +198,21 @@ fn execute_search(
 }
 
 #[test]
-fn shadow_executes_dense_lane_but_suppresses_fusion() -> Result<(), Box<dyn std::error::Error>> {
+fn shadow_does_not_execute_dense_lane() -> Result<(), Box<dyn std::error::Error>> {
     let (engine, context) = build_search_engine(HybridExecutionPolicy::Shadow, true)?;
     let plan = engine.plan("unrelated query", 5, &context)?;
     let output = execute_search(&engine, &plan)?;
     let trace = output.trace_data.as_deref().ok_or("trace data missing")?;
+    // Under Shadow the dense lane is not dispatched (4.3): its inference
+    // cost is not paid and no dense report is recorded.
     let dense_report = trace
         .lanes
         .iter()
-        .find(|report| report.retriever_id == "dense_chunks")
-        .ok_or("dense lane report missing")?;
-    assert_eq!(dense_report.status, SearchLaneStatus::Succeeded);
-    assert!(!dense_report.candidates.is_empty());
+        .find(|report| report.retriever_id == "dense_chunks");
+    assert!(
+        dense_report.is_none(),
+        "Shadow must not dispatch the dense lane"
+    );
     assert_eq!(output.evidence.len(), 0);
     assert_eq!(output.status, SearchStatus::NoEvidenceFound);
     Ok(())

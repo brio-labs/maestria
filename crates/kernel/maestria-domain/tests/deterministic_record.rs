@@ -11,7 +11,7 @@ use assertions::require_error;
 #[test]
 fn valid_deterministic_duplicate_still_rejected() -> Result<(), Box<dyn std::error::Error>> {
     // A valid existing record at a deterministic ID with different
-    // fields must still return DuplicateId — idempotency is preserved.
+    // fields must still return DuplicateEvidence — idempotency is preserved.
     let mut state = KernelState::new();
     let art_id = ArtifactId::new(1);
     let det_id = evidence_id_for(art_id, 0);
@@ -79,8 +79,8 @@ fn valid_deterministic_duplicate_still_rejected() -> Result<(), Box<dyn std::err
         "valid duplicate mismatch must error",
     )?;
     assert!(
-        matches!(err, DomainError::DuplicateId { kind, id } if kind == "evidence" && id == det_id.value()),
-        "expected DuplicateId, got {:?}",
+        matches!(err, DomainError::DuplicateEvidence { id } if id == det_id),
+        "expected DuplicateEvidence, got {:?}",
         err
     );
     Ok(())

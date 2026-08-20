@@ -232,12 +232,16 @@ async fn query_harness_full_input_channel_pauses_and_fails_effect()
         Err(other) => return Err(format!("expected paused degraded failure, got {other}").into()),
         Ok(()) => return Err("full input channel unexpectedly succeeded".into()),
     }
-    let is_current = adapters.effect_journal.is_current(run_id, 1)?;
+    let is_current = adapters
+        .effect_journal
+        .is_current(run_id, maestria_domain::JournalGeneration::new(1))?;
     assert!(
         !is_current,
         "paused harness generation must not remain current"
     );
-    let feedback_accepted = adapters.effect_journal.is_feedback_accepted(run_id, 1)?;
+    let feedback_accepted = adapters
+        .effect_journal
+        .is_feedback_accepted(run_id, maestria_domain::JournalGeneration::new(1))?;
     assert!(
         !feedback_accepted,
         "paused harness generation must not remain feedback-accepted"
@@ -286,7 +290,9 @@ async fn query_harness_closed_input_channel_pauses_and_fails_retry()
         Err(other) => return Err(format!("expected closed-channel failure, got {other}").into()),
         Ok(()) => return Err("closed input channel unexpectedly succeeded".into()),
     }
-    let is_current = adapters.effect_journal.is_current(run_id, 1)?;
+    let is_current = adapters
+        .effect_journal
+        .is_current(run_id, maestria_domain::JournalGeneration::new(1))?;
     assert!(!is_current);
     Ok(())
 }
@@ -336,7 +342,9 @@ async fn query_harness_pause_failure_remains_observable() -> Result<(), Box<dyn 
         Err(other) => return Err(format!("expected pause failure, got {other}").into()),
         Ok(()) => return Err("pause journal failure unexpectedly succeeded".into()),
     }
-    let feedback_accepted = adapters.effect_journal.is_feedback_accepted(run_id, 1)?;
+    let feedback_accepted = adapters
+        .effect_journal
+        .is_feedback_accepted(run_id, maestria_domain::JournalGeneration::new(1))?;
     assert!(
         feedback_accepted,
         "failed pause must leave feedback acceptance observable"
@@ -377,18 +385,27 @@ impl EffectJournal for FailingClaimFeedbackJournal {
     fn record_intent(&self, intent: EffectJournalIntent) -> Result<EffectJournalEntry, PortError> {
         self.inner.record_intent(intent)
     }
-    fn record_started(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
+    fn record_started(
+        &self,
+        run_id: HarnessRunId,
+        generation: maestria_domain::JournalGeneration,
+    ) -> Result<(), PortError> {
         self.inner.record_started(run_id, generation)
     }
-    fn claim_feedback(&self, _run_id: HarnessRunId, _generation: u64) -> Result<(), PortError> {
-        Err(PortError::Internal {
-            message: "simulated claim_feedback failure".to_string(),
-        })
+    fn claim_feedback(
+        &self,
+        _run_id: HarnessRunId,
+        _generation: maestria_domain::JournalGeneration,
+    ) -> Result<(), PortError> {
+        Err(PortError::internal(
+            "maestria runtime test",
+            "simulated claim_feedback failure".to_string(),
+        ))
     }
     fn claim_feedback_with_outcome(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
         _outcome: HarnessOutcome,
     ) -> Result<(), PortError> {
         self.claim_feedback(run_id, generation)
@@ -397,7 +414,7 @@ impl EffectJournal for FailingClaimFeedbackJournal {
     fn record_terminal(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
         status: EffectJournalStatus,
     ) -> Result<(), PortError> {
         self.inner.record_terminal(run_id, generation, status)
@@ -408,11 +425,15 @@ impl EffectJournal for FailingClaimFeedbackJournal {
     fn is_feedback_accepted(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
     ) -> Result<bool, PortError> {
         self.inner.is_feedback_accepted(run_id, generation)
     }
-    fn is_current(&self, run_id: HarnessRunId, generation: u64) -> Result<bool, PortError> {
+    fn is_current(
+        &self,
+        run_id: HarnessRunId,
+        generation: maestria_domain::JournalGeneration,
+    ) -> Result<bool, PortError> {
         self.inner.is_current(run_id, generation)
     }
 }
@@ -425,16 +446,24 @@ impl EffectJournal for FailingRecordTerminalJournal {
     fn record_intent(&self, intent: EffectJournalIntent) -> Result<EffectJournalEntry, PortError> {
         self.inner.record_intent(intent)
     }
-    fn record_started(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
+    fn record_started(
+        &self,
+        run_id: HarnessRunId,
+        generation: maestria_domain::JournalGeneration,
+    ) -> Result<(), PortError> {
         self.inner.record_started(run_id, generation)
     }
-    fn claim_feedback(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
+    fn claim_feedback(
+        &self,
+        run_id: HarnessRunId,
+        generation: maestria_domain::JournalGeneration,
+    ) -> Result<(), PortError> {
         self.inner.claim_feedback(run_id, generation)
     }
     fn claim_feedback_with_outcome(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
         _outcome: HarnessOutcome,
     ) -> Result<(), PortError> {
         self.claim_feedback(run_id, generation)
@@ -443,13 +472,14 @@ impl EffectJournal for FailingRecordTerminalJournal {
     fn record_terminal(
         &self,
         _run_id: HarnessRunId,
-        _generation: u64,
+        _generation: maestria_domain::JournalGeneration,
         status: EffectJournalStatus,
     ) -> Result<(), PortError> {
         if status == EffectJournalStatus::Failed {
-            Err(PortError::Internal {
-                message: "simulated record_terminal(Failed) failure".to_string(),
-            })
+            Err(PortError::internal(
+                "maestria runtime test",
+                "simulated record_terminal(Failed) failure".to_string(),
+            ))
         } else {
             Ok(())
         }
@@ -460,11 +490,15 @@ impl EffectJournal for FailingRecordTerminalJournal {
     fn is_feedback_accepted(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
     ) -> Result<bool, PortError> {
         self.inner.is_feedback_accepted(run_id, generation)
     }
-    fn is_current(&self, run_id: HarnessRunId, generation: u64) -> Result<bool, PortError> {
+    fn is_current(
+        &self,
+        run_id: HarnessRunId,
+        generation: maestria_domain::JournalGeneration,
+    ) -> Result<bool, PortError> {
         self.inner.is_current(run_id, generation)
     }
 }
@@ -477,16 +511,24 @@ impl EffectJournal for FailingPauseJournal {
     fn record_intent(&self, intent: EffectJournalIntent) -> Result<EffectJournalEntry, PortError> {
         self.inner.record_intent(intent)
     }
-    fn record_started(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
+    fn record_started(
+        &self,
+        run_id: HarnessRunId,
+        generation: maestria_domain::JournalGeneration,
+    ) -> Result<(), PortError> {
         self.inner.record_started(run_id, generation)
     }
-    fn claim_feedback(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
+    fn claim_feedback(
+        &self,
+        run_id: HarnessRunId,
+        generation: maestria_domain::JournalGeneration,
+    ) -> Result<(), PortError> {
         self.inner.claim_feedback(run_id, generation)
     }
     fn claim_feedback_with_outcome(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
         _outcome: HarnessOutcome,
     ) -> Result<(), PortError> {
         self.claim_feedback(run_id, generation)
@@ -495,13 +537,14 @@ impl EffectJournal for FailingPauseJournal {
     fn record_terminal(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
         status: EffectJournalStatus,
     ) -> Result<(), PortError> {
         if status == EffectJournalStatus::Paused {
-            Err(PortError::Internal {
-                message: "simulated record_terminal(Paused) failure".to_string(),
-            })
+            Err(PortError::internal(
+                "maestria runtime test",
+                "simulated record_terminal(Paused) failure".to_string(),
+            ))
         } else {
             self.inner.record_terminal(run_id, generation, status)
         }
@@ -512,11 +555,15 @@ impl EffectJournal for FailingPauseJournal {
     fn is_feedback_accepted(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
     ) -> Result<bool, PortError> {
         self.inner.is_feedback_accepted(run_id, generation)
     }
-    fn is_current(&self, run_id: HarnessRunId, generation: u64) -> Result<bool, PortError> {
+    fn is_current(
+        &self,
+        run_id: HarnessRunId,
+        generation: maestria_domain::JournalGeneration,
+    ) -> Result<bool, PortError> {
         self.inner.is_current(run_id, generation)
     }
 }
@@ -570,7 +617,7 @@ async fn model_agent_recovery_consumes_stored_success_without_reexecution()
     };
     let mut recovery = canonical.clone();
     recovery.execution = ModelAgentProposalExecution::JournalRecovery {
-        journal_generation: maestria_domain::JournalGeneration::new(entry.generation),
+        journal_generation: entry.generation,
     };
     let mut state = KernelState::new();
     state.model_agent_requests.insert(run_id, canonical);
@@ -583,9 +630,7 @@ async fn model_agent_recovery_consumes_stored_success_without_reexecution()
     );
     let result = context
         .execute_effect(
-            MaestriaEffect::QueryHarnessProposal(maestria_domain::QueryHarnessProposalRequest {
-                proposal: recovery,
-            }),
+            MaestriaEffect::QueryHarnessProposal(Box::new(recovery)),
             None,
         )
         .await;
@@ -651,7 +696,7 @@ async fn journal_recovery_rejects_missing_or_invalid_durable_feedback()
         let called = Arc::new(AtomicBool::new(false));
         let adapters = test_adapters(Arc::new(SpyHarnessAdapter::new(called.clone())));
         let run_id = HarnessRunId::new(710);
-        let generation = 2;
+        let generation = maestria_domain::JournalGeneration::new(2);
         let canonical = journal_recovery_proposal(run_id);
         if case != "missing" {
             let entry = adapters.effect_journal.record_intent(EffectJournalIntent {
@@ -691,7 +736,7 @@ async fn journal_recovery_rejects_missing_or_invalid_durable_feedback()
         }
         let mut recovery = canonical.clone();
         recovery.execution = ModelAgentProposalExecution::JournalRecovery {
-            journal_generation: maestria_domain::JournalGeneration::new(generation),
+            journal_generation: generation,
         };
         let mut state = KernelState::new();
         state.model_agent_requests.insert(run_id, canonical);
@@ -704,9 +749,7 @@ async fn journal_recovery_rejects_missing_or_invalid_durable_feedback()
         );
         let result = context
             .execute_effect(
-                MaestriaEffect::QueryHarnessProposal(
-                    maestria_domain::QueryHarnessProposalRequest { proposal: recovery },
-                ),
+                MaestriaEffect::QueryHarnessProposal(Box::new(recovery)),
                 None,
             )
             .await;

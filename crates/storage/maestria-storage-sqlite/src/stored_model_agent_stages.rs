@@ -97,35 +97,14 @@ impl StoredModelAgentValidationResult {
     }
 }
 
-/// Wire mirror of `maestria_domain::ModelAgentMemoryDecision`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredModelAgentMemoryDecision {
-    Promote,
-    RequireEvidence,
-    RequireReview,
-    Deny,
-}
-
-impl StoredModelAgentMemoryDecision {
-    pub(crate) fn from_domain(decision: ModelAgentMemoryDecision) -> Self {
-        match decision {
-            ModelAgentMemoryDecision::Promote => Self::Promote,
-            ModelAgentMemoryDecision::RequireEvidence => Self::RequireEvidence,
-            ModelAgentMemoryDecision::RequireReview => Self::RequireReview,
-            ModelAgentMemoryDecision::Deny => Self::Deny,
-        }
-    }
-
-    pub(crate) fn try_into_domain(
-        self,
-    ) -> Result<ModelAgentMemoryDecision, maestria_ports::PortError> {
-        Ok(match self {
-            Self::Promote => ModelAgentMemoryDecision::Promote,
-            Self::RequireEvidence => ModelAgentMemoryDecision::RequireEvidence,
-            Self::RequireReview => ModelAgentMemoryDecision::RequireReview,
-            Self::Deny => ModelAgentMemoryDecision::Deny,
-        })
+crate::stored_enum! {
+    /// Wire mirror of `maestria_domain::ModelAgentMemoryDecision`.
+    #[serde(rename_all = "snake_case")]
+    pub(crate) enum StoredModelAgentMemoryDecision <=> ModelAgentMemoryDecision {
+        Promote,
+        RequireEvidence,
+        RequireReview,
+        Deny,
     }
 }
 

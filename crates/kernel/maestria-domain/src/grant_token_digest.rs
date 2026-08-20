@@ -13,11 +13,7 @@ pub struct GrantTokenDigest(String);
 
 impl GrantTokenDigest {
     pub fn try_from(value: String) -> Result<Self, GrantTokenDigestError> {
-        if value.len() != 64
-            || !value
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-        {
+        if !crate::ids::is_lowercase_hex64(&value) {
             return Err(GrantTokenDigestError::InvalidFormat);
         }
         Ok(Self(value))

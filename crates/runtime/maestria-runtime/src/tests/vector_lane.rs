@@ -16,13 +16,10 @@ use crate::config::EffectExecutionContext;
 use crate::effect_dispatch::EffectWork;
 use crate::test_support::*;
 use maestria_domain::{
-    Artifact, ArtifactId, CardId, Chunk, ChunkId, DomainInput, IndexFullTextRequest,
-    IndexVectorRequest, KernelState, LogicalTick, MaestriaEffect, SourceSpan, StructureNodeId,
+    Artifact, ArtifactId, Chunk, ChunkId, DomainInput, IndexChunkRequest, KernelState, LogicalTick,
+    MaestriaEffect, SourceSpan, StructureNodeId,
 };
-use maestria_ports::lexical::{
-    CardField, ChunkField, IndexedLexicalCard, IndexedLexicalChunk, LexicalCardHit,
-    LexicalChunkHit, LexicalQuery,
-};
+use maestria_ports::lexical::{IndexedLexicalCard, IndexedLexicalChunk};
 use maestria_ports::{
     BoundedSearch, CardHit, FullTextIndex, IndexedCard, IndexedChunk, PortError, SearchHit,
     SearchQuery, VectorIndex, VectorSearchHit, VectorSearchQuery,
@@ -145,11 +142,11 @@ impl FullTextIndex for BlockingFullTextIndex {
         self.inner.index_lexical_cards(cards)
     }
 
-    fn index_artifact_chunk(
+    fn index_artifact_chunks(
         &self,
-        chunk: IndexedChunk,
+        chunks: Vec<IndexedChunk>,
         cards: Vec<IndexedCard>,
-        lexical_chunk: Option<IndexedLexicalChunk>,
+        lexical_chunks: Vec<IndexedLexicalChunk>,
         lexical_cards: Vec<IndexedLexicalCard>,
     ) -> Result<(), PortError> {
         self.entered.fetch_add(1, Ordering::SeqCst);
@@ -157,37 +154,7 @@ impl FullTextIndex for BlockingFullTextIndex {
             std::thread::yield_now();
         }
         self.inner
-            .index_artifact_chunk(chunk, cards, lexical_chunk, lexical_cards)
-    }
-
-    fn search_lexical(
-        &self,
-        query: LexicalQuery<ChunkField>,
-    ) -> Result<BoundedSearch<LexicalChunkHit>, PortError> {
-        self.inner.search_lexical(query)
-    }
-
-    fn search_cards_lexical(
-        &self,
-        query: LexicalQuery<CardField>,
-    ) -> Result<BoundedSearch<LexicalCardHit>, PortError> {
-        self.inner.search_cards_lexical(query)
-    }
-
-    fn search_lexical_filtered(
-        &self,
-        query: LexicalQuery<ChunkField>,
-        filter: &dyn Fn(ChunkId, ArtifactId) -> Result<bool, PortError>,
-    ) -> Result<BoundedSearch<LexicalChunkHit>, PortError> {
-        self.inner.search_lexical_filtered(query, filter)
-    }
-
-    fn search_cards_lexical_filtered(
-        &self,
-        query: LexicalQuery<CardField>,
-        filter: &dyn Fn(CardId, ArtifactId) -> Result<bool, PortError>,
-    ) -> Result<BoundedSearch<LexicalCardHit>, PortError> {
-        self.inner.search_cards_lexical_filtered(query, filter)
+            .index_artifact_chunks(chunks, cards, lexical_chunks, lexical_cards)
     }
 }
 
@@ -249,7 +216,7 @@ async fn vector_effects_admit_while_main_lane_is_saturated()
     // inside its search-index commit.
     effect_tx
         .send(vec![EffectWork::Pending(MaestriaEffect::IndexFullText(
-            IndexFullTextRequest {
+            IndexChunkRequest {
                 artifact_id,
                 chunk_id,
             },
@@ -267,7 +234,7 @@ async fn vector_effects_admit_while_main_lane_is_saturated()
     // chunk per artifact runs the invalidation port, which is observable.
     let flood = (0..6)
         .map(|i| {
-            EffectWork::Pending(MaestriaEffect::IndexVector(IndexVectorRequest {
+            EffectWork::Pending(MaestriaEffect::IndexVector(IndexChunkRequest {
                 artifact_id: ArtifactId::new(100 + i),
                 chunk_id: ChunkId::new(1000 + i),
             }))
@@ -362,7 +329,7 @@ async fn executor_consumes_batches_while_lane_is_saturated()
     // The only main-lane permit is taken by a blocking full-text effect.
     effect_tx
         .send(vec![EffectWork::Pending(MaestriaEffect::IndexFullText(
-            IndexFullTextRequest {
+            IndexChunkRequest {
                 artifact_id,
                 chunk_id,
             },
@@ -381,7 +348,7 @@ async fn executor_consumes_batches_while_lane_is_saturated()
     // let the vector effect run on its own lane.
     effect_tx
         .send(vec![EffectWork::Pending(MaestriaEffect::IndexFullText(
-            IndexFullTextRequest {
+            IndexChunkRequest {
                 artifact_id,
                 chunk_id,
             },
@@ -389,7 +356,7 @@ async fn executor_consumes_batches_while_lane_is_saturated()
         .await?;
     effect_tx
         .send(vec![EffectWork::Pending(MaestriaEffect::IndexVector(
-            IndexVectorRequest {
+            IndexChunkRequest {
                 artifact_id: ArtifactId::new(101),
                 chunk_id: ChunkId::new(1001),
             },
@@ -479,11 +446,11 @@ async fn full_text_effect_completes_while_vector_lane_is_saturated()
     // its first (and only) stale-projection invalidation.
     effect_tx
         .send(vec![
-            EffectWork::Pending(MaestriaEffect::IndexVector(IndexVectorRequest {
+            EffectWork::Pending(MaestriaEffect::IndexVector(IndexChunkRequest {
                 artifact_id: ArtifactId::new(101),
                 chunk_id: ChunkId::new(1001),
             })),
-            EffectWork::Pending(MaestriaEffect::IndexVector(IndexVectorRequest {
+            EffectWork::Pending(MaestriaEffect::IndexVector(IndexChunkRequest {
                 artifact_id: ArtifactId::new(102),
                 chunk_id: ChunkId::new(1002),
             })),
@@ -501,7 +468,7 @@ async fn full_text_effect_completes_while_vector_lane_is_saturated()
     // lane stays blocked.
     effect_tx
         .send(vec![EffectWork::Pending(MaestriaEffect::IndexFullText(
-            IndexFullTextRequest {
+            IndexChunkRequest {
                 artifact_id: full_text_artifact,
                 chunk_id: full_text_chunk,
             },
@@ -561,7 +528,7 @@ async fn vector_degradation_invalidates_at_most_once_per_artifact()
     ];
     for (artifact_id, chunk_id) in effects {
         let result = MaestriaRuntime::test_execute_effect(
-            MaestriaEffect::IndexVector(IndexVectorRequest {
+            MaestriaEffect::IndexVector(IndexChunkRequest {
                 artifact_id,
                 chunk_id,
             }),
@@ -620,7 +587,7 @@ async fn full_text_completion_on_full_input_channel_delivers_without_retry()
     // succeed on the first attempt and defer the completion instead.
     let result = context
         .clone()
-        .execute_with_retries(MaestriaEffect::IndexFullText(IndexFullTextRequest {
+        .execute_with_retries(MaestriaEffect::IndexFullText(IndexChunkRequest {
             artifact_id,
             chunk_id,
         }))
@@ -740,7 +707,7 @@ async fn secret_chunk_degrades_vector_lane_without_cancelling_runtime()
 
     effect_tx
         .send(vec![EffectWork::Pending(MaestriaEffect::IndexVector(
-            IndexVectorRequest {
+            IndexChunkRequest {
                 artifact_id,
                 chunk_id: secret_chunk,
             },
@@ -755,7 +722,7 @@ async fn secret_chunk_degrades_vector_lane_without_cancelling_runtime()
 
     effect_tx
         .send(vec![EffectWork::Pending(MaestriaEffect::IndexVector(
-            IndexVectorRequest {
+            IndexChunkRequest {
                 artifact_id: clean_artifact,
                 chunk_id: clean_chunk,
             },

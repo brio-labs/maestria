@@ -4,7 +4,9 @@
 //! callers write `content_hash(0)` instead of embedding a 64-character
 //! literal. Seed values map onto `"0123456789abcdef"` by index.
 
-use maestria_domain::{ContentHash, RealmId, RealmIdError, SearchCompatibilityError};
+use maestria_domain::{
+    ContentHash, RealmId, RealmIdError, SearchCompatibilityError, SearchExecutionBudget,
+};
 
 const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
 
@@ -43,4 +45,13 @@ pub fn realm_id(seed: u8) -> Result<RealmId, RealmIdError> {
 /// The bare 64-hex-digit string form of a seeded realm identity.
 pub fn realm_id_str(seed: u8) -> String {
     realm_hex64(seed)
+}
+
+/// A deterministic search execution budget for fixture queries.
+///
+/// `max_candidates` and `max_work_units` are fixed; only the result limit
+/// varies per test so consumers write `search_budget(10)` instead of the
+/// four-argument literal.
+pub fn search_budget(limit: u64) -> Result<SearchExecutionBudget, SearchCompatibilityError> {
+    SearchExecutionBudget::new(limit, 10_000, 100_000, 0)
 }

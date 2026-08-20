@@ -234,10 +234,14 @@ async fn wait_for_indexed(
                 return Ok(());
             }
             Ok(_) => tokio::time::sleep(std::time::Duration::from_millis(25)).await,
-            Err(error) if maestria_daemon::db_retry::is_database_busy(&error) => {
+            Err(error) if maestria_storage_sqlite::db_retry::is_database_busy(&error) => {
                 tokio::time::sleep(std::time::Duration::from_millis(25)).await;
             }
-            Err(error) => return Err(error),
+            Err(_) => {
+                return Err(anyhow::anyhow!(
+                    "kernel state load failed during indexing wait"
+                ));
+            }
         }
     }
 }
@@ -555,20 +559,13 @@ async fn prepare_evaluation_instance(
     {
         let session =
             MutationSession::start(layout.clone(), AutonomyProfile::TrustedWorkspace).await?;
-        let result = async {
-            for path in source_ids.keys() {
-                index_source(&session, &layout, Path::new(path)).await?;
-            }
-            Ok::<(), anyhow::Error>(())
+        for path in source_ids.keys() {
+            index_source(&session, &layout, Path::new(path)).await?;
         }
-        .await;
-        session.finish(result).await?;
     }
-
     let mut state: KernelState = load_kernel_state(&layout)?;
-    let manifest = maestria_core::InstanceService::parse_manifest(&fs::read_to_string(
-        &layout.manifest_path,
-    )?)?;
+    let manifest =
+        maestria_core::InstanceManifest::decode(&fs::read_to_string(&layout.manifest_path)?)?;
     let generation_id = reconcile_sparse_generation(&layout, &mut state, &manifest)?;
     let namespace = sparse_namespace(&manifest)?;
 

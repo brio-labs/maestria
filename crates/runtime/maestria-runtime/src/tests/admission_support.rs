@@ -24,27 +24,31 @@ pub(super) struct ErrorApprovalRepository;
 
 impl ApprovalRepository for ErrorApprovalRepository {
     fn save(&self, _record: &ApprovalRecord) -> Result<(), PortError> {
-        Err(PortError::Internal {
-            message: "approval lookup test failure".to_string(),
-        })
+        Err(PortError::internal(
+            "maestria runtime test",
+            "approval lookup test failure".to_string(),
+        ))
     }
 
     fn find_pending(&self) -> Result<Vec<ApprovalRecord>, PortError> {
-        Err(PortError::Internal {
-            message: "approval lookup test failure".to_string(),
-        })
+        Err(PortError::internal(
+            "maestria runtime test",
+            "approval lookup test failure".to_string(),
+        ))
     }
 
     fn find_all(&self) -> Result<Vec<ApprovalRecord>, PortError> {
-        Err(PortError::Internal {
-            message: "approval lookup test failure".to_string(),
-        })
+        Err(PortError::internal(
+            "maestria runtime test",
+            "approval lookup test failure".to_string(),
+        ))
     }
 
     fn find_by_id(&self, _id: ApprovalId) -> Result<Option<ApprovalRecord>, PortError> {
-        Err(PortError::Internal {
-            message: "approval lookup test failure".to_string(),
-        })
+        Err(PortError::internal(
+            "maestria runtime test",
+            "approval lookup test failure".to_string(),
+        ))
     }
 
     fn resolve(
@@ -52,15 +56,17 @@ impl ApprovalRepository for ErrorApprovalRepository {
         _id: ApprovalId,
         _approved: bool,
     ) -> Result<Option<ApprovalRecord>, PortError> {
-        Err(PortError::Internal {
-            message: "approval lookup test failure".to_string(),
-        })
+        Err(PortError::internal(
+            "maestria runtime test",
+            "approval lookup test failure".to_string(),
+        ))
     }
 
     fn find_by_task_id(&self, _task_id: TaskId) -> Result<Vec<ApprovalRecord>, PortError> {
-        Err(PortError::Internal {
-            message: "approval lookup test failure".to_string(),
-        })
+        Err(PortError::internal(
+            "maestria runtime test",
+            "approval lookup test failure".to_string(),
+        ))
     }
 }
 
@@ -240,7 +246,7 @@ pub(super) fn seed_intent(
     capability: &str,
     command: &str,
     scope_id: ScopeId,
-    generation: Option<u64>,
+    generation: Option<maestria_domain::JournalGeneration>,
 ) -> Result<(), PortError> {
     journal.record_intent(EffectJournalIntent {
         run_id: request.run_id,
@@ -285,10 +291,7 @@ pub(super) fn seed_exact_approval(
         &request.capability,
         &request.command,
         ScopeId::new(1),
-        request
-            .execution
-            .journal_generation()
-            .map(|generation| generation.value()),
+        request.execution.journal_generation(),
     )?;
     Ok((context, journal, receiver))
 }
@@ -317,12 +320,12 @@ pub(super) fn recovery_context(
         capability: request.capability.clone(),
         command: request.command.clone(),
         scope_id: ScopeId::new(1),
-        requested_generation: Some(generation.value()),
+        requested_generation: Some(generation),
     })?;
-    journal.record_started(request.run_id, generation.value())?;
+    journal.record_started(request.run_id, generation)?;
     journal.claim_feedback_with_outcome(
         request.run_id,
-        generation.value(),
+        generation,
         maestria_ports::HarnessOutcome {
             run_id: request.run_id,
             command: request.command.clone(),

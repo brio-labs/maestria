@@ -2,7 +2,7 @@ use super::*;
 use maestria_domain::{
     Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, ClaimId, ContentHash, DomainEvent,
     DomainEventEnvelope, EventId, Evidence, EvidenceId, EvidenceKind, LineRange, LogicalTick,
-    SequenceNumber, SnapshotRef, ValidationReportId,
+    SnapshotRef, ValidationReportId,
 };
 
 pub fn sample_artifact(id: u64) -> Artifact {
@@ -98,7 +98,6 @@ pub fn assert_card_repository_round_trip(
         artifact_id: ArtifactId::new(1),
         title: "bravo".to_string(),
         body: "body b".to_string(),
-        claim_ids: [ClaimId::new(3), ClaimId::new(1)].into(),
         node_id: maestria_domain::StructureNodeId::new(0),
         source_span: maestria_domain::SourceSpan::TextSpan {
             start_line: 1,
@@ -111,7 +110,6 @@ pub fn assert_card_repository_round_trip(
         artifact_id: ArtifactId::new(1),
         title: "alpha".to_string(),
         body: "body a".to_string(),
-        claim_ids: Default::default(),
         node_id: maestria_domain::StructureNodeId::new(0),
         source_span: maestria_domain::SourceSpan::TextSpan {
             start_line: 1,
@@ -124,7 +122,6 @@ pub fn assert_card_repository_round_trip(
         artifact_id: ArtifactId::new(2),
         title: "other".to_string(),
         body: "body".to_string(),
-        claim_ids: Default::default(),
         node_id: maestria_domain::StructureNodeId::new(0),
         source_span: maestria_domain::SourceSpan::TextSpan {
             start_line: 1,
@@ -228,6 +225,9 @@ pub fn assert_evidence_repository_replace_contract(
     };
 
     repository.put(original.clone())?;
+    // put of identical value is idempotent
+    repository.put(original.clone())?;
+    assert_eq!(repository.get(original.id)?, Some(original.clone()));
     // put with different content must conflict
     let Err(err) = repository.put(replacement.clone()) else {
         return Err("expected error".into());
@@ -261,7 +261,6 @@ pub fn assert_evidence_repository_replace_contract(
 pub fn assert_event_log_round_trip(log: &impl EventLog) -> Result<(), Box<dyn std::error::Error>> {
     let event = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "notes".to_string(),
@@ -270,7 +269,6 @@ pub fn assert_event_log_round_trip(log: &impl EventLog) -> Result<(), Box<dyn st
     };
     let evidence = DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::EvidenceRecorded {
             evidence_id: EvidenceId::new(40),
             artifact_id: ArtifactId::new(1),
@@ -290,15 +288,12 @@ pub fn assert_event_log_round_trip(log: &impl EventLog) -> Result<(), Box<dyn st
     };
     let search = DomainEventEnvelope {
         id: EventId::new(3),
-        sequence: SequenceNumber::new(3),
         event: DomainEvent::SearchCompleted {
             artifact_id: ArtifactId::new(1),
-            cards_added: 2,
         },
     };
     let unrelated = DomainEventEnvelope {
         id: EventId::new(4),
-        sequence: SequenceNumber::new(4),
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(2),
             title: "other".to_string(),
@@ -313,7 +308,6 @@ pub fn assert_event_log_round_trip(log: &impl EventLog) -> Result<(), Box<dyn st
 
     let out_of_order = DomainEventEnvelope {
         id: EventId::new(6), // next is 5
-        sequence: SequenceNumber::new(6),
         event: DomainEvent::TickObserved {
             at: LogicalTick::new(0),
         },
@@ -328,7 +322,6 @@ pub fn assert_event_log_round_trip(log: &impl EventLog) -> Result<(), Box<dyn st
 
     let id_mismatch = DomainEventEnvelope {
         id: EventId::new(99),
-        sequence: SequenceNumber::new(5),
         event: DomainEvent::TickObserved {
             at: LogicalTick::new(0),
         },

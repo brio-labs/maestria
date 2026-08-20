@@ -101,17 +101,13 @@ impl KernelState {
                         || existing.order != chunk.order
                         || existing.text != chunk.text
                     {
-                        return Err(DomainError::DuplicateId {
-                            kind: "chunk",
-                            id: chunk.chunk_id.value(),
-                        });
+                        return Err(DomainError::DuplicateChunk { id: chunk.chunk_id });
                     }
                 } else {
                     generated.push(self.handle_register_chunk(chunk.clone())?);
                     self.pending_full_text.insert(chunk.chunk_id);
                     new_chunks += 1;
                 }
-                self.chunk_nodes.insert(chunk.chunk_id, chunk.node_id);
             }
             for card in &input.cards {
                 if !input.tree_nodes.iter().any(|node| node.id == card.node_id)
@@ -128,10 +124,7 @@ impl KernelState {
                         || existing.title != card.title
                         || existing.body != card.body
                     {
-                        return Err(DomainError::DuplicateId {
-                            kind: "card",
-                            id: card.card_id.value(),
-                        });
+                        return Err(DomainError::DuplicateCard { id: card.card_id });
                     }
                 } else {
                     generated.push(self.handle_create_card(card.clone())?);

@@ -215,8 +215,8 @@ pub(super) async fn run(
                 continue;
             }
         };
-        let state = runtime.kernel_state().await;
-        let already_indexed = state.artifacts.get(&artifact_id).is_some_and(|artifact| {
+        let artifact = runtime.artifact(artifact_id).await;
+        let already_indexed = artifact.is_some_and(|artifact| {
             artifact.content_hash.as_ref() == Some(&hash)
                 && artifact.index_status == IndexStatus::Indexed
         });

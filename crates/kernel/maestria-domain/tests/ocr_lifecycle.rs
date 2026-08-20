@@ -84,14 +84,12 @@ fn durable_completion_replay_keeps_result_without_pending_transport_intent()
     let events = vec![
         DomainEventEnvelope {
             id: EventId::new(1),
-            sequence: SequenceNumber::new(1),
             event: DomainEvent::OcrRequested {
                 intent: request.clone(),
             },
         },
         DomainEventEnvelope {
             id: EventId::new(2),
-            sequence: SequenceNumber::new(2),
             event: DomainEvent::OcrCompleted {
                 artifact_id: request.artifact_id(),
                 completion: completion.clone(),
@@ -117,14 +115,12 @@ fn replay_rejects_uncorrelated_or_conflicting_ocr_terminals()
     )?;
     let requested = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::OcrRequested {
             intent: request.clone(),
         },
     };
     let completed = DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::OcrCompleted {
             artifact_id: request.artifact_id(),
             completion: completion.clone(),
@@ -132,7 +128,6 @@ fn replay_rejects_uncorrelated_or_conflicting_ocr_terminals()
     };
     let duplicate = DomainEventEnvelope {
         id: EventId::new(3),
-        sequence: SequenceNumber::new(3),
         event: DomainEvent::OcrCompleted {
             artifact_id: request.artifact_id(),
             completion: completion.clone(),
@@ -151,7 +146,6 @@ fn replay_rejects_uncorrelated_or_conflicting_ocr_terminals()
     )?;
     let conflict = DomainEventEnvelope {
         id: EventId::new(3),
-        sequence: SequenceNumber::new(3),
         event: DomainEvent::OcrCompleted {
             artifact_id: request.artifact_id(),
             completion: conflicting_completion,
@@ -161,7 +155,6 @@ fn replay_rejects_uncorrelated_or_conflicting_ocr_terminals()
 
     let wrong_artifact = DomainEventEnvelope {
         id: EventId::new(2),
-        sequence: SequenceNumber::new(2),
         event: DomainEvent::OcrCompleted {
             artifact_id: ArtifactId::new(8),
             completion,
@@ -171,7 +164,6 @@ fn replay_rejects_uncorrelated_or_conflicting_ocr_terminals()
 
     let uncorrelated_failure = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::OcrFailed {
             artifact_id: request.artifact_id(),
             request_id: request.request_id().clone(),
@@ -212,7 +204,6 @@ fn ocr_failure_terminalizes_parser_in_live_state_and_replay()
     let replayed = replay_events(&[
         DomainEventEnvelope {
             id: EventId::new(1),
-            sequence: SequenceNumber::new(1),
             event: DomainEvent::ParserStarted {
                 artifact_id: parser.artifact_id,
                 title: parser.title,
@@ -223,12 +214,10 @@ fn ocr_failure_terminalizes_parser_in_live_state_and_replay()
         },
         DomainEventEnvelope {
             id: EventId::new(2),
-            sequence: SequenceNumber::new(2),
             event: DomainEvent::OcrRequested { intent: request },
         },
         DomainEventEnvelope {
             id: EventId::new(3),
-            sequence: SequenceNumber::new(3),
             event: DomainEvent::OcrFailed {
                 artifact_id: failure.artifact_id,
                 request_id: failure.request_id,

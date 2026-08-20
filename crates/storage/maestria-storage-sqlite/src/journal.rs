@@ -11,11 +11,19 @@ impl EffectJournal for SqliteStore {
         repositories::effect_journal_repo::record_intent(&mut connection, intent)
     }
 
-    fn record_started(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
+    fn record_started(
+        &self,
+        run_id: HarnessRunId,
+        generation: maestria_domain::JournalGeneration,
+    ) -> Result<(), PortError> {
         let connection = self.lock()?;
         repositories::effect_journal_repo::record_started(&connection, run_id, generation)
     }
-    fn claim_feedback(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
+    fn claim_feedback(
+        &self,
+        run_id: HarnessRunId,
+        generation: maestria_domain::JournalGeneration,
+    ) -> Result<(), PortError> {
         let connection = self.lock()?;
         repositories::effect_journal_repo::claim_feedback(&connection, run_id, generation)
     }
@@ -23,7 +31,7 @@ impl EffectJournal for SqliteStore {
     fn claim_feedback_with_outcome(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
         outcome: HarnessOutcome,
     ) -> Result<(), PortError> {
         let connection = self.lock()?;
@@ -38,7 +46,7 @@ impl EffectJournal for SqliteStore {
     fn feedback_outcome(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
     ) -> Result<Option<HarnessOutcome>, PortError> {
         let connection = self.lock()?;
         repositories::effect_journal_repo::feedback_outcome(&connection, run_id, generation)
@@ -47,7 +55,7 @@ impl EffectJournal for SqliteStore {
     fn record_terminal(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
         status: EffectJournalStatus,
     ) -> Result<(), PortError> {
         let connection = self.lock()?;
@@ -62,12 +70,16 @@ impl EffectJournal for SqliteStore {
     fn is_feedback_accepted(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
     ) -> Result<bool, PortError> {
         let connection = self.lock()?;
         repositories::effect_journal_repo::is_feedback_accepted(&connection, run_id, generation)
     }
-    fn is_current(&self, run_id: HarnessRunId, generation: u64) -> Result<bool, PortError> {
+    fn is_current(
+        &self,
+        run_id: HarnessRunId,
+        generation: maestria_domain::JournalGeneration,
+    ) -> Result<bool, PortError> {
         let connection = self.lock()?;
         repositories::effect_journal_repo::is_current(&connection, run_id, generation)
     }

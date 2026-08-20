@@ -70,16 +70,16 @@ impl RetrievalEngine {
             .iter()
             .filter(|retriever| {
                 let descriptor = retriever.descriptor();
-                let descriptor_id = descriptor.id.to_ascii_lowercase();
-                let is_code = descriptor.modality.eq_ignore_ascii_case("code")
-                    || descriptor.modality.eq_ignore_ascii_case("rust")
-                    || descriptor_id.contains("code_intel");
-                crate::visual_benchmark::visual_lane_is_eligible(&descriptor, visual_enabled)
+                super::batch_is_eligible(
+                    descriptor,
+                    &self.hybrid_policy,
+                    repository_specialized,
+                    plan.original_query(),
+                ) && crate::visual_benchmark::visual_lane_is_eligible(descriptor, visual_enabled)
                     && crate::learned_sparse_policy::sparse_lane_is_eligible(
-                        &descriptor,
+                        descriptor,
                         sparse_enabled,
                     )
-                    && (repository_specialized || !is_code)
             })
             .cloned()
             .collect()
@@ -98,7 +98,7 @@ impl RetrievalEngine {
         self.retrievers
             .iter()
             .filter(|retriever| {
-                crate::learned_sparse_policy::is_sparse_descriptor(&retriever.descriptor())
+                crate::learned_sparse_policy::is_sparse_descriptor(retriever.descriptor())
             })
             .cloned()
             .collect()
@@ -127,14 +127,12 @@ impl RetrievalEngine {
         .with_policy_fingerprint(policy_fingerprint);
         trace.source_selection_digest =
             source_filter.map(crate::types::CandidateSourceFilter::digest);
-        Ok(SearchOutcome {
-            trace: trace.deterministic_id(),
-            trace_data: Some(Box::new(trace)),
-            fingerprint: plan.fingerprint().clone(),
-            index_generation: plan.index_generation(),
-            status: SearchStatus::QuarantinedForReview,
-            evidence: Vec::new(),
-            coverage: EvidenceCoverage::new(EvidenceCoverageDto {
+        Ok(SearchOutcome::from_trace(
+            trace,
+            plan,
+            SearchStatus::QuarantinedForReview,
+            Vec::new(),
+            EvidenceCoverage::new(EvidenceCoverageDto {
                 required_claims: vec![],
                 required_subquestions: vec![],
                 distinct_sources: 0,
@@ -144,7 +142,7 @@ impl RetrievalEngine {
                 percent_covered: 0,
                 gaps_identified: vec![],
             })?,
-            conflicts: Vec::new(),
-        })
+            Vec::new(),
+        ))
     }
 }

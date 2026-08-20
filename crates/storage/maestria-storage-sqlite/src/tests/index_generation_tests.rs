@@ -28,7 +28,6 @@ fn index_generation_started_round_trips() -> Result<(), Box<dyn std::error::Erro
     let store = SqliteStore::in_memory()?;
     let event = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::IndexGenerationStarted {
             id: IndexGenerationId::new(10),
             name: RepresentationName::new("dense_vector"),
@@ -48,7 +47,6 @@ fn index_generation_transitioned_round_trips() -> Result<(), Box<dyn std::error:
     let store = SqliteStore::in_memory()?;
     let event = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::IndexGenerationTransitioned {
             id: IndexGenerationId::new(10),
             from: IndexLifecycle::Building,
@@ -75,7 +73,6 @@ fn full_lifecycle_replay_asserts_active_generation() -> Result<(), Box<dyn std::
 
         let started = DomainEventEnvelope {
             id: EventId::new(1),
-            sequence: SequenceNumber::new(1),
             event: DomainEvent::IndexGenerationStarted {
                 id: IndexGenerationId::new(10),
                 name: RepresentationName::new("dense_vector"),
@@ -87,7 +84,6 @@ fn full_lifecycle_replay_asserts_active_generation() -> Result<(), Box<dyn std::
 
         let to_evaluated = DomainEventEnvelope {
             id: EventId::new(2),
-            sequence: SequenceNumber::new(2),
             event: DomainEvent::IndexGenerationTransitioned {
                 id: IndexGenerationId::new(10),
                 from: IndexLifecycle::Building,
@@ -98,7 +94,6 @@ fn full_lifecycle_replay_asserts_active_generation() -> Result<(), Box<dyn std::
 
         let to_shadow = DomainEventEnvelope {
             id: EventId::new(3),
-            sequence: SequenceNumber::new(3),
             event: DomainEvent::IndexGenerationTransitioned {
                 id: IndexGenerationId::new(10),
                 from: IndexLifecycle::Evaluated,
@@ -109,7 +104,6 @@ fn full_lifecycle_replay_asserts_active_generation() -> Result<(), Box<dyn std::
 
         let to_active = DomainEventEnvelope {
             id: EventId::new(4),
-            sequence: SequenceNumber::new(4),
             event: DomainEvent::IndexGenerationTransitioned {
                 id: IndexGenerationId::new(10),
                 from: IndexLifecycle::Shadow,
@@ -151,8 +145,8 @@ fn payload_rejects_missing_and_unknown_fields_for_generations() -> Result<(), Po
         let connection = missing_field.lock()?;
         connection
             .execute(
-                "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'index_generation_started', NULL, ?1, 4)",
+                "INSERT INTO domain_events (id, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 'index_generation_started', NULL, ?1, 4)",
                 params![
                     r#"{"event_kind":"index_generation_started","id":10,"name":"dense","corpus_snapshot":42}"# // missing fingerprint
                 ],
@@ -170,8 +164,8 @@ fn payload_rejects_missing_and_unknown_fields_for_generations() -> Result<(), Po
         let connection = unknown_field.lock()?;
         connection
             .execute(
-                "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'index_generation_transitioned', NULL, ?1, 4)",
+                "INSERT INTO domain_events (id, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 'index_generation_transitioned', NULL, ?1, 4)",
                 params![
                     r#"{"event_kind":"index_generation_transitioned","id":10,"from":"Building","to":"Evaluated","replaced_active_id":null,"unexpected":true}"#
                 ],
@@ -189,8 +183,8 @@ fn payload_rejects_missing_and_unknown_fields_for_generations() -> Result<(), Po
         let connection = nested_unknown_field.lock()?;
         connection
             .execute(
-                "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'index_generation_started', NULL, ?1, 4)",
+                "INSERT INTO domain_events (id, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 'index_generation_started', NULL, ?1, 4)",
                 params![
                     r#"{"event_kind":"index_generation_started","id":10,"name":"dense","corpus_snapshot":42,"fingerprint":{"provider":"p","model":"m","revision":"r","artifact_hash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","dimensions":1,"quantization":"f32","query_template_hash":"q","document_template_hash":"d","preprocessing_version":"v","unexpected":true}}"#
                 ],

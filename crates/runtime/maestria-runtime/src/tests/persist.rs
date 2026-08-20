@@ -3,7 +3,7 @@ use crate::tests::FailingEventLog;
 use maestria_domain::{
     Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, DomainEvent, DomainEventEnvelope,
     EventId, Evidence, EvidenceId, EvidenceKind, HarnessRunId, IndexStatus, KernelState, LineRange,
-    LogicalTick, SequenceNumber, SnapshotRef, SourceSpan, StructureNodeId,
+    LogicalTick, SnapshotRef, SourceSpan, StructureNodeId,
 };
 use maestria_ports::{
     CardRepository, ChunkRepository, EffectJournal, EffectJournalEntry, EffectJournalIntent,
@@ -30,17 +30,25 @@ impl EffectJournal for FailOnceEffectJournal {
         self.inner.record_intent(intent)
     }
 
-    fn record_started(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
+    fn record_started(
+        &self,
+        run_id: HarnessRunId,
+        generation: maestria_domain::JournalGeneration,
+    ) -> Result<(), PortError> {
         self.inner.record_started(run_id, generation)
     }
 
-    fn claim_feedback(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
+    fn claim_feedback(
+        &self,
+        run_id: HarnessRunId,
+        generation: maestria_domain::JournalGeneration,
+    ) -> Result<(), PortError> {
         self.inner.claim_feedback(run_id, generation)
     }
     fn claim_feedback_with_outcome(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
         _outcome: HarnessOutcome,
     ) -> Result<(), PortError> {
         self.claim_feedback(run_id, generation)
@@ -49,7 +57,7 @@ impl EffectJournal for FailOnceEffectJournal {
     fn record_terminal(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
         status: EffectJournalStatus,
     ) -> Result<(), PortError> {
         if status == EffectJournalStatus::Completed
@@ -70,12 +78,16 @@ impl EffectJournal for FailOnceEffectJournal {
     fn is_feedback_accepted(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
     ) -> Result<bool, PortError> {
         self.inner.is_feedback_accepted(run_id, generation)
     }
 
-    fn is_current(&self, run_id: HarnessRunId, generation: u64) -> Result<bool, PortError> {
+    fn is_current(
+        &self,
+        run_id: HarnessRunId,
+        generation: maestria_domain::JournalGeneration,
+    ) -> Result<bool, PortError> {
         self.inner.is_current(run_id, generation)
     }
 }
@@ -114,10 +126,9 @@ async fn failed_feedback_terminalization_is_retryable() -> Result<(), Box<dyn st
         .feedback_acks
         .lock()
         .map_err(|_| "feedback acknowledgement lock poisoned")?
-        .insert(EventId::new(1), (run_id, entry.generation));
+        .insert(EventId::new(1), (run_id, entry.generation.value()));
     let envelope = DomainEventEnvelope {
         id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
         event: DomainEvent::TickObserved {
             at: LogicalTick::new(1),
         },
@@ -193,9 +204,9 @@ async fn persist_effects_keep_duplicate_events_in_order() -> Result<(), Box<dyn 
         .scan(EventFilter { artifact_id: None })
         .map_err(|error| format!("scan failed: {error:?}"))?;
     assert_eq!(events[0].id.value(), 1);
-    assert_eq!(events[0].sequence.value(), 1);
+    assert_eq!(events[0].id.value(), 1);
     assert_eq!(events[1].id.value(), 2);
-    assert_eq!(events[1].sequence.value(), 2);
+    assert_eq!(events[1].id.value(), 2);
     assert_eq!(events[0].event, events[1].event);
 
     shutdown.cancel();
@@ -278,7 +289,6 @@ fn build_persist_test_state() -> Result<PersistTestState, Box<dyn std::error::Er
         },
         title: "card title".into(),
         body: "card body".into(),
-        claim_ids: BTreeSet::new(),
         security: maestria_domain::SecurityMetadata::default(),
     };
     let evidence = Evidence {
@@ -312,7 +322,6 @@ fn build_persist_test_envelopes(
     Ok(vec![
         DomainEventEnvelope {
             id: EventId::new(1),
-            sequence: SequenceNumber::new(1),
             event: DomainEvent::ChunkRegistered {
                 chunk_id,
                 artifact_id,
@@ -328,7 +337,6 @@ fn build_persist_test_envelopes(
         },
         DomainEventEnvelope {
             id: EventId::new(2),
-            sequence: SequenceNumber::new(2),
             event: DomainEvent::CardCreated {
                 card_id,
                 artifact_id,
@@ -344,7 +352,6 @@ fn build_persist_test_envelopes(
         },
         DomainEventEnvelope {
             id: EventId::new(3),
-            sequence: SequenceNumber::new(3),
             event: DomainEvent::EvidenceRecorded {
                 evidence_id,
                 artifact_id,

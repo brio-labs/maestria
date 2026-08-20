@@ -16,6 +16,16 @@ pub enum LoadState<T> {
     Failed(ClientError),
 }
 
+impl<T> LoadState<Vec<T>> {
+    pub fn ready_or_empty(values: Vec<T>) -> Self {
+        if values.is_empty() {
+            Self::Empty
+        } else {
+            Self::Ready(values)
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RequestEpochs {
     epochs: BTreeMap<u64, u64>,
@@ -71,8 +81,6 @@ pub struct PreviewState {
     pub title: String,
     pub markdown: String,
     pub evidence_ids: Vec<u64>,
-    pub draft_id: Option<u64>,
-    pub revision: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

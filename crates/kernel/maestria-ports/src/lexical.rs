@@ -1,5 +1,8 @@
-use maestria_domain::{ArtifactId, CardId, ChunkId, SearchExecutionBudget};
+use maestria_domain::{ArtifactId, CardId, ChunkId};
 
+/// Indexed lexical record for a chunk. The typed lexical *search* family was
+/// removed with ADR-0005 (expiry v0.7.0); indexing records remain so
+/// `index_lexical_chunks`/`index_lexical_cards` keep feeding the projection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexedLexicalChunk {
     pub artifact_id: ArtifactId,
@@ -10,6 +13,7 @@ pub struct IndexedLexicalChunk {
     pub symbol: Option<String>,
 }
 
+/// Indexed lexical record for a card.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexedLexicalCard {
     pub artifact_id: ArtifactId,
@@ -19,78 +23,4 @@ pub struct IndexedLexicalCard {
     pub path: Option<String>,
     pub filename: Option<String>,
     pub symbol: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum MatchMode {
-    Contains,
-    Exact,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ChunkField {
-    Text,
-    Path,
-    Filename,
-    Symbol,
-    Id,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum CardField {
-    Title,
-    Body,
-    Path,
-    Filename,
-    Symbol,
-    Id,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct FieldSelector<F> {
-    pub field: F,
-    pub boost: f32,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LexicalQuery<F> {
-    pub q: String,
-    pub limit: usize,
-    pub offset: usize,
-    pub mode: MatchMode,
-    pub fields: Vec<FieldSelector<F>>,
-    pub execution_budget: SearchExecutionBudget,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RetrieverIdentity {
-    pub name: &'static str,
-    pub version: &'static str,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HitReason {
-    ExactMatch { field: String },
-    FieldMatch { field: String },
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LexicalHitMetadata {
-    pub retriever: RetrieverIdentity,
-    pub raw_score: f32,
-    pub raw_rank: u32,
-    pub reason: HitReason,
-    pub snapshot_id: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LexicalChunkHit {
-    pub chunk: IndexedLexicalChunk,
-    pub metadata: LexicalHitMetadata,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LexicalCardHit {
-    pub card: IndexedLexicalCard,
-    pub metadata: LexicalHitMetadata,
 }

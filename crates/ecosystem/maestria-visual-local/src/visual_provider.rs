@@ -2,7 +2,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use maestria_domain::RepresentationName;
 use maestria_ports::{
     EmbeddingIdentity, EmbeddingResponse, PortError, ProviderDisclosure, ProviderEndpoint,
-    ProviderTransport, RetentionPolicy, VisualEmbeddingProvider, VisualEmbeddingRequest,
+    ProviderTransport, VisualEmbeddingProvider, VisualEmbeddingRequest,
 };
 use std::sync::Arc;
 
@@ -33,7 +33,10 @@ impl LocalHttpVisualProvider {
         Ok(Self {
             model: model.to_string(),
             identity,
-            transport: Arc::new(UreqTransport::new(endpoint)),
+            transport: Arc::new(maestria_adapter_http::UreqJsonClient::new(
+                endpoint,
+                std::time::Duration::from_secs(30),
+            )),
         })
     }
 
@@ -72,12 +75,11 @@ fn validate_profile(model: &str, identity: &EmbeddingIdentity) -> Result<(), Por
             source: "identity representation must be visual_page_v1".to_string(),
         });
     }
-    if identity.fingerprint.model.as_str() != model {
-        return Err(PortError::InvalidInputContext {
-            context: "visual model identity mismatch",
-            source: "model does not match the provider identity".to_string(),
-        });
-    }
+    maestria_adapter_http::validate_model_identity(
+        model,
+        identity.fingerprint.model.as_str(),
+        "visual",
+    )?;
     if identity.fingerprint.dimensions == 0 {
         return Err(PortError::InvalidInputContext {
             context: "visual provider dimensions are zero",
@@ -152,24 +154,17 @@ impl LocalHttpVisualProvider {
                 source: "request identity does not match the provider identity".to_string(),
             });
         }
-        let body = serde_json::to_vec(&request).map_err(|error| PortError::InternalContext {
-            context: "encode visual request",
-            source: error.to_string(),
-        })?;
+        let body = serde_json::to_vec(&request)
+            .map_err(|error| PortError::internal("encode visual request", error.to_string()))?;
         let response = self.transport.post(body)?;
-        let parsed: VisualApiResponse =
-            serde_json::from_slice(&response).map_err(|error| PortError::DownstreamContext {
-                context: "decode visual response",
-                source: error.to_string(),
-            })?;
-        let first = parsed
-            .data
-            .into_iter()
-            .next()
-            .ok_or_else(|| PortError::DownstreamContext {
-                context: "decode visual response data",
-                source: "visual response contained no data".to_string(),
-            })?;
+        let parsed: VisualApiResponse = serde_json::from_slice(&response)
+            .map_err(|error| PortError::downstream("decode visual response", error.to_string()))?;
+        let first = parsed.data.into_iter().next().ok_or_else(|| {
+            PortError::downstream(
+                "decode visual response data",
+                "visual response contained no data",
+            )
+        })?;
         let expected = self.identity.fingerprint.dimensions as usize;
         if first.embedding.len() != expected
             || first.embedding.iter().any(|value| !value.is_finite())
@@ -191,56 +186,6 @@ impl LocalHttpVisualProvider {
             identity: self.identity.clone(),
             disclosure: self.transport.disclosure().clone(),
         })
-    }
-}
-
-#[derive(Debug, Clone)]
-struct UreqTransport {
-    endpoint: ProviderEndpoint,
-    disclosure: ProviderDisclosure,
-    agent: ureq::Agent,
-}
-
-impl UreqTransport {
-    fn new(endpoint: ProviderEndpoint) -> Self {
-        Self {
-            endpoint,
-            disclosure: ProviderDisclosure {
-                remote: false,
-                retention: RetentionPolicy::NoRetention,
-            },
-            agent: ureq::AgentBuilder::new()
-                .timeout(std::time::Duration::from_secs(30))
-                .redirects(0)
-                .build(),
-        }
-    }
-}
-
-impl ProviderTransport for UreqTransport {
-    fn endpoint(&self) -> &ProviderEndpoint {
-        &self.endpoint
-    }
-
-    fn disclosure(&self) -> &ProviderDisclosure {
-        &self.disclosure
-    }
-
-    fn post(&self, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
-        self.agent
-            .post(self.endpoint.as_str())
-            .set("content-type", "application/json")
-            .send_bytes(&body)
-            .map_err(|error| PortError::DownstreamContext {
-                context: "visual request failed",
-                source: error.to_string(),
-            })?
-            .into_string()
-            .map(String::into_bytes)
-            .map_err(|error| PortError::DownstreamContext {
-                context: "read visual response",
-                source: error.to_string(),
-            })
     }
 }
 

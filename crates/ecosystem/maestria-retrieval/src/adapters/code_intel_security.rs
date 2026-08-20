@@ -57,81 +57,56 @@ pub struct AuthorizedCodeBinding {
 
 impl CodeIntelSecurityResolver {
     /// Builds a deterministic source catalog from append-only domain history.
+    ///
+    /// `sources` is the shared [`maestria_domain::active_source_versions`]
+    /// projection; `events` is scanned only for captured tree versions so the
+    /// parser hash can be compared against the capture hash (tamper evidence).
     pub fn from_events(
         parts: CodeIntelSecurityResolverParts,
+        sources: &BTreeMap<PathBuf, (ArtifactId, ArtifactVersionId, ContentHash)>,
         events: &[DomainEventEnvelope],
     ) -> Result<Self, RetrievalError> {
-        let mut active_sources = BTreeMap::<PathBuf, (ArtifactId, ContentHash)>::new();
         let mut versions = BTreeMap::<ArtifactId, (ArtifactVersionId, ContentHash)>::new();
-
         for envelope in events {
-            match &envelope.event {
-                DomainEvent::ParserStarted {
-                    artifact_id,
-                    source_path,
-                    content_hash,
-                    ..
-                } => {
-                    active_sources.insert(
-                        PathBuf::from(source_path),
-                        (*artifact_id, content_hash.clone()),
-                    );
-                }
-                DomainEvent::DocumentTreeCaptured {
-                    artifact_id,
-                    artifact_version_id,
-                    content_hash,
-                    ..
-                } => {
-                    versions.insert(*artifact_id, (*artifact_version_id, content_hash.clone()));
-                }
-                DomainEvent::SourceBecameStale {
-                    artifact_id,
-                    source_path,
-                    content_hash,
-                } => {
-                    let path = Path::new(source_path);
-                    if active_sources
-                        .get(path)
-                        .is_some_and(|(active_id, active_hash)| {
-                            active_id == artifact_id && active_hash == content_hash
-                        })
-                    {
-                        active_sources.remove(path);
-                    }
-                }
-                _ => {}
+            if let DomainEvent::DocumentTreeCaptured {
+                artifact_id,
+                artifact_version_id,
+                content_hash,
+                ..
+            } = &envelope.event
+            {
+                versions.insert(*artifact_id, (*artifact_version_id, content_hash.clone()));
             }
         }
 
-        let mut sources = BTreeMap::new();
-        for (path, (artifact_id, content_hash)) in active_sources {
-            let source = match versions.get(&artifact_id) {
+        let mut canonical = BTreeMap::new();
+        for (path, (artifact_id, _, content_hash)) in sources {
+            let source = match versions.get(artifact_id) {
                 None => CanonicalCodeSource::MissingVersion {
-                    artifact_id,
-                    content_hash,
+                    artifact_id: *artifact_id,
+                    content_hash: content_hash.clone(),
                 },
-                Some((_, version_hash)) if version_hash != &content_hash => {
+                Some((_, version_hash)) if version_hash != content_hash => {
                     CanonicalCodeSource::VersionHashMismatch {
-                        artifact_id,
-                        content_hash,
+                        artifact_id: *artifact_id,
+                        content_hash: content_hash.clone(),
                         version_hash: version_hash.clone(),
                     }
                 }
                 Some((artifact_version, _)) => CanonicalCodeSource::Ready {
-                    artifact_id,
+                    artifact_id: *artifact_id,
                     artifact_version: *artifact_version,
-                    content_hash,
+                    content_hash: content_hash.clone(),
                 },
             };
-            sources.insert(path, source);
+            canonical.insert(path.clone(), source);
         }
 
         Ok(Self {
             artifacts: parts.artifacts,
             evidence: parts.evidence,
             verifier: SourceSnapshotVerifier::new(parts.blobs),
-            sources: Arc::new(sources),
+            sources: Arc::new(canonical),
         })
     }
 

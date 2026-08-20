@@ -132,9 +132,8 @@ impl KernelState {
             {
                 return Ok(None);
             }
-            return Err(DomainError::DuplicateId {
-                kind: "evidence",
-                id: input.evidence_id.value(),
+            return Err(DomainError::DuplicateEvidence {
+                id: input.evidence_id,
             });
         }
 
@@ -250,10 +249,7 @@ impl KernelState {
                 || existing.excerpt != excerpt
                 || existing.observed_at != observed_at)
         {
-            return Err(DomainError::DuplicateId {
-                kind: "evidence",
-                id: evidence_id.value(),
-            });
+            return Err(DomainError::DuplicateEvidence { id: evidence_id });
         }
 
         // Validate the incoming claim before any mutation.

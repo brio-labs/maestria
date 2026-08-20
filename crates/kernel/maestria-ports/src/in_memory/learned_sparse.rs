@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use super::execution::{Meter, validate_limit_u32};
+use super::store::lock_map;
 use crate::{
     BoundedSearch, LearnedSparseIndex, LearnedSparseProvider, PortError, ProviderDisclosure,
     RetentionPolicy, SparseDocument, SparseIdentity, SparseInputKind, SparseSearchHit,
@@ -138,41 +139,20 @@ impl InMemoryLearnedSparseIndex {
         if query.limit == 0 {
             return Ok(meter.complete(Vec::new()));
         }
-        let guard = self
-            .documents
-            .lock()
-            .map_err(|_| PortError::InternalContext {
-                context: "learned sparse index lock poisoned",
-                source: "index mutex is poisoned".to_string(),
-            })?;
-        let (mut hits, mut stopped) = collect_sparse_hits(
+        let guard = lock_map(&self.documents, "learned sparse index lock poisoned")?;
+        let (hits, stopped) = collect_sparse_hits(
             guard.as_slice(),
             &query,
             filter,
             contribution_cap,
             &mut meter,
         )?;
-        hits.sort_by(|left, right| {
-            right
-                .score_micros
-                .cmp(&left.score_micros)
-                .then_with(|| left.chunk_id.cmp(&right.chunk_id))
-        });
-        let selected = hits
-            .into_iter()
-            .take(super::execution::saturating_usize(u64::from(query.limit)))
-            .collect::<Vec<_>>();
-        for _ in 0..selected.len() {
-            if let Some(resource) = meter.result() {
-                stopped = Some(resource);
-                break;
-            }
-        }
-        if let Some(resource) = stopped {
-            Ok(meter.exhausted(selected, resource))
-        } else {
-            Ok(meter.complete(selected))
-        }
+        Ok(crate::learned_sparse::finish_sparse_search(
+            meter,
+            hits,
+            maestria_domain::saturating_usize(u64::from(query.limit)),
+            stopped,
+        ))
     }
 }
 
@@ -199,7 +179,7 @@ fn collect_sparse_hits(
         if !filter(document.chunk_id)? {
             continue;
         }
-        let bytes = super::execution::saturating_u64(
+        let bytes = maestria_domain::saturating_u64(
             document
                 .vector
                 .terms()
@@ -211,7 +191,7 @@ fn collect_sparse_hits(
             stopped = Some(resource);
             break;
         }
-        let work = super::execution::saturating_u64(
+        let work = maestria_domain::saturating_u64(
             document
                 .vector
                 .terms()
@@ -222,7 +202,8 @@ fn collect_sparse_hits(
             stopped = Some(resource);
             break;
         }
-        let contributions = dot_contributions(document.vector.terms(), query.vector.terms());
+        let contributions =
+            crate::learned_sparse::dot_contributions(document.vector.terms(), query.vector.terms());
         if contributions.is_empty() {
             continue;
         }
@@ -237,7 +218,7 @@ fn collect_sparse_hits(
             .into_iter()
             .map(|(term_id, value)| SparseTermContribution {
                 term_id,
-                contribution_micros: fixed_micros(value),
+                contribution_micros: crate::learned_sparse::fixed_micros(value),
             })
             .collect::<Vec<_>>();
         trace.sort_by(|left, right| {
@@ -249,7 +230,7 @@ fn collect_sparse_hits(
         trace.truncate(contribution_cap);
         hits.push(SparseSearchHit {
             chunk_id: document.chunk_id,
-            score_micros: fixed_micros(score),
+            score_micros: crate::learned_sparse::fixed_micros(score),
             contributions: trace,
         });
     }
@@ -271,13 +252,7 @@ impl LearnedSparseIndex for InMemoryLearnedSparseIndex {
                 source: "document identity differs from index".to_string(),
             });
         }
-        let mut guard = self
-            .documents
-            .lock()
-            .map_err(|_| PortError::InternalContext {
-                context: "learned sparse index lock poisoned",
-                source: "index mutex is poisoned".to_string(),
-            })?;
+        let mut guard = lock_map(&self.documents, "learned sparse index lock poisoned")?;
         for document in documents {
             if let Some(position) = guard
                 .iter()
@@ -308,25 +283,13 @@ impl LearnedSparseIndex for InMemoryLearnedSparseIndex {
     }
 
     fn delete_chunks(&self, chunk_ids: &[ChunkId]) -> Result<(), PortError> {
-        let mut guard = self
-            .documents
-            .lock()
-            .map_err(|_| PortError::InternalContext {
-                context: "learned sparse index lock poisoned",
-                source: "index mutex is poisoned".to_string(),
-            })?;
+        let mut guard = lock_map(&self.documents, "learned sparse index lock poisoned")?;
         guard.retain(|document| !chunk_ids.contains(&document.chunk_id));
         Ok(())
     }
 
     fn clear(&self) -> Result<(), PortError> {
-        let mut guard = self
-            .documents
-            .lock()
-            .map_err(|_| PortError::InternalContext {
-                context: "learned sparse index lock poisoned",
-                source: "index mutex is poisoned".to_string(),
-            })?;
+        let mut guard = lock_map(&self.documents, "learned sparse index lock poisoned")?;
         guard.clear();
         Ok(())
     }
@@ -343,34 +306,4 @@ fn stable_term_id(token: &str, vocabulary_size: u32) -> u32 {
         .bytes()
         .fold(2_166_136_261_u32, |value, byte| value ^ u32::from(byte));
     hash.wrapping_mul(16_777_619) % vocabulary_size
-}
-
-fn dot_contributions(document: &[SparseTermWeight], query: &[SparseTermWeight]) -> Vec<(u32, f64)> {
-    let mut left = 0_usize;
-    let mut right = 0_usize;
-    let mut contributions = Vec::new();
-    while left < document.len() && right < query.len() {
-        let document_term = document[left];
-        let query_term = query[right];
-        match document_term.term_id().cmp(&query_term.term_id()) {
-            std::cmp::Ordering::Less => left += 1,
-            std::cmp::Ordering::Greater => right += 1,
-            std::cmp::Ordering::Equal => {
-                contributions.push((
-                    document_term.term_id(),
-                    f64::from(document_term.weight()) * f64::from(query_term.weight()),
-                ));
-                left += 1;
-                right += 1;
-            }
-        }
-    }
-    contributions
-}
-
-fn fixed_micros(value: f64) -> u32 {
-    if !value.is_finite() || value <= 0.0 {
-        return 0;
-    }
-    (value * 1_000_000.0).round().min(f64::from(u32::MAX)) as u32
 }

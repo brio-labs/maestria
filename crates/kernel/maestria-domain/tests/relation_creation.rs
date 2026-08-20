@@ -162,10 +162,8 @@ fn relation_and_memory_candidates_are_domain_owned_and_evidence_bound()
                 security: None,
             },
         )),
-        Err(DomainError::EvidenceRequired {
-            kind: "memory_candidate",
-            id: 91,
-        })
+        Err(DomainError::MemoryCandidateRequiresEvidence { id })
+            if id == MemoryCandidateId::new(91)
     ));
 
     assert_memory_candidate_created_with_evidence(&mut state)?;

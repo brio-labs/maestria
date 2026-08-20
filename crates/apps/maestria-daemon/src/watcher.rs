@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use maestria_core::{InstanceLayout, InstanceManifest, artifact_id_for};
-use maestria_domain::{ArtifactDetected, DomainInput, SourceRemoved};
+use maestria_core::{InstanceLayout, InstanceManifest, build_artifact_detected_input};
+use maestria_domain::{DomainInput, SourceRemoved};
 #[cfg(test)]
 use std::path::PathBuf;
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
@@ -203,30 +203,19 @@ impl Watcher {
                 // accepted; retry the newest deterministic content.
                 self.pending.remove(&key);
             }
-
-            let artifact_id = artifact_id_for(&observation.path, &observation.bytes);
-            let title = match observation.path.file_name().and_then(|name| name.to_str()) {
-                Some(name) => name.to_string(),
-                None => "unknown".to_string(),
-            };
-            let Ok(content_hash) = maestria_domain::ContentHash::new(observation.hash.clone())
-            else {
-                tracing::warn!(
-                    path = %key,
-                    "watcher observed an invalid content hash; skipping detection"
-                );
-                continue;
+            let input = match build_artifact_detected_input(
+                &observation.path,
+                observation.bytes.clone(),
+                observation.hash.clone(),
+            ) {
+                Ok(input) => input,
+                Err(error) => {
+                    tracing::warn!(path = %key, error = %error, "watcher observed invalid artifact input; skipping detection");
+                    continue;
+                }
             };
 
-            match self
-                .input_tx
-                .try_send(DomainInput::ArtifactDetected(ArtifactDetected {
-                    artifact_id,
-                    title,
-                    source_path: key.clone(),
-                    source_bytes: observation.bytes.clone(),
-                    content_hash,
-                })) {
+            match self.input_tx.try_send(input) {
                 Ok(()) => {
                     self.pending.insert(
                         key.clone(),

@@ -22,9 +22,10 @@ impl BlobStore for RecordingBlobStore {
                 guard.push(bytes);
                 Ok(BlobId::new(id))
             }
-            Err(_poisoned) => Err(PortError::Internal {
-                message: "recording blob store lock poisoned".to_string(),
-            }),
+            Err(_poisoned) => Err(PortError::internal(
+                "maestria runtime test",
+                "recording blob store lock poisoned".to_string(),
+            )),
         }
     }
 

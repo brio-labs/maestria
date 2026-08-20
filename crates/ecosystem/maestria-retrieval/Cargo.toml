@@ -6,19 +6,19 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-maestria-code-intel = { path = "../maestria-code-intel" }
-maestria-domain = { path = "../../kernel/maestria-domain" }
-maestria-governance = { path = "../../kernel/maestria-governance" }
-maestria-ports = { path = "../../kernel/maestria-ports" }
-async-trait = "0.1.80"
-thiserror = "1.0.59"
-sha2 = "0.10"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tokio = { version = "1.37.0", features = ["time", "macros", "rt", "sync"] }
-
+maestria-code-intel = { workspace = true }
+maestria-domain = { workspace = true }
+maestria-governance = { workspace = true }
+maestria-ports = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true, features = ["time", "macros", "rt", "sync"] }
 [dev-dependencies]
-tokio = { version = "1.37.0", features = ["full", "test-util"] }
-tempfile = "3"
-maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }
-maestria-test-support = { path = "../../test-support/maestria-test-support" }
+tokio = { workspace = true, features = ["full", "test-util"] }
+tempfile = { workspace = true }
+maestria-ports = { workspace = true, features = ["contract-tests"] }
+maestria-test-support = { workspace = true }

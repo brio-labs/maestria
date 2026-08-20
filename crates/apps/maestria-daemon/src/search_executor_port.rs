@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, future::Future, pin::Pin};
+use std::{collections::BTreeSet, future::Future, pin::Pin, sync::Arc};
 
 use maestria_domain::{ArtifactId, SearchOutcome, SearchPlan};
 use maestria_ports::SearchKnowledgeExecutor;
@@ -6,12 +6,16 @@ use maestria_ports::SearchKnowledgeExecutor;
 use super::SearchRuntime;
 
 impl SearchKnowledgeExecutor for SearchRuntime {
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self as &dyn std::any::Any)
+    }
+
     fn search(
         &self,
         plan: SearchPlan,
     ) -> Pin<Box<dyn Future<Output = Result<SearchOutcome, maestria_ports::PortError>> + Send + '_>>
     {
-        let runtime = self.clone();
+        let runtime = Arc::new(self.clone());
         Box::pin(async move {
             tokio::task::spawn_blocking(move || runtime.execute_plan_blocking(plan))
                 .await
@@ -37,8 +41,9 @@ impl SearchKnowledgeExecutor for SearchRuntime {
                 + '_,
         >,
     > {
+        let runtime = Arc::new(self.clone());
         Box::pin(async move {
-            self.execute(query, limit).await.map_err(|error| {
+            runtime.execute_arc(query, limit).await.map_err(|error| {
                 maestria_ports::PortError::InternalContext {
                     context: "search query execution",
                     source: error.to_string(),
@@ -52,7 +57,7 @@ impl SearchKnowledgeExecutor for SearchRuntime {
         limit: usize,
         artifact_ids: BTreeSet<ArtifactId>,
     ) -> maestria_ports::SearchFuture<'_, (SearchPlan, SearchOutcome)> {
-        let runtime = self.clone();
+        let runtime = Arc::new(self.clone());
         Box::pin(async move {
             let source_filter = maestria_retrieval::CandidateSourceFilter::try_new(artifact_ids)
                 .map_err(|error| maestria_ports::PortError::InvalidInputContext {
@@ -69,7 +74,7 @@ impl SearchKnowledgeExecutor for SearchRuntime {
                     source: format!("{error:?}"),
                 })?;
             runtime
-                .execute_selected_sources(query, limit, authorization, source_filter)
+                .execute_selected_sources_arc(query, limit, authorization, source_filter)
                 .await
                 .map_err(|error| maestria_ports::PortError::InternalContext {
                     context: "selected source search",

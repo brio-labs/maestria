@@ -105,4 +105,57 @@ impl<'a> SearchValidationContext<'a> {
                 | maestria_domain::SearchStatus::QuarantinedForReview
         )
     }
+
+    // Shared predicates used by multiple search validators.
+
+    pub fn trace_identity_matches(&self) -> bool {
+        self.trace
+            .is_some_and(|trace| trace.deterministic_id() == self.outcome.trace)
+    }
+
+    pub fn fingerprint_matches(&self) -> bool {
+        self.trace
+            .is_some_and(|trace| trace.fingerprint == self.outcome.fingerprint)
+    }
+
+    pub fn index_generation_matches(&self) -> bool {
+        self.trace
+            .is_some_and(|trace| trace.index_generation == self.outcome.index_generation)
+    }
+
+    pub fn evidence_matches_trace(&self) -> bool {
+        self.trace
+            .is_some_and(|trace| trace.matches_evidence(&self.outcome.evidence))
+    }
+
+    pub fn coverage_matches_trace(&self) -> bool {
+        self.trace.is_some_and(|trace| {
+            trace.matches_coverage(
+                &self.outcome.coverage,
+                &self.outcome.conflicts,
+                self.outcome.evidence.len(),
+            )
+        })
+    }
+
+    pub fn outcome_matches_trace(&self) -> bool {
+        self.trace.is_some_and(|trace| {
+            trace.matches_outcome(&self.outcome.status, self.outcome.evidence.len())
+        })
+    }
+
+    pub fn plan_matches_trace(&self) -> bool {
+        match (self.trace, self.plan) {
+            (Some(trace), Some(plan)) => trace.matches_plan(plan),
+            _ => false,
+        }
+    }
+
+    pub fn missing_evidence_records(&self) -> usize {
+        self.outcome
+            .evidence
+            .iter()
+            .filter(|candidate| self.evidence_record(candidate.evidence_id()).is_none())
+            .count()
+    }
 }

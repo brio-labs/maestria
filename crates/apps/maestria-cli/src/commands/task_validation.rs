@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow};
 use maestria_domain::{
-    ChangeTaskStatusInput, CompleteTaskInput, DomainEvent, DomainInput, KernelState,
-    RequestTaskValidation, TaskId, TaskStatus, ValidationReportId,
+    ChangeTaskStatusInput, CompleteTaskInput, DomainInput, KernelState, RequestTaskValidation,
+    TaskId, TaskStatus, ValidationReportId,
 };
 use maestria_governance::AutonomyProfile;
 use std::path::PathBuf;
@@ -171,13 +171,10 @@ async fn wait_for_task_validation_report(
         format!("waiting for validation report for task {task_id}"),
         |state| {
             state.event_log.iter().skip(start_event_index).any(|event| {
-                matches!(
-                    &event.event,
-                    DomainEvent::ValidationReportCreated {
-                        task_id: Some(event_task_id),
-                        ..
-                    } if *event_task_id == task_id
-                )
+                event
+                    .event
+                    .validation_report()
+                    .is_some_and(|(_, task, _)| task == Some(task_id))
             })
         },
     )
@@ -186,13 +183,10 @@ async fn wait_for_task_validation_report(
         .event_log
         .iter()
         .skip(start_event_index)
-        .find_map(|event| match &event.event {
-            DomainEvent::ValidationReportCreated {
-                report_id,
-                task_id: Some(event_task_id),
-                passed,
-                ..
-            } if *event_task_id == task_id => Some((*report_id, *passed)),
+        .find_map(|event| match event.event.validation_report() {
+            Some((report_id, Some(event_task_id), passed)) if event_task_id == task_id => {
+                Some((report_id, passed))
+            }
             _ => None,
         })
         .ok_or_else(|| anyhow!("validation report event vanished for task {task_id}"))?;

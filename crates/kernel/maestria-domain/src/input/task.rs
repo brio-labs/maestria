@@ -8,10 +8,7 @@ impl KernelState {
         input: OpenTaskInput,
     ) -> Result<DomainEventEnvelope, DomainError> {
         if self.tasks.contains_key(&input.task_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "task",
-                id: input.task_id.value(),
-            });
+            return Err(DomainError::DuplicateTask { id: input.task_id });
         }
         if let Some(artifact_id) = input.artifact_id
             && !self.artifacts.contains_key(&artifact_id)
@@ -139,10 +136,7 @@ impl KernelState {
         artifact_id: Option<ArtifactId>,
     ) -> Result<(), DomainError> {
         if self.tasks.contains_key(&task_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "task",
-                id: task_id.value(),
-            });
+            return Err(DomainError::DuplicateTask { id: task_id });
         }
         if let Some(art_id) = artifact_id
             && !self.artifacts.contains_key(&art_id)

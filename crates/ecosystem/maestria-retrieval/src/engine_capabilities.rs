@@ -91,11 +91,8 @@ pub(crate) fn batch_is_eligible(
     repository_specialized: bool,
     query: &str,
 ) -> bool {
-    let id = descriptor.id.to_ascii_lowercase();
-    let is_dense = id.contains("dense") || id.contains("vector") || id.contains("semantic");
-    let is_code = descriptor.modality.eq_ignore_ascii_case("code")
-        || descriptor.modality.eq_ignore_ascii_case("rust")
-        || id.contains("code_intel");
+    let is_dense = descriptor.is_dense();
+    let is_code = descriptor.is_code();
     let hybrid_allowed = match hybrid_policy {
         crate::types::HybridExecutionPolicy::Shadow => !is_dense,
         crate::types::HybridExecutionPolicy::Active(record) => {

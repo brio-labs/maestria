@@ -44,7 +44,6 @@ module are pruned from both places; every live exemption has an entry here.
 | Path | Owner | Rationale | Expiry |
 |------|-------|-----------|--------|
 | `crates/kernel/maestria-ports/src/contract_tests.rs` | Kernel team | Shared port contract suite (923 physical lines) keeps every port trait's behavioral conformance in one deterministic fixture family so adapters can run the same suite; split into per-trait contract files (e.g. `graph_contract_tests.rs`, `learned_sparse_contract_tests.rs`, `ocr_contract_tests.rs`) as suites grow. | `v0.7.0` |
-| `crates/kernel/maestria-ports/src/in_memory/lexical.rs` | Kernel team | In-memory lexical index module is 480 logical lines (over the 400 module budget); its functions are already within the per-function budget and the module owns one responsibility (in-memory lexical search), so it is exempt pending lexical lane consolidation. | `v0.7.0` |
 | `crates/ecosystem/maestria-retrieval/src/visual_benchmark.rs` | Retrieval team | Visual benchmark evidence schema and route evaluation share one versioned benchmark format; the mixed-responsibility signal is accepted while the benchmark format is being stabilized. | `v0.7.0` |
 
 ## Consequences

@@ -7,38 +7,37 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-maestria-core = { path = "../../core/maestria-core" }
-maestria-domain = { path = "../../kernel/maestria-domain" }
-maestria-governance = { path = "../../kernel/maestria-governance" }
-maestria-runtime = { path = "../../runtime/maestria-runtime" }
-maestria-blob-fs = { path = "../../storage/maestria-blob-fs" }
-maestria-search-tantivy = { path = "../../storage/maestria-search-tantivy" }
-maestria-storage-sqlite = { path = "../../storage/maestria-storage-sqlite" }
-maestria-vector-sqlite = { path = "../../storage/maestria-vector-sqlite" }
-maestria-graph-sqlite = { path = "../../storage/maestria-graph-sqlite" }
-maestria-web-evidence = { path = "../../ecosystem/maestria-web-evidence" }
-maestria-embedding-openai = { path = "../../ecosystem/maestria-embedding-openai" }
-maestria-ocr-local = { path = "../../ecosystem/maestria-ocr-local" }
-maestria-visual-local = { path = "../../ecosystem/maestria-visual-local" }
-maestria-sparse-local = { path = "../../ecosystem/maestria-sparse-local" }
-maestria-parsers = { path = "../../ecosystem/maestria-parsers" }
-maestria-index-selection = { path = "../../ecosystem/maestria-index-selection" }
-maestria-harness = { path = "../../harness/maestria-harness" }
-maestria-ports = { path = "../../kernel/maestria-ports" }
-maestria-retrieval = { path = "../../ecosystem/maestria-retrieval" }
-maestria-code-intel = { path = "../../ecosystem/maestria-code-intel" }
+maestria-core = { workspace = true }
+maestria-domain = { workspace = true }
+maestria-governance = { workspace = true }
+maestria-runtime = { workspace = true }
+maestria-blob-fs = { workspace = true }
+maestria-search-tantivy = { workspace = true }
+maestria-storage-sqlite = { workspace = true }
+maestria-vector-sqlite = { workspace = true }
+maestria-graph-sqlite = { workspace = true }
+maestria-web-evidence = { workspace = true }
+maestria-embedding-openai = { workspace = true }
+maestria-ocr-local = { workspace = true }
+maestria-sparse-local = { workspace = true }
+maestria-parsers = { workspace = true }
+maestria-index-selection = { workspace = true }
+maestria-harness = { workspace = true }
+maestria-ports = { workspace = true }
+maestria-retrieval = { workspace = true }
+maestria-code-intel = { workspace = true }
 
-anyhow = "1.0"
-clap = { version = "4.5", features = ["derive"] }
-tokio = { version = "1.37", features = ["full"] }
-tokio-util = "0.7.18"
-tracing = "0.1"
-tracing-subscriber = "0.3"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-getrandom = "0.2"
-ignore = "0.4.28"
-
+anyhow = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+getrandom = { workspace = true }
+ignore = { workspace = true }
+parking_lot = "0.12"
 [dev-dependencies]
-maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }
-maestria-test-support = { path = "../../test-support/maestria-test-support" }
+maestria-ports = { workspace = true, features = ["contract-tests"] }
+maestria-test-support = { workspace = true }

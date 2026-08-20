@@ -63,12 +63,6 @@ pub enum RepositoryFreshnessWire {
     },
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct RepositoryIndexSelectionResponseWire {
-    pub profile: Option<crate::index_types::IndexSelectionProfileWire>,
-}
-
-/// Live progress of the active repository index run, when one is running.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct RepositoryIndexProgressWire {
     pub phase: String,

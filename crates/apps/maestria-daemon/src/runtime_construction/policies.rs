@@ -62,7 +62,6 @@ pub(crate) fn learned_sparse_policy(
         }
     }
 }
-
 /// The dense lane's execution policy: a valid hybrid promotion record
 /// activates the lexical+dense fusion; otherwise the dense lane stays
 /// shadowed. Fail-closed on unparsable records.
@@ -88,6 +87,25 @@ pub(crate) fn hybrid_policy(store: &SqliteStore) -> maestria_retrieval::HybridEx
             HybridExecutionPolicy::Shadow
         }
     }
+}
+
+/// Single builder for the learned-sparse lane: hybrid + learned-sparse policies and retriever.
+///
+/// Consolidates the three-call chain used by every search assembly (R28).
+pub(crate) fn search_lane_bundle(
+    state: &KernelState,
+    manifest: &InstanceManifest,
+    store: Arc<SqliteStore>,
+    blobs: Arc<FsBlobStore>,
+) -> (
+    maestria_retrieval::HybridExecutionPolicy,
+    maestria_retrieval::LearnedSparseExecutionPolicy,
+    Option<Arc<dyn CandidateRetriever>>,
+) {
+    let hybrid = hybrid_policy(&store);
+    let learned = learned_sparse_policy(&store, manifest);
+    let retriever = build_sparse_retriever(state, manifest, store, blobs);
+    (hybrid, learned, retriever)
 }
 
 /// Builds the registered learned-sparse retriever for the active generation.

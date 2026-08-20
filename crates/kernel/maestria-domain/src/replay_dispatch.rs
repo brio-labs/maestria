@@ -20,7 +20,7 @@ impl KernelState {
                 representations,
                 order,
                 text,
-            } => self.apply_chunk_registered(RegisterChunkInput {
+            } => self.apply_chunk_registered(&RegisterChunkInput {
                 chunk_id: *chunk_id,
                 artifact_id: *artifact_id,
                 node_id: *node_id,
@@ -36,8 +36,7 @@ impl KernelState {
                 content_hash,
                 blob_id,
             } => {
-                self.apply_parser_started(*artifact_id, title, source_path, content_hash, *blob_id);
-                Ok(())
+                self.apply_parser_started(*artifact_id, title, source_path, content_hash, *blob_id)
             }
             DomainEvent::ArtifactParsed {
                 artifact_id,
@@ -154,9 +153,6 @@ impl KernelState {
         event: &DomainEvent,
     ) -> Result<(), DomainError> {
         match event {
-            DomainEvent::UserIntentObserved { task_id, title } => {
-                self.apply_user_intent_observed(*task_id, title)
-            }
             DomainEvent::SearchCompleted { artifact_id, .. } => {
                 self.apply_search_completed(*artifact_id)
             }
@@ -198,8 +194,8 @@ impl KernelState {
                 approval_id,
                 outcome,
             } => self.apply_approval_recorded(*approval_id, *outcome),
-            DomainEvent::TickObserved { .. } => {
-                self.apply_tick_observed();
+            DomainEvent::TickObserved { at } => {
+                self.apply_tick_observed(*at);
                 Ok(())
             }
             _ => Err(DomainError::InternalInvariantViolation {

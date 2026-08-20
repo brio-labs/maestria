@@ -1,7 +1,7 @@
 use super::web_evidence_payload::StoredWebEvidenceMetadata;
 use maestria_domain::{
     BlobId, ClaimStatus, ContentHash, EvidenceKind, HarnessRunId, LineRange, LogicalTick,
-    OutputStream, SnapshotRef, ValidationReportId,
+    OutputStream, SnapshotRef, TestStatus, ValidationReportId,
 };
 use maestria_ports::PortError;
 use serde::{Deserialize, Serialize};
@@ -231,7 +231,7 @@ impl TryFrom<StoredEvidenceKind> for EvidenceKind {
                 blob,
             } => Ok(EvidenceKind::CommandOutput {
                 harness_run: HarnessRunId::new(harness_run),
-                stream: stream.into_domain(),
+                stream: stream.try_into_domain()?,
                 blob: BlobId::new(blob),
             }),
             StoredEvidenceKind::TestResult {
@@ -240,7 +240,7 @@ impl TryFrom<StoredEvidenceKind> for EvidenceKind {
                 log,
             } => Ok(EvidenceKind::TestResult {
                 harness_run: HarnessRunId::new(harness_run),
-                status: status.into_domain(),
+                status: status.try_into_domain()?,
                 log: BlobId::new(log),
             }),
             StoredEvidenceKind::Diff {
@@ -257,87 +257,31 @@ impl TryFrom<StoredEvidenceKind> for EvidenceKind {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredOutputStream {
-    Stdout,
-    Stderr,
-    Combined,
-}
-
-impl StoredOutputStream {
-    pub(crate) fn from_domain(stream: OutputStream) -> Self {
-        match stream {
-            OutputStream::Stdout => Self::Stdout,
-            OutputStream::Stderr => Self::Stderr,
-            OutputStream::Combined => Self::Combined,
-        }
-    }
-
-    pub(crate) fn into_domain(self) -> OutputStream {
-        match self {
-            Self::Stdout => OutputStream::Stdout,
-            Self::Stderr => OutputStream::Stderr,
-            Self::Combined => OutputStream::Combined,
-        }
+crate::stored_enum! {
+    #[serde(rename_all = "snake_case")]
+    pub(crate) enum StoredOutputStream <=> OutputStream {
+        Stdout,
+        Stderr,
+        Combined,
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredTestStatus {
-    Passed,
-    Failed,
-    TimedOut,
-}
-
-impl StoredTestStatus {
-    pub(crate) fn from_domain(status: maestria_domain::TestStatus) -> Self {
-        match status {
-            maestria_domain::TestStatus::Passed => Self::Passed,
-            maestria_domain::TestStatus::Failed => Self::Failed,
-            maestria_domain::TestStatus::TimedOut => Self::TimedOut,
-        }
-    }
-
-    pub(crate) fn into_domain(self) -> maestria_domain::TestStatus {
-        match self {
-            Self::Passed => maestria_domain::TestStatus::Passed,
-            Self::Failed => maestria_domain::TestStatus::Failed,
-            Self::TimedOut => maestria_domain::TestStatus::TimedOut,
-        }
+crate::stored_enum! {
+    #[serde(rename_all = "snake_case")]
+    pub(crate) enum StoredTestStatus <=> TestStatus {
+        Passed,
+        Failed,
+        TimedOut,
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredClaimStatus {
-    Draft,
-    Proposed,
-    Verified,
-    Disputed,
-    Archived,
-}
-
-impl StoredClaimStatus {
-    pub(crate) fn from_domain(status: &ClaimStatus) -> Self {
-        match status {
-            ClaimStatus::Draft => Self::Draft,
-            ClaimStatus::Proposed => Self::Proposed,
-            ClaimStatus::Verified => Self::Verified,
-            ClaimStatus::Disputed => Self::Disputed,
-            ClaimStatus::Archived => Self::Archived,
-        }
-    }
-
-    pub(crate) fn into_domain(self) -> ClaimStatus {
-        match self {
-            Self::Draft => ClaimStatus::Draft,
-            Self::Proposed => ClaimStatus::Proposed,
-            Self::Verified => ClaimStatus::Verified,
-            Self::Disputed => ClaimStatus::Disputed,
-            Self::Archived => ClaimStatus::Archived,
-        }
+crate::stored_enum! {
+    #[serde(rename_all = "snake_case")]
+    pub(crate) enum StoredClaimStatus <=> ClaimStatus {
+        Draft,
+        Proposed,
+        Verified,
+        Disputed,
     }
 }
 #[cfg(test)]

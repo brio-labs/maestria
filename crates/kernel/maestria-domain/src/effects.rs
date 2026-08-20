@@ -30,25 +30,18 @@ pub struct NotebookDraftBlobRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OcrEffect {
-    pub intent: crate::ocr::OcrIntent,
+pub struct IndexChunkRequest {
+    pub artifact_id: ArtifactId,
+    pub chunk_id: ChunkId,
 }
 
-impl OcrEffect {
-    pub fn new(intent: crate::ocr::OcrIntent) -> Self {
-        Self { intent }
+impl IndexChunkRequest {
+    pub fn new(artifact_id: ArtifactId, chunk_id: ChunkId) -> Self {
+        Self {
+            artifact_id,
+            chunk_id,
+        }
     }
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IndexFullTextRequest {
-    pub artifact_id: ArtifactId,
-    pub chunk_id: ChunkId,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IndexVectorRequest {
-    pub artifact_id: ArtifactId,
-    pub chunk_id: ChunkId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,19 +105,6 @@ pub struct QueryHarnessRequest {
     pub command: String,
 }
 
-/// A model-agent proposal effect preserves the complete validated request
-/// through governance and effect execution.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct QueryHarnessProposalRequest {
-    pub proposal: crate::model_agent::ModelAgentProposalRequest,
-}
-
-impl QueryHarnessProposalRequest {
-    pub fn run_id(&self) -> HarnessRunId {
-        self.proposal.run_id
-    }
-}
-
 /// The subject of a validation effect: a task or a single claim, never both
 /// and never neither.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,6 +120,20 @@ pub struct RunValidationRequest {
 }
 
 impl RunValidationRequest {
+    pub fn for_task(task_id: TaskId, validation_report_id: ValidationReportId) -> Self {
+        Self {
+            target: ValidationTarget::Task(task_id),
+            validation_report_id,
+        }
+    }
+
+    pub fn for_claim(claim_id: ClaimId, validation_report_id: ValidationReportId) -> Self {
+        Self {
+            target: ValidationTarget::Claim(claim_id),
+            validation_report_id,
+        }
+    }
+
     pub fn task_id(&self) -> Option<TaskId> {
         match self.target {
             ValidationTarget::Task(task_id) => Some(task_id),
@@ -161,12 +155,6 @@ pub struct RequestApprovalRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiagnosticEvent {
-    pub task_id: Option<TaskId>,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchKnowledgeRequest {
     pub task_id: Option<TaskId>,
     pub plan: crate::search::SearchPlan,
@@ -176,16 +164,15 @@ pub enum MaestriaEffect {
     PersistEvent { envelope: Box<DomainEventEnvelope> },
     PersistNotebookDraftBlob(NotebookDraftBlobRequest),
     ParseArtifact(ParseArtifactRequest),
-    Ocr(OcrEffect),
-    IndexFullText(IndexFullTextRequest),
-    IndexVector(IndexVectorRequest),
+    Ocr(crate::ocr::OcrIntent),
+    IndexFullText(IndexChunkRequest),
+    IndexVector(IndexChunkRequest),
     UpdateGraph(UpdateGraphRequest),
-    QueryHarnessProposal(QueryHarnessProposalRequest),
+    QueryHarnessProposal(Box<crate::model_agent::ModelAgentProposalRequest>),
     QueryHarness(QueryHarnessRequest),
     FetchWeb(FetchWebRequest),
     RunValidation(RunValidationRequest),
     RequestApproval(RequestApprovalRequest),
-    EmitDiagnostic(DiagnosticEvent),
     SearchKnowledge(Box<SearchKnowledgeRequest>),
 }
 

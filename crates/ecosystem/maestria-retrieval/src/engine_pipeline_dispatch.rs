@@ -105,7 +105,7 @@ fn serial_dispatch_required(
 ) -> bool {
     let lane_count = retrievers
         .iter()
-        .filter(|retriever| lane_is_eligible(&retriever.descriptor(), plan, web_requests_used))
+        .filter(|retriever| lane_is_eligible(retriever.descriptor(), plan, web_requests_used))
         .count();
     lane_count > 0
         && (0..lane_count)
@@ -126,16 +126,16 @@ async fn collect_batches_serially(
     for (index, retriever) in retrievers.iter().enumerate() {
         let eligible_remaining = retrievers[index..]
             .iter()
-            .filter(|retriever| lane_is_eligible(&retriever.descriptor(), plan, *web_requests_used))
+            .filter(|retriever| lane_is_eligible(retriever.descriptor(), plan, *web_requests_used))
             .count();
         let descriptor = retriever.descriptor();
-        if !lane_is_eligible(&descriptor, plan, *web_requests_used) {
+        if !lane_is_eligible(descriptor, plan, *web_requests_used) {
             let allocation = match lane_budget(plan, *execution_usage, eligible_remaining.max(1), 0)
             {
                 Some(allocation) => allocation,
                 None => plan.execution_budget()?,
             };
-            let error = if !lane_generation_is_current(&descriptor, plan) {
+            let error = if !lane_generation_is_current(descriptor, plan) {
                 format!(
                     "stale retriever generation: expected primary {}, got {}",
                     plan.index_generation(),
@@ -184,7 +184,7 @@ async fn collect_batches_serially(
             .limit
             .min(maestria_domain::saturating_usize(allocation.max_results()));
         let request = CandidateRequest {
-            plan: plan.clone(),
+            plan: std::sync::Arc::new(plan.clone()),
             query: request_query,
             execution_budget: allocation,
             expected_generation: descriptor.generation,
@@ -228,7 +228,7 @@ async fn dispatch_eligible_lanes(
         .iter()
         .enumerate()
         .filter_map(|(index, retriever)| {
-            let descriptor = retriever.descriptor();
+            let descriptor = retriever.descriptor().clone();
             lane_is_eligible(&descriptor, plan, *web_requests_used).then_some((index, descriptor))
         })
         .collect::<Vec<_>>();
@@ -275,7 +275,7 @@ async fn dispatch_eligible_lanes(
             .limit
             .min(maestria_domain::saturating_usize(allocation.max_results()));
         let request = CandidateRequest {
-            plan: plan.clone(),
+            plan: std::sync::Arc::new(plan.clone()),
             query: request_query,
             execution_budget: allocation,
             expected_generation: generation,
@@ -292,7 +292,7 @@ async fn dispatch_eligible_lanes(
                 }
                 Err(error) => Err(RetrievalError::Internal(error.to_string())),
             };
-            (index, descriptor, allocation, result)
+            (index, descriptor.clone(), allocation, result)
         });
     }
     Ok((completed, tasks, lane_count))
@@ -336,7 +336,7 @@ pub(crate) async fn collect_batches(
             continue;
         }
         let descriptor = retriever.descriptor();
-        if lane_generation_is_current(&descriptor, plan)
+        if lane_generation_is_current(descriptor, plan)
             && !(descriptor.modality.eq_ignore_ascii_case("web")
                 && *web_requests_used >= plan.budgets().max_web_requests())
         {
@@ -346,7 +346,7 @@ pub(crate) async fn collect_batches(
             Some(allocation) => allocation,
             None => plan.execution_budget()?,
         };
-        let error = if !lane_generation_is_current(&descriptor, plan) {
+        let error = if !lane_generation_is_current(descriptor, plan) {
             format!(
                 "stale retriever generation: expected primary {}, got {}",
                 plan.index_generation(),
@@ -359,7 +359,7 @@ pub(crate) async fn collect_batches(
             descriptor.clone(),
             allocation,
             crate::types::CandidateBatch {
-                descriptor,
+                descriptor: descriptor.clone(),
                 query: query.q.clone(),
                 candidates: Vec::new(),
                 status: maestria_domain::SearchLaneStatus::Failed { error },

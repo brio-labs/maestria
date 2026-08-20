@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use crate::types::{ArtifactId, ContentRange, ContentRangeError, EvidenceId};
+use crate::types::{ArtifactId, EvidenceId};
 use sha2::{Digest, Sha256};
 
 #[derive(
@@ -180,37 +180,6 @@ pub fn evidence_id_for(artifact_id: ArtifactId, order: u32) -> EvidenceId {
     )
 }
 
-pub fn line_range_for_chunk(
-    source: &str,
-    chunk: &str,
-    search_start: &mut usize,
-) -> Result<ContentRange, ContentRangeError> {
-    let found = source
-        .get(*search_start..)
-        .and_then(|tail| tail.find(chunk).map(|offset| *search_start + offset))
-        .or_else(|| source.find(chunk));
-    let (start_line, end_line) = match found {
-        Some(start) => {
-            let end = start.saturating_add(chunk.len());
-            *search_start = end;
-            let start_line = line_number_at(source, start);
-            (
-                start_line,
-                line_number_at(source, end.saturating_sub(1)).max(start_line),
-            )
-        }
-        None => {
-            let start_line = line_number_at(source, *search_start);
-            let line_count = chunk.lines().count().max(1);
-            (
-                start_line,
-                start_line.saturating_add(line_count).saturating_sub(1),
-            )
-        }
-    };
-    ContentRange::new(start_line, end_line)
-}
-
 pub fn excerpt_for(text: &str) -> String {
     const MAX_EXCERPT_CHARS: usize = 240;
     let mut excerpt = String::new();
@@ -282,11 +251,6 @@ pub fn hex_digest(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn line_number_at(text: &str, byte_index: usize) -> usize {
-    let capped = byte_index.min(text.len());
-    text[..capped].bytes().filter(|byte| *byte == b'\n').count() + 1
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,7 +306,6 @@ mod tests {
 
 #[cfg(test)]
 mod content_range_tests {
-    use super::line_range_for_chunk;
     use crate::entities::{ContentRange, ContentRangeError};
 
     #[test]
@@ -358,18 +321,6 @@ mod content_range_tests {
         assert_eq!(decoded.start(), 1);
         assert_eq!(decoded.end(), 4);
         assert!(serde_json::from_str::<ContentRange>(r#"{"start":4,"end":1}"#).is_err());
-        Ok(())
-    }
-
-    #[test]
-    fn line_range_for_chunk_is_ordered_and_advances() -> Result<(), Box<dyn std::error::Error>> {
-        let source = "alpha\nbeta\ngamma";
-        let mut search_start = 0;
-        let first = line_range_for_chunk(source, "beta", &mut search_start)?;
-        assert_eq!((first.start(), first.end()), (2, 2));
-        assert_eq!(&source[search_start..], "\ngamma");
-        let last = line_range_for_chunk(source, "absent", &mut search_start)?;
-        assert!(last.start() >= 1 && last.start() <= last.end());
         Ok(())
     }
 }

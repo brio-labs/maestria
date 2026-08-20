@@ -1,11 +1,6 @@
 use maestria_domain::{TaskId, ValidationReportId};
 
-use super::search_provenance::CandidateProvenanceValidator;
-use super::search_security::{RetrievalSecurityValidator, SearchRegressionValidator};
-use super::search_validators::{
-    CitationAlignmentValidator, ConflictValidator, CoverageValidator, FreshnessValidator,
-    SearchPlanValidator,
-};
+use super::search_validators::{SEARCH_CHECKS, SearchCheck};
 use super::types::{Severity, ValidationCheck, ValidationContext, ValidationReport, Validator};
 use super::validators::{
     CitationValidator, EvidenceExistenceValidator, HarnessRunValidator, MemoryValidator,
@@ -17,21 +12,46 @@ pub struct ValidationRunner {
 
 impl ValidationRunner {
     pub fn new() -> Self {
-        Self::with_validators(vec![
+        let mut validators: Vec<Box<dyn Validator>> = vec![
             Box::new(CitationValidator),
             Box::new(EvidenceExistenceValidator),
             Box::new(TaskStateValidator),
             Box::new(HarnessRunValidator),
             Box::new(MemoryValidator),
-            Box::new(SearchPlanValidator),
-            Box::new(CandidateProvenanceValidator),
-            Box::new(CoverageValidator),
-            Box::new(ConflictValidator),
-            Box::new(FreshnessValidator),
-            Box::new(CitationAlignmentValidator),
-            Box::new(RetrievalSecurityValidator),
-            Box::new(SearchRegressionValidator),
-        ])
+        ];
+        for check in SEARCH_CHECKS {
+            // SearchCheck is 'static and implements Validator; clone the struct (Copy) into a box.
+            let boxed: Box<dyn Validator> = Box::new(SearchCheck {
+                name: check.name,
+                check: check.check,
+            });
+            validators.push(boxed);
+        }
+        Self::with_validators(validators)
+    }
+
+    pub fn for_target(has_task: bool, has_search: bool) -> Self {
+        let mut validators: Vec<Box<dyn Validator>> = vec![
+            Box::new(CitationValidator),
+            Box::new(EvidenceExistenceValidator),
+            Box::new(MemoryValidator),
+        ];
+        if has_task {
+            validators.push(Box::new(TaskStateValidator));
+            validators.push(Box::new(HarnessRunValidator));
+        }
+        if has_search {
+            for check in SEARCH_CHECKS {
+                validators.push(Box::new(SearchCheck {
+                    name: check.name,
+                    check: check.check,
+                }));
+            }
+        } else {
+            // Still include non-search validators that are always needed
+            // TaskState/Harness already handled; no search checks.
+        }
+        Self::with_validators(validators)
     }
 
     pub fn with_validators(validators: Vec<Box<dyn Validator>>) -> Self {

@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use super::execution::{Meter, validate_limit_u32};
+use super::store::lock_map;
 use crate::{
     BoundedSearch, IndexedEmbeddingKey, PortError, VectorEmbedding, VectorIndex, VectorSearchHit,
     VectorSearchQuery,
@@ -61,12 +62,12 @@ fn collect_vector_hits(
         if !filter(emb.chunk_id)? {
             continue;
         }
-        let bytes = super::execution::saturating_u64(emb.vector.len()).saturating_mul(4);
+        let bytes = maestria_domain::saturating_u64(emb.vector.len()).saturating_mul(4);
         if let Some(resource) = meter.bytes(bytes) {
             stopped = Some(resource);
             break;
         }
-        let work = super::execution::saturating_u64(emb.vector.len()).saturating_add(1);
+        let work = maestria_domain::saturating_u64(emb.vector.len()).saturating_add(1);
         if let Some(resource) = meter.work(work) {
             stopped = Some(resource);
             break;
@@ -106,13 +107,7 @@ impl VectorIndex for InMemoryVectorIndex {
             }
         }
 
-        let mut guard = self
-            .embeddings
-            .lock()
-            .map_err(|_| PortError::InternalContext {
-                context: "vector index lock poisoned",
-                source: "index mutex is poisoned".to_string(),
-            })?;
+        let mut guard = lock_map(&self.embeddings, "vector index lock poisoned")?;
         for emb in embeddings {
             if let Some(pos) = guard.iter().position(|e| e.chunk_id == emb.chunk_id) {
                 guard[pos] = emb;
@@ -146,13 +141,7 @@ impl VectorIndex for InMemoryVectorIndex {
             return Ok(meter.complete(Vec::new()));
         }
 
-        let guard = self
-            .embeddings
-            .lock()
-            .map_err(|_| PortError::InternalContext {
-                context: "vector index lock poisoned",
-                source: "index mutex is poisoned".to_string(),
-            })?;
+        let guard = lock_map(&self.embeddings, "vector index lock poisoned")?;
         let q_norm_sq: f64 = query.vector.iter().map(|&v| (v as f64) * (v as f64)).sum();
         if q_norm_sq == 0.0 {
             return Ok(meter.complete(Vec::new()));
@@ -168,7 +157,7 @@ impl VectorIndex for InMemoryVectorIndex {
         });
         let selected = hits
             .into_iter()
-            .take(super::execution::saturating_usize(u64::from(query.limit)))
+            .take(maestria_domain::saturating_usize(u64::from(query.limit)))
             .collect::<Vec<_>>();
         for _ in 0..selected.len() {
             if let Some(resource) = meter.result() {
@@ -183,37 +172,19 @@ impl VectorIndex for InMemoryVectorIndex {
     }
 
     fn delete_chunks(&self, chunk_ids: &[ChunkId]) -> Result<(), PortError> {
-        let mut guard = self
-            .embeddings
-            .lock()
-            .map_err(|_| PortError::InternalContext {
-                context: "vector index lock poisoned",
-                source: "index mutex is poisoned".to_string(),
-            })?;
+        let mut guard = lock_map(&self.embeddings, "vector index lock poisoned")?;
         guard.retain(|e| !chunk_ids.contains(&e.chunk_id));
         Ok(())
     }
 
     fn clear(&self) -> Result<(), PortError> {
-        let mut guard = self
-            .embeddings
-            .lock()
-            .map_err(|_| PortError::InternalContext {
-                context: "vector index lock poisoned",
-                source: "index mutex is poisoned".to_string(),
-            })?;
+        let mut guard = lock_map(&self.embeddings, "vector index lock poisoned")?;
         guard.clear();
         Ok(())
     }
 
     fn indexed_embedding_keys(&self) -> Result<Vec<IndexedEmbeddingKey>, PortError> {
-        let guard = self
-            .embeddings
-            .lock()
-            .map_err(|_| PortError::InternalContext {
-                context: "vector index lock poisoned",
-                source: "index mutex is poisoned".to_string(),
-            })?;
+        let guard = lock_map(&self.embeddings, "vector index lock poisoned")?;
         Ok(guard
             .iter()
             .map(|embedding| IndexedEmbeddingKey {
@@ -237,13 +208,7 @@ impl VectorIndex for InMemoryVectorIndex {
         expected: &[ChunkId],
     ) -> Result<(), PortError> {
         self.index_embeddings(upserted)?;
-        let mut guard = self
-            .embeddings
-            .lock()
-            .map_err(|_| PortError::InternalContext {
-                context: "vector index lock poisoned",
-                source: "index mutex is poisoned".to_string(),
-            })?;
+        let mut guard = lock_map(&self.embeddings, "vector index lock poisoned")?;
         guard.retain(|embedding| expected.contains(&embedding.chunk_id));
         Ok(())
     }

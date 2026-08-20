@@ -135,12 +135,9 @@ impl ContentHash {
     }
 
     fn is_valid(value: &str) -> bool {
-        value.strip_prefix("sha256:").is_some_and(|digest| {
-            digest.len() == 64
-                && digest
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-        })
+        value
+            .strip_prefix("sha256:")
+            .is_some_and(crate::ids::is_lowercase_hex64)
     }
 
     pub fn is_well_formed(value: &str) -> bool {

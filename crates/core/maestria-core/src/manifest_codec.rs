@@ -186,6 +186,25 @@ pub(super) fn parse_embedding_config(
                     }
                 })?;
             }
+            if *enabled && fields.embedding_remote_provider.is_some_and(|value| value) {
+                return Err(CoreError::InvalidManifest {
+                    key: "embedding_remote_provider".to_string(),
+                    reason: "must be false: embedding activation is local-only".to_string(),
+                });
+            }
+            let retention_policy = parse_retention_policy(
+                fields
+                    .embedding_retention_policy
+                    .as_deref()
+                    .map_or("no_retention", |value| value),
+            )?;
+            if *enabled && retention_policy != maestria_ports::RetentionPolicy::NoRetention {
+                return Err(CoreError::InvalidManifest {
+                    key: "embedding_retention_policy".to_string(),
+                    reason: "must be no_retention: embedding activation retains no inputs"
+                        .to_string(),
+                });
+            }
             Ok(Some(super::EmbeddingConfig {
                 enabled: *enabled,
                 endpoint: endpoint.clone(),
@@ -195,13 +214,8 @@ pub(super) fn parse_embedding_config(
                 revision,
                 artifact_hash,
                 preprocessing_version,
-                remote_provider: fields.embedding_remote_provider.is_some_and(|value| value),
-                retention_policy: parse_retention_policy(
-                    fields
-                        .embedding_retention_policy
-                        .as_deref()
-                        .map_or("no_retention", |value| value),
-                )?,
+                remote_provider: false,
+                retention_policy,
                 query_template: match &fields.embedding_query_template {
                     Some(template) => template.clone(),
                     None => "query: {{text}}".to_string(),

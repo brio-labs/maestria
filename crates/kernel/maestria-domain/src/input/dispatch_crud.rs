@@ -27,6 +27,20 @@ impl KernelState {
 
     // ── Single-event dispatch helpers ──────────────────────────────────────
 
+    /// Allocates the next validation-report id from the applied report set
+    /// (R27: persisted identity namespaces must not be coupled to an
+    /// ephemeral allocation scheme). Effects carry the real id so the runtime
+    /// does not overwrite placeholders at admission.
+    fn next_validation_report_id(&self) -> ValidationReportId {
+        let next = self
+            .validation_reports
+            .keys()
+            .map(|id| id.value())
+            .max()
+            .map_or(1, |value| value.saturating_add(1));
+        ValidationReportId::new(next)
+    }
+
     pub(super) fn process_register_artifact(
         &mut self,
         input: RegisterArtifactInput,
@@ -50,18 +64,11 @@ impl KernelState {
         };
         let mut output = Self::output_for_event(event);
         if let Some((artifact_id, chunk_id)) = ids {
+            let request = IndexChunkRequest::new(artifact_id, chunk_id);
             output
                 .effects
-                .push(MaestriaEffect::IndexFullText(IndexFullTextRequest {
-                    artifact_id,
-                    chunk_id,
-                }));
-            output
-                .effects
-                .push(MaestriaEffect::IndexVector(IndexVectorRequest {
-                    artifact_id,
-                    chunk_id,
-                }));
+                .push(MaestriaEffect::IndexFullText(request.clone()));
+            output.effects.push(MaestriaEffect::IndexVector(request));
         }
         Ok(output)
     }
@@ -88,12 +95,10 @@ impl KernelState {
         };
         let mut output = Self::output_for_event(event);
         if let Some(claim_id) = claim_id {
-            output
-                .effects
-                .push(MaestriaEffect::RunValidation(RunValidationRequest {
-                    target: ValidationTarget::Claim(claim_id),
-                    validation_report_id: ValidationReportId::new(0),
-                }));
+            let report_id = self.next_validation_report_id();
+            output.effects.push(MaestriaEffect::RunValidation(
+                RunValidationRequest::for_claim(claim_id, report_id),
+            ));
         }
         Ok(output)
     }
@@ -105,12 +110,10 @@ impl KernelState {
         let claim_id = input.claim_id;
         let event = self.handle_create_claim(input)?;
         let mut output = Self::output_for_event(event);
-        output
-            .effects
-            .push(MaestriaEffect::RunValidation(RunValidationRequest {
-                target: ValidationTarget::Claim(claim_id),
-                validation_report_id: ValidationReportId::new(0),
-            }));
+        let report_id = self.next_validation_report_id();
+        output.effects.push(MaestriaEffect::RunValidation(
+            RunValidationRequest::for_claim(claim_id, report_id),
+        ));
         Ok(output)
     }
 
@@ -148,12 +151,10 @@ impl KernelState {
         });
         let mut output = Self::output_for_event(event);
         if input.to == TaskStatus::Validating {
-            output
-                .effects
-                .push(MaestriaEffect::RunValidation(RunValidationRequest {
-                    target: ValidationTarget::Task(input.task_id),
-                    validation_report_id: ValidationReportId::new(0),
-                }));
+            let report_id = self.next_validation_report_id();
+            output.effects.push(MaestriaEffect::RunValidation(
+                RunValidationRequest::for_task(input.task_id, report_id),
+            ));
         }
         Ok(output)
     }
@@ -173,12 +174,10 @@ impl KernelState {
         let claim_id = input.claim_id;
         let event = self.handle_link_evidence_to_claim(input)?;
         let mut output = Self::output_for_event(event);
-        output
-            .effects
-            .push(MaestriaEffect::RunValidation(RunValidationRequest {
-                target: ValidationTarget::Claim(claim_id),
-                validation_report_id: ValidationReportId::new(0),
-            }));
+        let report_id = self.next_validation_report_id();
+        output.effects.push(MaestriaEffect::RunValidation(
+            RunValidationRequest::for_claim(claim_id, report_id),
+        ));
         Ok(output)
     }
 
@@ -281,12 +280,10 @@ impl KernelState {
             return Err(DomainError::MissingTask { id: input.task_id });
         }
         let mut output = KernelOutput::default();
-        output
-            .effects
-            .push(MaestriaEffect::RunValidation(RunValidationRequest {
-                target: ValidationTarget::Task(input.task_id),
-                validation_report_id: ValidationReportId::new(0),
-            }));
+        let report_id = self.next_validation_report_id();
+        output.effects.push(MaestriaEffect::RunValidation(
+            RunValidationRequest::for_task(input.task_id, report_id),
+        ));
         Ok(output)
     }
 }

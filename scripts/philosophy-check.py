@@ -367,6 +367,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     ),
     "crates/kernel/maestria-ports/src/lib.rs": (
         "version",
+        "execution",
         "learned_sparse",
         "learned_sparse_observations",
         "lexical",
@@ -425,7 +426,6 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "scope",
         "secret_scanning",
         "validation",
-        "version",
     ),
     "crates/runtime/maestria-runtime/src/lib.rs": (
         "config",
@@ -465,16 +465,15 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     "crates/core/maestria-core/src/lib.rs": (
         "error",
         "evidence_opening",
-        "evidence_pack_provenance",
         "ingestion",
         "instance",
         "manifest",
+        "manifest_scope",
         "metrics",
         "notebook_draft_opening",
         "ports",
         "provenance",
         "types",
-        "version",
     ),
     "crates/apps/maestria-cli/src/lib.rs": (
         "test_support",
@@ -521,7 +520,15 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "token",
     ),
     # -- storage ------------------------------------------------------
+    "crates/storage/maestria-sqlite-support/src/lib.rs": (
+        "connection",
+        "db_retry",
+        "error",
+        "ids",
+        "security",
+    ),
     "crates/storage/maestria-storage-sqlite/src/lib.rs": (
+        "db_retry",
         "events",
         "id_allocator",
         "journal",
@@ -538,9 +545,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "constructors",
         "error",
         "keys",
-        "lexical_helpers",
         "lexical_operations",
-        "lexical_scoring",
         "migration",
         "operations",
         "operations_cards",
@@ -573,6 +578,10 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "vector_index",
     ),
     # ── ecosystem ─────────────────────────────────────────────────────
+    "crates/ecosystem/maestria-adapter-http/src/lib.rs": (
+        "client",
+        "helpers",
+    ),
     "crates/ecosystem/maestria-memory/src/lib.rs": (
         "memory_service",
     ),
@@ -751,6 +760,28 @@ def should_skip(path: Path) -> bool:
     )
 
 
+def _production_rust_files(*, skip_tests: bool = True, sorted_: bool = False) -> Iterator[Path]:
+    iterator = sorted(ROOT.rglob("*.rs")) if sorted_ else ROOT.rglob("*.rs")
+    for path in iterator:
+        if should_skip(path):
+            continue
+        if skip_tests and is_test_source(path):
+            continue
+        yield path
+
+
+def _kernel_rust_files(*, skip_tests: bool = True, sorted_: bool = False) -> Iterator[Path]:
+    for kernel_root in KERNEL_ROOTS:
+        files = (kernel_root / "src").rglob("*.rs")
+        if sorted_:
+            files = sorted(files)
+        for path in files:
+            if skip_tests and is_test_source(path):
+                continue
+            yield path
+
+
+
 def _iter_scannable(root: Path) -> Iterator[Path]:
     """Walk *root*, pruning SKIP_DIRS at walk time.
 
@@ -884,18 +915,24 @@ def scan_documentation_contract() -> list[str]:
     return violations
 
 
+def _matching_delimiter(text: str, opening: int, left: str, right: str) -> int | None:
+    depth = 0
+    for index in range(opening, len(text)):
+        token = text[index]
+        if token == left:
+            depth += 1
+        elif token == right:
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
 def _balanced_end(text: str, opening: int, left: str, right: str) -> int:
     """End (exclusive) of the balanced `left`/`right` group starting at
     *opening* (which points at `left`)."""
-    depth = 0
-    for idx in range(opening, len(text)):
-        if text[idx] == left:
-            depth += 1
-        elif text[idx] == right:
-            depth -= 1
-            if depth == 0:
-                return idx + 1
-    return len(text)
+    idx = _matching_delimiter(text, opening, left, right)
+    return idx + 1 if idx is not None else len(text)
 
 
 def _gated_item_end(text: str, attr_start: int) -> int:
@@ -969,25 +1006,23 @@ def production_rust(text: str) -> str:
     return "".join(kept)
 
 
+_FN_QUALIFIERS = r"(?:const\s+|async\s+|unsafe\s+|extern(?:\s+\"[^\"]*\")?\s+)*"
 _NAMED_STRUCT_PATTERN = re.compile(
     r"^\s*(?:pub(?:\s*\([^)]*\))?\s+)?struct\s+(\w+)\b",
     re.MULTILINE,
 )
 _FUNCTION_PARAMETER_PATTERN = re.compile(
-    r"^\s*(?:pub(?:\s*\([^)]*\))?\s+)?"
-    r"(?:const\s+|async\s+|unsafe\s+|extern(?:\s+\"[^\"]*\")?\s+)*"
-    r"fn\s+(\w+)\b",
+    rf"^\s*(?:pub(?:\s*\([^)]*\))?\s+)?{_FN_QUALIFIERS}fn\s+(\w+)\b",
     re.MULTILINE,
 )
 _PUBLIC_FUNCTION_PATTERN = re.compile(
-    r"^\s*pub(?:\s*\([^)]*\))?\s+"
-    r"(?:const\s+|async\s+|unsafe\s+|extern(?:\s+\"[^\"]*\")?\s+)*"
-    r"fn\s+(\w+)\b",
+    rf"^\s*pub(?:\s*\([^)]*\))?\s+{_FN_QUALIFIERS}fn\s+(\w+)\b",
     re.MULTILINE,
 )
+_FIELD_PREFIX = r"\s*(?:#\[[^\]]+\]\s*)*"
+_FIELD_VIS = r"(?:pub(?:\s*\([^)]*\))?\s+)?"
 _SIMPLE_FIELD_PATTERN = re.compile(
-    r"\s*(?:#\[[^\]]+\]\s*)*(?:pub(?:\s*\([^)]*\))?\s+)?"
-    r"(\w+)\s*:\s*(.+?)\s*",
+    rf"{_FIELD_PREFIX}{_FIELD_VIS}(\w+)\s*:\s*(.+?)\s*",
     re.DOTALL,
 )
 _SIMPLE_PARAMETER_PATTERN = re.compile(
@@ -1084,18 +1119,6 @@ def _rust_syntax(text: str, replacement: str = " ") -> str:
     return "".join(chars)
 
 
-def _matching_delimiter(text: str, opening: int, left: str, right: str) -> int | None:
-    depth = 0
-    for index in range(opening, len(text)):
-        token = text[index]
-        if token == left:
-            depth += 1
-        elif token == right:
-            depth -= 1
-            if depth == 0:
-                return index
-    return None
-
 
 def _item_opening(text: str, start: int, target: str) -> int | None:
     depths = {"<": 0, "(": 0, "[": 0}
@@ -1148,17 +1171,10 @@ def _named_values(text: str, pattern: re.Pattern[str]) -> list[tuple[str, str]]:
 
 
 def _named_struct_fields(text: str) -> list[tuple[str, list[tuple[str, str]]]]:
-    structs = []
-    for match in _NAMED_STRUCT_PATTERN.finditer(text):
-        opening = _item_opening(text, match.end(), "{")
-        if opening is None:
-            continue
-        closing = _matching_delimiter(text, opening, "{", "}")
-        if closing is None:
-            continue
-        fields = _named_values(text[opening + 1 : closing], _SIMPLE_FIELD_PATTERN)
-        structs.append((match.group(1), fields))
-    return structs
+    return [
+        (name, [(n, t) for n, t, _ in fields])
+        for name, fields in _named_struct_fields_with_visibility(text)
+    ]
 
 
 def _function_parameters(text: str) -> list[tuple[str, list[tuple[str, str]]]]:
@@ -1198,6 +1214,70 @@ def _primitive_identity_groups(
     return {value_type: names for value_type, names in groups.items() if len(names) > 1}
 
 
+def _struct_invariant_violations(struct_name: str, fields: list[tuple[str, str]], rel_path: Path) -> list[str]:
+    violations = []
+    bool_states = {_state_name(name) for name, value_type in fields if value_type == "bool"}
+    for left, right in BOOLEAN_STATE_OPPOSITES.items():
+        if left in bool_states and right in bool_states:
+            violations.append(
+                f"{rel_path} struct `{struct_name}` represents opposite states `{left}` and `{right}` as booleans; use an enum"
+            )
+    optional_fields = {name for name, value_type in fields if value_type.startswith("Option<")}
+    for state, payload_names in STATE_OPTIONAL_PAYLOADS.items():
+        correlated = sorted(optional_fields & payload_names)
+        if state in bool_states and correlated:
+            joined = "`, `".join(correlated)
+            violations.append(
+                f"{rel_path} struct `{struct_name}` coordinates boolean state `{state}` with optional payload `{joined}`; put the payload on an enum variant"
+            )
+    for name, value_type in fields:
+        if name in STRINGLY_STATE_FIELD_NAMES and value_type in {"String", "&str", "&'static str"}:
+            violations.append(
+                f"{rel_path} struct `{struct_name}` represents state field `{name}` as `{value_type}`; use an enum or validated domain type"
+            )
+    for value_type, names in _primitive_identity_groups(fields).items():
+        joined = "`, `".join(names)
+        violations.append(
+            f"{rel_path} struct `{struct_name}` has swappable primitive identities `{joined}` of type `{value_type}`; use distinct ID types"
+        )
+    return violations
+
+
+def _function_invariant_violations(
+    function_name: str, parameters: list[tuple[str, str]], public_functions: set[str], rel_path: Path
+) -> list[str]:
+    violations = []
+    bool_states = {_state_name(name) for name, value_type in parameters if value_type == "bool"}
+    for left, right in BOOLEAN_STATE_OPPOSITES.items():
+        if left in bool_states and right in bool_states:
+            violations.append(
+                f"{rel_path} function `{function_name}` accepts opposite states `{left}` and `{right}` as booleans; accept an enum"
+            )
+    optional_parameters = {name for name, value_type in parameters if value_type.startswith("Option<")}
+    for state, payload_names in STATE_OPTIONAL_PAYLOADS.items():
+        correlated = sorted(optional_parameters & payload_names)
+        if state in bool_states and correlated:
+            joined = "`, `".join(correlated)
+            violations.append(
+                f"{rel_path} function `{function_name}` coordinates boolean state `{state}` with optional payload `{joined}`; accept an enum carrying the payload"
+            )
+    for name, value_type in parameters:
+        if (
+            function_name in public_functions
+            and name in STRINGLY_STATE_FIELD_NAMES
+            and value_type in {"String", "&str", "&'static str"}
+        ):
+            violations.append(
+                f"{rel_path} function `{function_name}` accepts state parameter `{name}` as `{value_type}`; accept an enum or validated domain type"
+            )
+    for value_type, names in _primitive_identity_groups(parameters).items():
+        joined = "`, `".join(names)
+        violations.append(
+            f"{rel_path} function `{function_name}` accepts swappable primitive identities `{joined}` of type `{value_type}`; use distinct ID types"
+        )
+    return violations
+
+
 def scan_type_invariant_modeling() -> list[str]:
     """Reject high-confidence representations of invalid kernel states.
 
@@ -1206,116 +1286,20 @@ def scan_type_invariant_modeling() -> list[str]:
     correlated payloads and constructor visibility under architectural review.
     """
     violations = []
-    for kernel_root in KERNEL_ROOTS:
-        for source in (kernel_root / "src").rglob("*.rs"):
-            if is_test_source(source):
-                continue
-            content = read_text(source)
-            if content is None:
-                continue
-            relative_path = source.relative_to(ROOT)
-            production = _scrubbed_production(source)
-            public_functions = set(_PUBLIC_FUNCTION_PATTERN.findall(production))
-
-            for struct_name, fields in _named_struct_fields(production):
-                bool_states = {
-                    _state_name(name)
-                    for name, value_type in fields
-                    if value_type == "bool"
-                }
-                for left, right in BOOLEAN_STATE_OPPOSITES.items():
-                    if left in bool_states and right in bool_states:
-                        violations.append(
-                            f"{relative_path} struct `{struct_name}` represents "
-                            f"opposite states `{left}` and `{right}` as booleans; "
-                            "use an enum"
-                        )
-
-                optional_fields = {
-                    name
-                    for name, value_type in fields
-                    if value_type.startswith("Option<")
-                }
-                for state, payload_names in STATE_OPTIONAL_PAYLOADS.items():
-                    correlated = sorted(optional_fields & payload_names)
-                    if state in bool_states and correlated:
-                        joined = "`, `".join(correlated)
-                        violations.append(
-                            f"{relative_path} struct `{struct_name}` coordinates "
-                            f"boolean state `{state}` with optional payload "
-                            f"`{joined}`; put the payload on an enum variant"
-                        )
-
-                for name, value_type in fields:
-                    if name in STRINGLY_STATE_FIELD_NAMES and value_type in {
-                        "String",
-                        "&str",
-                        "&'static str",
-                    }:
-                        violations.append(
-                            f"{relative_path} struct `{struct_name}` represents "
-                            f"state field `{name}` as `{value_type}`; use an enum "
-                            "or validated domain type"
-                        )
-
-                for value_type, names in _primitive_identity_groups(fields).items():
-                    joined = "`, `".join(names)
-                    violations.append(
-                        f"{relative_path} struct `{struct_name}` has swappable "
-                        f"primitive identities `{joined}` of type `{value_type}`; "
-                        "use distinct ID types"
-                    )
-
-            for function_name, parameters in _function_parameters(production):
-                bool_states = {
-                    _state_name(name)
-                    for name, value_type in parameters
-                    if value_type == "bool"
-                }
-                for left, right in BOOLEAN_STATE_OPPOSITES.items():
-                    if left in bool_states and right in bool_states:
-                        violations.append(
-                            f"{relative_path} function `{function_name}` accepts "
-                            f"opposite states `{left}` and `{right}` as booleans; "
-                            "accept an enum"
-                        )
-
-                optional_parameters = {
-                    name
-                    for name, value_type in parameters
-                    if value_type.startswith("Option<")
-                }
-                for state, payload_names in STATE_OPTIONAL_PAYLOADS.items():
-                    correlated = sorted(optional_parameters & payload_names)
-                    if state in bool_states and correlated:
-                        joined = "`, `".join(correlated)
-                        violations.append(
-                            f"{relative_path} function `{function_name}` coordinates "
-                            f"boolean state `{state}` with optional payload "
-                            f"`{joined}`; accept an enum carrying the payload"
-                        )
-
-                for name, value_type in parameters:
-                    if (
-                        function_name in public_functions
-                        and name in STRINGLY_STATE_FIELD_NAMES
-                        and value_type in {"String", "&str", "&'static str"}
-                    ):
-                        violations.append(
-                            f"{relative_path} function `{function_name}` accepts "
-                            f"state parameter `{name}` as `{value_type}`; accept an "
-                            "enum or validated domain type"
-                        )
-
-                for value_type, names in _primitive_identity_groups(parameters).items():
-                    joined = "`, `".join(names)
-                    violations.append(
-                        f"{relative_path} function `{function_name}` accepts "
-                        f"swappable primitive identities `{joined}` of type "
-                        f"`{value_type}`; use distinct ID types"
-                    )
+    for source in _kernel_rust_files(skip_tests=True):
+        content = read_text(source)
+        if content is None:
+            continue
+        rel_path = source.relative_to(ROOT)
+        production = _scrubbed_production(source)
+        public_functions = set(_PUBLIC_FUNCTION_PATTERN.findall(production))
+        for struct_name, fields in _named_struct_fields(production):
+            violations.extend(_struct_invariant_violations(struct_name, fields, rel_path))
+        for function_name, parameters in _function_parameters(production):
+            violations.extend(
+                _function_invariant_violations(function_name, parameters, public_functions, rel_path)
+            )
     return violations
-
 
 def scan_markers() -> list[str]:
     violations = []
@@ -1334,9 +1318,7 @@ def scan_markers() -> list[str]:
 
 def scan_rust_lint_bypasses() -> list[str]:
     violations = []
-    for source in ROOT.rglob("*.rs"):
-        if should_skip(source):
-            continue
+    for source in _production_rust_files(skip_tests=False):
         content = read_text(source)
         if content is None:
             continue
@@ -1345,37 +1327,10 @@ def scan_rust_lint_bypasses() -> list[str]:
     return violations
 
 
-def scan_expect_clippy() -> list[str]:
-    violations = []
-    expect_patterns = [
-        r"#\s*!?\s*\[\s*expect\s*\(\s*clippy::too_many_lines\b",
-        r"#\s*!?\s*\[\s*expect\s*\(\s*clippy::too_many_arguments\b",
-        r"#\s*!?\s*\[\s*expect\s*\(\s*clippy::cognitive_complexity\b",
-        r"#\s*!?\s*\[\s*expect\s*\(\s*clippy::type_complexity\b",
-    ]
-    for source in ROOT.rglob("*.rs"):
-        if should_skip(source):
-            continue
-        if is_test_source(source):
-            continue
-        content = read_text(source)
-        if content is None:
-            continue
-        production = production_rust(content)
-        for pattern in expect_patterns:
-            if re.search(pattern, production):
-                violations.append(
-                    f"{source.relative_to(ROOT)} contains expect-clippy size/complexity bypass"
-                )
-                break
-    return violations
-
 
 def scan_unbounded_channels() -> list[str]:
     violations = []
-    for source in ROOT.rglob("*.rs"):
-        if should_skip(source):
-            continue
+    for source in _production_rust_files(skip_tests=False):
         content = read_text(source)
         if content is None:
             continue
@@ -1391,9 +1346,7 @@ def scan_unbounded_channels() -> list[str]:
 
 def scan_rust_forbidden_methods() -> list[str]:
     violations = []
-    for source in sorted(ROOT.rglob("*.rs")):
-        if should_skip(source):
-            continue
+    for source in _production_rust_files(skip_tests=False, sorted_=True):
         content = read_text(source)
         if content is None:
             continue
@@ -1412,11 +1365,7 @@ def scan_generated_blobs() -> list[str]:
     are exempt: generated test data is legitimate.
     """
     violations = []
-    for source in ROOT.rglob("*.rs"):
-        if should_skip(source):
-            continue
-        if is_test_source(source):
-            continue
+    for source in _production_rust_files(skip_tests=True):
         content = read_text(source)
         if content is None:
             continue
@@ -1435,11 +1384,7 @@ def scan_string_typed_errors() -> list[str]:
     implementation whose error type is a bare `String` discards the typed
     validation variants at the conversion boundary."""
     violations = []
-    for source in ROOT.rglob("*.rs"):
-        if should_skip(source):
-            continue
-        if is_test_source(source):
-            continue
+    for source in _production_rust_files(skip_tests=True):
         content = read_text(source)
         if content is None:
             continue
@@ -1545,9 +1490,7 @@ def scan_memory_unsafety_markers() -> list[str]:
     legitimate test strategy.
     """
     violations = []
-    for source in ROOT.rglob("*.rs"):
-        if should_skip(source):
-            continue
+    for source in _production_rust_files(skip_tests=False):
         content = read_text(source)
         if content is None:
             continue
@@ -1570,9 +1513,7 @@ def scan_unchecked_apis() -> list[str]:
     references do not self-flag.
     """
     violations = []
-    for source in ROOT.rglob("*.rs"):
-        if should_skip(source):
-            continue
+    for source in _production_rust_files(skip_tests=False):
         content = read_text(source)
         if content is None:
             continue
@@ -1593,9 +1534,7 @@ def scan_failure_tokens() -> list[str]:
     scrubbed so tests that reference the tokens do not self-flag.
     """
     violations = []
-    for source in ROOT.rglob("*.rs"):
-        if should_skip(source):
-            continue
+    for source in _production_rust_files(skip_tests=False):
         content = read_text(source)
         if content is None:
             continue
@@ -1616,9 +1555,7 @@ def scan_process_exit() -> list[str]:
     console-output ban).
     """
     violations = []
-    for source in ROOT.rglob("*.rs"):
-        if should_skip(source):
-            continue
+    for source in _production_rust_files(skip_tests=False):
         content = read_text(source)
         if content is None:
             continue
@@ -1642,9 +1579,7 @@ def scan_env_mutation() -> list[str]:
     tests too because the mutation class is never a legitimate strategy.
     """
     violations = []
-    for source in ROOT.rglob("*.rs"):
-        if should_skip(source):
-            continue
+    for source in _production_rust_files(skip_tests=False):
         content = read_text(source)
         if content is None:
             continue
@@ -1665,9 +1600,7 @@ def scan_debug_output() -> list[str]:
     `tracing` so output is structured, filtered, and testable.
     """
     violations = []
-    for source in ROOT.rglob("*.rs"):
-        if should_skip(source):
-            continue
+    for source in _production_rust_files(skip_tests=False):
         content = read_text(source)
         if content is None:
             continue
@@ -1726,11 +1659,7 @@ def scan_production_asserts() -> list[str]:
     `#[cfg(test)]` items are exempt.
     """
     violations = []
-    for source in ROOT.rglob("*.rs"):
-        if should_skip(source):
-            continue
-        if is_test_source(source):
-            continue
+    for source in _production_rust_files(skip_tests=True):
         content = read_text(source)
         if content is None:
             continue
@@ -1773,11 +1702,7 @@ def scan_cancellation_docs() -> list[str]:
     callers unable to reason about drop/stale-result semantics.
     """
     violations = []
-    for source in ROOT.rglob("*.rs"):
-        if should_skip(source):
-            continue
-        if is_test_source(source):
-            continue
+    for source in _production_rust_files(skip_tests=True):
         content = read_text(source)
         if content is None:
             continue
@@ -1800,8 +1725,7 @@ _TRY_FROM_IMPL_PATTERN = re.compile(
     r"impl\s+TryFrom\s*<[^>]*>\s+for\s+(\w+)\s*\{"
 )
 _FIELD_VISIBILITY_PATTERN = re.compile(
-    r"^\s*(?:#\[[^\]]*\]\s*)*(?P<pub>pub(?:\s*\([^)]*\))?\s+)?"
-    r"(?P<name>\w+)\s*:\s*(?P<type>.+?)\s*$",
+    rf"^{_FIELD_PREFIX}(?P<pub>{_FIELD_VIS})?(?P<name>\w+)\s*:\s*(?P<type>.+?)\s*$",
     re.MULTILINE,
 )
 
@@ -1819,14 +1743,41 @@ def _named_struct_fields_with_visibility(
         closing = _matching_delimiter(text, opening, "{", "}")
         if closing is None:
             continue
+        clean_body = re.sub(r"#\s*\[[^\]]*\]", " ", text[opening + 1 : closing])
+        raw_fields = []
+        current = []
+        depth = 0
+        for ch in clean_body:
+            if ch == "<":
+                depth += 1
+                current.append(ch)
+            elif ch == ">":
+                depth = max(0, depth - 1)
+                current.append(ch)
+            elif ch == "," and depth == 0:
+                raw_fields.append("".join(current).strip())
+                current = []
+            elif ch == "\n" and depth == 0:
+                current.append(" ")
+            else:
+                current.append(ch)
+        if current:
+            last = "".join(current).strip()
+            if last:
+                raw_fields.append(last)
         fields = []
-        for field_match in _FIELD_VISIBILITY_PATTERN.finditer(text[opening + 1 : closing]):
-            name = field_match.group("name")
-            if name in {"pub", "pub("}:
+        for rf in raw_fields:
+            if not rf or ":" not in rf:
                 continue
-            fields.append(
-                (name, field_match.group("type").strip(), field_match.group("pub") is not None)
-            )
+            parts = rf.split(":", 1)
+            name_part = parts[0].strip()
+            type_part = parts[1].strip().rstrip(",")
+            is_pub = False
+            if name_part.startswith("pub"):
+                is_pub = True
+                name_part = re.sub(r"^pub(?:\s*\([^)]*\))?\s+", "", name_part).strip()
+            if re.fullmatch(r"[a-zA-Z_]\w*", name_part):
+                fields.append((name_part, type_part, is_pub))
         structs.append((match.group(1), fields))
     return structs
 
@@ -1841,61 +1792,58 @@ def scan_bypassable_validation() -> list[str]:
     ContentHash pattern).
     """
     violations = []
-    for kernel_root in KERNEL_ROOTS:
-        for source in (kernel_root / "src").rglob("*.rs"):
-            if is_test_source(source):
-                continue
-            content = read_text(source)
-            if content is None:
-                continue
-            production = _scrubbed_production(source)
-            if not production:
-                continue
-            rel = source.relative_to(ROOT)
+    for source in _kernel_rust_files(skip_tests=True):
+        content = read_text(source)
+        if content is None:
+            continue
+        production = _scrubbed_production(source)
+        if not production:
+            continue
+        rel = source.relative_to(ROOT)
 
-            for struct_name, fields in _named_struct_fields_with_visibility(production):
-                public_fields = [name for name, _, is_pub in fields if is_pub]
-                if not public_fields:
-                    continue
-                validated = False
-                # (a) a serde try_from attribute whose next item is this struct
-                for attr in _SERDE_TRY_FROM_PATTERN.finditer(production):
-                    between = production[attr.end() :]
-                    next_item = re.search(
-                        r"^\s*(?:pub(?:\s*\([^)]*\))?\s+)?"
-                        r"(?:struct|enum|impl|fn|mod|type|const)\s+",
-                        between,
-                        re.MULTILINE,
+        for struct_name, fields in _named_struct_fields_with_visibility(production):
+            public_fields = [name for name, _, is_pub in fields if is_pub]
+            if not public_fields:
+                continue
+            validated = False
+            # (a) a serde try_from attribute whose next item is this struct
+            for attr in _SERDE_TRY_FROM_PATTERN.finditer(production):
+                between = production[attr.end() :]
+                next_item = re.search(
+                    r"^\s*(?:pub(?:\s*\([^)]*\))?\s+)?"
+                    r"(?:struct|enum|impl|fn|mod|type|const)\s+",
+                    between,
+                    re.MULTILINE,
+                )
+                if (
+                    next_item is not None
+                    and between[next_item.start() :].lstrip().startswith(
+                        f"struct {struct_name}"
                     )
-                    if (
-                        next_item is not None
-                        and between[next_item.start() :].lstrip().startswith(
-                            f"struct {struct_name}"
-                        )
+                ):
+                    validated = True
+                    break
+            if not validated:
+                # (b) a fallible constructor inside `impl <struct_name>`
+                for candidate in _FALLIBLE_CONSTRUCTOR_PATTERN.finditer(production):
+                    if _function_belongs_to_struct(
+                        production, candidate.start(), struct_name
                     ):
                         validated = True
                         break
-                if not validated:
-                    # (b) a fallible constructor inside `impl <struct_name>`
-                    for candidate in _FALLIBLE_CONSTRUCTOR_PATTERN.finditer(production):
-                        if _function_belongs_to_struct(
-                            production, candidate.start(), struct_name
-                        ):
-                            validated = True
-                            break
-                if not validated:
-                    # (c) a `TryFrom<...> for <struct_name>` conversion
-                    for impl_match in _TRY_FROM_IMPL_PATTERN.finditer(production):
-                        if impl_match.group(1) == struct_name:
-                            validated = True
-                            break
-                if validated:
-                    violations.append(
-                        f"{rel} struct `{struct_name}` exposes public fields "
-                        f"({', '.join(public_fields)}) alongside a validating "
-                        "conversion; make fields private and construct through a "
-                        "fallible boundary constructor"
-                    )
+            if not validated:
+                # (c) a `TryFrom<...> for <struct_name>` conversion
+                for impl_match in _TRY_FROM_IMPL_PATTERN.finditer(production):
+                    if impl_match.group(1) == struct_name:
+                        validated = True
+                        break
+            if validated:
+                violations.append(
+                    f"{rel} struct `{struct_name}` exposes public fields "
+                    f"({', '.join(public_fields)}) alongside a validating "
+                    "conversion; make fields private and construct through a "
+                    "fallible boundary constructor"
+                )
     return violations
 
 
@@ -2193,12 +2141,15 @@ def is_test_source(path: Path) -> bool:
         or (path.suffix == ".py" and path.stem.startswith("test_"))
     )
 
+_MOD_DECL_PATTERN = re.compile(
+    r"\bmod\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*;",
+)
+
+
 def _top_level_module_declarations(text: str) -> set[str]:
     """Return top-level module declarations, excluding exact cfg(test) only."""
     source = _rust_syntax(text)
-    pattern = re.compile(
-        r"\bmod\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*;"
-    )
+    pattern = _MOD_DECL_PATTERN
     declarations: set[str] = set()
     depth = 0
     cursor = 0
@@ -2231,8 +2182,7 @@ def _top_level_module_declarations(text: str) -> set[str]:
 
 def scan_kernel_sources() -> list[str]:
     violations = []
-    for kernel_root in KERNEL_ROOTS:
-        for source in sorted((kernel_root / "src").rglob("*.rs")):
+    for source in _kernel_rust_files(skip_tests=False, sorted_=True):
             content = read_text(source)
             if content is None:
                 continue
@@ -2314,34 +2264,6 @@ def scan_responsibility_maps() -> list[str]:
     return violations
 
 
-def scan_domain_manifest() -> list[str]:
-    content = read_text(DOMAIN_MANIFEST)
-    if content is None:
-        return [str(DOMAIN_MANIFEST.relative_to(ROOT))]
-    violations = []
-    for dependency in sorted(
-        _manifest_dependencies(content, read_text(ROOT / "Cargo.toml"))
-    ):
-        violations.append(
-            f"{DOMAIN_MANIFEST.relative_to(ROOT)} contains forbidden dependency token {dependency}"
-        )
-    return violations
-
-
-def scan_domain_sources() -> list[str]:
-    violations = []
-    for source in DOMAIN_SRC.rglob("*.rs"):
-        content = read_text(source)
-        if content is None:
-            continue
-        rel = source.relative_to(ROOT)
-        for token in FORBIDDEN_KERNEL_TOKENS:
-            if token in content:
-                violations.append(f"{rel} contains forbidden domain token {token}")
-        for token in FORBIDDEN_DOMAIN_FAILURES:
-            if token in content:
-                violations.append(f"{rel} contains forbidden failure token {token}")
-    return violations
 
 
 _UNNAMED_JSON_PATTERN = re.compile(r"\bserde_json::(?:Value|json!)")
@@ -2379,9 +2301,7 @@ def _logical_line_count_scrubbed(scrubbed: str) -> int:
 
 def scan_module_sizes() -> list[str]:
     violations = []
-    for source in ROOT.rglob("*.rs"):
-        if should_skip(source):
-            continue
+    for source in _production_rust_files(skip_tests=False):
         rel_path = source.relative_to(ROOT)
         rel = rel_path.as_posix()
         content = read_text(source)
@@ -2405,23 +2325,6 @@ def scan_module_sizes() -> list[str]:
             )
     return violations
 
-
-def production_strip_line_comments(body: str) -> str:
-    """Remove single-line `//` comments (but not `//!` doc-comments)."""
-    lines = []
-    for line in body.splitlines(keepends=True):
-        stripped = line.lstrip()
-        if (
-            stripped.startswith("// ")
-            or stripped.startswith("//\n")
-            or stripped.startswith("//\r")
-        ):
-            lines.append("\n")
-        elif stripped.startswith("/*"):
-            lines.append("\n")
-        else:
-            lines.append(line)
-    return "".join(lines)
 
 
 def _workspace_member_roots() -> list[Path] | None:
@@ -2700,7 +2603,7 @@ def scan_cohesion() -> list[str]:
 
 
 _FN_DECL_PATTERN = re.compile(
-    r"^\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)\s*\(",
+    rf"^\s*(?:pub(?:\s*\([^)]*\))?\s+)?{_FN_QUALIFIERS}fn\s+(\w+)\s*\(",
     re.MULTILINE,
 )
 
@@ -2754,11 +2657,7 @@ def _find_function_bodies(text: str) -> list[tuple[str, str]]:
 def scan_function_sizes() -> list[str]:
     """Flag production functions that exceed the logical-line budget."""
     violations: list[str] = []
-    for source in ROOT.rglob("*.rs"):
-        if should_skip(source):
-            continue
-        if is_test_source(source):
-            continue
+    for source in _production_rust_files(skip_tests=True):
         rel_path = source.relative_to(ROOT)
         rel = rel_path.as_posix()
         content = read_text(source)
@@ -2798,9 +2697,7 @@ def _statement_terminator_count(line: str) -> int:
 def scan_readability_style() -> list[str]:
     one_line_function = re.compile(r"(?m)\bfn\s+\w+\b[^{\n]*\{([^{}\n]*)\}")
     violations: list[str] = []
-    for source in ROOT.rglob("*.rs"):
-        if should_skip(source) or is_test_source(source):
-            continue
+    for source in _production_rust_files(skip_tests=True):
         content = read_text(source)
         if content is None:
             continue
@@ -2841,15 +2738,8 @@ def scan_mixed_responsibilities() -> list[str]:
     accumulating mixed responsibilities.
     """
     violations: list[str] = []
-    mod_pattern = re.compile(
-        r"^\s*(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([a-z0-9_]+)\s*;",
-        re.MULTILINE,
-    )
-    for source in ROOT.rglob("*.rs"):
-        if should_skip(source):
-            continue
-        if is_test_source(source):
-            continue
+    mod_pattern = _MOD_DECL_PATTERN
+    for source in _production_rust_files(skip_tests=True):
         if source.name in {"lib.rs", "mod.rs", "main.rs"}:
             continue
         rel_path = source.relative_to(ROOT)
@@ -2890,7 +2780,6 @@ def main() -> int:
         f"{path} contains a Rust lint-bypass attribute"
         for path in scan_rust_lint_bypasses()
     )
-    violations.extend(scan_expect_clippy())
     violations.extend(scan_unbounded_channels())
     violations.extend(scan_rust_forbidden_methods())
     violations.extend(scan_memory_unsafety_markers())

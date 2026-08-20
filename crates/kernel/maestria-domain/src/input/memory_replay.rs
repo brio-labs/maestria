@@ -19,20 +19,14 @@ impl KernelState {
             });
         }
         if self.memory_candidates.contains_key(&candidate_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "memory_candidate",
-                id: candidate_id.value(),
-            });
+            return Err(DomainError::DuplicateMemoryCandidate { id: candidate_id });
         }
         let claim = self
             .claims
             .get(&claim_id)
             .ok_or(DomainError::MissingClaim { id: claim_id })?;
         if evidence_ids.is_empty() {
-            return Err(DomainError::EvidenceRequired {
-                kind: "memory_candidate",
-                id: candidate_id.value(),
-            });
+            return Err(DomainError::MemoryCandidateRequiresEvidence { id: candidate_id });
         }
         for evidence_id in evidence_ids {
             let evidence = self
@@ -66,10 +60,7 @@ impl KernelState {
         security: &SecurityMetadata,
     ) -> Result<(), DomainError> {
         if self.memories.contains_key(&memory_id) {
-            return Err(DomainError::DuplicateId {
-                kind: "memory",
-                id: memory_id.value(),
-            });
+            return Err(DomainError::DuplicateMemory { id: memory_id });
         }
         let candidate = self
             .memory_candidates
@@ -117,8 +108,6 @@ impl KernelState {
             Memory {
                 id: memory_id,
                 candidate_id,
-                claim_id: candidate.claim_id(),
-                evidence_ids: candidate.evidence_ids().clone(),
                 status: MemoryStatus::Active,
                 security: current_security.taint_from(security),
             },

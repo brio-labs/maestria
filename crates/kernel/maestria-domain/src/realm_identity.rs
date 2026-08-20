@@ -11,11 +11,7 @@ pub struct RealmId(String);
 
 impl RealmId {
     pub fn try_from(value: String) -> Result<Self, RealmIdError> {
-        if value.len() != 64
-            || !value
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-        {
+        if !crate::ids::is_lowercase_hex64(&value) {
             return Err(RealmIdError::InvalidFormat);
         }
         Ok(Self(value))

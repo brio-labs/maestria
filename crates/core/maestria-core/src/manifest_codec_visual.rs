@@ -58,6 +58,24 @@ pub(crate) fn parse_visual_config(
                     }
                 })?;
             }
+            if *enabled && fields.visual_remote_provider.is_some_and(|value| value) {
+                return Err(CoreError::InvalidInput {
+                    message:
+                        "visual_remote_provider must be false: visual activation is local-only"
+                            .to_string(),
+                });
+            }
+            let retention_policy = parse_retention_policy(
+                fields
+                    .visual_retention_policy
+                    .as_deref()
+                    .map_or("no_retention", |value| value),
+            )?;
+            if *enabled && retention_policy != maestria_ports::RetentionPolicy::NoRetention {
+                return Err(CoreError::InvalidInput {
+                    message: "visual_retention_policy must be no_retention: visual activation retains no inputs".to_string(),
+                });
+            }
             Ok(Some(super::super::VisualConfig {
                 enabled: *enabled,
                 endpoint: endpoint.clone(),
@@ -67,13 +85,8 @@ pub(crate) fn parse_visual_config(
                 revision,
                 artifact_hash,
                 preprocessing_version,
-                remote_provider: fields.visual_remote_provider.is_some_and(|value| value),
-                retention_policy: parse_retention_policy(
-                    fields
-                        .visual_retention_policy
-                        .as_deref()
-                        .map_or("no_retention", |value| value),
-                )?,
+                remote_provider: false,
+                retention_policy,
             }))
         }
         _ => Err(CoreError::InvalidInput {

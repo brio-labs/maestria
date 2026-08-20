@@ -135,19 +135,19 @@ fn stores_on_same_root_share_blobs() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn digest_derived_paths_stay_under_root() -> Result<(), Box<dyn std::error::Error>> {
     let root = tempdir()?;
+    let canonical_root = root.path().canonicalize()?;
     let store = FsBlobStore::open(root.path())?;
     let (_, digest) = store.put_with_digest(b"caller cannot pick paths".to_vec())?;
 
     let object_path = store.object_path_for_digest(&digest)?;
-    assert!(object_path.starts_with(store.root()));
+    assert!(object_path.starts_with(&canonical_root));
     assert!(object_path.exists());
     assert!(
         object_path
-            .strip_prefix(store.root())?
+            .strip_prefix(&canonical_root)?
             .components()
             .all(|component| !matches!(component, std::path::Component::ParentDir))
     );
-
     let malicious = "../aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     assert!(matches!(
         store.object_path_for_digest(malicious),

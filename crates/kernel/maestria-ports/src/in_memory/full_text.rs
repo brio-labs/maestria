@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use super::execution::{Meter, validate_limit};
-use crate::lexical::{CardField, ChunkField, LexicalCardHit, LexicalChunkHit, LexicalQuery};
+use super::store::lock_map;
 use crate::{BoundedSearch, CardHit, IndexedCard, IndexedChunk, PortError, SearchHit, SearchQuery};
 
 #[derive(Clone, Default)]
@@ -26,10 +26,7 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
         &self,
         chunks: &[(maestria_domain::ArtifactId, maestria_domain::ChunkId)],
     ) -> Result<(), PortError> {
-        let mut guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
-            context: "full-text chunk index lock poisoned",
-            source: "chunk index mutex is poisoned".to_string(),
-        })?;
+        let mut guard = lock_map(&self.chunks, "full-text chunk index lock poisoned")?;
         let mut lexical_guard =
             self.lexical_chunks
                 .lock()
@@ -49,10 +46,7 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
     }
 
     fn clear(&self) -> Result<(), PortError> {
-        let mut guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
-            context: "full-text chunk index lock poisoned",
-            source: "chunk index mutex is poisoned".to_string(),
-        })?;
+        let mut guard = lock_map(&self.chunks, "full-text chunk index lock poisoned")?;
         let mut lexical_guard =
             self.lexical_chunks
                 .lock()
@@ -66,10 +60,7 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
     }
 
     fn index_chunks(&self, chunks: Vec<IndexedChunk>) -> Result<(), PortError> {
-        let mut guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
-            context: "full-text chunk index lock poisoned",
-            source: "chunk index mutex is poisoned".to_string(),
-        })?;
+        let mut guard = lock_map(&self.chunks, "full-text chunk index lock poisoned")?;
 
         let mut lexical_guard =
             self.lexical_chunks
@@ -132,10 +123,7 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
         if query.limit == 0 {
             return Ok(meter.complete(Vec::new()));
         }
-        let guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
-            context: "full-text chunk index lock poisoned",
-            source: "chunk index mutex is poisoned".to_string(),
-        })?;
+        let guard = lock_map(&self.chunks, "full-text chunk index lock poisoned")?;
         let needle = trimmed.to_lowercase();
         let mut hits = Vec::new();
         let mut stopped = None;
@@ -147,11 +135,9 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
             if !filter(chunk.chunk_id, chunk.artifact_id)? {
                 continue;
             }
-            let bytes =
-                u64::try_from(chunk.text.len()).map_err(|error| PortError::InternalContext {
-                    context: "full-text chunk byte accounting",
-                    source: error.to_string(),
-                })?;
+            let bytes = u64::try_from(chunk.text.len()).map_err(|error| {
+                PortError::internal("full-text chunk byte accounting", error.to_string())
+            })?;
             if let Some(resource) = meter.bytes(bytes) {
                 stopped = Some(resource);
                 break;
@@ -197,10 +183,7 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
     }
 
     fn index_cards(&self, cards: Vec<IndexedCard>) -> Result<(), PortError> {
-        let mut guard = self.cards.lock().map_err(|_| PortError::InternalContext {
-            context: "full-text card index lock poisoned",
-            source: "card index mutex is poisoned".to_string(),
-        })?;
+        let mut guard = lock_map(&self.cards, "full-text card index lock poisoned")?;
         let mut lexical_guard =
             self.lexical_cards
                 .lock()
@@ -260,10 +243,7 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
         if query.limit == 0 {
             return Ok(meter.complete(Vec::new()));
         }
-        let guard = self.cards.lock().map_err(|_| PortError::InternalContext {
-            context: "full-text card index lock poisoned",
-            source: "card index mutex is poisoned".to_string(),
-        })?;
+        let guard = lock_map(&self.cards, "full-text card index lock poisoned")?;
         let needle = trimmed.to_lowercase();
         let mut hits = Vec::new();
         let mut stopped = None;
@@ -336,42 +316,6 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
 
     fn index_lexical_cards(&self, cards: Vec<crate::IndexedLexicalCard>) -> Result<(), PortError> {
         super::lexical::index_lexical_cards(&self.lexical_cards, cards)
-    }
-
-    fn search_lexical(
-        &self,
-        query: LexicalQuery<ChunkField>,
-    ) -> Result<BoundedSearch<LexicalChunkHit>, PortError> {
-        super::lexical::search_lexical(&self.lexical_chunks, query)
-    }
-
-    fn search_cards_lexical(
-        &self,
-        query: LexicalQuery<CardField>,
-    ) -> Result<BoundedSearch<LexicalCardHit>, PortError> {
-        super::lexical::search_cards_lexical(&self.lexical_cards, query)
-    }
-
-    fn search_lexical_filtered(
-        &self,
-        query: LexicalQuery<ChunkField>,
-        filter: &dyn Fn(
-            maestria_domain::ChunkId,
-            maestria_domain::ArtifactId,
-        ) -> Result<bool, PortError>,
-    ) -> Result<BoundedSearch<LexicalChunkHit>, PortError> {
-        super::lexical::search_lexical_filtered(&self.lexical_chunks, query, filter)
-    }
-
-    fn search_cards_lexical_filtered(
-        &self,
-        query: LexicalQuery<CardField>,
-        filter: &dyn Fn(
-            maestria_domain::CardId,
-            maestria_domain::ArtifactId,
-        ) -> Result<bool, PortError>,
-    ) -> Result<BoundedSearch<LexicalCardHit>, PortError> {
-        super::lexical::search_cards_lexical_filtered(&self.lexical_cards, query, filter)
     }
 }
 

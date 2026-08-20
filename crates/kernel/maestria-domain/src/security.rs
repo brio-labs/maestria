@@ -31,6 +31,19 @@ pub enum Sensitivity {
     Restricted,
 }
 
+impl Sensitivity {
+    /// Ordinal classification level: Public < Internal < Confidential <
+    /// Restricted. Shared by every sensitivity ceiling comparison.
+    pub fn level(&self) -> u8 {
+        match self {
+            Self::Public => 0,
+            Self::Internal => 1,
+            Self::Confidential => 2,
+            Self::Restricted => 3,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReviewStatus {
     Approved,

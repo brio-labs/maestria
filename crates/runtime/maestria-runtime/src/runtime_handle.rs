@@ -1,18 +1,11 @@
 use crate::runtime::{
-    DomainApplicationResult, EffectPreparation, FeedbackError, MaestriaRuntime, RuntimeCommand,
-    RuntimeHandle, RuntimeSubmissionError, RuntimeSubmissionPermit,
+    DomainApplicationResult, EffectPreparation, MaestriaRuntime, RuntimeCommand, RuntimeHandle,
+    RuntimeSubmissionError, RuntimeSubmissionPermit,
 };
 use maestria_domain::DomainInput;
 use tokio::sync::{mpsc, oneshot};
 
 impl RuntimeHandle {
-    pub fn try_send_feedback(&self, input: DomainInput) -> Result<(), FeedbackError> {
-        self.input_tx.try_send(input).map_err(|error| match error {
-            mpsc::error::TrySendError::Full(_) => FeedbackError::CapacityFull,
-            mpsc::error::TrySendError::Closed(_) => FeedbackError::RuntimeShutdown,
-        })
-    }
-
     pub fn feedback_sender(&self) -> mpsc::Sender<DomainInput> {
         self.input_tx.clone()
     }
@@ -110,12 +103,14 @@ impl RuntimeSubmissionPermit {
         effect_preparation: EffectPreparation,
     ) -> Result<DomainApplicationResult, RuntimeSubmissionError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.permit.send(RuntimeCommand {
-            correlation_id: self.correlation_id,
+        self.permit.send((
             input,
-            effect_preparation,
-            reply: reply_tx,
-        });
+            RuntimeCommand {
+                correlation_id: self.correlation_id,
+                effect_preparation,
+                reply: reply_tx,
+            },
+        ));
         reply_rx
             .await
             .map_err(|_| RuntimeSubmissionError::RuntimeShutdown)?

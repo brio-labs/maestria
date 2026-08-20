@@ -169,11 +169,7 @@ impl VisualPageRegionRetriever {
         if source_filter.is_some_and(|filter| !filter.allows(artifact.id)) {
             return Ok(None);
         }
-        let score = if hit.score.is_finite() && hit.score > 0.0 {
-            (hit.score.min(1.0) * 1_000_000.0).floor() as u32
-        } else {
-            0
-        };
+        let score = super::common::similarity_micros(hit.score);
         let candidate = candidate_from_records(
             artifact.id,
             artifact.content_hash.as_ref(),
@@ -293,8 +289,8 @@ pub(super) fn ensure_local_no_retention(
 }
 #[async_trait]
 impl CandidateRetriever for VisualPageRegionRetriever {
-    fn descriptor(&self) -> RetrieverDescriptor {
-        self.descriptor.clone()
+    fn descriptor(&self) -> &RetrieverDescriptor {
+        &self.descriptor
     }
 
     async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {

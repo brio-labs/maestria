@@ -1,41 +1,17 @@
 use maestria_domain::{ParseStatus, ParsedRepresentation, RepresentationKind, SourceSpan};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredParseStatus {
-    #[default]
-    Parsed,
-    Unsupported,
-    Failed,
-    MetadataOnly,
-    NeedsOcr,
-    Quarantined,
-}
-
-impl From<ParseStatus> for StoredParseStatus {
-    fn from(status: ParseStatus) -> Self {
-        match status {
-            ParseStatus::Parsed => Self::Parsed,
-            ParseStatus::Unsupported => Self::Unsupported,
-            ParseStatus::Failed => Self::Failed,
-            ParseStatus::MetadataOnly => Self::MetadataOnly,
-            ParseStatus::NeedsOcr => Self::NeedsOcr,
-            ParseStatus::Quarantined => Self::Quarantined,
-        }
-    }
-}
-
-impl From<StoredParseStatus> for ParseStatus {
-    fn from(status: StoredParseStatus) -> Self {
-        match status {
-            StoredParseStatus::Parsed => Self::Parsed,
-            StoredParseStatus::Unsupported => Self::Unsupported,
-            StoredParseStatus::Failed => Self::Failed,
-            StoredParseStatus::MetadataOnly => Self::MetadataOnly,
-            StoredParseStatus::NeedsOcr => Self::NeedsOcr,
-            StoredParseStatus::Quarantined => Self::Quarantined,
-        }
+crate::stored_enum! {
+    #[derive(Default)]
+    #[serde(rename_all = "snake_case")]
+    pub(crate) enum StoredParseStatus <=> ParseStatus {
+        #[default]
+        Parsed,
+        Unsupported,
+        Failed,
+        MetadataOnly,
+        NeedsOcr,
+        Quarantined,
     }
 }
 
@@ -122,37 +98,14 @@ impl TryFrom<StoredSourceSpan> for SourceSpan {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredRepresentationKind {
-    Raw,
-    Retrieval,
-    Contextual,
-    Summary,
-    Visual,
-}
-
-impl From<RepresentationKind> for StoredRepresentationKind {
-    fn from(kind: RepresentationKind) -> Self {
-        match kind {
-            RepresentationKind::Raw => Self::Raw,
-            RepresentationKind::Retrieval => Self::Retrieval,
-            RepresentationKind::Contextual => Self::Contextual,
-            RepresentationKind::Summary => Self::Summary,
-            RepresentationKind::Visual => Self::Visual,
-        }
-    }
-}
-
-impl From<StoredRepresentationKind> for RepresentationKind {
-    fn from(kind: StoredRepresentationKind) -> Self {
-        match kind {
-            StoredRepresentationKind::Raw => Self::Raw,
-            StoredRepresentationKind::Retrieval => Self::Retrieval,
-            StoredRepresentationKind::Contextual => Self::Contextual,
-            StoredRepresentationKind::Summary => Self::Summary,
-            StoredRepresentationKind::Visual => Self::Visual,
-        }
+crate::stored_enum! {
+    #[serde(rename_all = "snake_case")]
+    pub(crate) enum StoredRepresentationKind <=> RepresentationKind {
+        Raw,
+        Retrieval,
+        Contextual,
+        Summary,
+        Visual,
     }
 }
 
@@ -162,12 +115,25 @@ pub(crate) struct StoredParsedRepresentation {
     pub content: String,
 }
 
+impl StoredParsedRepresentation {
+    pub(crate) fn from_domain(rep: &ParsedRepresentation) -> Self {
+        Self {
+            kind: StoredRepresentationKind::from_domain(rep.kind),
+            content: rep.content.clone(),
+        }
+    }
+
+    pub(crate) fn try_into_domain(self) -> Result<ParsedRepresentation, maestria_ports::PortError> {
+        Ok(ParsedRepresentation {
+            kind: self.kind.try_into_domain()?,
+            content: self.content,
+        })
+    }
+}
+
 impl From<ParsedRepresentation> for StoredParsedRepresentation {
     fn from(rep: ParsedRepresentation) -> Self {
-        Self {
-            kind: rep.kind.into(),
-            content: rep.content,
-        }
+        Self::from_domain(&rep)
     }
 }
 

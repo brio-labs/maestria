@@ -7,7 +7,7 @@
 use super::*;
 use maestria_domain::{ApprovalId, LogicalTick, ScopeId, TaskId};
 
-fn pending_record(id: u64) -> ApprovalRecord {
+pub fn pending_record(id: u64) -> ApprovalRecord {
     ApprovalRecord {
         id: ApprovalId::new(id),
         task_id: Some(TaskId::new(100 + id)),

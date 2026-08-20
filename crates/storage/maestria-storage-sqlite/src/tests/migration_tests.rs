@@ -213,6 +213,64 @@ fn migrate_v14_creates_learned_sparse_promotion_records() -> Result<(), PortErro
 }
 
 #[test]
+fn migrate_v15_drops_domain_events_sequence_column() -> Result<(), PortError> {
+    use crate::schema::migrate;
+    let mut connection = Connection::open_in_memory().map_err(to_port_error)?;
+    connection
+        .execute_batch(
+            "CREATE TABLE schema_version (
+                 version INTEGER NOT NULL PRIMARY KEY,
+                 applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             INSERT INTO schema_version (version) VALUES (15);
+             CREATE TABLE domain_events (
+                 id INTEGER NOT NULL PRIMARY KEY,
+                 sequence INTEGER NOT NULL UNIQUE,
+                 event_kind TEXT NOT NULL,
+                 artifact_id INTEGER,
+                 payload_json TEXT NOT NULL,
+                 payload_version INTEGER NOT NULL DEFAULT 2
+             );
+             CREATE INDEX idx_domain_events_artifact_sequence
+                 ON domain_events(artifact_id, sequence);
+             CREATE TABLE id_counters (
+                 namespace TEXT PRIMARY KEY,
+                 next_id INTEGER NOT NULL DEFAULT 1
+             );
+             INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
+                 VALUES (1, 1, 'artifact_registered', 1, '{\"event_kind\":\"artifact_registered\",\"artifact_id\":1,\"title\":\"legacy\",\"security\":{\"trust_zone\":\"untrusted\",\"authority\":\"external\",\"integrity\":\"unverified\",\"sensitivity\":\"internal\",\"review_status\":\"unreviewed\",\"prompt_injection_risk\":false,\"poisoning_flags\":[],\"read_allowed\":true,\"write_allowed\":false,\"scope_id\":null}}', 6);",
+        )
+        .map_err(to_port_error)?;
+
+    migrate(&mut connection)?;
+    let version: i64 = connection
+        .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+            row.get(0)
+        })
+        .map_err(to_port_error)?;
+    assert_eq!(version, CURRENT_SCHEMA_VERSION);
+    // The legacy row survives with its identity; the sequence column is gone.
+    let (id, kind): (i64, String) = connection
+        .query_row(
+            "SELECT id, event_kind FROM domain_events WHERE id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(to_port_error)?;
+    assert_eq!(id, 1);
+    assert_eq!(kind, "artifact_registered");
+    let has_sequence: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('domain_events') WHERE name = 'sequence'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(to_port_error)?;
+    assert_eq!(has_sequence, 0);
+    Ok(())
+}
+
+#[test]
 fn seed_id_counters_rejects_malformed_approval_requests_schema() -> Result<(), PortError> {
     let connection = Connection::open_in_memory().map_err(to_port_error)?;
     connection

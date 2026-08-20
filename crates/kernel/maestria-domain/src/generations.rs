@@ -3,185 +3,63 @@ use crate::ids::IndexGenerationId;
 use crate::search::ContentHash;
 use std::collections::BTreeMap;
 
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
-)]
-pub struct RepresentationName(pub String);
+/// String newtype for index-generation fingerprint identity components.
+///
+/// Provider, model, revision, quantization scheme, and preprocessing version
+/// are semantically distinct labels that must not be swapped; each is a
+/// newtype so interchange does not compile (R56). The wrapper keeps the
+/// serde/Display/From surface identical across components.
+macro_rules! index_generation_string {
+    ($name:ident) => {
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Hash,
+            ::serde::Serialize,
+            ::serde::Deserialize,
+        )]
+        pub struct $name(pub String);
 
-impl RepresentationName {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
-    }
+        impl $name {
+            pub fn new(value: impl Into<String>) -> Self {
+                Self(value.into())
+            }
+
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl From<&str> for $name {
+            fn from(value: &str) -> Self {
+                Self::new(value)
+            }
+        }
+
+        impl From<String> for $name {
+            fn from(value: String) -> Self {
+                Self::new(value)
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(&self.0)
+            }
+        }
+    };
 }
 
-/// Distinct fingerprint identity components (R56): provider, model,
-/// revision, quantization scheme, and preprocessing version are
-/// semantically distinct labels that must not be swapped; each is a
-/// newtype so interchange does not compile.
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
-)]
-pub struct ProviderName(pub String);
-
-impl ProviderName {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl From<&str> for PreprocessingVersion {
-    fn from(value: &str) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<String> for PreprocessingVersion {
-    fn from(value: String) -> Self {
-        Self::new(value)
-    }
-}
-
-impl std::fmt::Display for PreprocessingVersion {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl From<&str> for QuantizationScheme {
-    fn from(value: &str) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<String> for QuantizationScheme {
-    fn from(value: String) -> Self {
-        Self::new(value)
-    }
-}
-
-impl std::fmt::Display for QuantizationScheme {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl From<&str> for FingerprintRevision {
-    fn from(value: &str) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<String> for FingerprintRevision {
-    fn from(value: String) -> Self {
-        Self::new(value)
-    }
-}
-
-impl std::fmt::Display for FingerprintRevision {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl From<&str> for ModelName {
-    fn from(value: &str) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<String> for ModelName {
-    fn from(value: String) -> Self {
-        Self::new(value)
-    }
-}
-
-impl std::fmt::Display for ModelName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl From<&str> for ProviderName {
-    fn from(value: &str) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<String> for ProviderName {
-    fn from(value: String) -> Self {
-        Self::new(value)
-    }
-}
-
-impl std::fmt::Display for ProviderName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
-)]
-pub struct ModelName(pub String);
-
-impl ModelName {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
-)]
-pub struct FingerprintRevision(pub String);
-
-impl FingerprintRevision {
-    pub fn new(revision: impl Into<String>) -> Self {
-        Self(revision.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
-)]
-pub struct QuantizationScheme(pub String);
-
-impl QuantizationScheme {
-    pub fn new(scheme: impl Into<String>) -> Self {
-        Self(scheme.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
-)]
-pub struct PreprocessingVersion(pub String);
-
-impl PreprocessingVersion {
-    pub fn new(version: impl Into<String>) -> Self {
-        Self(version.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
+index_generation_string!(RepresentationName);
+index_generation_string!(ProviderName);
+index_generation_string!(ModelName);
+index_generation_string!(FingerprintRevision);
+index_generation_string!(QuantizationScheme);
+index_generation_string!(PreprocessingVersion);
 
 #[derive(Debug, Clone, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -300,10 +178,7 @@ impl IndexGenerationRegistry {
             });
         }
         if self.generations.contains_key(&generation.id) {
-            return Err(DomainError::DuplicateId {
-                kind: "IndexGeneration",
-                id: generation.id.0,
-            });
+            return Err(DomainError::DuplicateIndexGeneration { id: generation.id });
         }
         self.generations.insert(generation.id, generation);
         Ok(())
@@ -321,6 +196,15 @@ impl IndexGenerationRegistry {
 
     pub fn active_id(&self, name: &RepresentationName) -> Option<IndexGenerationId> {
         self.active_generations.get(name).copied()
+    }
+
+    /// The active generation for `name` when it is not `id` itself.
+    pub fn active_generation_other_than(
+        &self,
+        name: &RepresentationName,
+        id: IndexGenerationId,
+    ) -> Option<IndexGenerationId> {
+        self.active_id(name).filter(|active_id| *active_id != id)
     }
 
     pub fn is_serveable(&self, id: IndexGenerationId) -> bool {
@@ -360,10 +244,7 @@ impl IndexGenerationRegistry {
         let name = generation.name.clone();
 
         let previous_active = if next == IndexLifecycle::Active {
-            self.active_generations
-                .get(&name)
-                .copied()
-                .filter(|active_id| *active_id != id)
+            self.active_generation_other_than(&name, id)
         } else {
             None
         };

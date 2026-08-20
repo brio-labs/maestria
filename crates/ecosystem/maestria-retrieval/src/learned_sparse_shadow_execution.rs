@@ -56,7 +56,7 @@ pub(crate) fn spawn_learned_sparse_shadow(
         .into_iter()
         .take(MAX_SHADOW_RETRIEVERS)
         .map(|retriever| {
-            let descriptor = retriever.descriptor();
+            let descriptor = (*retriever.descriptor()).clone();
             let namespace = retriever.sparse_namespace();
             let sparse_identity = retriever.sparse_identity();
             (retriever, descriptor, namespace, sparse_identity)
@@ -132,35 +132,23 @@ async fn run_shadow(
     }
 }
 
-fn partition_allowance(total: u64, lanes: usize, lane: usize) -> u64 {
-    let lanes = lanes.max(1) as u64;
-    let base = total / lanes;
-    base + if (lane as u64) < (total % lanes) {
-        1
-    } else {
-        0
-    }
-}
-
 fn shadow_lane_budget(
     global: maestria_domain::SearchExecutionBudget,
     lanes: usize,
     lane: usize,
 ) -> Option<maestria_domain::SearchExecutionBudget> {
     let max_bytes = match global.max_bytes_read() {
-        Some(limit) => Some(std::num::NonZeroU64::new(partition_allowance(
-            limit.get(),
-            lanes,
-            lane,
-        ))?),
+        Some(limit) => Some(std::num::NonZeroU64::new(
+            crate::engine::partition_allowance(limit.get(), lanes, lane),
+        )?),
         None => None,
     };
     maestria_domain::SearchExecutionBudget::with_byte_limit(
         // Result ceiling is not partitioned: shadow lanes must observe the
         // full candidate depth to produce comparable observations.
         global.max_results(),
-        partition_allowance(global.max_candidates(), lanes, lane),
-        partition_allowance(global.max_work_units(), lanes, lane),
+        crate::engine::partition_allowance(global.max_candidates(), lanes, lane),
+        crate::engine::partition_allowance(global.max_work_units(), lanes, lane),
         max_bytes,
     )
     .ok()
@@ -193,7 +181,7 @@ async fn collect_shadow_lanes(
         let max_contributions =
             maestria_domain::saturating_usize(execution_budget.max_work_units());
         let request = CandidateRequest {
-            plan: plan.clone(),
+            plan: std::sync::Arc::new(plan.clone()),
             query: SearchQuery {
                 q: plan.original_query().to_string(),
                 limit: query_limit,

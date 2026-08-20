@@ -43,11 +43,9 @@ impl StoredNotebookCitation {
             excerpt: self.excerpt,
             observed_at: LogicalTick::new(self.observed_at),
         };
-        citation
-            .validate()
-            .map_err(|error| PortError::InvalidInput {
-                message: error.to_string(),
-            })?;
+        citation.validate().map_err(|error| {
+            PortError::invalid_input("maestria storage sqlite test", error.to_string())
+        })?;
         Ok(citation)
     }
 }
@@ -134,8 +132,12 @@ impl StoredEventPayload {
     }
 
     pub(crate) fn try_into_domain_notebook(self) -> Result<DomainEvent, FamilyDecodeError> {
-        let invalid =
-            |message: String| FamilyDecodeError::Invalid(PortError::InvalidInput { message });
+        let invalid = |message: String| {
+            FamilyDecodeError::Invalid(PortError::invalid_input(
+                "decode notebook event payload",
+                message,
+            ))
+        };
         match self {
             Self::NotebookCreated {
                 notebook_id,

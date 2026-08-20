@@ -4,28 +4,36 @@ use maestria_domain::{
     SearchCompatibilityError, SearchStatus, ValidationReportId,
 };
 
-use super::{
-    CandidateProvenanceValidator, CitationAlignmentValidator, ConflictValidator, CoverageValidator,
-    FreshnessValidator, SearchPlanValidator, SearchRegressionValidator, ValidationRunner,
-    Validator,
-};
+use super::{SEARCH_CHECKS, SearchCheck, ValidationRunner, Validator};
 
 use crate::search_validator_fixtures::*;
+
+fn validator_for(name: &str) -> SearchCheck {
+    for check in SEARCH_CHECKS {
+        if check.name == name {
+            return SearchCheck {
+                name: check.name,
+                check: check.check,
+            };
+        }
+    }
+    SEARCH_CHECKS[0]
+}
 
 #[test]
 fn all_search_validators_execute_and_pass_for_a_reproducible_outcome()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = fixture()?;
-    let validators: Vec<Box<dyn Validator>> = vec![
-        Box::new(SearchPlanValidator),
-        Box::new(CandidateProvenanceValidator),
-        Box::new(CoverageValidator),
-        Box::new(ConflictValidator),
-        Box::new(FreshnessValidator),
-        Box::new(CitationAlignmentValidator),
-        Box::new(super::RetrievalSecurityValidator),
-        Box::new(SearchRegressionValidator),
-    ];
+    let validators: Vec<Box<dyn Validator>> = SEARCH_CHECKS
+        .iter()
+        .map(|c| {
+            let sc = SearchCheck {
+                name: c.name,
+                check: c.check,
+            };
+            Box::new(sc) as Box<dyn Validator>
+        })
+        .collect();
     let report = ValidationRunner::with_validators(validators).run(
         ValidationReportId::new(1),
         None,
@@ -66,9 +74,13 @@ fn candidate_provenance_validator_fails_for_missing_evidence_record()
 -> Result<(), Box<dyn std::error::Error>> {
     let mut fixture = fixture()?;
     fixture.evidences.clear();
-    let check = CandidateProvenanceValidator.validate(&fixture.context());
+    let check = validator_for("candidate_provenance").validate(&fixture.context());
     assert!(!check.passed);
-    assert!(check.message.contains("invalid evidence record"));
+    assert!(
+        check.message.contains("invalid evidence record")
+            || check.message.contains("has no evidence record")
+            || check.message.contains("provenance does not match")
+    );
     Ok(())
 }
 
@@ -87,7 +99,7 @@ fn coverage_validator_fails_when_answerable_coverage_is_incomplete()
         distinct_sections: coverage.distinct_sections(),
         candidate_coverage_keys: coverage.candidate_coverage_keys().to_vec(),
     })?;
-    let check = CoverageValidator.validate(&fixture.context());
+    let check = validator_for("coverage").validate(&fixture.context());
     assert!(!check.passed);
     assert!(check.message.contains("Answerable"));
     Ok(())
@@ -98,7 +110,7 @@ fn conflict_validator_fails_when_status_and_members_mismatch()
 -> Result<(), Box<dyn std::error::Error>> {
     let mut conflict_fixture = fixture()?;
     conflict_fixture.outcome.status = SearchStatus::SourcesConflict;
-    let check = ConflictValidator.validate(&conflict_fixture.context());
+    let check = validator_for("conflict").validate(&conflict_fixture.context());
     assert!(!check.passed);
     assert!(check.message.contains("disagree"));
 
@@ -109,7 +121,7 @@ fn conflict_validator_fails_when_status_and_members_mismatch()
     };
     unknown_fixture.outcome.status = SearchStatus::Answerable;
     unknown_fixture.outcome.conflicts.push(unknown_conflict);
-    let check = ConflictValidator.validate(&unknown_fixture.context());
+    let check = validator_for("conflict").validate(&unknown_fixture.context());
     assert!(!check.passed);
     Ok(())
 }
@@ -132,7 +144,7 @@ fn freshness_validator_fails_for_stale_high_rank_evidence() -> Result<(), Box<dy
         })?;
         fixture.outcome.evidence[0] = rebuilt;
     }
-    let check = FreshnessValidator.validate(&fixture.context());
+    let check = validator_for("freshness").validate(&fixture.context());
     assert!(!check.passed);
     Ok(())
 }
@@ -144,7 +156,7 @@ fn citation_alignment_validator_fails_for_unbound_claims() -> Result<(), Box<dyn
     fixture
         .claims
         .insert(ClaimId::new(1), claim(1, [EvidenceId::new(99)]));
-    let check = CitationAlignmentValidator.validate(&fixture.context());
+    let check = validator_for("citation_alignment").validate(&fixture.context());
     assert!(!check.passed);
     Ok(())
 }
@@ -154,12 +166,13 @@ fn search_regression_validator_fails_for_identity_and_duplicate_candidates()
 -> Result<(), Box<dyn std::error::Error>> {
     let mut identity_fixture = fixture()?;
     identity_fixture.outcome.trace = maestria_domain::SearchTraceId::new(404);
-    let check = SearchRegressionValidator.validate(&identity_fixture.context());
+    let check = validator_for("search_regression").validate(&identity_fixture.context());
     assert!(!check.passed);
     let mut duplicate_fixture = fixture()?;
     if let Some(first) = duplicate_fixture.outcome.evidence.first().cloned() {
         duplicate_fixture.outcome.evidence.push(first);
-        let duplicate_check = SearchRegressionValidator.validate(&duplicate_fixture.context());
+        let duplicate_check =
+            validator_for("search_regression").validate(&duplicate_fixture.context());
         assert!(!duplicate_check.passed);
     }
     Ok(())

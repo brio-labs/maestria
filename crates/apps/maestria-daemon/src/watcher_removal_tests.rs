@@ -1,4 +1,5 @@
 use super::*;
+use maestria_domain::ArtifactDetected;
 
 #[tokio::test]
 async fn phase_detect_removals_emits_source_removed() -> Result<(), Box<dyn std::error::Error>> {

@@ -1,39 +1,14 @@
 #![forbid(unsafe_code)]
 
-use maestria_ports::{FileHandle, FileMetadata, ParseContext, ParsedArtifact, Parser, PortError};
+use crate::chunking::{extension_is, paragraph_chunks};
+use crate::text_parser;
 
-use crate::chunking::{decode_utf8, extension_is, paragraph_chunks, parsed_artifact};
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct PlainTextParser;
-
-impl PlainTextParser {
-    pub const fn new() -> Self {
-        Self
-    }
-}
-
-impl Parser for PlainTextParser {
-    fn id(&self) -> &'static str {
-        "plain-text-parser"
-    }
-
-    fn supports(&self, file: &FileMetadata) -> bool {
-        extension_is(file, &["txt", "text"])
-    }
-
-    fn parse(&self, file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError> {
-        let bytes = file.bytes.clone();
-        let text = decode_utf8(file.bytes)?;
-        let chunks = paragraph_chunks(&text);
-        parsed_artifact(
-            context.artifact_id,
-            &file.path,
-            &bytes,
-            chunks,
-            self.id().to_string(),
-            "1.0".to_string(),
-            Some("text".to_string()),
-        )
-    }
-}
+text_parser!(
+    PlainTextParser,
+    "plain-text-parser",
+    |file: &maestria_ports::FileMetadata| extension_is(file, &["txt", "text"]),
+    "plain-text-parser",
+    "1.0",
+    "text",
+    paragraph_chunks
+);

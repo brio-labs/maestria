@@ -121,17 +121,28 @@ fn adaptive_plan(max_queries: u32, max_stages: u32) -> RetrievalResult<SearchPla
 struct AdaptiveLane {
     slot_only: bool,
     stale_generation: bool,
+    descriptor: maestria_retrieval::types::RetrieverDescriptor,
+}
+
+impl AdaptiveLane {
+    fn new(slot_only: bool, stale_generation: bool) -> Self {
+        Self {
+            slot_only,
+            stale_generation,
+            descriptor: maestria_retrieval::types::RetrieverDescriptor {
+                id: "adaptive".to_string(),
+                modality: "text".to_string(),
+                representation: maestria_domain::RepresentationName::new("text"),
+                generation: maestria_domain::IndexGenerationId::new(1),
+            },
+        }
+    }
 }
 
 #[async_trait]
 impl CandidateRetriever for AdaptiveLane {
-    fn descriptor(&self) -> maestria_retrieval::types::RetrieverDescriptor {
-        maestria_retrieval::types::RetrieverDescriptor {
-            id: "adaptive".to_string(),
-            modality: "text".to_string(),
-            representation: maestria_domain::RepresentationName::new("text"),
-            generation: maestria_domain::IndexGenerationId::new(1),
-        }
+    fn descriptor(&self) -> &maestria_retrieval::types::RetrieverDescriptor {
+        &self.descriptor
     }
 
     async fn retrieve(
@@ -166,7 +177,7 @@ impl CandidateRetriever for AdaptiveLane {
             request.expected_generation
         };
         Ok(maestria_retrieval::types::CandidateBatch {
-            descriptor: self.descriptor(),
+            descriptor: (*self.descriptor()).clone(),
             query: request.query.q.clone(),
             candidates,
             status: maestria_domain::SearchLaneStatus::Succeeded,
@@ -279,10 +290,7 @@ impl RetrievalEvaluator for AnswerableEvaluator {
 async fn bounded_search_retrieves_declared_missing_slot() -> RetrievalResult<()> {
     let plan = adaptive_plan(3, 2)?;
     let engine = RetrievalEngine::new(
-        vec![Arc::new(AdaptiveLane {
-            slot_only: true,
-            stale_generation: false,
-        })],
+        vec![Arc::new(AdaptiveLane::new(true, false))],
         Arc::new(AdaptiveEvaluator),
         maestria_governance::RetrievalSecurityPolicy::default(),
     );
@@ -318,10 +326,7 @@ async fn missing_slot_with_prompt_injection_text_is_not_executed() -> RetrievalR
         minimum_corroboration: 1,
     })?;
     let engine = RetrievalEngine::new(
-        vec![Arc::new(AdaptiveLane {
-            slot_only: true,
-            stale_generation: false,
-        })],
+        vec![Arc::new(AdaptiveLane::new(true, false))],
         Arc::new(AdaptiveEvaluator),
         maestria_governance::RetrievalSecurityPolicy::default(),
     );
@@ -350,10 +355,7 @@ async fn missing_slot_with_prompt_injection_text_is_not_executed() -> RetrievalR
 async fn bounded_search_reports_budget_exhaustion() -> RetrievalResult<()> {
     let plan = adaptive_plan(1, 1)?;
     let engine = RetrievalEngine::new(
-        vec![Arc::new(AdaptiveLane {
-            slot_only: true,
-            stale_generation: false,
-        })],
+        vec![Arc::new(AdaptiveLane::new(true, false))],
         Arc::new(AdaptiveEvaluator),
         maestria_governance::RetrievalSecurityPolicy::default(),
     );
@@ -374,10 +376,7 @@ async fn bounded_search_reports_budget_exhaustion() -> RetrievalResult<()> {
 async fn bounded_search_stops_on_low_marginal_gain() -> RetrievalResult<()> {
     let plan = adaptive_plan(3, 2)?;
     let engine = RetrievalEngine::new(
-        vec![Arc::new(AdaptiveLane {
-            slot_only: false,
-            stale_generation: false,
-        })],
+        vec![Arc::new(AdaptiveLane::new(false, false))],
         Arc::new(AdaptiveEvaluator),
         maestria_governance::RetrievalSecurityPolicy::default(),
     );
@@ -398,10 +397,7 @@ async fn bounded_search_stops_on_low_marginal_gain() -> RetrievalResult<()> {
 async fn bounded_search_rejects_stale_generation_results() -> RetrievalResult<()> {
     let plan = adaptive_plan(3, 2)?;
     let engine = RetrievalEngine::new(
-        vec![Arc::new(AdaptiveLane {
-            slot_only: true,
-            stale_generation: true,
-        })],
+        vec![Arc::new(AdaptiveLane::new(true, true))],
         Arc::new(AdaptiveEvaluator),
         maestria_governance::RetrievalSecurityPolicy::default(),
     );
@@ -430,10 +426,7 @@ async fn planner_accepts_context_snapshot_with_installed_generation() -> Retriev
         scope: None,
     };
     let engine = RetrievalEngine::new(
-        vec![Arc::new(AdaptiveLane {
-            slot_only: false,
-            stale_generation: false,
-        })],
+        vec![Arc::new(AdaptiveLane::new(false, false))],
         Arc::new(AdaptiveEvaluator),
         maestria_governance::RetrievalSecurityPolicy::default(),
     );
@@ -453,10 +446,7 @@ async fn planner_prefers_text_routing_when_web_or_visual_lanes_are_unavailable()
         scope: None,
     };
     let engine = RetrievalEngine::new(
-        vec![Arc::new(AdaptiveLane {
-            slot_only: false,
-            stale_generation: false,
-        })],
+        vec![Arc::new(AdaptiveLane::new(false, false))],
         Arc::new(AnswerableEvaluator),
         maestria_governance::RetrievalSecurityPolicy::default(),
     );
@@ -480,10 +470,7 @@ async fn planner_quarantines_prompt_injection_before_capability_routing() -> Ret
         scope: None,
     };
     let engine = RetrievalEngine::new(
-        vec![Arc::new(AdaptiveLane {
-            slot_only: false,
-            stale_generation: false,
-        })],
+        vec![Arc::new(AdaptiveLane::new(false, false))],
         Arc::new(AnswerableEvaluator),
         maestria_governance::RetrievalSecurityPolicy::default(),
     );
@@ -524,10 +511,7 @@ async fn explicit_current_web_plan_preserves_validation_error() -> RetrievalResu
         .with_modalities(ModalitySet::new(vec![Modality::Web]))?
         .with_freshness(FreshnessRequirement::Realtime)?;
     let engine = RetrievalEngine::new(
-        vec![Arc::new(AdaptiveLane {
-            slot_only: false,
-            stale_generation: false,
-        })],
+        vec![Arc::new(AdaptiveLane::new(false, false))],
         Arc::new(AnswerableEvaluator),
         maestria_governance::RetrievalSecurityPolicy::default(),
     );

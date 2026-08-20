@@ -60,16 +60,14 @@ impl RetrievalEvaluator for EvidenceOutcomeEvaluator {
         )?
         .with_policy_fingerprint(policy_fingerprint);
         trace.diversity = Some(diversity);
-        let outcome = SearchOutcome {
-            trace: trace.deterministic_id(),
-            trace_data: Some(Box::new(trace)),
-            fingerprint: experiment.plan.fingerprint().clone(),
-            index_generation: experiment.plan.index_generation(),
+        let outcome = SearchOutcome::from_trace(
+            trace,
+            &experiment.plan,
             status,
-            evidence: selected_evidence,
+            selected_evidence,
             coverage,
-            conflicts: Vec::new(),
-        };
+            Vec::new(),
+        );
         outcome.verify_compatibility(&experiment.plan)?;
         let _ = &self.evidence;
         Ok(RetrievalEvaluationReport {

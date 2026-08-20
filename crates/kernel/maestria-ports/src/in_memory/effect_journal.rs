@@ -1,7 +1,7 @@
 use std::sync::{Mutex, MutexGuard};
 
 use crate::HarnessOutcome;
-use maestria_domain::HarnessRunId;
+use maestria_domain::{HarnessRunId, JournalGeneration};
 
 use crate::{
     EffectJournal, EffectJournalEntry, EffectJournalIntent, EffectJournalStatus, PortError,
@@ -27,11 +27,12 @@ impl EffectJournal for InMemoryEffectJournal {
         let previous_generation = entries
             .iter()
             .filter(|entry| entry.run_id == intent.run_id)
-            .map(|entry| entry.generation)
+            .map(|entry| entry.generation.value())
             .max();
-        let next_generation = previous_generation.map_or(1, |value| value.saturating_add(1));
+        let next_generation =
+            JournalGeneration::new(previous_generation.map_or(1, |value| value.saturating_add(1)));
         let generation = match intent.requested_generation {
-            Some(requested) if requested >= next_generation => requested,
+            Some(requested) if requested.value() >= next_generation.value() => requested,
             _ => next_generation,
         };
         for entry in entries.iter_mut().filter(|entry| {
@@ -59,7 +60,11 @@ impl EffectJournal for InMemoryEffectJournal {
         Ok(entry)
     }
 
-    fn record_started(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
+    fn record_started(
+        &self,
+        run_id: HarnessRunId,
+        generation: JournalGeneration,
+    ) -> Result<(), PortError> {
         let mut entries = self.lock()?;
         let entry = entries
             .iter_mut()
@@ -72,14 +77,18 @@ impl EffectJournal for InMemoryEffectJournal {
         entry.status = EffectJournalStatus::Started;
         Ok(())
     }
-    fn claim_feedback(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
+    fn claim_feedback(
+        &self,
+        run_id: HarnessRunId,
+        generation: JournalGeneration,
+    ) -> Result<(), PortError> {
         self.claim_feedback_inner(run_id, generation, None)
     }
 
     fn claim_feedback_with_outcome(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: JournalGeneration,
         outcome: HarnessOutcome,
     ) -> Result<(), PortError> {
         self.claim_feedback_inner(run_id, generation, Some(outcome))
@@ -88,7 +97,7 @@ impl EffectJournal for InMemoryEffectJournal {
     fn feedback_outcome(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: JournalGeneration,
     ) -> Result<Option<HarnessOutcome>, PortError> {
         Ok(self
             .lock()?
@@ -101,7 +110,7 @@ impl EffectJournal for InMemoryEffectJournal {
     fn record_terminal(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: JournalGeneration,
         status: EffectJournalStatus,
     ) -> Result<(), PortError> {
         if !matches!(
@@ -154,7 +163,7 @@ impl EffectJournal for InMemoryEffectJournal {
     fn is_feedback_accepted(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: JournalGeneration,
     ) -> Result<bool, PortError> {
         Ok(self
             .lock()?
@@ -164,7 +173,11 @@ impl EffectJournal for InMemoryEffectJournal {
             .is_some_and(|entry| entry.status == EffectJournalStatus::FeedbackAccepted))
     }
 
-    fn is_current(&self, run_id: HarnessRunId, generation: u64) -> Result<bool, PortError> {
+    fn is_current(
+        &self,
+        run_id: HarnessRunId,
+        generation: JournalGeneration,
+    ) -> Result<bool, PortError> {
         Ok(self
             .lock()?
             .iter()
@@ -185,7 +198,7 @@ impl InMemoryEffectJournal {
     fn claim_feedback_inner(
         &self,
         run_id: HarnessRunId,
-        generation: u64,
+        generation: JournalGeneration,
         feedback: Option<HarnessOutcome>,
     ) -> Result<(), PortError> {
         let mut entries = self.lock()?;
@@ -212,7 +225,7 @@ mod tests {
 
     use super::*;
 
-    fn intent(run_id: u64, generation: Option<u64>) -> EffectJournalIntent {
+    fn intent(run_id: u64, generation: Option<JournalGeneration>) -> EffectJournalIntent {
         EffectJournalIntent {
             run_id: HarnessRunId::new(run_id),
             task_id: None,
@@ -232,7 +245,7 @@ mod tests {
     fn records_lifecycle_and_current_generation() -> Result<(), PortError> {
         let journal = InMemoryEffectJournal::default();
         let entry = journal.record_intent(intent(1, None))?;
-        assert_eq!(entry.generation, 1);
+        assert_eq!(entry.generation.value(), 1);
         journal.record_started(entry.run_id, entry.generation)?;
         assert!(journal.is_current(entry.run_id, entry.generation)?);
         journal.record_terminal(
@@ -259,7 +272,7 @@ mod tests {
         let journal = InMemoryEffectJournal::default();
         let first = journal.record_intent(intent(1, None))?;
         let second = journal.record_intent(intent(1, None))?;
-        assert_eq!(second.generation, first.generation + 1);
+        assert_eq!(second.generation.value(), first.generation.value() + 1);
         assert!(!journal.is_current(first.run_id, first.generation)?);
         assert!(journal.is_current(second.run_id, second.generation)?);
         Ok(())
@@ -272,7 +285,7 @@ mod tests {
         journal.record_started(first.run_id, first.generation)?;
         journal.claim_feedback(first.run_id, first.generation)?;
         let second = journal.record_intent(intent(2, None))?;
-        assert_eq!(second.generation, first.generation + 1);
+        assert_eq!(second.generation.value(), first.generation.value() + 1);
         assert!(!journal.is_feedback_accepted(first.run_id, first.generation)?);
         assert!(!journal.is_current(first.run_id, first.generation)?);
         assert!(journal.is_current(second.run_id, second.generation)?);

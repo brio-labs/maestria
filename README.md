@@ -248,9 +248,13 @@ only when granted, open a bounded provider evidence excerpt.
 client boundary is newline-delimited JSON on
 `<instance>/system/daemon.sock`; the token is stored in
 `<instance>/system/daemon.token`.
-The owner-only instance-token operations include `status`, `search`, `evidence`,
-`task`, `model_agent_propose`, `model_agent_status`, `model_agent_resolve`,
-`realm_grant_create`, `realm_grant_list`, `realm_grant_revoke`,
+The owner-only instance-token operations include `status`, `retrieval_status`, `search`,
+`evidence`, `task`, `index_candidates`, `index_selection_get`, `index_selection_save`,
+`index_run`, `repository_index_candidates`, `repository_index_children`,
+`repository_index_files`, `repository_index_progress_get`, `repository_index_run`,
+`repository_index_selection_get`, `repository_index_selection_save`,
+`repository_index_status`, `model_agent_propose`, `model_agent_status`,
+`model_agent_resolve`, `realm_grant_create`, `realm_grant_list`, `realm_grant_revoke`,
 `install_federation_binding`, and the notebook/draft operations
 `notebook_list`, `notebook_create`, `notebook_get`, `notebook_rename`,
 `notebook_delete`, `notebook_source_catalog`, `notebook_source_attach`,

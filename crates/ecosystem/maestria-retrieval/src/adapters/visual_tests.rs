@@ -207,6 +207,30 @@ fn denied_visual_projection_reads_no_blob_and_posts_no_bytes()
     Ok(())
 }
 
+fn setup_test_capability(
+    generation: IndexGenerationId,
+    corpus_snapshot: CorpusSnapshotId,
+    identity: &EmbeddingIdentity,
+) -> Result<VisualGenerationCapability, Box<dyn std::error::Error>> {
+    let mut registry = IndexGenerationRegistry::default();
+    registry.register(IndexGeneration {
+        id: generation,
+        name: RepresentationName::new("visual_page_v1"),
+        corpus_snapshot,
+        sparse_namespace: None,
+        fingerprint: identity.fingerprint.clone(),
+        lifecycle: IndexLifecycle::Building,
+    })?;
+    registry.transition_lifecycle(generation, IndexLifecycle::Evaluated)?;
+    registry.transition_lifecycle(generation, IndexLifecycle::Shadow)?;
+    registry.transition_lifecycle(generation, IndexLifecycle::Active)?;
+    Ok(VisualGenerationCapability::activate(
+        &registry,
+        identity.clone(),
+        corpus_snapshot,
+    )?)
+}
+
 #[test]
 fn denied_visual_candidates_are_authorized_before_content_reads()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -220,20 +244,7 @@ fn denied_visual_candidates_are_authorized_before_content_reads()
     let mut identity = maestria_ports::contract_tests::fixture_embedding_identity("visual", 1)?;
     identity.generation_id = generation;
     identity.representation = RepresentationName::new("visual_page_v1");
-    let mut registry = IndexGenerationRegistry::default();
-    registry.register(IndexGeneration {
-        id: generation,
-        name: RepresentationName::new("visual_page_v1"),
-        corpus_snapshot,
-        sparse_namespace: None,
-        fingerprint: identity.fingerprint.clone(),
-        lifecycle: IndexLifecycle::Building,
-    })?;
-    registry.transition_lifecycle(generation, IndexLifecycle::Evaluated)?;
-    registry.transition_lifecycle(generation, IndexLifecycle::Shadow)?;
-    registry.transition_lifecycle(generation, IndexLifecycle::Active)?;
-    let capability =
-        VisualGenerationCapability::activate(&registry, identity.clone(), corpus_snapshot)?;
+    let capability = setup_test_capability(generation, corpus_snapshot, &identity)?;
 
     let artifact_id = maestria_domain::ArtifactId::new(7);
     let chunk_id = maestria_domain::ChunkId::new(11);
@@ -263,9 +274,11 @@ fn denied_visual_candidates_are_authorized_before_content_reads()
     );
     let mut mismatched_request =
         request(maestria_domain::SearchIntent::VisualDocument, generation)?;
-    mismatched_request.plan = mismatched_request
-        .plan
-        .with_corpus_snapshot(CorpusSnapshotId::new(8))?;
+    mismatched_request.plan = std::sync::Arc::new(
+        (*mismatched_request.plan)
+            .clone()
+            .with_corpus_snapshot(CorpusSnapshotId::new(8))?,
+    );
     let mismatch = retriever.retrieve_with_vector(
         VectorSearchQuery {
             vector: vec![1.0],
@@ -286,7 +299,11 @@ fn denied_visual_candidates_are_authorized_before_content_reads()
     ));
     assert_eq!(index.filter_calls(), 0);
     let mut request = request(maestria_domain::SearchIntent::VisualDocument, generation)?;
-    request.plan = request.plan.with_corpus_snapshot(corpus_snapshot)?;
+    request.plan = std::sync::Arc::new(
+        (*request.plan)
+            .clone()
+            .with_corpus_snapshot(corpus_snapshot)?,
+    );
     request.source_filter = Some(CandidateSourceFilter::try_new(
         std::collections::BTreeSet::from([maestria_domain::ArtifactId::new(999)]),
     )?);
@@ -420,7 +437,11 @@ fn visual_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>
         capability,
     );
     let mut request = request(maestria_domain::SearchIntent::VisualDocument, generation)?;
-    request.plan = request.plan.with_corpus_snapshot(corpus_snapshot)?;
+    request.plan = std::sync::Arc::new(
+        (*request.plan)
+            .clone()
+            .with_corpus_snapshot(corpus_snapshot)?,
+    );
     let batch = retriever.retrieve_with_vector(
         VectorSearchQuery {
             vector: vec![1.0],
@@ -611,7 +632,11 @@ fn assert_visual_evidence_denied_before_score(
         capability,
     );
     let mut request = request(maestria_domain::SearchIntent::VisualDocument, generation)?;
-    request.plan = request.plan.with_corpus_snapshot(corpus_snapshot)?;
+    request.plan = std::sync::Arc::new(
+        (*request.plan)
+            .clone()
+            .with_corpus_snapshot(corpus_snapshot)?,
+    );
     let batch = retriever.retrieve_with_vector(
         VectorSearchQuery {
             vector: vec![1.0],

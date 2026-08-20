@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use super::store::lock_map;
 use crate::PortError;
 use maestria_domain::{ApprovalId, TaskId};
 use maestria_domain::{
@@ -62,34 +63,22 @@ impl InMemoryChunkRepository {
 
 impl crate::ChunkRepository for InMemoryChunkRepository {
     fn get(&self, chunk_id: ChunkId) -> Result<Option<Chunk>, PortError> {
-        let guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
-            context: "chunk repository lock poisoned",
-            source: "chunk repository mutex is poisoned".to_string(),
-        })?;
+        let guard = lock_map(&self.chunks, "chunk repository lock poisoned")?;
         Ok(guard.get(&chunk_id).cloned())
     }
     fn find_artifact_id(&self, chunk_id: ChunkId) -> Result<Option<ArtifactId>, PortError> {
-        let guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
-            context: "chunk repository lock poisoned",
-            source: "chunk repository mutex is poisoned".to_string(),
-        })?;
+        let guard = lock_map(&self.chunks, "chunk repository lock poisoned")?;
         Ok(guard.get(&chunk_id).map(|chunk| chunk.artifact_id))
     }
 
     fn put(&self, chunk: Chunk) -> Result<(), PortError> {
-        let mut guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
-            context: "chunk repository lock poisoned",
-            source: "chunk repository mutex is poisoned".to_string(),
-        })?;
+        let mut guard = lock_map(&self.chunks, "chunk repository lock poisoned")?;
         guard.insert(chunk.id, chunk);
         Ok(())
     }
 
     fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Chunk>, PortError> {
-        let guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
-            context: "chunk repository lock poisoned",
-            source: "chunk repository mutex is poisoned".to_string(),
-        })?;
+        let guard = lock_map(&self.chunks, "chunk repository lock poisoned")?;
         let mut chunks = guard
             .values()
             .filter(|chunk| chunk.artifact_id == artifact_id)
@@ -115,27 +104,18 @@ impl InMemoryCardRepository {
 
 impl crate::CardRepository for InMemoryCardRepository {
     fn get(&self, card_id: CardId) -> Result<Option<Card>, PortError> {
-        let guard = self.cards.lock().map_err(|_| PortError::InternalContext {
-            context: "card repository lock poisoned",
-            source: "card repository mutex is poisoned".to_string(),
-        })?;
+        let guard = lock_map(&self.cards, "card repository lock poisoned")?;
         Ok(guard.get(&card_id).cloned())
     }
 
     fn put(&self, card: Card) -> Result<(), PortError> {
-        let mut guard = self.cards.lock().map_err(|_| PortError::InternalContext {
-            context: "card repository lock poisoned",
-            source: "card repository mutex is poisoned".to_string(),
-        })?;
+        let mut guard = lock_map(&self.cards, "card repository lock poisoned")?;
         guard.insert(card.id, card);
         Ok(())
     }
 
     fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Card>, PortError> {
-        let guard = self.cards.lock().map_err(|_| PortError::InternalContext {
-            context: "card repository lock poisoned",
-            source: "card repository mutex is poisoned".to_string(),
-        })?;
+        let guard = lock_map(&self.cards, "card repository lock poisoned")?;
         Ok(guard
             .values()
             .filter(|card| card.artifact_id == artifact_id)
@@ -235,18 +215,12 @@ impl InMemoryRealmReadGrantRepository {
 
 impl crate::RealmReadGrantRepository for InMemoryRealmReadGrantRepository {
     fn get(&self, token_digest: &GrantTokenDigest) -> Result<Option<RealmReadGrant>, PortError> {
-        let grants = self.grants.lock().map_err(|_| PortError::InternalContext {
-            context: "realm read grant repository lock poisoned",
-            source: "realm read grant repository mutex is poisoned".to_string(),
-        })?;
+        let grants = lock_map(&self.grants, "realm read grant repository lock poisoned")?;
         Ok(grants.get(token_digest).cloned())
     }
 
     fn put(&self, grant: RealmReadGrant) -> Result<(), PortError> {
-        let mut grants = self.grants.lock().map_err(|_| PortError::InternalContext {
-            context: "realm read grant repository lock poisoned",
-            source: "realm read grant repository mutex is poisoned".to_string(),
-        })?;
+        let mut grants = lock_map(&self.grants, "realm read grant repository lock poisoned")?;
         if grant.state() == maestria_domain::RealmReadGrantState::Active
             && grants.iter().any(|(digest, existing)| {
                 digest != grant.token_digest()
@@ -263,18 +237,12 @@ impl crate::RealmReadGrantRepository for InMemoryRealmReadGrantRepository {
     }
 
     fn list(&self) -> Result<Vec<RealmReadGrant>, PortError> {
-        let grants = self.grants.lock().map_err(|_| PortError::InternalContext {
-            context: "realm read grant repository lock poisoned",
-            source: "realm read grant repository mutex is poisoned".to_string(),
-        })?;
+        let grants = lock_map(&self.grants, "realm read grant repository lock poisoned")?;
         Ok(grants.values().cloned().collect())
     }
 
     fn delete_not_in(&self, token_digests: &BTreeSet<GrantTokenDigest>) -> Result<(), PortError> {
-        let mut grants = self.grants.lock().map_err(|_| PortError::InternalContext {
-            context: "realm read grant repository lock poisoned",
-            source: "realm read grant repository mutex is poisoned".to_string(),
-        })?;
+        let mut grants = lock_map(&self.grants, "realm read grant repository lock poisoned")?;
         grants.retain(|digest, _| token_digests.contains(digest));
         Ok(())
     }

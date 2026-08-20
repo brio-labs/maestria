@@ -204,15 +204,6 @@ impl UreqWebFetcher {
         Self::default()
     }
 
-    pub fn with_primary_domains(mut self, domains: impl IntoIterator<Item = String>) -> Self {
-        self.primary_domains = domains
-            .into_iter()
-            .map(|domain| domain.trim_end_matches('.').to_ascii_lowercase())
-            .filter(|domain| !domain.is_empty())
-            .collect();
-        self
-    }
-
     #[cfg(test)]
     pub(crate) fn with_transport(transport: std::sync::Arc<dyn HttpTransport>) -> Self {
         Self {
@@ -244,10 +235,8 @@ impl WebFetcher for UreqWebFetcher {
                 source: "max_latency_ms must be greater than zero".to_string(),
             });
         }
-        let parsed = url::Url::parse(url_str).map_err(|e| PortError::InvalidInputContext {
-            context: "invalid url",
-            source: e.to_string(),
-        })?;
+        let parsed = url::Url::parse(url_str)
+            .map_err(|e| PortError::invalid_input("invalid url", e.to_string()))?;
         validate_fetch_url(&parsed)?;
         if !options.allowed_domains.is_empty() && !domain_allowed(&parsed, &options.allowed_domains)
         {

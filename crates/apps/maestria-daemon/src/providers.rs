@@ -3,12 +3,8 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use maestria_core::InstanceManifest;
 use maestria_ocr_local::LocalHttpOcrProvider;
-use maestria_ports::{
-    EmbeddingIdentity, LearnedSparseProvider, OcrIdentity, OcrProvider, SparseIdentity,
-    VisualEmbeddingProvider,
-};
+use maestria_ports::{LearnedSparseProvider, OcrIdentity, OcrProvider, SparseIdentity};
 use maestria_sparse_local::LocalHttpSparseProvider;
-use maestria_visual_local::LocalHttpVisualProvider;
 
 pub(crate) fn build_ocr_provider(
     manifest: &InstanceManifest,
@@ -25,42 +21,6 @@ pub(crate) fn build_ocr_provider(
     };
     let provider = LocalHttpOcrProvider::new(&config.endpoint, &config.model, identity)
         .map_err(|error| anyhow!("configure local OCR provider: {error}"))?;
-    Ok(Some(Arc::new(provider)))
-}
-
-/// Builds the configured visual provider for an active visual generation.
-///
-/// The generation identity is supplied by the caller so model vectors cannot
-/// be used before the corresponding visual index generation is activated.
-pub fn build_visual_provider(
-    manifest: &InstanceManifest,
-    identity: EmbeddingIdentity,
-) -> Result<Option<Arc<dyn VisualEmbeddingProvider + Send + Sync>>> {
-    let Some(config) = manifest.visual.as_ref().filter(|config| config.enabled) else {
-        return Ok(None);
-    };
-    if identity.fingerprint.model.as_str() != config.model
-        || identity.fingerprint.dimensions != config.dimensions as u32
-        || identity.fingerprint.provider.as_str() != config.provider
-        || identity.fingerprint.revision.as_str() != config.revision
-        || identity.fingerprint.preprocessing_version.as_str() != config.preprocessing_version
-        || identity.fingerprint.artifact_hash.as_str() != config.artifact_hash
-    {
-        return Err(anyhow!(
-            "visual provider configuration does not match active generation identity"
-        ));
-    }
-    let provider = LocalHttpVisualProvider::new(&config.endpoint, &config.model, identity)
-        .map_err(|error| anyhow!("configure local visual provider: {error}"))?;
-    let expected = maestria_ports::ProviderDisclosure {
-        remote: config.remote_provider,
-        retention: config.retention_policy.clone(),
-    };
-    if provider.disclosure() != expected {
-        return Err(anyhow!(
-            "visual provider disclosure does not match manifest expectation"
-        ));
-    }
     Ok(Some(Arc::new(provider)))
 }
 

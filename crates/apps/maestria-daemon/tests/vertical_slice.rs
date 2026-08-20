@@ -1,6 +1,8 @@
 use anyhow::Error as AnyhowError;
 use maestria_blob_fs::FsBlobStore;
-use maestria_core::{CorePorts, CoreServices, InstanceLayout, InstanceService, OpenEvidenceInput};
+use maestria_core::{
+    CorePorts, CoreServices, InstanceLayout, InstanceManifest, InstanceService, OpenEvidenceInput,
+};
 use maestria_domain::{
     ArtifactDetected, ArtifactId, CardId, ChunkId, ContentHash, DomainInput, EvidenceId,
     IndexStatus, RealmId, Relation, RelationEndpoint, RelationId, RelationKind, content_hash,
@@ -24,12 +26,7 @@ use tokio_util::sync::CancellationToken;
 struct TempDir(PathBuf);
 
 static NEXT_TEMP_DIR: AtomicU64 = AtomicU64::new(0);
-
-fn search_budget(
-    limit: u64,
-) -> Result<maestria_domain::SearchExecutionBudget, maestria_domain::SearchCompatibilityError> {
-    maestria_domain::SearchExecutionBudget::new(limit, 10_000, 100_000, 0)
-}
+use maestria_test_support::search_budget;
 
 impl TempDir {
     fn new() -> Result<Self, Box<dyn std::error::Error>> {
@@ -285,7 +282,7 @@ async fn search_and_open_evidence_after_restart(
     let sqlite = SqliteStore::open(&layout.database_path)?;
     let events = EventLog::scan(&sqlite, EventFilter { artifact_id: None })?;
     let state = maestria_domain::replay_events(&events)?;
-    let manifest = InstanceService::parse_manifest(&fs::read_to_string(&layout.manifest_path)?)?;
+    let manifest = InstanceManifest::decode(&fs::read_to_string(&layout.manifest_path)?)?;
     drop(sqlite);
 
     let runtime = maestria_daemon::prepare_search_runtime(
@@ -519,7 +516,9 @@ async fn wait_for_model_agent_terminal(
                 let entries = SqliteStore::open(&layout.database_path)?.scan_in_flight()?;
                 assert!(
                     entries.iter().any(|entry| {
-                        entry.run_id.value() == 77 && entry.generation == generation
+                        entry.run_id.value() == 77
+                            && entry.generation
+                                == maestria_domain::JournalGeneration::new(generation)
                     }),
                     "pending approval journal entry missing: {entries:?}"
                 );
