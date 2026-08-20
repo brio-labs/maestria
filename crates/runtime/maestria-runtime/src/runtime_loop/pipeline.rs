@@ -59,7 +59,7 @@ impl MaestriaRuntime {
         input: DomainInput,
         resume_approval: bool,
         command: &mut Option<crate::runtime::RuntimeCommand>,
-    ) -> Option<(KernelState, KernelOutput, bool, KernelState)> {
+    ) -> Option<(KernelState, KernelOutput, bool)> {
         match self.stage_input(input, resume_approval).await {
             Ok(staged) => Some(staged),
             Err(error) => {
@@ -100,17 +100,18 @@ impl MaestriaRuntime {
         }
     }
 
-    /// Swap the candidate kernel state into the runtime and register any
-    /// harness feedback produced by the staged input.
+    /// Swap the candidate kernel state into the runtime, register any
+    /// harness feedback, and return the previous state for rollback.
     pub(super) async fn commit_staged_input(
         &self,
         candidate: KernelState,
         harness_feedback: Option<(maestria_domain::HarnessRunId, u64)>,
         effects: &[MaestriaEffect],
-    ) {
+    ) -> KernelState {
         let mut state = self.state.write().await;
-        *state = candidate;
+        let previous = std::mem::replace(&mut *state, candidate);
         self.register_harness_feedback(harness_feedback, effects);
+        previous
     }
 
     /// Dispatch the admitted effects to the executor, replying the admission

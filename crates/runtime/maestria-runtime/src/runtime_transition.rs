@@ -108,18 +108,9 @@ impl MaestriaRuntime {
         &self,
         input: DomainInput,
         has_approval_continuation: bool,
-    ) -> Result<
-        (
-            KernelState,
-            maestria_domain::KernelOutput,
-            bool,
-            KernelState,
-        ),
-        DomainError,
-    > {
+    ) -> Result<(KernelState, maestria_domain::KernelOutput, bool), DomainError> {
         let state = self.state.read().await;
-        let previous = state.clone();
-        let mut candidate = previous.clone();
+        let mut candidate = state.clone();
         let should_resume_approval = matches!(
             &input,
             DomainInput::ApprovalResolved(decision)
@@ -128,7 +119,7 @@ impl MaestriaRuntime {
         );
         drop(state);
         let output = candidate.apply_input(input)?;
-        Ok((candidate, output, should_resume_approval, previous))
+        Ok((candidate, output, should_resume_approval))
     }
 
     pub(crate) fn transition_barriers(
