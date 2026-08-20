@@ -41,11 +41,12 @@ impl RankFusion for FixedKRrf {
         let mut scores = std::collections::BTreeMap::<CandidateIdentity, u64>::new();
         let mut best_candidates =
             std::collections::BTreeMap::<CandidateIdentity, EvidenceCandidate>::new();
+        let mut seen = std::collections::BTreeSet::new();
         for batch in batches {
             if !matches!(batch.status, maestria_domain::SearchLaneStatus::Succeeded) {
                 continue;
             }
-            let mut seen = std::collections::BTreeSet::new();
+            seen.clear();
             let mut compact_rank = 0usize;
             for candidate in &batch.candidates {
                 let identity =
@@ -286,20 +287,23 @@ fn record_candidate(
     identity: &CandidateIdentity,
     candidate: &EvidenceCandidate,
 ) -> RetrievalResult<()> {
-    let canonical_candidate = if let CandidateIdentity::Cluster(cluster_id) = identity {
-        EvidenceCandidate::new(EvidenceCandidateDto {
-            evidence_id: candidate.evidence_id(),
-            artifact_version: candidate.artifact_version(),
-            source_span: candidate.source_span().clone(),
-            scores: candidate.scores().clone(),
-            trust: candidate.trust(),
-            freshness: candidate.freshness(),
-            duplicate_cluster: Some(*cluster_id),
-            reasons: candidate.reasons().to_vec(),
-            coverage_keys: candidate.coverage_keys().to_vec(),
-        })?
-    } else {
-        candidate.clone()
+    let canonical_candidate = match identity {
+        CandidateIdentity::Cluster(cluster_id)
+            if candidate.duplicate_cluster().as_ref() != Some(cluster_id) =>
+        {
+            EvidenceCandidate::new(EvidenceCandidateDto {
+                evidence_id: candidate.evidence_id(),
+                artifact_version: candidate.artifact_version(),
+                source_span: candidate.source_span().clone(),
+                scores: candidate.scores().clone(),
+                trust: candidate.trust(),
+                freshness: candidate.freshness(),
+                duplicate_cluster: Some(*cluster_id),
+                reasons: candidate.reasons().to_vec(),
+                coverage_keys: candidate.coverage_keys().to_vec(),
+            })?
+        }
+        _ => candidate.clone(),
     };
     let replace = best_candidates
         .get(identity)

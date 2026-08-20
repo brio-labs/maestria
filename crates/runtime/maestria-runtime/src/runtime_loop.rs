@@ -238,7 +238,7 @@ impl MaestriaRuntime {
         }
         let harness_feedback = Self::harness_feedback(&input);
         let approval_barrier = Self::approval_barrier(&input, command.as_ref());
-        let Some((candidate, output, should_resume_approval, previous_state)) = self
+        let Some((candidate, output, should_resume_approval)) = self
             .stage_correlated_input(input.clone(), approval_continuation.is_some(), &mut command)
             .await
         else {
@@ -275,7 +275,8 @@ impl MaestriaRuntime {
             approval_barrier,
             prepare_before_reply,
         );
-        self.commit_staged_input(candidate, harness_feedback, &effects)
+        let previous_state = self
+            .commit_staged_input(candidate, harness_feedback, &effects)
             .await;
         if !self
             .dispatch_admitted_effects(permit, prepared, effects, &mut command, shutdown_token)
