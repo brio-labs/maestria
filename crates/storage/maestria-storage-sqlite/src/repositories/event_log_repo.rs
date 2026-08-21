@@ -8,17 +8,15 @@ use crate::{
     sqlite_store::{i64_to_u64, map_append_error, optional_u64_to_i64, to_port_error, u64_to_i64},
 };
 fn decode_scanned_events(stored: Vec<StoredEvent>) -> Result<Vec<DomainEventEnvelope>, PortError> {
+    let mut envelopes = Vec::with_capacity(stored.len());
     let mut trace_remap = BTreeMap::<SearchTraceId, SearchTraceId>::new();
-    for event in &stored {
-        let Some(old_trace) = event.raw_search_trace()? else {
-            continue;
-        };
-        let canonical = event.clone().into_domain()?;
-        let DomainEvent::SearchKnowledgeCompleted { outcome, .. } = canonical.event else {
-            continue;
-        };
-        if let Some(previous) = trace_remap.insert(old_trace, outcome.trace)
-            && previous != outcome.trace
+    let mut search_executed_indices = Vec::new();
+
+    for (index, event) in stored.into_iter().enumerate() {
+        let (envelope, remap) = event.into_domain_with_trace_remap()?;
+        if let Some((old_trace, new_trace)) = remap
+            && let Some(previous) = trace_remap.insert(old_trace, new_trace)
+            && previous != new_trace
         {
             return Err(PortError::Conflict {
                 message: format!(
@@ -26,29 +24,36 @@ fn decode_scanned_events(stored: Vec<StoredEvent>) -> Result<Vec<DomainEventEnve
                 ),
             });
         }
+        if let DomainEvent::SearchExecuted {
+            pack_metadata: Some(metadata),
+            ..
+        } = &envelope.event
+            && matches!(
+                metadata.reproducibility,
+                maestria_domain::EvidencePackReproducibilityRecord::Frozen(_)
+            )
+        {
+            search_executed_indices.push(index);
+        }
+        envelopes.push(envelope);
     }
 
-    stored
-        .into_iter()
-        .map(|event| {
-            let mut envelope = event.into_domain()?;
+    if !trace_remap.is_empty() {
+        for index in search_executed_indices {
             if let DomainEvent::SearchExecuted {
                 pack_metadata: Some(metadata),
                 ..
-            } = &mut envelope.event
-            {
-                // The replay key is the single owner of the frozen trace
-                // identity (R56); the remap updates it in place.
-                if let maestria_domain::EvidencePackReproducibilityRecord::Frozen(replay) =
+            } = &mut envelopes[index].event
+                && let maestria_domain::EvidencePackReproducibilityRecord::Frozen(replay) =
                     &mut metadata.reproducibility
-                    && let Some(replacement) = trace_remap.get(&replay.trace)
-                {
-                    replay.trace = *replacement;
-                }
+                && let Some(replacement) = trace_remap.get(&replay.trace)
+            {
+                replay.trace = *replacement;
             }
-            Ok(envelope)
-        })
-        .collect()
+        }
+    }
+
+    Ok(envelopes)
 }
 
 impl EventLog for crate::SqliteStore {

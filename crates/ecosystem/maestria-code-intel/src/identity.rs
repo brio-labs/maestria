@@ -33,7 +33,8 @@ pub(crate) fn discover_repository_identity(
     let paths = collect_identity_paths(root, excluded_patterns, backends, &file_set, selection)?;
     let mut hasher = Sha256::new();
     hasher.update(b"maestria-worktree-identity-v2\0");
-    // Pass 1: per-path presence (missing marker vs path record).
+    let mut pass2_buffer = Vec::new();
+
     for relative_path in &paths {
         let path = root.join(relative_path);
         let metadata = match fs::symlink_metadata(&path) {
@@ -52,30 +53,13 @@ pub(crate) fn discover_repository_identity(
         if !metadata.is_file() || metadata.file_type().is_symlink() {
             continue;
         }
-        hasher.update((relative_path.len() as u64).to_le_bytes());
+        let len_bytes = (relative_path.len() as u64).to_le_bytes();
+        hasher.update(len_bytes);
         hasher.update(relative_path.as_bytes());
-    }
-    // Pass 2: per-path content record: file marker, path, tag, digest.
-    // Tag 0x01 = 32-byte SHA-256 of file content (dirty/untracked/ignored files),
-    // tag 0x02 = 20-byte blob SHA-1 from the git index (clean tracked files).
-    for relative_path in &paths {
-        let path = root.join(relative_path);
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => {
-                return Err(CodeIntelError::Identity {
-                    context: "inspect repository identity file".to_string(),
-                    details: format!("{relative_path}: {error}"),
-                });
-            }
-        };
-        if !metadata.is_file() || metadata.file_type().is_symlink() {
-            continue;
-        }
-        hasher.update(b"file\0");
-        hasher.update((relative_path.len() as u64).to_le_bytes());
-        hasher.update(relative_path.as_bytes());
+
+        pass2_buffer.extend_from_slice(b"file\0");
+        pass2_buffer.extend_from_slice(&len_bytes);
+        pass2_buffer.extend_from_slice(relative_path.as_bytes());
         if dirty.contains(relative_path) || !blob_map.contains_key(relative_path) {
             let mut file_hasher = Sha256::new();
             let mut file = File::open(&path).map_err(|error| CodeIntelError::Identity {
@@ -95,14 +79,14 @@ pub(crate) fn discover_repository_identity(
                 }
                 file_hasher.update(&buffer[..read]);
             }
-            hasher.update([0x01]);
-            hasher.update(file_hasher.finalize());
+            pass2_buffer.push(0x01);
+            pass2_buffer.extend_from_slice(&file_hasher.finalize());
         } else {
-            hasher.update([0x02]);
-            hasher.update(blob_map[relative_path]);
+            pass2_buffer.push(0x02);
+            pass2_buffer.extend_from_slice(&blob_map[relative_path]);
         }
     }
-
+    hasher.update(&pass2_buffer);
     Ok(RepositoryIdentity {
         root: canonical_root,
         commit: crate::types::CommitSha::new(commit),
