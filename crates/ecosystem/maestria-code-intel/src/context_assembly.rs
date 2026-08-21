@@ -29,14 +29,15 @@ pub(crate) fn assemble_context_result(input: ContextAssembly<'_>) -> RepositoryC
         node_limit_reached,
         relation_visit_limit_reached,
     } = expansion;
-    let mut node_ids = discovered_nodes.keys().cloned().collect::<Vec<_>>();
-    node_ids.sort_by(|left, right| {
-        node_sort_key(symbol_by_id[left.as_str()], symbol_by_id[right.as_str()])
-    });
+    let mut node_ids = discovered_nodes
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    node_ids.sort_by(|left, right| node_sort_key(symbol_by_id[left], symbol_by_id[right]));
     let matched_nodes = node_ids.len();
     let nodes = node_ids
         .iter()
-        .map(|record_id| {
+        .map(|&record_id| {
             let mut seed_record_ids = discovered_nodes[record_id]
                 .seed_record_ids
                 .iter()
@@ -44,7 +45,7 @@ pub(crate) fn assemble_context_result(input: ContextAssembly<'_>) -> RepositoryC
                 .collect::<Vec<_>>();
             seed_record_ids.sort_unstable();
             RepositoryContextNode {
-                record: symbol_by_id[record_id.as_str()].clone(),
+                record: symbol_by_id[record_id].clone(),
                 depth: discovered_nodes[record_id].depth,
                 seed_record_ids,
             }
@@ -52,7 +53,7 @@ pub(crate) fn assemble_context_result(input: ContextAssembly<'_>) -> RepositoryC
         .collect::<Vec<_>>();
     let selected_nodes = nodes
         .iter()
-        .map(|node| node.record.record_id.clone())
+        .map(|node| node.record.record_id.as_str())
         .collect::<BTreeSet<_>>();
     let matched_edges = reached_edges.len();
     let mut edges = reached_edges
@@ -86,10 +87,10 @@ pub(crate) fn assemble_context_result(input: ContextAssembly<'_>) -> RepositoryC
 
 fn build_context_edge(
     edge: RepositoryContextEdgeState,
-    selected_nodes: &BTreeSet<String>,
+    selected_nodes: &BTreeSet<&str>,
 ) -> Option<RepositoryContextEdge> {
-    if !selected_nodes.contains(&edge.relation.source_record_id)
-        || !selected_nodes.contains(&edge.relation.target_record_id)
+    if !selected_nodes.contains(edge.relation.source_record_id.as_str())
+        || !selected_nodes.contains(edge.relation.target_record_id.as_str())
     {
         return None;
     }
