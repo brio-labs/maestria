@@ -74,16 +74,19 @@ pub(crate) fn resolve_relations(
     symbols: &[SymbolRecord],
     candidates: &[RelationCandidate],
 ) -> Vec<CodeRelationRecord> {
-    let mut by_id = BTreeMap::<String, &SymbolRecord>::new();
-    let mut by_qualified_name = BTreeMap::<String, Vec<&SymbolRecord>>::new();
-    let mut by_name = BTreeMap::<String, Vec<&SymbolRecord>>::new();
+    let mut by_id = BTreeMap::<&str, &SymbolRecord>::new();
+    let mut by_qualified_name = BTreeMap::<&str, Vec<&SymbolRecord>>::new();
+    let mut by_name = BTreeMap::<&str, Vec<&SymbolRecord>>::new();
     for symbol in symbols {
-        by_id.insert(symbol.record_id.clone(), symbol);
+        by_id.insert(symbol.record_id.as_str(), symbol);
         by_qualified_name
-            .entry(symbol.qualified_name.clone())
+            .entry(symbol.qualified_name.as_str())
             .or_default()
             .push(symbol);
-        by_name.entry(symbol.name.clone()).or_default().push(symbol);
+        by_name
+            .entry(symbol.name.as_str())
+            .or_default()
+            .push(symbol);
     }
     for list in by_qualified_name.values_mut() {
         list.sort_by_key(|record| {

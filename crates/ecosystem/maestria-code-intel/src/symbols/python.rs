@@ -13,8 +13,8 @@ use std::collections::BTreeMap;
 /// receivers resolve by the remainder. Ambiguity yields no edge —
 /// determinism beats recall.
 pub(super) fn resolve_call<'a>(
-    by_qualified_name: &'a BTreeMap<String, Vec<&'a SymbolRecord>>,
-    by_name: &'a BTreeMap<String, Vec<&'a SymbolRecord>>,
+    by_qualified_name: &'a BTreeMap<&'a str, Vec<&'a SymbolRecord>>,
+    by_name: &'a BTreeMap<&'a str, Vec<&'a SymbolRecord>>,
     hint: &str,
 ) -> Option<&'a SymbolRecord> {
     let hint = hint.trim();
@@ -37,7 +37,7 @@ pub(super) fn resolve_call<'a>(
 }
 
 fn exact_qualified_match<'a>(
-    by_qualified_name: &'a BTreeMap<String, Vec<&'a SymbolRecord>>,
+    by_qualified_name: &'a BTreeMap<&'a str, Vec<&'a SymbolRecord>>,
     qualified: &str,
 ) -> Option<&'a SymbolRecord> {
     by_qualified_name
