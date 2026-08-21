@@ -142,9 +142,17 @@ impl std::error::Error for SourceSpanError {}
 /// Returns a `"sha256:<hex>"` string suitable for identifying byte content
 /// without requiring the full bytes. The output is stable across all hosts
 /// and processes.
+const HEX_CHARS: &[u8; 16] = b"0123456789abcdef";
+
 pub fn content_hash(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
-    format!("sha256:{}", hex_digest(&digest))
+    let mut out = String::with_capacity(7 + 64);
+    out.push_str("sha256:");
+    for &byte in &digest {
+        out.push(HEX_CHARS[(byte >> 4) as usize] as char);
+        out.push(HEX_CHARS[(byte & 0x0f) as usize] as char);
+    }
+    out
 }
 /// Returns a stable artifact identity for an externally fetched source.
 pub fn web_artifact_id_for(url: &str, content_hash: &str) -> ArtifactId {
@@ -248,7 +256,12 @@ mod excerpt_tests {
 }
 
 pub fn hex_digest(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
+        out.push(HEX_CHARS[(byte >> 4) as usize] as char);
+        out.push(HEX_CHARS[(byte & 0x0f) as usize] as char);
+    }
+    out
 }
 
 #[cfg(test)]

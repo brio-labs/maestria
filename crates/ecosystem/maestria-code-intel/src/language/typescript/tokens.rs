@@ -46,10 +46,18 @@ pub(crate) fn is_bench_file(rel_path: &str) -> bool {
 /// extension stripped, separators preserved (e.g. `src/components/Button`
 /// for `src/components/Button.tsx`). Deterministic per file.
 pub(crate) fn module_path_for_file(rel_path: &str) -> String {
-    Path::new(rel_path)
-        .with_extension("")
-        .to_string_lossy()
-        .into_owned()
+    if let Some((dir, file)) = rel_path.rsplit_once('/') {
+        if let Some((base, _ext)) = file.rsplit_once('.') {
+            let mut out = String::with_capacity(dir.len() + 1 + base.len());
+            out.push_str(dir);
+            out.push('/');
+            out.push_str(base);
+            return out;
+        }
+    } else if let Some((base, _ext)) = rel_path.rsplit_once('.') {
+        return base.to_string();
+    }
+    rel_path.to_string()
 }
 
 /// Multi-line masking state machine for TypeScript/JavaScript source.
