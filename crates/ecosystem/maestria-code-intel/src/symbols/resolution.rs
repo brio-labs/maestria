@@ -10,11 +10,11 @@ use crate::symbols::RelationCandidate;
 use crate::{CodeRelationKind, CodeRelationRecord, SymbolKind, SymbolRecord};
 use std::collections::BTreeMap;
 
-pub(super) fn resolve_candidate(
+pub(super) fn resolve_candidate<'a>(
     parser_generation: &str,
-    by_id: &BTreeMap<String, &SymbolRecord>,
-    by_qualified_name: &BTreeMap<String, Vec<&SymbolRecord>>,
-    by_name: &BTreeMap<String, Vec<&SymbolRecord>>,
+    by_id: &BTreeMap<&'a str, &'a SymbolRecord>,
+    by_qualified_name: &'a BTreeMap<&'a str, Vec<&'a SymbolRecord>>,
+    by_name: &'a BTreeMap<&'a str, Vec<&'a SymbolRecord>>,
     candidate: &crate::symbols::RelationCandidate,
 ) -> Vec<CodeRelationRecord> {
     match candidate {
@@ -22,10 +22,10 @@ pub(super) fn resolve_candidate(
             source_module_qualified,
             target_record_id,
         } => {
-            let target = by_id.get(target_record_id).copied();
+            let target = by_id.get(target_record_id.as_str()).copied();
             let source = target.and_then(|target| {
                 by_qualified_name
-                    .get(source_module_qualified)
+                    .get(source_module_qualified.as_str())
                     .and_then(|matches| resolve_definition_source(matches, target))
             });
             relation_for(parser_generation, CodeRelationKind::Defines, source, target)
@@ -38,8 +38,8 @@ pub(super) fn resolve_candidate(
         } => relation_for(
             parser_generation,
             CodeRelationKind::Imports,
-            by_id.get(source_record_id).copied(),
-            resolve_target(by_qualified_name, target_qualified, None, None),
+            by_id.get(source_record_id.as_str()).copied(),
+            resolve_target(by_qualified_name, target_qualified.as_str(), None, None),
         )
         .into_iter()
         .collect(),
@@ -50,7 +50,7 @@ pub(super) fn resolve_candidate(
             target_path,
             self_receiver,
         } => {
-            let source = by_id.get(source_record_id).copied();
+            let source = by_id.get(source_record_id.as_str()).copied();
             let target = if *self_receiver {
                 resolve_self_receiver_target(by_qualified_name, source_qualified, target_path)
             } else {
@@ -86,8 +86,8 @@ pub(super) fn resolve_candidate(
         } => relation_for(
             parser_generation,
             CodeRelationKind::Implements,
-            by_id.get(source_record_id).copied(),
-            resolve_target(by_qualified_name, target_qualified, None, None),
+            by_id.get(source_record_id.as_str()).copied(),
+            resolve_target(by_qualified_name, target_qualified.as_str(), None, None),
         )
         .into_iter()
         .collect(),
@@ -101,8 +101,8 @@ pub(super) fn resolve_candidate(
         } => relation_for(
             parser_generation,
             CodeRelationKind::Calls,
-            by_id.get(source_record_id).copied(),
-            python::resolve_call(by_qualified_name, by_name, target_hint),
+            by_id.get(source_record_id.as_str()).copied(),
+            python::resolve_call(by_qualified_name, by_name, target_hint.as_str()),
         )
         .into_iter()
         .collect(),
@@ -110,7 +110,7 @@ pub(super) fn resolve_candidate(
 }
 
 fn resolve_target<'a>(
-    by_qualified_name: &'a BTreeMap<String, Vec<&'a SymbolRecord>>,
+    by_qualified_name: &'a BTreeMap<&'a str, Vec<&'a SymbolRecord>>,
     path: &str,
     source_qualified: Option<&str>,
     module_scope: Option<&str>,
@@ -119,7 +119,7 @@ fn resolve_target<'a>(
 }
 
 fn resolve_target_with_depth<'a>(
-    by_qualified_name: &'a BTreeMap<String, Vec<&'a SymbolRecord>>,
+    by_qualified_name: &'a BTreeMap<&'a str, Vec<&'a SymbolRecord>>,
     path: &str,
     source_qualified: Option<&str>,
     module_scope: Option<&str>,
@@ -140,7 +140,7 @@ fn resolve_target_with_depth<'a>(
     for candidate in
         super::relation_paths::relation_candidate_names(path, source_qualified, module_scope)
     {
-        let Some(matches) = by_qualified_name.get(&candidate) else {
+        let Some(matches) = by_qualified_name.get(candidate.as_str()) else {
             continue;
         };
         if path.starts_with("crate::")
@@ -172,7 +172,7 @@ fn resolve_target_with_depth<'a>(
 }
 
 fn resolve_import_matches<'a>(
-    by_qualified_name: &'a BTreeMap<String, Vec<&'a SymbolRecord>>,
+    by_qualified_name: &'a BTreeMap<&'a str, Vec<&'a SymbolRecord>>,
     matches: &[&'a SymbolRecord],
     source_qualified: Option<&str>,
     module_scope: Option<&str>,
@@ -198,7 +198,7 @@ fn resolve_import_matches<'a>(
     )
 }
 fn resolve_import_prefix<'a>(
-    by_qualified_name: &'a BTreeMap<String, Vec<&'a SymbolRecord>>,
+    by_qualified_name: &'a BTreeMap<&'a str, Vec<&'a SymbolRecord>>,
     path: &str,
     source_qualified: Option<&str>,
     module_scope: Option<&str>,
@@ -208,7 +208,7 @@ fn resolve_import_prefix<'a>(
     for prefix_candidate in
         super::relation_paths::relation_candidate_names(prefix, source_qualified, module_scope)
     {
-        let Some(matches) = by_qualified_name.get(&prefix_candidate) else {
+        let Some(matches) = by_qualified_name.get(prefix_candidate.as_str()) else {
             continue;
         };
         let Some(import) = unique_symbol(matches) else {
@@ -281,7 +281,7 @@ pub(super) fn unique_symbol<'a>(matches: &[&'a SymbolRecord]) -> Option<&'a Symb
 }
 
 fn resolve_self_receiver_target<'a>(
-    by_qualified_name: &'a BTreeMap<String, Vec<&'a SymbolRecord>>,
+    by_qualified_name: &'a BTreeMap<&'a str, Vec<&'a SymbolRecord>>,
     source_qualified: &str,
     method: &str,
 ) -> Option<&'a SymbolRecord> {
@@ -289,6 +289,6 @@ fn resolve_self_receiver_target<'a>(
         .rsplit_once("::")
         .map(|(parent, _)| format!("{parent}::{method}"))?;
     by_qualified_name
-        .get(&candidate)
+        .get(candidate.as_str())
         .and_then(|candidates| unique_symbol(candidates))
 }
