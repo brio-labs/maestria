@@ -279,7 +279,7 @@ pub(crate) fn parsed_card_for(
         }
     };
     card.node_id = root_id;
-    card.source_span = crate::chunking::domain_source_span(&card_source_span)?;
+    card.source_span = crate::tree_builder::domain_source_span(&card_source_span)?;
     Ok(ParsedCard {
         card,
         node_id: root_id,

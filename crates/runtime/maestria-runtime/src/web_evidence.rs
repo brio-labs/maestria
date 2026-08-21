@@ -9,12 +9,54 @@ use maestria_governance::{contains_prompt_injection_risk, scan_secrets};
 use maestria_ports::WebFetchOptions;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+struct WebEvidencePayload {
+    snapshot: maestria_ports::WebSnapshotData,
+    metadata: maestria_domain::WebEvidenceMetadata,
+    security: SecurityMetadata,
+    observed_at: u64,
+    artifact_id: maestria_domain::ArtifactId,
+    evidence_id: maestria_domain::EvidenceId,
+    snapshot_ref: SnapshotRef,
+    snapshot_hash_typed: ContentHash,
+}
 impl EffectExecutionContext {
     pub(crate) async fn handle_fetch_web(&self, request: FetchWebRequest) -> bool {
+        if !Self::validate_fetch_budget(&request) {
+            return false;
+        }
+        let mut snapshot = match self.execute_web_fetch(&request).await {
+            Some(snapshot) => snapshot,
+            None => return false,
+        };
+        if !Self::validate_web_snapshot(&snapshot, &request) {
+            return false;
+        }
+        let observed_at = {
+            let state = self.state.read().await;
+            state.event_log.last().map_or(0, |entry| entry.id.value())
+        };
+        let Some(accessed_at) = Self::resolve_accessed_at(&request.url) else {
+            return false;
+        };
+        let mut metadata = std::mem::take(&mut snapshot.metadata);
+        metadata.accessed_at = Some(accessed_at.to_string());
+        let security = self.security_metadata_for_web(&snapshot.html);
+        self.persist_web_evidence(snapshot, metadata, security, observed_at)
+            .await
+    }
+
+    fn validate_fetch_budget(request: &FetchWebRequest) -> bool {
         if request.max_bytes == 0 || request.max_requests == 0 || request.max_latency_ms == 0 {
             tracing::warn!("web fetch rejected because its budget is zero");
             return false;
         }
+        true
+    }
+
+    async fn execute_web_fetch(
+        &self,
+        request: &FetchWebRequest,
+    ) -> Option<maestria_ports::WebSnapshotData> {
         let options = WebFetchOptions {
             max_bytes: request.max_bytes,
             max_latency_ms: request.max_latency_ms,
@@ -24,26 +66,40 @@ impl EffectExecutionContext {
         let fetcher = std::sync::Arc::clone(&self.adapters.web_fetcher);
         let url = request.url.clone();
         let fetch = tokio::task::spawn_blocking(move || fetcher.fetch_with_options(&url, &options));
-        let mut snapshot = match tokio::time::timeout(
+        match tokio::time::timeout(
             Duration::from_millis(u64::from(request.max_latency_ms)),
             fetch,
         )
         .await
         {
-            Ok(Ok(Ok(snapshot))) => snapshot,
+            Ok(Ok(Ok(snapshot))) => Some(snapshot),
             Ok(Ok(Err(error))) => {
                 tracing::error!(url = %request.url, %error, "web fetch failed");
-                return false;
+                None
             }
             Ok(Err(error)) => {
                 tracing::error!(url = %request.url, %error, "web fetch worker failed");
-                return false;
+                None
             }
             Err(_) => {
                 tracing::warn!(url = %request.url, "web fetch exceeded latency budget");
-                return false;
+                None
             }
-        };
+        }
+    }
+
+    fn validate_web_snapshot(
+        snapshot: &maestria_ports::WebSnapshotData,
+        request: &FetchWebRequest,
+    ) -> bool {
+        Self::validate_snapshot_domains_and_types(snapshot, request)
+            && Self::validate_snapshot_size_and_hash(snapshot, request)
+    }
+
+    fn validate_snapshot_domains_and_types(
+        snapshot: &maestria_ports::WebSnapshotData,
+        request: &FetchWebRequest,
+    ) -> bool {
         if !domain_allowed(&snapshot.url, &request.allowed_domains) {
             tracing::warn!(url = %request.url, "web response is outside the allowed domain budget");
             return false;
@@ -55,6 +111,13 @@ impl EffectExecutionContext {
             tracing::warn!(url = %request.url, "web response content type is outside the budget");
             return false;
         }
+        true
+    }
+
+    fn validate_snapshot_size_and_hash(
+        snapshot: &maestria_ports::WebSnapshotData,
+        request: &FetchWebRequest,
+    ) -> bool {
         if snapshot.html.len() > request.max_bytes {
             tracing::warn!(url = %request.url, "web response exceeded byte budget");
             return false;
@@ -64,25 +127,17 @@ impl EffectExecutionContext {
             tracing::warn!(url = %request.url, "web adapter returned an invalid content hash");
             return false;
         }
-        let observed_at = {
-            let state = self.state.read().await;
-            state.event_log.last().map_or(0, |entry| entry.id.value())
-        };
-        let accessed_at = match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Ok(duration) => duration.as_secs(),
+        true
+    }
+
+    fn resolve_accessed_at(url: &str) -> Option<u64> {
+        match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(duration) => Some(duration.as_secs()),
             Err(error) => {
-                // Rule 24: a clock failure must not fabricate an epoch
-                // timestamp into the evidence record; drop the snapshot
-                // instead of persisting a misleading accessed_at.
-                tracing::error!(url = %request.url, %error, "system clock before unix epoch; web evidence rejected");
-                return false;
+                tracing::error!(%url, %error, "system clock before unix epoch; web evidence rejected");
+                None
             }
-        };
-        let mut metadata = std::mem::take(&mut snapshot.metadata);
-        metadata.accessed_at = Some(accessed_at.to_string());
-        let security = self.security_metadata_for_web(&snapshot.html);
-        self.persist_web_evidence(snapshot, metadata, security, observed_at)
-            .await
+        }
     }
 
     fn security_metadata_for_web(&self, html: &str) -> SecurityMetadata {
@@ -215,6 +270,29 @@ impl EffectExecutionContext {
         security: SecurityMetadata,
         observed_at: u64,
     ) -> bool {
+        let (snapshot_ref, snapshot_hash_typed) = match self.store_web_snapshot_blob(&snapshot) {
+            Some(pair) => pair,
+            None => return false,
+        };
+        let artifact_id = web_artifact_id_for(&snapshot.url, &snapshot.content_hash);
+        let evidence_id = web_evidence_id_for(artifact_id);
+        self.dispatch_web_evidence_domain_inputs(WebEvidencePayload {
+            snapshot,
+            metadata,
+            security,
+            observed_at,
+            artifact_id,
+            evidence_id,
+            snapshot_ref,
+            snapshot_hash_typed,
+        })
+        .await
+    }
+
+    fn store_web_snapshot_blob(
+        &self,
+        snapshot: &maestria_ports::WebSnapshotData,
+    ) -> Option<(SnapshotRef, ContentHash)> {
         let blob_id = match self
             .adapters
             .blob_store
@@ -223,21 +301,34 @@ impl EffectExecutionContext {
             Ok(blob_id) => blob_id,
             Err(error) => {
                 tracing::error!(url = %snapshot.url, %error, "web snapshot persistence failed");
-                return false;
+                return None;
             }
         };
-        let source_bytes = snapshot.html.as_bytes().to_vec();
-        let snapshot_hash = snapshot.content_hash.clone();
-        let snapshot_hash_typed = match ContentHash::new(snapshot_hash.clone()) {
+        let snapshot_hash_typed = match ContentHash::new(snapshot.content_hash.clone()) {
             Ok(hash) => hash,
             Err(error) => {
                 tracing::error!(url = %snapshot.url, %error, "web snapshot hash is invalid");
-                return false;
+                return None;
             }
         };
-        let snapshot_ref = SnapshotRef::new(blob_id, snapshot_hash_typed.clone());
-        let artifact_id = web_artifact_id_for(&snapshot.url, &snapshot.content_hash);
-        let evidence_id = web_evidence_id_for(artifact_id);
+        Some((
+            SnapshotRef::new(blob_id, snapshot_hash_typed.clone()),
+            snapshot_hash_typed,
+        ))
+    }
+
+    async fn dispatch_web_evidence_domain_inputs(&self, payload: WebEvidencePayload) -> bool {
+        let WebEvidencePayload {
+            snapshot,
+            metadata,
+            security,
+            observed_at,
+            artifact_id,
+            evidence_id,
+            snapshot_ref,
+            snapshot_hash_typed,
+        } = payload;
+        let source_bytes = snapshot.html.as_bytes().to_vec();
         if self
             .input_tx
             .send(DomainInput::RegisterArtifact(RegisterArtifactInput {
@@ -280,7 +371,7 @@ impl EffectExecutionContext {
                 title: snapshot.url.clone(),
                 source_path: snapshot.url.clone(),
                 source_bytes,
-                content_hash: snapshot_hash_typed.clone(),
+                content_hash: snapshot_hash_typed,
             }))
             .await
             .is_err()
@@ -291,7 +382,6 @@ impl EffectExecutionContext {
         true
     }
 }
-
 fn domain_allowed(url: &str, allowed_domains: &[String]) -> bool {
     if allowed_domains.is_empty() {
         return true;

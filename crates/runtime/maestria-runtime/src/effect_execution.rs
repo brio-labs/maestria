@@ -168,38 +168,53 @@ impl EffectExecutionContext {
             tracing::error!("search knowledge effect has no configured executor");
             return false;
         };
-        let mut plan = request.plan;
-        // One owner of search-scope confinement (R28/R43): the same typed
-        // transition used by direct CLI/API search surfaces.
-        plan = match plan.confine_to_scope(self.scope_id) {
-            Ok(confined) => confined,
+        let Some(plan) = self.confine_search_knowledge_plan(request.plan) else {
+            return false;
+        };
+        self.execute_and_deliver_search(executor.as_ref(), plan, request.task_id)
+            .await
+    }
+
+    fn confine_search_knowledge_plan(
+        &self,
+        plan: maestria_domain::SearchPlan,
+    ) -> Option<maestria_domain::SearchPlan> {
+        match plan.confine_to_scope(self.scope_id) {
+            Ok(confined) => Some(confined),
             Err(error) => {
                 tracing::error!(%error, "search knowledge scope confinement rejected");
+                None
+            }
+        }
+    }
+
+    async fn execute_and_deliver_search(
+        &self,
+        executor: &dyn maestria_ports::SearchKnowledgeExecutor,
+        plan: maestria_domain::SearchPlan,
+        task_id: Option<maestria_domain::TaskId>,
+    ) -> bool {
+        let outcome = match executor.search(plan.clone()).await {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                tracing::error!(%error, "knowledge search failed");
                 return false;
             }
         };
-        match executor.search(plan.clone()).await {
-            Ok(outcome) => {
-                if let Err(error) = outcome.verify_compatibility(&plan) {
-                    tracing::error!(%error, "search outcome is incompatible with request plan");
-                    return false;
-                }
-                Self::send_input(
-                    &self.input_tx,
-                    DomainInput::SearchKnowledgeCompleted(SearchKnowledgeCompleted {
-                        task_id: request.task_id,
-                        plan: Box::new(plan),
-                        outcome,
-                    }),
-                    "search knowledge completion",
-                )
-                .is_ok()
-            }
-            Err(error) => {
-                tracing::error!(%error, "knowledge search failed");
-                false
-            }
+        if let Err(error) = outcome.verify_compatibility(&plan) {
+            tracing::error!(%error, "search outcome is incompatible with request plan");
+            return false;
         }
+        Self::send_input(
+            &self.input_tx,
+            DomainInput::SearchKnowledgeCompleted(SearchKnowledgeCompleted {
+                task_id,
+                plan: Box::new(plan),
+                outcome,
+            }),
+            "search knowledge completion",
+        )
+        .is_ok()
     }
 
     pub(crate) async fn handle_update_graph(&self, request: UpdateGraphRequest) -> bool {

@@ -1,7 +1,8 @@
 use crate::config::EffectExecutionContext;
 use crate::persistence_barrier;
 use maestria_domain::{
-    ContentHash, DomainEvent, DomainInput, NotebookDraftBlobRequest, NotebookDraftBlobStored,
+    BlobId, ContentHash, DomainEvent, DomainInput, NotebookDraftBlobRequest,
+    NotebookDraftBlobStored,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -13,32 +14,11 @@ impl EffectExecutionContext {
         &self,
         request: NotebookDraftBlobRequest,
     ) -> bool {
-        let bytes = request.body.as_bytes().to_vec();
-        let expected_hash = match ContentHash::new(maestria_domain::content_hash(&bytes)) {
-            Ok(hash) => hash,
-            Err(error) => {
-                tracing::error!(%error, "draft body hash construction failed");
-                return self.fail_notebook_draft(&request, error.to_string());
-            }
+        let (blob_id, expected_hash) = match self.persist_and_verify_draft_blob(&request.body) {
+            Ok(pair) => pair,
+            Err(error) => return self.fail_notebook_draft(&request, error),
         };
-        let blob_id = match self.adapters.blob_store.put(bytes.clone()) {
-            Ok(blob_id) => blob_id,
-            Err(error) => {
-                tracing::error!(%error, "draft blob persistence failed");
-                return self.fail_notebook_draft(&request, error.to_string());
-            }
-        };
-        let stored = match self.adapters.blob_store.get(blob_id) {
-            Ok(stored) => stored,
-            Err(error) => {
-                tracing::error!(%error, "draft blob verification read failed");
-                return self.fail_notebook_draft(&request, error.to_string());
-            }
-        };
-        if stored != bytes || maestria_domain::content_hash(&stored) != expected_hash.as_str() {
-            tracing::error!("draft blob verification mismatch");
-            return self.fail_notebook_draft(&request, "draft blob verification mismatch");
-        }
+
         let notebook_id = request.notebook_id;
         let draft_id = request.draft_id;
         let expected_revision = request.expected_revision;
@@ -90,6 +70,36 @@ impl EffectExecutionContext {
         } else {
             self.fail_notebook_draft(&request, "notebook draft event persistence failed")
         }
+    }
+
+    fn persist_and_verify_draft_blob(&self, body: &str) -> Result<(BlobId, ContentHash), String> {
+        let bytes = body.as_bytes().to_vec();
+        let expected_hash = match ContentHash::new(maestria_domain::content_hash(&bytes)) {
+            Ok(hash) => hash,
+            Err(error) => {
+                tracing::error!(%error, "draft body hash construction failed");
+                return Err(error.to_string());
+            }
+        };
+        let blob_id = match self.adapters.blob_store.put(bytes.clone()) {
+            Ok(blob_id) => blob_id,
+            Err(error) => {
+                tracing::error!(%error, "draft blob persistence failed");
+                return Err(error.to_string());
+            }
+        };
+        let stored = match self.adapters.blob_store.get(blob_id) {
+            Ok(stored) => stored,
+            Err(error) => {
+                tracing::error!(%error, "draft blob verification read failed");
+                return Err(error.to_string());
+            }
+        };
+        if stored != bytes || maestria_domain::content_hash(&stored) != expected_hash.as_str() {
+            tracing::error!("draft blob verification mismatch");
+            return Err("draft blob verification mismatch".to_string());
+        }
+        Ok((blob_id, expected_hash))
     }
     fn fail_notebook_draft(
         &self,

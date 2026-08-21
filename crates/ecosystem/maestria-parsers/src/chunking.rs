@@ -2,9 +2,10 @@
 
 use std::path::Path;
 
+use crate::tree_builder::{domain_source_span, span_error};
 use maestria_domain::{
     ArtifactId, ArtifactVersionId, CardId, ChunkId, ContentHash, CreateCardInput,
-    SourceSpan as DomainSourceSpan, SourceSpanError, StructureNodeId,
+    SourceSpan as DomainSourceSpan, StructureNodeId,
 };
 use maestria_ports::{
     FileHandle, FileMetadata, ParsedArtifact, ParsedCard, ParsedChunk, PortError, SourceSpan,
@@ -81,7 +82,7 @@ pub(crate) fn extension_is(file: &FileMetadata, accepted: &[&str]) -> bool {
     })
 }
 
-pub(crate) fn decode_utf8(bytes: Vec<u8>) -> Result<String, PortError> {
+pub(crate) fn decode_utf8(bytes: &[u8]) -> Result<&str, PortError> {
     if bytes.is_empty() {
         return Err(PortError::InvalidInputContext {
             context: "decode file bytes",
@@ -89,7 +90,7 @@ pub(crate) fn decode_utf8(bytes: Vec<u8>) -> Result<String, PortError> {
         });
     }
 
-    String::from_utf8(bytes)
+    std::str::from_utf8(bytes)
         .map_err(|err| PortError::invalid_input("file bytes are not utf8", err.to_string()))
 }
 
@@ -218,66 +219,52 @@ fn clean_summary_line(line: &str) -> String {
     trimmed.chars().take(96).collect()
 }
 
-pub(crate) fn domain_source_span(span: &SourceSpan) -> Result<DomainSourceSpan, PortError> {
-    match span {
-        SourceSpan::TextSpan {
-            start_line,
-            end_line,
-        } => DomainSourceSpan::text_span(*start_line, *end_line).map_err(span_error),
-        SourceSpan::PdfSpan { page } => DomainSourceSpan::pdf_span(*page).map_err(span_error),
-        SourceSpan::PdfRegion {
-            page,
-            x,
-            y,
-            width,
-            height,
-        } => DomainSourceSpan::pdf_region(*page, *x, *y, *width, *height).map_err(span_error),
-    }
-}
-
-fn span_error(error: SourceSpanError) -> PortError {
-    PortError::InvalidInputContext {
-        context: "convert chunk source span",
-        source: error.to_string(),
-    }
-}
-
 pub(crate) fn paragraph_chunks(text: &str) -> Vec<(String, SourceSpan)> {
     let mut chunks = Vec::new();
-    let mut current: Vec<&str> = Vec::new();
-    let mut para_start: Option<usize> = None;
+    let mut para_start_line: Option<usize> = None;
+    let mut para_start_byte = 0usize;
+    let mut last_non_empty_end_byte = 0usize;
     let mut total_lines = 0usize;
+    let mut current_byte = 0usize;
 
     for (line_idx, line) in text.lines().enumerate() {
         total_lines = line_idx + 1;
+        let line_len = line.len();
         if line.trim().is_empty() {
-            if let Some(start) = para_start.take() {
-                let joined = current.join("\n").trim().to_string();
-                current.clear();
-                if !joined.is_empty() {
+            if let Some(start_line) = para_start_line.take() {
+                let slice = text[para_start_byte..last_non_empty_end_byte].trim();
+                if !slice.is_empty() {
                     chunks.push((
-                        joined,
+                        slice.to_string(),
                         SourceSpan::TextSpan {
-                            start_line: start + 1,
+                            start_line: start_line + 1,
                             end_line: line_idx,
                         },
                     ));
                 }
             }
         } else {
-            if para_start.is_none() {
-                para_start = Some(line_idx);
+            if para_start_line.is_none() {
+                para_start_line = Some(line_idx);
+                para_start_byte = current_byte;
             }
-            current.push(line);
+            last_non_empty_end_byte = current_byte + line_len;
+        }
+        current_byte += line_len;
+        if current_byte < text.len() && text.as_bytes()[current_byte] == b'\r' {
+            current_byte += 1;
+        }
+        if current_byte < text.len() && text.as_bytes()[current_byte] == b'\n' {
+            current_byte += 1;
         }
     }
-    if let Some(start) = para_start.take() {
-        let joined = current.join("\n").trim().to_string();
-        if !joined.is_empty() {
+    if let Some(start_line) = para_start_line.take() {
+        let slice = text[para_start_byte..last_non_empty_end_byte].trim();
+        if !slice.is_empty() {
             chunks.push((
-                joined,
+                slice.to_string(),
                 SourceSpan::TextSpan {
-                    start_line: start + 1,
+                    start_line: start_line + 1,
                     end_line: total_lines,
                 },
             ));
@@ -287,34 +274,58 @@ pub(crate) fn paragraph_chunks(text: &str) -> Vec<(String, SourceSpan)> {
     chunks
 }
 
+fn line_start_offsets(text: &str) -> Vec<usize> {
+    let mut starts = Vec::new();
+    starts.push(0);
+    for (i, byte) in text.as_bytes().iter().enumerate() {
+        if *byte == b'\n' && i + 1 < text.len() {
+            starts.push(i + 1);
+        }
+    }
+    starts
+}
+
 pub(crate) fn ranges_from_starts(text: &str, starts: Vec<usize>) -> Vec<(String, SourceSpan)> {
-    let lines = text.lines().collect::<Vec<_>>();
+    let line_starts = line_start_offsets(text);
     let mut chunks = Vec::new();
 
     if let Some(first_start) = starts.first().copied() {
-        push_range(&mut chunks, &lines, 0, first_start);
+        push_range(&mut chunks, text, &line_starts, 0, first_start);
     }
 
     for (position, start) in starts.iter().copied().enumerate() {
         let end = match starts.get(position + 1).copied() {
             Some(next_start) => next_start,
-            None => lines.len(),
+            None => line_starts.len(),
         };
-        push_range(&mut chunks, &lines, start, end);
+        push_range(&mut chunks, text, &line_starts, start, end);
     }
 
     chunks
 }
 
-fn push_range(chunks: &mut Vec<(String, SourceSpan)>, lines: &[&str], start: usize, end: usize) {
-    if start >= end {
+fn push_range(
+    chunks: &mut Vec<(String, SourceSpan)>,
+    text: &str,
+    line_starts: &[usize],
+    start: usize,
+    end: usize,
+) {
+    if start >= end || start >= line_starts.len() {
         return;
     }
 
-    let text = lines[start..end].join("\n").trim().to_string();
-    if !text.is_empty() {
+    let start_byte = line_starts[start];
+    let end_byte = if end < line_starts.len() {
+        line_starts[end]
+    } else {
+        text.len()
+    };
+
+    let slice = text[start_byte..end_byte].trim();
+    if !slice.is_empty() {
         chunks.push((
-            text,
+            slice.to_string(),
             SourceSpan::TextSpan {
                 start_line: start + 1,
                 end_line: end,
@@ -395,7 +406,7 @@ macro_rules! text_parser {
                 context: maestria_ports::ParseContext,
             ) -> Result<maestria_ports::ParsedArtifact, maestria_ports::PortError> {
                 $precheck(&file.bytes)?;
-                let text = $crate::chunking::decode_utf8(file.bytes.clone())?;
+                let text = $crate::chunking::decode_utf8(&file.bytes)?;
                 let chunks = $chunk_fn(&text);
                 $crate::chunking::parsed_artifact(
                     context.artifact_id,

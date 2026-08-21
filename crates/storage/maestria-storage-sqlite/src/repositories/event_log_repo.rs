@@ -1,6 +1,6 @@
 use maestria_domain::{DomainEvent, DomainEventEnvelope, SearchTraceId};
 use maestria_ports::{EventFilter, EventLog, PortError};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 use std::collections::BTreeMap;
 
 use crate::{
@@ -55,38 +55,24 @@ impl EventLog for crate::SqliteStore {
     fn append(&self, event: DomainEventEnvelope) -> Result<(), PortError> {
         let record = StoredEvent::from_domain(&event)?;
         self.with_transaction(|transaction| {
-            let (count, max_id, invalid_ids): (i64, Option<i64>, i64) = transaction
+            let last_id: Option<i64> = transaction
                 .query_row(
-                    "SELECT COUNT(*), MAX(id),
-                            COALESCE(SUM(CASE WHEN id < 1 THEN 1 ELSE 0 END), 0)
-                     FROM domain_events",
+                    "SELECT id FROM domain_events ORDER BY id DESC LIMIT 1",
                     [],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    |row| row.get(0),
                 )
-                .map_err(to_port_error)?;
-            let count = u64::try_from(count).map_err(|_| PortError::InternalContext {
-                context: "validate stored event count",
-                source: "stored event count is negative".to_string(),
-            })?;
-            if count > 0 {
-                if invalid_ids != 0 {
+                .optional()
+                .map_err(to_port_error)?
+                .flatten();
+            let count = match last_id {
+                Some(id) if id > 0 => i64_to_u64(id)?,
+                Some(_) => {
                     return Err(PortError::Conflict {
                         message: "stored event log has invalid ids".to_string(),
                     });
                 }
-                let max_id = max_id.ok_or_else(|| {
-                    PortError::internal(
-                        "validate stored event log maximum id",
-                        "stored event log has no maximum id",
-                    )
-                })?;
-                let max_id = i64_to_u64(max_id)?;
-                if max_id != count {
-                    return Err(PortError::Conflict {
-                        message: "stored event log is not contiguous".to_string(),
-                    });
-                }
-            }
+                None => 0,
+            };
             let expected_id = count + 1;
             if record.id != expected_id {
                 return Err(PortError::Conflict {

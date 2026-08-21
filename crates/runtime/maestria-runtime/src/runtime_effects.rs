@@ -60,42 +60,33 @@ impl MaestriaRuntime {
         effect_shutdown: &tokio_util::sync::CancellationToken,
         runtime_shutdown: &tokio_util::sync::CancellationToken,
     ) -> bool {
+        let is_fatal = error.is_fatal();
+        Self::log_supervised_effect_failure(&error);
+        if is_fatal {
+            effect_shutdown.cancel();
+            runtime_shutdown.cancel();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn log_supervised_effect_failure(error: &EffectFailure) {
         match error {
-            EffectFailure::Denied(reason) => {
-                tracing::warn!(%reason, "spawned effect denied; continuing runtime execution");
-                false
+            EffectFailure::ApprovalLookup(_) | EffectFailure::Failed(_) => {
+                tracing::error!(%error, "spawned effect failed; cancelling runtime execution");
             }
-            EffectFailure::RequiresApproval(reason) => {
+            EffectFailure::RequiresApproval(_) => {
                 tracing::info!(
-                    %reason,
+                    %error,
                     "spawned effect is awaiting approval; continuing runtime execution"
                 );
-                false
             }
-            EffectFailure::ApprovalLookup(error) => {
-                tracing::error!(
-                    %error,
-                    "spawned effect approval lookup failed; cancelling runtime execution"
-                );
-                effect_shutdown.cancel();
-                runtime_shutdown.cancel();
-                true
-            }
-            EffectFailure::Failed(reason) => {
-                tracing::error!(
-                    reason = %reason,
-                    "spawned effect failed; cancelling runtime execution"
-                );
-                effect_shutdown.cancel();
-                runtime_shutdown.cancel();
-                true
-            }
-            EffectFailure::Degraded(reason) => {
+            EffectFailure::Denied(_) | EffectFailure::Degraded(_) => {
                 tracing::warn!(
-                    %reason,
-                    "spawned effect degraded but remains recoverable; continuing runtime execution"
+                    %error,
+                    "spawned effect did not complete; continuing runtime execution"
                 );
-                false
             }
         }
     }

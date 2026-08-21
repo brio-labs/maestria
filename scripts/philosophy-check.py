@@ -733,6 +733,10 @@ POLICY_DOC_MARKERS = {
         "47. Model-generated search plans",
         "55. Learned-sparse retrieval",
         "56. Domain types own",
+        "57. Production Rust uses",
+        "58. Pure functional core separation",
+        "59. Zero-copy and allocation discipline",
+        "60. Deterministic fast collections",
     ),
     "docs/SPECS.md": (
         "I-Search-TypedBudgeted",

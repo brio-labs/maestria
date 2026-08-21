@@ -67,24 +67,40 @@ impl EffectExecutionContext {
             let state = self.state.read().await;
             get(&state)
         };
-        if let Some(entity) = entity {
-            if let Err(error) = put(entity) {
-                if let Some(ctx) = context {
-                    tracing::error!(%id, %error, "failed to persist {entity_name} {ctx}");
-                } else {
-                    tracing::error!(%id, %error, "failed to persist {entity_name}");
-                }
-                return false;
-            }
-        } else {
-            if let Some(ctx) = context {
-                tracing::error!(%id, "{entity_name} missing from state during {ctx} persist");
-            } else {
-                tracing::error!(%id, "{entity_name} missing from state during persist");
-            }
+        let Some(entity) = entity else {
+            Self::log_missing_persist_entity(id, entity_name, context);
+            return false;
+        };
+        if let Err(error) = put(entity) {
+            Self::log_persist_error(id, error, entity_name, context);
             return false;
         }
         true
+    }
+
+    fn log_missing_persist_entity<Id: std::fmt::Display>(
+        id: Id,
+        entity_name: &'static str,
+        context: Option<&'static str>,
+    ) {
+        if let Some(ctx) = context {
+            tracing::error!(%id, "{entity_name} missing from state during {ctx} persist");
+        } else {
+            tracing::error!(%id, "{entity_name} missing from state during persist");
+        }
+    }
+
+    fn log_persist_error<Id: std::fmt::Display>(
+        id: Id,
+        error: PortError,
+        entity_name: &'static str,
+        context: Option<&'static str>,
+    ) {
+        if let Some(ctx) = context {
+            tracing::error!(%id, %error, "failed to persist {entity_name} {ctx}");
+        } else {
+            tracing::error!(%id, %error, "failed to persist {entity_name}");
+        }
     }
 
     /// Cascade-persist the domain entity associated with the event:
