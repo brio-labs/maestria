@@ -19,10 +19,10 @@ fn is_text_byte(byte: u8) -> bool {
 }
 
 pub(crate) fn looks_like_text(bytes: &[u8]) -> bool {
-    if bytes.contains(&0) {
+    let sample = &bytes[..bytes.len().min(8192)];
+    if sample.contains(&0) {
         return false;
     }
-    let sample = &bytes[..bytes.len().min(8192)];
     let suspicious = sample.iter().filter(|byte| !is_text_byte(**byte)).count();
     suspicious * 100 <= sample.len() * 5
 }

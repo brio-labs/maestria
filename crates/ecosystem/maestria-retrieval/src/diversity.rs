@@ -204,12 +204,13 @@ fn candidate_metrics(
     let source = source_identity(candidate);
     let document = candidate.artifact_version().value();
     let section = section_identity(candidate);
-    let marginal_coverage = candidate
-        .coverage_keys()
-        .iter()
-        .filter(|key| !covered_keys.contains(*key))
-        .collect::<BTreeSet<_>>()
-        .len();
+    let keys = candidate.coverage_keys();
+    let mut marginal_coverage = 0usize;
+    for (index, key) in keys.iter().enumerate() {
+        if !covered_keys.contains(key) && !keys[..index].contains(key) {
+            marginal_coverage += 1;
+        }
+    }
     let marginal_gain = marginal_coverage
         + usize::from(!sources.contains(&source))
         + usize::from(!documents.contains(&document))
