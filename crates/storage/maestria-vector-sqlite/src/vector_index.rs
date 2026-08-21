@@ -191,6 +191,7 @@ impl VectorIndex for SqliteVectorIndex {
 fn collect_hits(
     rows: &mut rusqlite::Rows<'_>,
     query_vector: &[f32],
+    query_norm_sqrt: f64,
     filter: &dyn Fn(ChunkId) -> Result<bool, PortError>,
     meter: &mut Meter,
 ) -> Result<(Vec<VectorSearchHit>, Option<SearchExecutionResource>), PortError> {
@@ -215,8 +216,15 @@ fn collect_hits(
             stopped = Some(resource);
             break;
         }
-        let bytes = row.get::<_, Vec<u8>>(2).map_err(to_port_error)?;
-        let score = cosine_similarity_bytes(query_vector, &bytes)?;
+        let bytes = row
+            .get_ref(2)
+            .map_err(to_port_error)?
+            .as_blob()
+            .map_err(|error| PortError::InternalContext {
+                context: "read vector blob",
+                source: error.to_string(),
+            })?;
+        let score = cosine_similarity_bytes(query_vector, query_norm_sqrt, bytes)?;
         hits.push(VectorSearchHit { chunk_id, score });
     }
     Ok((hits, stopped))
@@ -258,6 +266,7 @@ fn search_impl(
     if q_norm_sq == 0.0 {
         return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Complete));
     }
+    let query_norm_sqrt = q_norm_sq.sqrt();
     let (gen_id, rep, fingerprint) = if let Some(identity) = &query.identity {
         (
             Some(identity.generation_id.value().to_string()),
@@ -293,7 +302,13 @@ fn search_impl(
             fingerprint.as_deref(),
         ])
         .map_err(to_port_error)?;
-    let (mut hits, mut stopped) = collect_hits(&mut rows, &query.vector, filter, &mut meter)?;
+    let (mut hits, mut stopped) = collect_hits(
+        &mut rows,
+        &query.vector,
+        query_norm_sqrt,
+        filter,
+        &mut meter,
+    )?;
     let selected_limit =
         usize::try_from(query.limit).map_err(|_| PortError::InvalidInputContext {
             context: "vector search result limit",

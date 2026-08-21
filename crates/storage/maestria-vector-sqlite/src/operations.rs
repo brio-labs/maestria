@@ -1,5 +1,5 @@
 use maestria_ports::PortError;
-use rusqlite::{OptionalExtension, Transaction, params};
+use rusqlite::{Transaction, params};
 
 use crate::encoding::{PreparedEmbedding, to_port_error, u64_to_i64};
 
@@ -23,15 +23,23 @@ pub(crate) fn upsert_embeddings(
                  representation = excluded.representation,
                  fingerprint = excluded.fingerprint,
                  disclosure_remote = excluded.disclosure_remote,
-                 retention_policy = excluded.retention_policy",
+                 retention_policy = excluded.retention_policy
+             WHERE vector_embeddings.dimension != excluded.dimension
+                OR vector_embeddings.embedding != excluded.embedding
+                OR vector_embeddings.content_hash != excluded.content_hash
+                OR vector_embeddings.provider_id != excluded.provider_id
+                OR vector_embeddings.model != excluded.model
+                OR vector_embeddings.model_version != excluded.model_version
+                OR vector_embeddings.generation_id != excluded.generation_id
+                OR vector_embeddings.representation != excluded.representation
+                OR vector_embeddings.fingerprint != excluded.fingerprint
+                OR vector_embeddings.disclosure_remote != excluded.disclosure_remote
+                OR vector_embeddings.retention_policy IS NOT excluded.retention_policy",
         )
         .map_err(to_port_error)?;
 
     for embedding in prepared {
         let dimension = crate::encoding::usize_to_i64(embedding.dimension)?;
-        if embedding_matches(transaction, &embedding, dimension)? {
-            continue;
-        }
         statement
             .execute(params![
                 u64_to_i64(embedding.chunk_id.value())?,
@@ -50,64 +58,6 @@ pub(crate) fn upsert_embeddings(
             .map_err(to_port_error)?;
     }
     Ok(())
-}
-
-pub(crate) fn embedding_matches(
-    transaction: &Transaction<'_>,
-    embedding: &PreparedEmbedding,
-    dimension: i64,
-) -> Result<bool, PortError> {
-    let matched = transaction
-        .query_row(
-            "SELECT dimension, embedding, content_hash, provider_id, model, model_version, generation_id, representation, fingerprint, disclosure_remote, retention_policy
-             FROM vector_embeddings WHERE chunk_id = ?1",
-            params![u64_to_i64(embedding.chunk_id.value())?],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, Vec<u8>>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
-                    row.get::<_, String>(6)?,
-                    row.get::<_, String>(7)?,
-                    row.get::<_, String>(8)?,
-                    row.get::<_, Option<i64>>(9)?,
-                    row.get::<_, Option<String>>(10)?,
-                ))
-            },
-        )
-        .optional()
-        .map_err(to_port_error)?
-        .is_some_and(
-            |(
-                stored_dimension,
-                bytes,
-                content_hash,
-                provider_id,
-                model,
-                model_version,
-                generation_id,
-                representation,
-                fingerprint,
-                disclosure_remote,
-                retention_policy,
-            )| {
-                stored_dimension == dimension
-                    && bytes == embedding.bytes
-                    && content_hash == embedding.content_hash
-                    && provider_id == embedding.provider_id
-                    && model == embedding.model
-                    && model_version == embedding.model_version
-                    && generation_id == embedding.generation_id
-                    && representation == embedding.representation
-                    && fingerprint == embedding.fingerprint
-                    && disclosure_remote == Some(i64::from(u8::from(embedding.disclosure_remote)))
-                    && retention_policy.as_deref() == Some(embedding.retention_policy.as_str())
-            },
-        );
-    Ok(matched)
 }
 
 pub(crate) fn delete_stale_chunks(

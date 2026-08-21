@@ -95,7 +95,11 @@ pub(crate) fn encode_vector(vector: &[f32]) -> Result<Vec<u8>, PortError> {
     Ok(bytes)
 }
 
-pub(crate) fn cosine_similarity_bytes(query: &[f32], bytes: &[u8]) -> Result<f32, PortError> {
+pub(crate) fn cosine_similarity_bytes(
+    query: &[f32],
+    query_norm_sqrt: f64,
+    bytes: &[u8],
+) -> Result<f32, PortError> {
     if !bytes.len().is_multiple_of(F32_BYTES) {
         return Err(PortError::InternalContext {
             context: "stored vector blob has invalid length",
@@ -108,9 +112,11 @@ pub(crate) fn cosine_similarity_bytes(query: &[f32], bytes: &[u8]) -> Result<f32
             source: "stored and query dimensions differ".to_string(),
         });
     }
+    if query_norm_sqrt == 0.0 {
+        return Ok(0.0);
+    }
 
     let mut dot = 0.0_f64;
-    let mut left_norm = 0.0_f64;
     let mut right_norm = 0.0_f64;
     for (query_value, chunk) in query.iter().zip(bytes.chunks_exact(F32_BYTES)) {
         let stored = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
@@ -123,15 +129,14 @@ pub(crate) fn cosine_similarity_bytes(query: &[f32], bytes: &[u8]) -> Result<f32
         let l = *query_value as f64;
         let r = stored as f64;
         dot += l * r;
-        left_norm += l * l;
         right_norm += r * r;
     }
 
-    if left_norm == 0.0 || right_norm == 0.0 {
+    if right_norm == 0.0 {
         return Ok(0.0);
     }
 
-    let score = (dot / (left_norm.sqrt() * right_norm.sqrt())) as f32;
+    let score = (dot / (query_norm_sqrt * right_norm.sqrt())) as f32;
     Ok(if score.is_finite() { score } else { 0.0 })
 }
 

@@ -42,8 +42,30 @@ impl SqliteGraphIndex {
     }
 }
 
-fn insert_relation_with_connection(
-    connection: &Connection,
+const INSERT_RELATION_SQL: &str = "INSERT INTO relations (
+         id,
+         source_type,
+         source_id,
+         kind,
+         target_type,
+         target_id,
+         evidence_id,
+         confidence_milli,
+         security_json
+     )
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+     ON CONFLICT(id) DO UPDATE SET
+         source_type = excluded.source_type,
+         source_id = excluded.source_id,
+         kind = excluded.kind,
+         target_type = excluded.target_type,
+         target_id = excluded.target_id,
+         evidence_id = excluded.evidence_id,
+         confidence_milli = excluded.confidence_milli,
+         security_json = excluded.security_json";
+
+fn execute_insert_relation(
+    statement: &mut rusqlite::CachedStatement<'_>,
     relation: Relation,
 ) -> Result<(), PortError> {
     let (source_type, source_id) = relation_endpoint_to_parts(relation.source);
@@ -51,48 +73,35 @@ fn insert_relation_with_connection(
     let evidence_id = relation.evidence_id.map(|id| id.value().to_string());
     let confidence_milli = i64::from(relation.confidence_milli);
 
-    connection
-        .execute(
-            "INSERT INTO relations (
-                 id,
-                 source_type,
-                 source_id,
-                 kind,
-                 target_type,
-                 target_id,
-                 evidence_id,
-                 confidence_milli,
-                 security_json
-             )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-             ON CONFLICT(id) DO UPDATE SET
-                 source_type = excluded.source_type,
-                 source_id = excluded.source_id,
-                 kind = excluded.kind,
-                 target_type = excluded.target_type,
-                 target_id = excluded.target_id,
-                 evidence_id = excluded.evidence_id,
-                 confidence_milli = excluded.confidence_milli,
-                 security_json = excluded.security_json",
-            params![
-                relation.id.value().to_string(),
-                source_type,
-                source_id,
-                relation_kind_to_str(relation.kind),
-                target_type,
-                target_id,
-                evidence_id,
-                confidence_milli,
-                serde_json::to_string(&relation.security).map_err(|error| {
-                    PortError::InternalContext {
-                        context: "serialize relation security",
-                        source: error.to_string(),
-                    }
-                })?,
-            ],
-        )
+    statement
+        .execute(params![
+            relation.id.value().to_string(),
+            source_type,
+            source_id,
+            relation_kind_to_str(relation.kind),
+            target_type,
+            target_id,
+            evidence_id,
+            confidence_milli,
+            serde_json::to_string(&relation.security).map_err(|error| {
+                PortError::InternalContext {
+                    context: "serialize relation security",
+                    source: error.to_string(),
+                }
+            })?,
+        ])
         .map_err(to_port_error)?;
     Ok(())
+}
+
+fn insert_relation_with_connection(
+    connection: &Connection,
+    relation: Relation,
+) -> Result<(), PortError> {
+    let mut statement = connection
+        .prepare_cached(INSERT_RELATION_SQL)
+        .map_err(to_port_error)?;
+    execute_insert_relation(&mut statement, relation)
 }
 
 fn rebuild_relations(
@@ -103,8 +112,13 @@ fn rebuild_relations(
     transaction
         .execute("DELETE FROM relations", [])
         .map_err(to_port_error)?;
-    for relation in relations {
-        insert_relation_with_connection(&transaction, relation)?;
+    {
+        let mut statement = transaction
+            .prepare_cached(INSERT_RELATION_SQL)
+            .map_err(to_port_error)?;
+        for relation in relations {
+            execute_insert_relation(&mut statement, relation)?;
+        }
     }
     transaction.commit().map_err(to_port_error)?;
     Ok(())
