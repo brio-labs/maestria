@@ -19,10 +19,14 @@ fn markdown_chunks(text: &str) -> Vec<(String, maestria_ports::SourceSpan)> {
 
 fn is_markdown_heading(line: &str) -> bool {
     let trimmed = line.trim_start();
-    let marker_len = trimmed.chars().take_while(|ch| *ch == '#').count();
+    let bytes = trimmed.as_bytes();
+    let mut marker_len = 0;
+    while marker_len < bytes.len() && bytes[marker_len] == b'#' {
+        marker_len += 1;
+    }
     (1..=6).contains(&marker_len)
-        && match trimmed.chars().nth(marker_len) {
-            Some(ch) => ch.is_whitespace(),
+        && match bytes.get(marker_len) {
+            Some(&b) => b == b' ' || b == b'\t' || b == b'\r' || b == b'\n',
             None => true,
         }
 }

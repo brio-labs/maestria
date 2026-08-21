@@ -246,8 +246,10 @@ pub(crate) fn paragraph_chunks(text: &str) -> Vec<(String, SourceSpan)> {
     let mut chunks = Vec::new();
     let mut current: Vec<&str> = Vec::new();
     let mut para_start: Option<usize> = None;
+    let mut total_lines = 0usize;
 
     for (line_idx, line) in text.lines().enumerate() {
+        total_lines = line_idx + 1;
         if line.trim().is_empty() {
             if let Some(start) = para_start.take() {
                 let joined = current.join("\n").trim().to_string();
@@ -272,7 +274,6 @@ pub(crate) fn paragraph_chunks(text: &str) -> Vec<(String, SourceSpan)> {
     if let Some(start) = para_start.take() {
         let joined = current.join("\n").trim().to_string();
         if !joined.is_empty() {
-            let total_lines = text.lines().count();
             chunks.push((
                 joined,
                 SourceSpan::TextSpan {

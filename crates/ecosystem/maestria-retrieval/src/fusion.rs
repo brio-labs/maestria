@@ -4,7 +4,7 @@ use maestria_ports::SearchQuery;
 use crate::traits::RankFusion;
 use crate::types::{FusedCandidate, RetrievalError, RetrievalResult};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum CandidateIdentity {
     Cluster(maestria_domain::DuplicateClusterId),
     Exact(maestria_domain::EvidenceId),
@@ -51,7 +51,7 @@ impl RankFusion for FixedKRrf {
             for candidate in &batch.candidates {
                 let identity =
                     candidate_identity(candidate, evidence_clusters.get(&candidate.evidence_id()));
-                if !seen.insert(identity.clone()) {
+                if !seen.insert(identity) {
                     continue;
                 }
                 let rank = compact_rank.checked_add(1).ok_or_else(|| {
@@ -66,10 +66,10 @@ impl RankFusion for FixedKRrf {
                 let contribution = RRF_SCALE / denominator;
                 compact_rank += 1;
                 scores
-                    .entry(identity.clone())
+                    .entry(identity)
                     .and_modify(|score| *score = score.saturating_add(contribution))
                     .or_insert(contribution);
-                record_candidate(&mut best_candidates, &identity, candidate)?;
+                record_candidate(&mut best_candidates, identity, candidate)?;
             }
         }
         Ok(finalize_fusion(scores, best_candidates))
@@ -251,10 +251,10 @@ fn blend_scores(
             }
             let contribution = (blended.clamp(0.0, 1.0) * BLEND_SCALE as f32) as u64;
             scores
-                .entry(identity.clone())
+                .entry(identity)
                 .and_modify(|score| *score = (*score).saturating_add(contribution))
                 .or_insert(contribution);
-            record_candidate(&mut best_candidates, &identity, candidate)?;
+            record_candidate(&mut best_candidates, identity, candidate)?;
         }
     }
     Ok((scores, best_candidates))
@@ -284,12 +284,12 @@ fn collect_evidence_clusters(
 
 fn record_candidate(
     best_candidates: &mut std::collections::BTreeMap<CandidateIdentity, EvidenceCandidate>,
-    identity: &CandidateIdentity,
+    identity: CandidateIdentity,
     candidate: &EvidenceCandidate,
 ) -> RetrievalResult<()> {
     let canonical_candidate = match identity {
         CandidateIdentity::Cluster(cluster_id)
-            if candidate.duplicate_cluster().as_ref() != Some(cluster_id) =>
+            if candidate.duplicate_cluster() != Some(cluster_id) =>
         {
             EvidenceCandidate::new(EvidenceCandidateDto {
                 evidence_id: candidate.evidence_id(),
@@ -298,21 +298,25 @@ fn record_candidate(
                 scores: candidate.scores().clone(),
                 trust: candidate.trust(),
                 freshness: candidate.freshness(),
-                duplicate_cluster: Some(*cluster_id),
+                duplicate_cluster: Some(cluster_id),
                 reasons: candidate.reasons().to_vec(),
                 coverage_keys: candidate.coverage_keys().to_vec(),
             })?
         }
         _ => candidate.clone(),
     };
-    let replace = best_candidates
-        .get(identity)
-        .is_none_or(|existing| candidate_order(&canonical_candidate) < candidate_order(existing));
-    if replace {
-        best_candidates.insert(identity.clone(), canonical_candidate);
-    } else if let Some(existing) = best_candidates.get_mut(identity) {
-        let merged = merge_lane_scores(existing, &canonical_candidate)?;
-        *existing = merged;
+    match best_candidates.entry(identity) {
+        std::collections::btree_map::Entry::Vacant(entry) => {
+            entry.insert(canonical_candidate);
+        }
+        std::collections::btree_map::Entry::Occupied(mut entry) => {
+            if candidate_order(&canonical_candidate) < candidate_order(entry.get()) {
+                entry.insert(canonical_candidate);
+            } else {
+                let merged = merge_lane_scores(entry.get(), &canonical_candidate)?;
+                *entry.get_mut() = merged;
+            }
+        }
     }
     Ok(())
 }

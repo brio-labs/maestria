@@ -52,12 +52,15 @@ pub(super) fn replace_id_set(
         )
         .map_err(to_port_error)?;
 
+    let mut statement = transaction
+        .prepare(&format!(
+            "INSERT INTO {table} (artifact_id, related_id) VALUES (?1, ?2)"
+        ))
+        .map_err(to_port_error)?;
+
     for id in ids {
-        transaction
-            .execute(
-                &format!("INSERT INTO {table} (artifact_id, related_id) VALUES (?1, ?2)"),
-                params![artifact_id.to_sql_param()?, u64_to_i64(id)?],
-            )
+        statement
+            .execute(params![artifact_id.to_sql_param()?, u64_to_i64(id)?])
             .map_err(to_port_error)?;
     }
 

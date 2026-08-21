@@ -211,19 +211,19 @@ fn collect_hits(
             stopped = Some(resource);
             break;
         }
-        let bytes_read = i64_to_u64(row.get::<_, i64>(1).map_err(to_port_error)?)?;
-        if let Some(resource) = meter.bytes(bytes_read) {
-            stopped = Some(resource);
-            break;
-        }
         let bytes = row
-            .get_ref(2)
+            .get_ref(1)
             .map_err(to_port_error)?
             .as_blob()
             .map_err(|error| PortError::InternalContext {
                 context: "read vector blob",
                 source: error.to_string(),
             })?;
+        let bytes_read = bytes.len() as u64;
+        if let Some(resource) = meter.bytes(bytes_read) {
+            stopped = Some(resource);
+            break;
+        }
         let score = cosine_similarity_bytes(query_vector, query_norm_sqrt, bytes)?;
         hits.push(VectorSearchHit { chunk_id, score });
     }
@@ -279,7 +279,7 @@ fn search_impl(
     let connection = index.lock_connection()?;
     let mut statement = connection
         .prepare(
-            "SELECT chunk_id, length(embedding), embedding
+            "SELECT chunk_id, embedding
                  FROM vector_embeddings
                  WHERE dimension = ?1
                    AND (?2 IS NULL OR provider_id = ?2)
