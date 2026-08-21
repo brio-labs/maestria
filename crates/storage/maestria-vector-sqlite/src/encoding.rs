@@ -116,9 +116,58 @@ pub(crate) fn cosine_similarity_bytes(
         return Ok(0.0);
     }
 
-    let mut dot = 0.0_f64;
-    let mut right_norm = 0.0_f64;
-    for (query_value, chunk) in query.iter().zip(bytes.chunks_exact(F32_BYTES)) {
+    let mut dot0 = 0.0_f64;
+    let mut dot1 = 0.0_f64;
+    let mut dot2 = 0.0_f64;
+    let mut dot3 = 0.0_f64;
+    let mut norm0 = 0.0_f64;
+    let mut norm1 = 0.0_f64;
+    let mut norm2 = 0.0_f64;
+    let mut norm3 = 0.0_f64;
+
+    let query_chunks = query.chunks_exact(4);
+    let query_remainder = query_chunks.remainder();
+    let byte_chunks = bytes.chunks_exact(4 * F32_BYTES);
+    let byte_remainder = byte_chunks.remainder();
+
+    for (q4, b16) in query_chunks.zip(byte_chunks) {
+        let s0 = f32::from_le_bytes([b16[0], b16[1], b16[2], b16[3]]);
+        let s1 = f32::from_le_bytes([b16[4], b16[5], b16[6], b16[7]]);
+        let s2 = f32::from_le_bytes([b16[8], b16[9], b16[10], b16[11]]);
+        let s3 = f32::from_le_bytes([b16[12], b16[13], b16[14], b16[15]]);
+
+        if !s0.is_finite() || !s1.is_finite() || !s2.is_finite() || !s3.is_finite() {
+            return Err(PortError::InternalContext {
+                context: "stored vector blob contains non-finite value",
+                source: "decoded value is not finite".to_string(),
+            });
+        }
+
+        let l0 = q4[0] as f64;
+        let r0 = s0 as f64;
+        dot0 += l0 * r0;
+        norm0 += r0 * r0;
+
+        let l1 = q4[1] as f64;
+        let r1 = s1 as f64;
+        dot1 += l1 * r1;
+        norm1 += r1 * r1;
+
+        let l2 = q4[2] as f64;
+        let r2 = s2 as f64;
+        dot2 += l2 * r2;
+        norm2 += r2 * r2;
+
+        let l3 = q4[3] as f64;
+        let r3 = s3 as f64;
+        dot3 += l3 * r3;
+        norm3 += r3 * r3;
+    }
+
+    for (query_value, chunk) in query_remainder
+        .iter()
+        .zip(byte_remainder.chunks_exact(F32_BYTES))
+    {
         let stored = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
         if !stored.is_finite() {
             return Err(PortError::InternalContext {
@@ -128,9 +177,12 @@ pub(crate) fn cosine_similarity_bytes(
         }
         let l = *query_value as f64;
         let r = stored as f64;
-        dot += l * r;
-        right_norm += r * r;
+        dot0 += l * r;
+        norm0 += r * r;
     }
+
+    let dot = (dot0 + dot1) + (dot2 + dot3);
+    let right_norm = (norm0 + norm1) + (norm2 + norm3);
 
     if right_norm == 0.0 {
         return Ok(0.0);

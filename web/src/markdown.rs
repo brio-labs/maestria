@@ -1,23 +1,19 @@
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
-
+use std::fmt::Write as _;
 pub fn render_markdown(markdown: &str) -> String {
     let parser = Parser::new_ext(markdown, Options::all());
-    let mut output = String::new();
+    let mut output = String::with_capacity(markdown.len().saturating_add(markdown.len() / 2));
     let mut links: Vec<Option<String>> = Vec::new();
     for event in parser {
         match event {
             Event::Start(Tag::Paragraph) => output.push_str("<p>"),
             Event::End(TagEnd::Paragraph) => output.push_str("</p>"),
-            Event::Start(Tag::Heading { level, .. }) => {
-                output.push_str(&format!("<h{}>", heading_number(level)))
-            }
-            Event::End(TagEnd::Heading(level)) => {
-                output.push_str(&format!("</h{}>", heading_number(level)))
-            }
+            Event::Start(Tag::Heading { level, .. }) => push_heading_start(level, &mut output),
+            Event::End(TagEnd::Heading(level)) => push_heading_end(level, &mut output),
             Event::Start(Tag::BlockQuote(_)) => output.push_str("<blockquote>"),
             Event::End(TagEnd::BlockQuote(_)) => output.push_str("</blockquote>"),
             Event::Start(Tag::List(Some(start))) => {
-                output.push_str(&format!("<ol start=\"{start}\">"))
+                let _ = write!(output, "<ol start=\"{start}\">");
             }
             Event::Start(Tag::List(None)) => output.push_str("<ul>"),
             Event::End(TagEnd::List(true)) => output.push_str("</ol>"),
@@ -34,7 +30,7 @@ pub fn render_markdown(markdown: &str) -> String {
                 let safe_destination = safe_link(&dest_url);
                 if let Some(destination) = safe_destination.as_ref() {
                     output.push_str("<a href=\"");
-                    output.push_str(&escape(destination));
+                    escape_into(destination, &mut output);
                     output.push_str("\">");
                 }
                 links.push(safe_destination);
@@ -52,7 +48,7 @@ pub fn render_markdown(markdown: &str) -> String {
                     && !language.is_empty()
                 {
                     output.push_str(" class=\"language-");
-                    output.push_str(&escape(&language));
+                    escape_into(&language, &mut output);
                     output.push('"');
                 }
                 output.push('>');
@@ -60,13 +56,13 @@ pub fn render_markdown(markdown: &str) -> String {
             Event::End(TagEnd::CodeBlock) => output.push_str("</code></pre>"),
             Event::Code(code) => {
                 output.push_str("<code>");
-                output.push_str(&escape(&code));
+                escape_into(&code, &mut output);
                 output.push_str("</code>");
             }
-            Event::Text(text) => output.push_str(&escape(&text)),
+            Event::Text(text) => escape_into(&text, &mut output),
             Event::FootnoteReference(reference) => {
                 output.push_str("<sup>");
-                output.push_str(&escape(&reference));
+                escape_into(&reference, &mut output);
                 output.push_str("</sup>");
             }
             Event::SoftBreak => output.push('\n'),
@@ -90,14 +86,25 @@ pub fn render_markdown(markdown: &str) -> String {
     output
 }
 
-fn heading_number(level: HeadingLevel) -> u8 {
+fn push_heading_start(level: HeadingLevel, output: &mut String) {
     match level {
-        HeadingLevel::H1 => 1,
-        HeadingLevel::H2 => 2,
-        HeadingLevel::H3 => 3,
-        HeadingLevel::H4 => 4,
-        HeadingLevel::H5 => 5,
-        HeadingLevel::H6 => 6,
+        HeadingLevel::H1 => output.push_str("<h1>"),
+        HeadingLevel::H2 => output.push_str("<h2>"),
+        HeadingLevel::H3 => output.push_str("<h3>"),
+        HeadingLevel::H4 => output.push_str("<h4>"),
+        HeadingLevel::H5 => output.push_str("<h5>"),
+        HeadingLevel::H6 => output.push_str("<h6>"),
+    }
+}
+
+fn push_heading_end(level: HeadingLevel, output: &mut String) {
+    match level {
+        HeadingLevel::H1 => output.push_str("</h1>"),
+        HeadingLevel::H2 => output.push_str("</h2>"),
+        HeadingLevel::H3 => output.push_str("</h3>"),
+        HeadingLevel::H4 => output.push_str("</h4>"),
+        HeadingLevel::H5 => output.push_str("</h5>"),
+        HeadingLevel::H6 => output.push_str("</h6>"),
     }
 }
 fn safe_link(destination: &str) -> Option<String> {
@@ -112,13 +119,26 @@ fn safe_link(destination: &str) -> Option<String> {
         None
     }
 }
-fn escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#x27;")
+fn escape_into(value: &str, output: &mut String) {
+    let mut last = 0;
+    for (i, byte) in value.bytes().enumerate() {
+        let replacement = match byte {
+            b'&' => "&amp;",
+            b'<' => "&lt;",
+            b'>' => "&gt;",
+            b'"' => "&quot;",
+            b'\'' => "&#x27;",
+            _ => continue,
+        };
+        if last < i {
+            output.push_str(&value[last..i]);
+        }
+        output.push_str(replacement);
+        last = i + 1;
+    }
+    if last < value.len() {
+        output.push_str(&value[last..]);
+    }
 }
 
 #[cfg(test)]

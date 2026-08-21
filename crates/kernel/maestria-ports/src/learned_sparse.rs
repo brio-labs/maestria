@@ -220,7 +220,8 @@ pub fn dot_contributions(
 ) -> Vec<(u32, f64)> {
     let mut left = 0_usize;
     let mut right = 0_usize;
-    let mut contributions = Vec::new();
+    let capacity = document.len().min(query.len()).min(16);
+    let mut contributions = Vec::with_capacity(capacity);
     while left < document.len() && right < query.len() {
         let document_term = document[left];
         let query_term = query[right];

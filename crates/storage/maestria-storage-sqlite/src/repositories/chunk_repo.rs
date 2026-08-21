@@ -4,7 +4,7 @@ use rusqlite::{Row, params};
 
 use crate::{
     payloads::provenance_payloads::StoredParsedRepresentation,
-    sqlite_store::{i64_to_u32, i64_to_u64, json_error, to_port_error, u64_to_i64},
+    sqlite_store::{i64_to_u32, i64_to_u64, json_error, row_opt_str, to_port_error, u64_to_i64},
 };
 
 impl ChunkRepository for crate::SqliteStore {
@@ -107,10 +107,10 @@ fn read_chunk(row: &Row<'_>) -> Result<Chunk, PortError> {
             });
         }
     };
-    let source_span_json = row.get::<_, Option<String>>(5).map_err(to_port_error)?;
+    let source_span_json = row_opt_str(row, 5)?;
     let source_span = match source_span_json {
         Some(json) => {
-            serde_json::from_str::<crate::payloads::provenance_payloads::StoredSourceSpan>(&json)
+            serde_json::from_str::<crate::payloads::provenance_payloads::StoredSourceSpan>(json)
                 .map_err(json_error)?
                 .try_into()?
         }
@@ -122,7 +122,7 @@ fn read_chunk(row: &Row<'_>) -> Result<Chunk, PortError> {
             });
         }
     };
-    let representations_json = row.get::<_, Option<String>>(6).map_err(to_port_error)?;
+    let representations_json = row_opt_str(row, 6)?;
     let representations_json = match representations_json {
         Some(json) => json,
         None => {
@@ -135,7 +135,7 @@ fn read_chunk(row: &Row<'_>) -> Result<Chunk, PortError> {
     };
     let representations = serde_json::from_str::<
         Vec<crate::payloads::provenance_payloads::StoredParsedRepresentation>,
-    >(&representations_json)
+    >(representations_json)
     .map_err(json_error)?
     .into_iter()
     .map(Into::into)
