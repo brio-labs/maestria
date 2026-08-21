@@ -27,24 +27,9 @@ impl StoredEvent {
             payload_version: crate::payloads::CURRENT_PAYLOAD_VERSION,
         })
     }
-    pub(super) fn raw_search_trace(
-        &self,
-    ) -> Result<Option<maestria_domain::SearchTraceId>, PortError> {
-        if self.kind != "search_knowledge_completed" {
-            return Ok(None);
-        }
-        let payload: StoredEventPayload =
-            serde_json::from_str(&self.payload_json).map_err(json_error)?;
-        let StoredEventPayload::SearchKnowledgeCompleted { outcome, .. } = payload else {
-            return Err(PortError::InternalContext {
-                context: "stored search completion payload",
-                source: "event kind does not match payload variant".to_string(),
-            });
-        };
-        Ok(Some(SearchTraceId::new(outcome.trace)))
-    }
-
-    pub(super) fn into_domain(self) -> Result<DomainEventEnvelope, PortError> {
+    pub(super) fn into_domain_with_trace_remap(
+        self,
+    ) -> Result<(DomainEventEnvelope, Option<(SearchTraceId, SearchTraceId)>), PortError> {
         let payload: StoredEventPayload =
             serde_json::from_str(&self.payload_json).map_err(json_error)?;
         let payload_kind = payload.kind()?;
@@ -60,22 +45,36 @@ impl StoredEvent {
                 source: "artifact_id column does not match payload".to_string(),
             });
         }
+        let raw_trace = match &payload {
+            StoredEventPayload::SearchKnowledgeCompleted { outcome, .. } => {
+                Some(SearchTraceId::new(outcome.trace))
+            }
+            _ => None,
+        };
         let mut event = payload.into_domain()?;
-        if let maestria_domain::DomainEvent::SearchKnowledgeCompleted { outcome, .. } = &mut event {
-            outcome.canonicalize_score_provenance().map_err(|error| {
-                PortError::InternalContext {
-                    context: "canonicalize retrieval score provenance during replay",
-                    source: error.to_string(),
-                }
-            })?;
-        }
-        Ok(DomainEventEnvelope {
-            id: EventId::new(self.id),
-            event,
-        })
+        let trace_remap =
+            if let maestria_domain::DomainEvent::SearchKnowledgeCompleted { outcome, .. } =
+                &mut event
+            {
+                outcome.canonicalize_score_provenance().map_err(|error| {
+                    PortError::InternalContext {
+                        context: "canonicalize retrieval score provenance during replay",
+                        source: error.to_string(),
+                    }
+                })?;
+                raw_trace.map(|raw| (raw, outcome.trace))
+            } else {
+                None
+            };
+        Ok((
+            DomainEventEnvelope {
+                id: EventId::new(self.id),
+                event,
+            },
+            trace_remap,
+        ))
     }
 }
-
 pub(super) fn read_stored_event(row: &Row<'_>) -> Result<StoredEvent, PortError> {
     let kind_ref = row
         .get_ref(1)
