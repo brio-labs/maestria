@@ -94,3 +94,33 @@ pub(crate) fn json_error(error: serde_json::Error) -> PortError {
         source: error.to_string(),
     }
 }
+
+pub(crate) fn row_str<'a>(row: &'a rusqlite::Row<'_>, idx: usize) -> Result<&'a str, PortError> {
+    row.get_ref(idx)
+        .map_err(to_port_error)?
+        .as_str()
+        .map_err(|err| {
+            to_port_error(rusqlite::Error::FromSqlConversionFailure(
+                idx,
+                rusqlite::types::Type::Text,
+                Box::new(err),
+            ))
+        })
+}
+
+pub(crate) fn row_opt_str<'a>(
+    row: &'a rusqlite::Row<'_>,
+    idx: usize,
+) -> Result<Option<&'a str>, PortError> {
+    let val = row.get_ref(idx).map_err(to_port_error)?;
+    match val {
+        rusqlite::types::ValueRef::Null => Ok(None),
+        _ => val.as_str().map(Some).map_err(|err| {
+            to_port_error(rusqlite::Error::FromSqlConversionFailure(
+                idx,
+                rusqlite::types::Type::Text,
+                Box::new(err),
+            ))
+        }),
+    }
+}

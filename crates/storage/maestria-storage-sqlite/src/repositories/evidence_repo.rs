@@ -5,7 +5,8 @@ use rusqlite::{Row, params};
 use crate::{
     payloads::StoredEvidenceKind,
     sqlite_store::{
-        i64_to_u64, json_error, optional_i64_to_u64, optional_u64_to_i64, to_port_error, u64_to_i64,
+        i64_to_u64, json_error, optional_i64_to_u64, optional_u64_to_i64, row_str, to_port_error,
+        u64_to_i64,
     },
 };
 
@@ -38,7 +39,7 @@ impl EvidenceRepository for crate::SqliteStore {
         let observed_at = u64_to_i64(evidence.observed_at.value())?;
 
         self.with_transaction(|transaction| {
-            transaction
+            let changes = transaction
                 .execute(
                     "INSERT INTO evidence
                          (id, artifact_id, claim_id, kind_json, excerpt, observed_at, security_json)
@@ -55,6 +56,10 @@ impl EvidenceRepository for crate::SqliteStore {
                     ],
                 )
                 .map_err(to_port_error)?;
+
+            if changes == 1 {
+                return Ok(());
+            }
 
             let existing = {
                 let mut statement = transaction
@@ -134,14 +139,13 @@ impl EvidenceRepository for crate::SqliteStore {
 }
 
 fn read_evidence(row: &Row<'_>) -> Result<Evidence, PortError> {
-    let kind_json = row.get::<_, String>(3).map_err(to_port_error)?;
-    let kind = serde_json::from_str::<StoredEvidenceKind>(&kind_json)
+    let kind_str = row_str(row, 3)?;
+    let kind = serde_json::from_str::<StoredEvidenceKind>(kind_str)
         .map_err(json_error)?
         .try_into_domain()
         .map_err(|error| PortError::internal("decode stored evidence kind", error.to_string()))?;
-    let security_json = row.get::<_, String>(6).map_err(to_port_error)?;
-    let security = serde_json::from_str(&security_json).map_err(json_error)?;
-
+    let security_str = row_str(row, 6)?;
+    let security = serde_json::from_str(security_str).map_err(json_error)?;
     Ok(Evidence {
         id: EvidenceId::new(i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?),
         artifact_id: ArtifactId::new(i64_to_u64(row.get::<_, i64>(1).map_err(to_port_error)?)?),
