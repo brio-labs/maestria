@@ -41,7 +41,7 @@ impl RankFusion for FixedKRrf {
         let mut scores = std::collections::BTreeMap::<CandidateIdentity, u64>::new();
         let mut best_candidates =
             std::collections::BTreeMap::<CandidateIdentity, EvidenceCandidate>::new();
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = Vec::new();
         for batch in batches {
             if !matches!(batch.status, maestria_domain::SearchLaneStatus::Succeeded) {
                 continue;
@@ -51,9 +51,10 @@ impl RankFusion for FixedKRrf {
             for candidate in &batch.candidates {
                 let identity =
                     candidate_identity(candidate, evidence_clusters.get(&candidate.evidence_id()));
-                if !seen.insert(identity) {
+                if seen.contains(&identity) {
                     continue;
                 }
+                seen.push(identity);
                 let rank = compact_rank.checked_add(1).ok_or_else(|| {
                     RetrievalError::Internal("RRF lane rank overflow".to_string())
                 })?;

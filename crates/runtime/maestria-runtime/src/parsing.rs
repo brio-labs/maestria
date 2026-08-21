@@ -138,60 +138,76 @@ impl EffectExecutionContext {
     ) -> Result<(Vec<u8>, BlobId, bool), ()> {
         match &request.source {
             ParseArtifactSource::Blob(blob_id) => {
-                let expected_content_hash = {
-                    let state_read = self.state.read().await;
-                    state_read
-                        .pending_parsers
-                        .get(&artifact_id)
-                        .filter(|started| started.artifact_id == artifact_id)
-                        .map(|started| started.content_hash.clone())
-                };
-                let Some(expected_content_hash) = expected_content_hash else {
-                    tracing::error!(
-                        artifact_id = %artifact_id,
-                        %blob_id,
-                        "resume parse has no durable ParserStarted content hash; rejecting"
-                    );
-                    return Err(());
-                };
-                match self.adapters.blob_store.get(*blob_id) {
-                    Ok(bytes) => {
-                        let actual_content_hash = content_hash(&bytes);
-                        if actual_content_hash != expected_content_hash.as_str() {
-                            tracing::error!(
-                                artifact_id = %artifact_id,
-                                %blob_id,
-                                expected = %expected_content_hash.as_str(),
-                                actual = %actual_content_hash,
-                                "resume blob content hash does not match durable ParserStarted hash; rejecting"
-                            );
-                            return Err(());
-                        }
-                        Ok((bytes, *blob_id, true))
-                    }
-                    Err(error) => {
-                        tracing::error!(
-                            artifact_id = %artifact_id,
-                            %blob_id,
-                            %error,
-                            "resume blob missing from store"
-                        );
-                        Err(())
-                    }
-                }
+                self.resolve_blob_for_parse_resumed(*blob_id, artifact_id)
+                    .await
             }
             ParseArtifactSource::Inline(source_bytes) => {
-                match self.adapters.blob_store.put(source_bytes.clone()) {
-                    Ok(blob_id) => Ok((source_bytes.clone(), blob_id, false)),
-                    Err(error) => {
-                        tracing::error!(
-                            artifact_id = %artifact_id,
-                            %error,
-                            "failed to store source blob"
-                        );
-                        Err(())
-                    }
-                }
+                self.resolve_blob_for_parse_inline(source_bytes, artifact_id)
+            }
+        }
+    }
+
+    async fn resolve_blob_for_parse_resumed(
+        &self,
+        blob_id: BlobId,
+        artifact_id: ArtifactId,
+    ) -> Result<(Vec<u8>, BlobId, bool), ()> {
+        let expected_content_hash = {
+            let state_read = self.state.read().await;
+            state_read
+                .pending_parsers
+                .get(&artifact_id)
+                .filter(|started| started.artifact_id == artifact_id)
+                .map(|started| started.content_hash.clone())
+        };
+        let Some(expected_content_hash) = expected_content_hash else {
+            tracing::error!(
+                artifact_id = %artifact_id,
+                %blob_id,
+                "resume parse has no durable ParserStarted content hash; rejecting"
+            );
+            return Err(());
+        };
+        let bytes = match self.adapters.blob_store.get(blob_id) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                tracing::error!(
+                    artifact_id = %artifact_id,
+                    %blob_id,
+                    %error,
+                    "resume blob missing from store"
+                );
+                return Err(());
+            }
+        };
+        let actual_content_hash = content_hash(&bytes);
+        if actual_content_hash != expected_content_hash.as_str() {
+            tracing::error!(
+                artifact_id = %artifact_id,
+                %blob_id,
+                expected = %expected_content_hash.as_str(),
+                actual = %actual_content_hash,
+                "resume blob content hash does not match durable ParserStarted hash; rejecting"
+            );
+            return Err(());
+        }
+        Ok((bytes, blob_id, true))
+    }
+
+    fn resolve_blob_for_parse_inline(
+        &self,
+        source_bytes: &[u8],
+        artifact_id: ArtifactId,
+    ) -> Result<(Vec<u8>, BlobId, bool), ()> {
+        match self.adapters.blob_store.put(source_bytes.to_vec()) {
+            Ok(blob_id) => Ok((source_bytes.to_vec(), blob_id, false)),
+            Err(error) => {
+                tracing::error!(
+                    artifact_id = %artifact_id,
+                    %error,
+                    "failed to store source blob"
+                );
+                Err(())
             }
         }
     }

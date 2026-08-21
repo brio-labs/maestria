@@ -28,7 +28,7 @@ impl TantivyFullTextIndex {
                         &card_key(card.artifact_id, card.card_id),
                     ));
                     writer
-                        .add_document(self.card_document(&card))
+                        .add_document(self.card_document(card))
                         .map_err(to_port_error)?;
                 }
                 Ok(())

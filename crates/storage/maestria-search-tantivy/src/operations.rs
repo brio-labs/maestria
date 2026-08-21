@@ -93,7 +93,7 @@ impl TantivyFullTextIndex {
                         &card_key(card.artifact_id, card.card_id),
                     ));
                     writer
-                        .add_document(self.card_document(&card))
+                        .add_document(self.card_document(card))
                         .map_err(to_port_error)?;
                 }
                 for card in lexical_cards {
@@ -102,10 +102,10 @@ impl TantivyFullTextIndex {
                         &card_key(card.artifact_id, card.card_id),
                     ));
                     writer
-                        .add_document(self.lexical_card_document(&card))
+                        .add_document(self.lexical_card_document(card))
                         .map_err(to_port_error)?;
                 }
-                for chunk in &chunks {
+                for chunk in chunks {
                     writer.delete_term(Term::from_field_text(
                         self.fields.key,
                         &chunk_key(chunk.artifact_id, chunk.chunk_id),
@@ -114,7 +114,7 @@ impl TantivyFullTextIndex {
                         .add_document(self.chunk_document(chunk))
                         .map_err(to_port_error)?;
                 }
-                for lexical_chunk in &lexical_chunks {
+                for lexical_chunk in lexical_chunks {
                     writer.delete_term(Term::from_field_text(
                         self.fields.key,
                         &chunk_key(lexical_chunk.artifact_id, lexical_chunk.chunk_id),

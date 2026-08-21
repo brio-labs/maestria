@@ -1,29 +1,46 @@
 use crate::MaestriaRuntime;
-use maestria_domain::ApprovalDecision;
-use maestria_ports::ApprovalStatus;
+use maestria_domain::{ApprovalDecision, ModelAgentProposalExecution, ModelAgentProposalRequest};
+use maestria_ports::{ApprovalRecord, ApprovalStatus};
 
 impl MaestriaRuntime {
     pub(crate) async fn check_approval_boundary(&self, decision: &ApprovalDecision) -> bool {
+        let Some(record) = self.lookup_pending_approval(decision) else {
+            return false;
+        };
+        if !Self::validate_approval_task(decision, &record) {
+            return false;
+        }
+        let Some(proposal) = Self::decode_approval_proposal(decision, &record) else {
+            return false;
+        };
+        let Some(proposal) = proposal else {
+            return true;
+        };
+        self.verify_approval_continuation(decision, &record, &proposal)
+            .await
+    }
+
+    fn lookup_pending_approval(&self, decision: &ApprovalDecision) -> Option<ApprovalRecord> {
         let record = match self
             .adapters
             .approval_repo
             .find_by_id(decision.approval_id())
         {
+            Ok(Some(record)) => record,
             Ok(None) => {
                 tracing::warn!(
                     approval_id = %decision.approval_id(),
                     "approval resolve rejected: record not found"
                 );
-                return false;
+                return None;
             }
-            Ok(Some(record)) => record,
-            Err(e) => {
+            Err(error) => {
                 tracing::error!(
-                    %e,
+                    %error,
                     approval_id = %decision.approval_id(),
                     "approval resolve rejected: repo lookup error"
                 );
-                return false;
+                return None;
             }
         };
         if record.status != ApprovalStatus::Pending {
@@ -32,11 +49,12 @@ impl MaestriaRuntime {
                 status = ?record.status,
                 "approval resolve skipped: already resolved (idempotent)"
             );
-            return false;
+            return None;
         }
-        // A `Resolve` decision must name the task the record was created for;
-        // an `Acknowledge` decision carries no task (model-agent approvals
-        // record the outcome without transitioning a task).
+        Some(record)
+    }
+
+    fn validate_approval_task(decision: &ApprovalDecision, record: &ApprovalRecord) -> bool {
         if let Some(task_id) = decision.task_id()
             && record.task_id != Some(task_id)
         {
@@ -48,14 +66,21 @@ impl MaestriaRuntime {
             );
             return false;
         }
-        let proposal = match crate::proposal_persistence::decode_pending_continuation(&record) {
-            Ok(Some(proposal)) => proposal,
+        true
+    }
+
+    fn decode_approval_proposal(
+        decision: &ApprovalDecision,
+        record: &ApprovalRecord,
+    ) -> Option<Option<ModelAgentProposalRequest>> {
+        match crate::proposal_persistence::decode_pending_continuation(record) {
+            Ok(Some(proposal)) => Some(Some(proposal)),
             Ok(None) => {
                 tracing::info!(
                     approval_id = %decision.approval_id(),
                     "approval resolve accepted without pending continuation"
                 );
-                return true;
+                Some(None)
             }
             Err(error) => {
                 tracing::error!(
@@ -63,22 +88,31 @@ impl MaestriaRuntime {
                     approval_id = %decision.approval_id(),
                     "approval resolve rejected: corrupt pending continuation"
                 );
-                return false;
+                None
             }
-        };
-        self.verify_approval_continuation(decision, &record, &proposal)
-            .await
+        }
     }
 
-    /// Verify the decoded continuation matches the approval record, the
-    /// runtime scope, and the stored model-agent request.
     async fn verify_approval_continuation(
         &self,
         decision: &ApprovalDecision,
-        record: &maestria_ports::ApprovalRecord,
-        proposal: &maestria_domain::ModelAgentProposalRequest,
+        record: &ApprovalRecord,
+        proposal: &ModelAgentProposalRequest,
     ) -> bool {
-        let maestria_domain::ModelAgentProposalExecution::ApprovalContinuation {
+        if !self.verify_continuation_metadata(decision, record, proposal) {
+            return false;
+        }
+        self.verify_stored_proposal_request(decision, proposal)
+            .await
+    }
+
+    fn verify_continuation_metadata(
+        &self,
+        decision: &ApprovalDecision,
+        record: &ApprovalRecord,
+        proposal: &ModelAgentProposalRequest,
+    ) -> bool {
+        let ModelAgentProposalExecution::ApprovalContinuation {
             approval_id,
             journal_generation: _,
         } = &proposal.execution
@@ -103,6 +137,14 @@ impl MaestriaRuntime {
             );
             return false;
         }
+        true
+    }
+
+    async fn verify_stored_proposal_request(
+        &self,
+        decision: &ApprovalDecision,
+        proposal: &ModelAgentProposalRequest,
+    ) -> bool {
         let state = self.state.read().await;
         let Some(stored) = state.model_agent_requests.get(&proposal.run_id) else {
             tracing::warn!(
@@ -112,10 +154,7 @@ impl MaestriaRuntime {
             );
             return false;
         };
-        if !matches!(
-            &stored.execution,
-            maestria_domain::ModelAgentProposalExecution::Fresh
-        ) {
+        if !matches!(&stored.execution, ModelAgentProposalExecution::Fresh) {
             tracing::warn!(
                 approval_id = %decision.approval_id(),
                 run_id = %proposal.run_id,

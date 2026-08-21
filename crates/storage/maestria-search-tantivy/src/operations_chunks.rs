@@ -28,7 +28,7 @@ impl TantivyFullTextIndex {
                         &chunk_key(chunk.artifact_id, chunk.chunk_id),
                     ));
                     writer
-                        .add_document(self.chunk_document(&chunk))
+                        .add_document(self.chunk_document(chunk))
                         .map_err(to_port_error)?;
                 }
                 Ok(())

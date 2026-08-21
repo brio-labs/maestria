@@ -23,70 +23,24 @@ impl EffectExecutionContext {
     /// pending (already covered by an earlier batch, or re-driven after a
     /// crash) is an idempotent no-op.
     pub(crate) async fn handle_index_full_text(&self, request: IndexChunkRequest) -> bool {
-        // Serialize same-artifact effects so exactly one of them runs the
-        // batch; the others observe the completed chunks and no-op.
-        let artifact_lock = {
-            let mut locks = match self.full_text_locks.lock() {
-                Ok(guard) => guard,
-                Err(poisoned) => poisoned.into_inner(),
-            };
-            locks
-                .entry(request.artifact_id)
-                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-                .clone()
-        };
+        let artifact_lock = self.get_artifact_lock(request.artifact_id);
         let _artifact_guard = artifact_lock.lock().await;
 
-        let (artifact, pending) = {
-            let state = self.state.read().await;
-            let Some(artifact) = state.artifacts.get(&request.artifact_id).cloned() else {
-                tracing::warn!(
-                    artifact_id = %request.artifact_id,
-                    "artifact missing for full-text index"
-                );
-                return false;
-            };
-            if !state.pending_full_text.contains(&request.chunk_id) {
-                // Already indexed by an earlier batch of this artifact.
-                return true;
-            }
-            let pending = state
-                .chunks
-                .values()
-                .filter(|chunk| {
-                    chunk.artifact_id == request.artifact_id
-                        && state.pending_full_text.contains(&chunk.id)
-                })
-                .cloned()
-                .collect::<Vec<_>>();
-            (artifact, pending)
+        let Some((artifact, pending)) = self.resolve_pending_chunks_for_index(&request).await
+        else {
+            return false;
         };
         if pending.is_empty() {
             return true;
         }
 
-        if !artifact.security.retrieval_allowed() {
-            tracing::warn!(
-                artifact_id = %request.artifact_id,
-                "refusing full-text indexing for denied artifact"
-            );
-            return self.quarantine_and_complete(&request, &pending).await;
+        if !self
+            .validate_indexing_safety(&request, &artifact, &pending)
+            .await
+        {
+            return false;
         }
-        // A secret-bearing chunk quarantines the whole artifact before any
-        // of its chunks are written.
-        for chunk in &pending {
-            let chunk_scan = scan_secrets(&chunk.text);
-            if !chunk_scan.is_clean() {
-                tracing::warn!(
-                    chunk_id = %chunk.id,
-                    findings = chunk_scan.findings.len(),
-                    "refusing full-text indexing for secret-bearing chunk"
-                );
-                return self.quarantine_and_complete(&request, &pending).await;
-            }
-        }
-        // Cards belong to the artifact, not to individual chunks; they are
-        // registered once per artifact.
+
         let cards = match self.materialize_artifact_cards(&request).await {
             Some(cards) => cards,
             None => return false,
@@ -107,11 +61,88 @@ impl EffectExecutionContext {
             );
             return false;
         }
-        for chunk in &pending {
+        self.deliver_all_full_text_completions(request.artifact_id, &pending)
+    }
+
+    fn get_artifact_lock(
+        &self,
+        artifact_id: maestria_domain::ArtifactId,
+    ) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = match self.full_text_locks.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        locks
+            .entry(artifact_id)
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
+    }
+
+    async fn resolve_pending_chunks_for_index(
+        &self,
+        request: &IndexChunkRequest,
+    ) -> Option<(Artifact, Vec<Chunk>)> {
+        let state = self.state.read().await;
+        let Some(artifact) = state.artifacts.get(&request.artifact_id).cloned() else {
+            tracing::warn!(
+                artifact_id = %request.artifact_id,
+                "artifact missing for full-text index"
+            );
+            return None;
+        };
+        if !state.pending_full_text.contains(&request.chunk_id) {
+            // Already indexed by an earlier batch of this artifact.
+            return Some((artifact, Vec::new()));
+        }
+        let pending = state
+            .chunks
+            .values()
+            .filter(|chunk| {
+                chunk.artifact_id == request.artifact_id
+                    && state.pending_full_text.contains(&chunk.id)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        Some((artifact, pending))
+    }
+
+    async fn validate_indexing_safety(
+        &self,
+        request: &IndexChunkRequest,
+        artifact: &Artifact,
+        pending: &[Chunk],
+    ) -> bool {
+        if !artifact.security.retrieval_allowed() {
+            tracing::warn!(
+                artifact_id = %request.artifact_id,
+                "refusing full-text indexing for denied artifact"
+            );
+            return self.quarantine_and_complete(request, pending).await;
+        }
+        for chunk in pending {
+            let chunk_scan = scan_secrets(&chunk.text);
+            if !chunk_scan.is_clean() {
+                tracing::warn!(
+                    chunk_id = %chunk.id,
+                    findings = chunk_scan.findings.len(),
+                    "refusing full-text indexing for secret-bearing chunk"
+                );
+                return self.quarantine_and_complete(request, pending).await;
+            }
+        }
+        true
+    }
+
+    fn deliver_all_full_text_completions(
+        &self,
+        artifact_id: maestria_domain::ArtifactId,
+        pending: &[Chunk],
+    ) -> bool {
+        for chunk in pending {
             if let Err(error) = Self::deliver_full_text_completion(
                 &self.input_tx,
                 FullTextIndexCompleted {
-                    artifact_id: request.artifact_id,
+                    artifact_id,
                     chunk_id: chunk.id,
                 },
             ) {

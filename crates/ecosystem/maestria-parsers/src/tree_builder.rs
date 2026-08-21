@@ -1,6 +1,7 @@
 use maestria_domain::{
     ArtifactId, ContentRange, StructureNode, StructureNodeId, StructureNodeType,
 };
+use maestria_domain::{SourceSpan as DomainSourceSpan, SourceSpanError};
 use maestria_ports::{
     DocumentTree, ParsedChunk, ParsedRepresentation, PortError, RepresentationKind, SourceSpan,
 };
@@ -150,4 +151,28 @@ fn raw_content_for_span(bytes: &[u8], span: &SourceSpan, fallback: &str) -> Stri
         return fallback.to_owned();
     }
     lines[start - 1..end].concat()
+}
+
+pub(crate) fn domain_source_span(span: &SourceSpan) -> Result<DomainSourceSpan, PortError> {
+    match span {
+        SourceSpan::TextSpan {
+            start_line,
+            end_line,
+        } => DomainSourceSpan::text_span(*start_line, *end_line).map_err(span_error),
+        SourceSpan::PdfSpan { page } => DomainSourceSpan::pdf_span(*page).map_err(span_error),
+        SourceSpan::PdfRegion {
+            page,
+            x,
+            y,
+            width,
+            height,
+        } => DomainSourceSpan::pdf_region(*page, *x, *y, *width, *height).map_err(span_error),
+    }
+}
+
+pub(crate) fn span_error(error: SourceSpanError) -> PortError {
+    PortError::InvalidInputContext {
+        context: "convert chunk source span",
+        source: error.to_string(),
+    }
 }

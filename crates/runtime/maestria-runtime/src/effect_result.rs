@@ -11,6 +11,10 @@ impl EffectFailure {
     pub(crate) fn retryable(&self) -> bool {
         matches!(self, Self::ApprovalLookup(_) | Self::Failed(_))
     }
+
+    pub(crate) fn is_fatal(&self) -> bool {
+        matches!(self, Self::ApprovalLookup(_) | Self::Failed(_))
+    }
 }
 
 impl std::fmt::Display for EffectFailure {

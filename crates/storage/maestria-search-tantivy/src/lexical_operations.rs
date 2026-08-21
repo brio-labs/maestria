@@ -20,7 +20,7 @@ impl TantivyFullTextIndex {
                         &chunk_key(chunk.artifact_id, chunk.chunk_id),
                     ));
                     writer
-                        .add_document(self.lexical_chunk_document(&chunk))
+                        .add_document(self.lexical_chunk_document(chunk))
                         .map_err(to_port_error)?;
                 }
                 Ok(())
@@ -41,7 +41,7 @@ impl TantivyFullTextIndex {
                         &card_key(card.artifact_id, card.card_id),
                     ));
                     writer
-                        .add_document(self.lexical_card_document(&card))
+                        .add_document(self.lexical_card_document(card))
                         .map_err(to_port_error)?;
                 }
                 Ok(())

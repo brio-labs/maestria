@@ -7,24 +7,47 @@ use std::path::{Path, PathBuf};
 
 impl EffectExecutionContext {
     /// Gate a harness request against capability, scope, and shell grammar
-    /// policy before execution, resolving the harness working directory.
     pub(super) fn gate_harness_request(
         &self,
         request: &QueryHarnessRequest,
     ) -> Result<(HarnessCommandClass, PathBuf), EffectFailure> {
-        let class = match request.capability.as_str() {
-            "browser" => HarnessCommandClass::Browser,
-            "fetch" | "web" => HarnessCommandClass::Fetch,
-            "shell" => HarnessCommandClass::Shell,
-            other => {
-                tracing::error!(capability = other, "Unknown harness capability requested");
-                return Err(EffectFailure::Denied(format!(
-                    "unsupported harness capability: {other}"
+        let class = Self::resolve_harness_command_class(&request.capability)?;
+        self.check_scope_and_grammar(request)?;
+
+        let working_directory = match resolve_working_directory(&self.scope) {
+            Ok(path) => path,
+            Err(error) => {
+                tracing::error!(%error, "unable to resolve harness working directory");
+                return Err(EffectFailure::Failed(format!(
+                    "unable to resolve harness working directory: {error}"
                 )));
             }
         };
 
-        // ── scope capability gate ────────────────────────────────
+        if class == HarnessCommandClass::Shell && request.command.trim().starts_with("cat") {
+            self.check_cat_command_policy(&request.command, &working_directory)?;
+        }
+
+        Ok((class, working_directory))
+    }
+
+    fn resolve_harness_command_class(
+        capability: &str,
+    ) -> Result<HarnessCommandClass, EffectFailure> {
+        match capability {
+            "browser" => Ok(HarnessCommandClass::Browser),
+            "fetch" | "web" => Ok(HarnessCommandClass::Fetch),
+            "shell" => Ok(HarnessCommandClass::Shell),
+            other => {
+                tracing::error!(capability = other, "Unknown harness capability requested");
+                Err(EffectFailure::Denied(format!(
+                    "unsupported harness capability: {other}"
+                )))
+            }
+        }
+    }
+
+    fn check_scope_and_grammar(&self, request: &QueryHarnessRequest) -> Result<(), EffectFailure> {
         let scope = &self.scope;
         if !scope.harness_allowed(&request.capability) {
             tracing::warn!(capability = %request.capability, "Scope does not allow this harness; not spawning");
@@ -50,47 +73,39 @@ impl EffectExecutionContext {
                 request.command
             )));
         }
+        Ok(())
+    }
 
-        // ── harness working directory ─────────────────────────────
-        let working_directory = match resolve_working_directory(scope) {
-            Ok(path) => path,
-            Err(error) => {
-                tracing::error!(%error, "unable to resolve harness working directory");
-                return Err(EffectFailure::Failed(format!(
-                    "unable to resolve harness working directory: {error}"
+    fn check_cat_command_policy(
+        &self,
+        command: &str,
+        working_directory: &Path,
+    ) -> Result<(), EffectFailure> {
+        for arg in cat_path_args(command) {
+            let path = resolve_cat_path(arg, working_directory);
+            if let Err(containment_err) = self.scope.check_read_containment(&path) {
+                tracing::warn!(
+                    path = %path.display(),
+                    ?containment_err,
+                    "cat path outside readable roots; not spawning"
+                );
+                return Err(EffectFailure::Denied(format!(
+                    "cat path `{}` is outside readable scope ({containment_err:?})",
+                    path.display()
                 )));
             }
-        };
-
-        // ── cat path policy ────────────────────────────────────────
-        if class == HarnessCommandClass::Shell && request.command.trim().starts_with("cat") {
-            for arg in cat_path_args(&request.command) {
-                let path = resolve_cat_path(arg, &working_directory);
-                if let Err(containment_err) = scope.check_read_containment(&path) {
-                    tracing::warn!(
-                        path = %path.display(),
-                        ?containment_err,
-                        "cat path outside readable roots; not spawning"
-                    );
-                    return Err(EffectFailure::Denied(format!(
-                        "cat path `{}` is outside readable scope ({containment_err:?})",
-                        path.display()
-                    )));
-                }
-                if path_matches_blocked_pattern(&path, scope.blocked_patterns()) {
-                    tracing::warn!(
-                        path = %path.display(),
-                        "cat path matches a blocked scope pattern; not spawning"
-                    );
-                    return Err(EffectFailure::Denied(format!(
-                        "cat path `{}` matches a blocked scope pattern",
-                        path.display()
-                    )));
-                }
+            if path_matches_blocked_pattern(&path, self.scope.blocked_patterns()) {
+                tracing::warn!(
+                    path = %path.display(),
+                    "cat path matches a blocked scope pattern; not spawning"
+                );
+                return Err(EffectFailure::Denied(format!(
+                    "cat path `{}` matches a blocked scope pattern",
+                    path.display()
+                )));
             }
         }
-
-        Ok((class, working_directory))
+        Ok(())
     }
 }
 
