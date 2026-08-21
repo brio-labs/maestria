@@ -11,12 +11,12 @@ static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 /// unique path via a process-wide atomic counter so test modules running in
 /// the same process never collide.
 pub(crate) struct TempDir(PathBuf);
-
 impl TempDir {
     pub(crate) fn create() -> std::io::Result<Self> {
         let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
         let path =
             std::env::temp_dir().join(format!("maestria-daemon-test-{}-{id}", std::process::id()));
+        let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path)?;
         Ok(Self(path))
     }

@@ -35,26 +35,30 @@ impl<T> PrescoreCache<T> {
     /// evicting the oldest distinct entry when the bound is reached.
     pub(super) fn insert(&self, chunk_id: ChunkId, record: T) {
         let mut state = self.state.borrow_mut();
-        if let Some(existing) = state.entries.get_mut(&chunk_id) {
+        let PrescoreCacheState { entries, oldest } = &mut *state;
+        if let Some(existing) = entries.get_mut(&chunk_id) {
             *existing = record;
             return;
         }
-        if state.entries.len() >= self.capacity
-            && let Some(oldest) = state.oldest.pop_front()
-        {
-            state.entries.remove(&oldest);
+        while entries.len() >= self.capacity {
+            if let Some(oldest_key) = oldest.pop_front() {
+                if entries.remove(&oldest_key).is_some() {
+                    break;
+                }
+            } else {
+                break;
+            }
         }
-        state.oldest.push_back(chunk_id);
-        state.entries.insert(chunk_id, record);
+        if oldest.len() > self.capacity.saturating_mul(2) {
+            oldest.retain(|id| entries.contains_key(id));
+        }
+        oldest.push_back(chunk_id);
+        entries.insert(chunk_id, record);
     }
 
     /// Removes and returns a cached record. A miss is safe and returns `None`.
     pub(super) fn take(&self, chunk_id: ChunkId) -> Option<T> {
         let mut state = self.state.borrow_mut();
-        let record = state.entries.remove(&chunk_id)?;
-        if let Some(position) = state.oldest.iter().position(|id| *id == chunk_id) {
-            state.oldest.remove(position);
-        }
-        Some(record)
+        state.entries.remove(&chunk_id)
     }
 }

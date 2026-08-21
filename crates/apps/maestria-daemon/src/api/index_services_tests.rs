@@ -2,36 +2,9 @@
 //! validation.
 
 use super::*;
+use crate::test_support::TempDir;
 use maestria_core::{InstanceLayout, InstanceManifest};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-
-struct TempDir(PathBuf);
-
-static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-
-impl TempDir {
-    fn create() -> std::io::Result<Self> {
-        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "maestria-index-services-test-{}-{id}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&path)?;
-        Ok(Self(path))
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
+use std::path::PathBuf;
 struct Fixture {
     _temp_dir: TempDir,
     layout: InstanceLayout,
