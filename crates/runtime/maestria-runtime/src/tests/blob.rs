@@ -114,7 +114,7 @@ async fn parse_artifact_retry_redrives_existing_evidence() -> Result<(), Box<dyn
 
     // Pre-populate state with existing evidence to simulate replay/retry.
     let mut state = KernelState::new();
-    state.evidences.insert(
+    Arc::make_mut(&mut state.evidences).insert(
         existing_evidence_id,
         Evidence {
             id: existing_evidence_id,

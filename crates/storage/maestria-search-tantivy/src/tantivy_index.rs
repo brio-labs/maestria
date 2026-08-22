@@ -6,7 +6,12 @@ use crate::{
 };
 use maestria_governance::scan_secrets;
 use maestria_ports::{FullTextIndex, PortError};
-use std::{fs, path::Path, sync::Mutex};
+use std::{
+    fs,
+    path::Path,
+    sync::Mutex,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy};
 
 pub(super) const WRITER_MEMORY_BUDGET_BYTES: usize = 50_000_000;
@@ -19,8 +24,9 @@ pub struct TantivyFullTextIndex {
     pub(crate) fields: IndexFields,
     pub(crate) card_rebuild_required: Mutex<bool>,
     pub(crate) card_rebuild_marker: Option<std::path::PathBuf>,
+    /// Set when the writer accepted operations that are not committed yet.
+    dirty: AtomicBool,
 }
-
 impl TantivyFullTextIndex {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, PortError> {
         let path = path.as_ref();
@@ -121,6 +127,7 @@ impl TantivyFullTextIndex {
             fields,
             card_rebuild_required: Mutex::new(card_rebuild_required),
             card_rebuild_marker,
+            dirty: AtomicBool::new(false),
         })
     }
     /// Return whether legacy card documents still need rebuilding from truth.
@@ -159,11 +166,51 @@ impl TantivyFullTextIndex {
             context: "Tantivy writer lock poisoned",
             source: "Tantivy writer mutex is poisoned".to_string(),
         })?;
+
         let writer = writer_guard
             .as_mut()
             .ok_or_else(|| PortError::downstream(context, "full-text index is read-only"))?;
         f(writer)?;
+        self.dirty.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Number of documents currently committed in the index (drift signal
+    /// for startup reconciliation watermarking; never flushes).
+    pub fn doc_count(&self) -> Result<u64, PortError> {
+        Ok(self.reader.searcher().num_docs())
+    }
+
+    /// Commit buffered writer operations when any are pending.
+    ///
+    /// Write paths mark the index dirty instead of committing per operation
+    /// (tantivy re-spawns its worker threads on every commit), so read paths
+    /// flush here to preserve read-your-writes, and `Drop` flushes to
+    /// preserve durability across normal process exit.
+    /// Also public for the daemon session-flush hook, which commits buffered
+    /// documents before the runtime session reports completion.
+    pub fn commit_if_dirty(&self) -> Result<(), PortError> {
+        if !self.dirty.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        let mut writer_guard = self.writer.lock().map_err(|_| PortError::InternalContext {
+            context: "Tantivy writer lock poisoned",
+            source: "Tantivy writer mutex is poisoned".to_string(),
+        })?;
+        let Some(writer) = writer_guard.as_mut() else {
+            return Ok(());
+        };
         writer.commit().map_err(to_port_error)?;
-        self.reader.reload().map_err(to_port_error)
+        self.reader.reload().map_err(to_port_error)?;
+        self.dirty.store(false, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+impl Drop for TantivyFullTextIndex {
+    fn drop(&mut self) {
+        if let Err(error) = self.commit_if_dirty() {
+            tracing::warn!(%error, "tantivy index dropped with uncommittable buffered writes");
+        }
     }
 }

@@ -1,11 +1,12 @@
 use crate::types::*;
+use std::sync::Arc;
 const MAX_NOTEBOOK_DRAFT_BYTES: usize = 32 * 1024;
 impl KernelState {
     pub(super) fn apply_notebook_draft_saved(&mut self, draft: NotebookDraft) {
         let notebook_id = draft.notebook_id;
         let updated_at = draft.updated_at;
-        self.notebook_drafts.insert(draft.id, draft);
-        if let Some(notebook) = self.notebooks.get_mut(&notebook_id) {
+        Arc::make_mut(&mut self.notebook_drafts).insert(draft.id, draft);
+        if let Some(notebook) = Arc::make_mut(&mut self.notebooks).get_mut(&notebook_id) {
             notebook.updated_at = updated_at;
         }
     }

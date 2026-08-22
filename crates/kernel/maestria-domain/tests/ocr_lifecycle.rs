@@ -1,4 +1,5 @@
 use maestria_domain::*;
+use std::sync::Arc;
 
 fn intent() -> Result<OcrIntent, Box<dyn std::error::Error>> {
     Ok(OcrIntent::new(
@@ -15,7 +16,7 @@ fn intent() -> Result<OcrIntent, Box<dyn std::error::Error>> {
 fn intent_is_durable_before_ocr_effect_and_pages_are_exact()
 -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
-    state.pending_parsers.insert(
+    Arc::make_mut(&mut state.pending_parsers).insert(
         ArtifactId::new(7),
         ParserStarted {
             artifact_id: ArtifactId::new(7),
@@ -191,9 +192,7 @@ fn ocr_failure_terminalizes_parser_in_live_state_and_replay()
         reason: "provider failed".to_string(),
     };
     let mut state = KernelState::new();
-    state
-        .pending_parsers
-        .insert(request.artifact_id(), parser.clone());
+    Arc::make_mut(&mut state.pending_parsers).insert(request.artifact_id(), parser.clone());
     state.apply_input(DomainInput::OcrRequested(OcrRequested {
         intent: request.clone(),
     }))?;

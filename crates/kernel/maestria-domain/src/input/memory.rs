@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use crate::security::SecurityMetadata;
 use crate::types::*;
@@ -62,13 +63,13 @@ impl KernelState {
             security.clone(),
         );
         claim.evidence_ids = evidence_ids.clone();
-        self.claims.insert(input.claim_id, claim);
+        Arc::make_mut(&mut self.claims).insert(input.claim_id, claim);
         for ev_id in &evidence_ids {
-            if let Some(ev) = self.evidences.get_mut(ev_id) {
+            if let Some(ev) = Arc::make_mut(&mut self.evidences).get_mut(ev_id) {
                 ev.claim_id = Some(input.claim_id);
             }
         }
-        if let Some(artifact) = self.artifacts.get_mut(&artifact_id) {
+        if let Some(artifact) = Arc::make_mut(&mut self.artifacts).get_mut(&artifact_id) {
             artifact.claim_ids.insert(input.claim_id);
         }
         let claim_created = self.emit_event(DomainEvent::ClaimCreated {
@@ -79,7 +80,7 @@ impl KernelState {
             security: security.clone(),
         });
 
-        self.memory_candidates.insert(
+        Arc::make_mut(&mut self.memory_candidates).insert(
             input.candidate_id,
             MemoryCandidate::try_new(
                 input.candidate_id,
@@ -206,8 +207,7 @@ impl KernelState {
                 id: input.contradicting_candidate_id,
             });
         }
-        let memory = self
-            .memories
+        let memory = Arc::make_mut(&mut self.memories)
             .get_mut(&input.memory_id)
             .ok_or(DomainError::MissingMemory {
                 id: input.memory_id,
@@ -224,8 +224,7 @@ impl KernelState {
         &mut self,
         input: DeprecateMemoryInput,
     ) -> Result<DomainEventEnvelope, DomainError> {
-        let memory = self
-            .memories
+        let memory = Arc::make_mut(&mut self.memories)
             .get_mut(&input.memory_id)
             .ok_or(DomainError::MissingMemory {
                 id: input.memory_id,
@@ -251,8 +250,7 @@ impl KernelState {
                 id: input.by_memory_id,
             });
         }
-        let memory = self
-            .memories
+        let memory = Arc::make_mut(&mut self.memories)
             .get_mut(&input.memory_id)
             .ok_or(DomainError::MissingMemory {
                 id: input.memory_id,

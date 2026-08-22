@@ -46,7 +46,7 @@ async fn update_graph_inserts_relation_when_present() -> Result<(), Box<dyn std:
     };
 
     let mut state = KernelState::new();
-    state.relations.insert(relation_id, relation.clone());
+    Arc::make_mut(&mut state.relations).insert(relation_id, relation.clone());
 
     let adapters = crate::test_helpers::test_adapters();
     let graph_index = adapters.graph_index.clone();
@@ -111,7 +111,7 @@ async fn update_graph_fails_when_relation_missing_from_state()
 async fn update_graph_fails_when_adapter_fails() -> Result<(), Box<dyn std::error::Error>> {
     let relation_id = RelationId::new(1);
     let mut state = KernelState::new();
-    state.relations.insert(
+    Arc::make_mut(&mut state.relations).insert(
         relation_id,
         Relation {
             id: relation_id,

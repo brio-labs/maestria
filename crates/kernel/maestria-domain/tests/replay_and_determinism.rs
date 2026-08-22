@@ -80,7 +80,7 @@ fn replay_events_reconstructs_new_memory_event_state() -> Result<(), Box<dyn std
     let (_state, events, _effects) = replay_inputs(&inputs)?;
     let replayed = replay_events(&events)?;
 
-    assert_eq!(replayed.event_log, events);
+    assert_eq!(replayed.event_log_owned(), events);
     assert_eq!(
         replayed
             .memories

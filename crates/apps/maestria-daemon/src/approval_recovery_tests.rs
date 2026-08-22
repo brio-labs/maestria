@@ -4,6 +4,7 @@ use maestria_domain::{
 };
 use maestria_ports::{ApprovalRecord, ApprovalRepository, ApprovalRiskLevel, ApprovalStatus};
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use maestria_storage_sqlite::SqliteStore;
 
@@ -40,7 +41,7 @@ fn reconciliation_repairs_stale_repo_after_crash() -> Result<(), Box<dyn std::er
 
     let mut state = KernelState::new();
     let task_id = TaskId::new(1);
-    state.tasks.insert(task_id, make_task(1));
+    Arc::make_mut(&mut state.tasks).insert(task_id, make_task(1));
     let approval_id = ApprovalId::new(42);
     state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision::Resolve {
         approval_id,
@@ -67,7 +68,7 @@ fn reconciliation_handles_denied_approval() -> Result<(), Box<dyn std::error::Er
     let task_id = TaskId::new(1);
     let mut task = make_task(1);
     task.status = TaskStatus::Blocked;
-    state.tasks.insert(task_id, task);
+    Arc::make_mut(&mut state.tasks).insert(task_id, task);
     state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision::Resolve {
         approval_id: ApprovalId::new(7),
         task_id,
@@ -89,7 +90,7 @@ fn reconciliation_idempotent_across_restarts() -> Result<(), Box<dyn std::error:
 
     let mut state = KernelState::new();
     let task_id = TaskId::new(1);
-    state.tasks.insert(task_id, make_task(1));
+    Arc::make_mut(&mut state.tasks).insert(task_id, make_task(1));
     state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision::Resolve {
         approval_id: ApprovalId::new(1),
         task_id,
@@ -116,7 +117,7 @@ fn reconciliation_errors_on_missing_record() -> Result<(), Box<dyn std::error::E
 
     let mut state = KernelState::new();
     let task_id = TaskId::new(1);
-    state.tasks.insert(task_id, make_task(1));
+    Arc::make_mut(&mut state.tasks).insert(task_id, make_task(1));
     state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision::Resolve {
         approval_id: ApprovalId::new(99),
         task_id,
@@ -150,7 +151,7 @@ fn model_agent_approval_does_not_mask_task_activation_recovery()
         status: ApprovalStatus::Pending,
     })?;
     let mut state = KernelState::new();
-    state.tasks.insert(TaskId::new(1), make_task(1));
+    Arc::make_mut(&mut state.tasks).insert(TaskId::new(1), make_task(1));
     reconcile_pending_approvals(&state, &store, &store)?;
     let records = store.find_by_task_id(TaskId::new(1))?;
     assert_eq!(

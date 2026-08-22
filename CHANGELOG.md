@@ -27,6 +27,14 @@ intelligence to a reviewed set of directories.
   (`repository_index_candidates`/`selection_get`/`selection_save`/`run`/
   `status`/`children`/`files`/`progress`), studio HTTP proxy routes, and the
   web workspace with lazy candidate-tree browsing and run progress polling.
+- Hot-path performance: startup reconciliation is watermark-guarded so
+  unchanged instances skip all projection reconciles (search start drops from
+  seconds to milliseconds), the tantivy writer commits once per session
+  instead of per operation (read paths flush for read-your-writes, `Drop`
+  preserves durability), CLI state polling reuses one SQLite connection
+  across poll iterations, and `KernelState` collections are Arc
+  copy-on-write so staged inputs clone pointer handles instead of deep
+  entity/event copies (~17x fewer allocations on an index workload).
 - `privacy_exclusions` defaults covering machine-state directories, wired
   into index-selection scanning and blocked patterns.
 - `IndexGenerationRegistry` with lifecycle transitions and retired-generation

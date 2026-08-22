@@ -24,9 +24,9 @@ async fn task_completion_blocked_by_missing_durable_report()
         artifact_ids: Default::default(),
         evidence_ids: Default::default(),
     };
-    state.tasks.insert(task.id, task);
+    Arc::make_mut(&mut state.tasks).insert(task.id, task);
     let report_id = ValidationReportId::new(99);
-    state.validation_reports.insert(
+    Arc::make_mut(&mut state.validation_reports).insert(
         report_id,
         ValidationReportRecord {
             task_id: Some(task_id),
@@ -55,8 +55,8 @@ async fn task_completion_blocked_by_failed_report() -> Result<(), Box<dyn std::e
         evidence_ids: Default::default(),
     };
     let report_id = ValidationReportId::new(99);
-    state.tasks.insert(task.id, task);
-    state.validation_reports.insert(
+    Arc::make_mut(&mut state.tasks).insert(task.id, task);
+    Arc::make_mut(&mut state.validation_reports).insert(
         report_id,
         ValidationReportRecord {
             task_id: Some(task_id),
@@ -91,8 +91,8 @@ async fn task_completion_blocked_by_mismatched_report() -> Result<(), Box<dyn st
         evidence_ids: Default::default(),
     };
     let report_id = ValidationReportId::new(99);
-    state.tasks.insert(task.id, task);
-    state.validation_reports.insert(
+    Arc::make_mut(&mut state.tasks).insert(task.id, task);
+    Arc::make_mut(&mut state.validation_reports).insert(
         report_id,
         ValidationReportRecord {
             task_id: Some(TaskId::new(2)), // mismatch
@@ -127,8 +127,8 @@ async fn task_completion_allowed() -> Result<(), Box<dyn std::error::Error>> {
         evidence_ids: Default::default(),
     };
     let report_id = ValidationReportId::new(99);
-    state.tasks.insert(task.id, task);
-    state.validation_reports.insert(
+    Arc::make_mut(&mut state.tasks).insert(task.id, task);
+    Arc::make_mut(&mut state.validation_reports).insert(
         report_id,
         ValidationReportRecord {
             task_id: Some(task_id),
@@ -174,8 +174,8 @@ async fn task_completion_blocked_by_warnings_when_disallowed()
         evidence_ids: Default::default(),
     };
     let report_id = ValidationReportId::new(99);
-    state.tasks.insert(task.id, task);
-    state.validation_reports.insert(
+    Arc::make_mut(&mut state.tasks).insert(task.id, task);
+    Arc::make_mut(&mut state.validation_reports).insert(
         report_id,
         ValidationReportRecord {
             task_id: Some(task_id),
@@ -216,8 +216,8 @@ async fn task_completion_allowed_with_warnings_when_configured()
         evidence_ids: Default::default(),
     };
     let report_id = ValidationReportId::new(99);
-    state.tasks.insert(task.id, task);
-    state.validation_reports.insert(
+    Arc::make_mut(&mut state.tasks).insert(task.id, task);
+    Arc::make_mut(&mut state.validation_reports).insert(
         report_id,
         ValidationReportRecord {
             task_id: Some(task_id),
@@ -268,7 +268,7 @@ async fn back_to_back_record_report_and_complete_task_succeeds()
         evidence_ids: Default::default(),
     };
     let report_id = ValidationReportId::new(99);
-    state.tasks.insert(task.id, task);
+    Arc::make_mut(&mut state.tasks).insert(task.id, task);
     let governance = test_helpers::test_governance();
     let event_log = Arc::new(InMemoryEventLog::new());
     let adapters = Adapters {

@@ -1,6 +1,7 @@
 use crate::provenance::evidence_id_for;
 use crate::security::SecurityMetadata;
 use crate::types::*;
+use std::sync::Arc;
 
 pub(crate) struct ApplyEvidenceRecordedArgs<'a> {
     pub evidence_id: EvidenceId,
@@ -166,7 +167,7 @@ impl KernelState {
         {
             security = security.taint_from(&claim.security);
         }
-        self.evidences.insert(
+        Arc::make_mut(&mut self.evidences).insert(
             input.evidence_id,
             Evidence::new(
                 input.evidence_id,
@@ -179,11 +180,11 @@ impl KernelState {
             ),
         );
 
-        if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
+        if let Some(artifact) = Arc::make_mut(&mut self.artifacts).get_mut(&input.artifact_id) {
             artifact.evidence_ids.insert(input.evidence_id);
         }
         if let Some(claim_id) = input.claim_id
-            && let Some(claim) = self.claims.get_mut(&claim_id)
+            && let Some(claim) = Arc::make_mut(&mut self.claims).get_mut(&claim_id)
         {
             claim.evidence_ids.insert(input.evidence_id);
         }
@@ -267,7 +268,7 @@ impl KernelState {
         }
 
         // Insert new evidence and reverse links.
-        self.evidences.insert(
+        Arc::make_mut(&mut self.evidences).insert(
             evidence_id,
             Evidence::new(
                 evidence_id,
@@ -280,11 +281,11 @@ impl KernelState {
             ),
         );
 
-        if let Some(artifact) = self.artifacts.get_mut(&artifact_id) {
+        if let Some(artifact) = Arc::make_mut(&mut self.artifacts).get_mut(&artifact_id) {
             artifact.evidence_ids.insert(evidence_id);
         }
         if let Some(cid) = claim_id
-            && let Some(claim) = self.claims.get_mut(&cid)
+            && let Some(claim) = Arc::make_mut(&mut self.claims).get_mut(&cid)
         {
             claim.evidence_ids.insert(evidence_id);
         }

@@ -181,14 +181,12 @@ async fn vector_effects_admit_while_main_lane_is_saturated()
     let artifact_id = ArtifactId::new(1);
     let chunk_id = ChunkId::new(10);
     let mut state = KernelState::new();
-    state
-        .artifacts
-        .insert(artifact_id, artifact_fixture(artifact_id));
-    state.chunks.insert(
+    Arc::make_mut(&mut state.artifacts).insert(artifact_id, artifact_fixture(artifact_id));
+    Arc::make_mut(&mut state.chunks).insert(
         chunk_id,
         chunk_fixture(chunk_id, artifact_id, 0, "clean full-text chunk"),
     );
-    state.pending_full_text.insert(chunk_id);
+    Arc::make_mut(&mut state.pending_full_text).insert(chunk_id);
 
     let adapters = Adapters {
         search_index: search_index.clone(),
@@ -295,14 +293,12 @@ async fn executor_consumes_batches_while_lane_is_saturated()
     let artifact_id = ArtifactId::new(1);
     let chunk_id = ChunkId::new(10);
     let mut state = KernelState::new();
-    state
-        .artifacts
-        .insert(artifact_id, artifact_fixture(artifact_id));
-    state.chunks.insert(
+    Arc::make_mut(&mut state.artifacts).insert(artifact_id, artifact_fixture(artifact_id));
+    Arc::make_mut(&mut state.chunks).insert(
         chunk_id,
         chunk_fixture(chunk_id, artifact_id, 0, "clean full-text chunk"),
     );
-    state.pending_full_text.insert(chunk_id);
+    Arc::make_mut(&mut state.pending_full_text).insert(chunk_id);
 
     let adapters = Adapters {
         search_index: search_index.clone(),
@@ -407,10 +403,9 @@ async fn full_text_effect_completes_while_vector_lane_is_saturated()
     let full_text_artifact = ArtifactId::new(1);
     let full_text_chunk = ChunkId::new(10);
     let mut state = KernelState::new();
-    state
-        .artifacts
+    Arc::make_mut(&mut state.artifacts)
         .insert(full_text_artifact, artifact_fixture(full_text_artifact));
-    state.chunks.insert(
+    Arc::make_mut(&mut state.chunks).insert(
         full_text_chunk,
         chunk_fixture(
             full_text_chunk,
@@ -419,7 +414,7 @@ async fn full_text_effect_completes_while_vector_lane_is_saturated()
             "clean full-text chunk",
         ),
     );
-    state.pending_full_text.insert(full_text_chunk);
+    Arc::make_mut(&mut state.pending_full_text).insert(full_text_chunk);
 
     let adapters = Adapters {
         vector_index: Some(vector_index),
@@ -558,14 +553,12 @@ async fn full_text_completion_on_full_input_channel_delivers_without_retry()
     let artifact_id = ArtifactId::new(1);
     let chunk_id = ChunkId::new(10);
     let mut state = KernelState::new();
-    state
-        .artifacts
-        .insert(artifact_id, artifact_fixture(artifact_id));
-    state.chunks.insert(
+    Arc::make_mut(&mut state.artifacts).insert(artifact_id, artifact_fixture(artifact_id));
+    Arc::make_mut(&mut state.chunks).insert(
         chunk_id,
         chunk_fixture(chunk_id, artifact_id, 0, "clean full-text chunk"),
     );
-    state.pending_full_text.insert(chunk_id);
+    Arc::make_mut(&mut state.pending_full_text).insert(chunk_id);
 
     let adapters = Adapters {
         search_index: Arc::new(InMemoryFullTextIndex::new()),
@@ -667,17 +660,13 @@ async fn secret_chunk_degrades_vector_lane_without_cancelling_runtime()
     let clean_artifact = ArtifactId::new(2);
     let clean_chunk = ChunkId::new(11);
     let mut state = KernelState::new();
-    state
-        .artifacts
-        .insert(artifact_id, artifact_fixture(artifact_id));
-    state
-        .artifacts
-        .insert(clean_artifact, artifact_fixture(clean_artifact));
-    state.chunks.insert(
+    Arc::make_mut(&mut state.artifacts).insert(artifact_id, artifact_fixture(artifact_id));
+    Arc::make_mut(&mut state.artifacts).insert(clean_artifact, artifact_fixture(clean_artifact));
+    Arc::make_mut(&mut state.chunks).insert(
         secret_chunk,
         chunk_fixture(secret_chunk, artifact_id, 0, "api_key = abc123"),
     );
-    state.chunks.insert(
+    Arc::make_mut(&mut state.chunks).insert(
         clean_chunk,
         chunk_fixture(clean_chunk, clean_artifact, 0, "clean chunk text"),
     );

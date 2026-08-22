@@ -1,4 +1,5 @@
 use maestria_domain::*;
+use std::sync::Arc;
 #[path = "common/assertions.rs"]
 mod assertions;
 #[path = "common/fixtures.rs"]
@@ -297,12 +298,11 @@ fn live_chunk_registration_rejects_preexisting_malformed_deterministic_evidence(
         title: "Test".to_string(),
         security: None,
     }))?;
-    let artifact = state
-        .artifacts
+    let artifact = Arc::make_mut(&mut state.artifacts)
         .get_mut(&artifact_id)
         .ok_or("registered artifact must exist")?;
     artifact.content_hash = Some(content_hash.clone());
-    state.evidences.insert(
+    Arc::make_mut(&mut state.evidences).insert(
         evidence_id,
         Evidence {
             id: evidence_id,

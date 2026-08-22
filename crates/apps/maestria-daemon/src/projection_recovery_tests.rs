@@ -1,4 +1,5 @@
 use std::fs;
+use std::sync::Arc;
 
 use anyhow::Result;
 use maestria_governance::AutonomyProfile;
@@ -259,11 +260,10 @@ fn reconcile_projections_removes_stale_children_and_preserves_valid_rows()
     }
 
     let mut corrected_state = state.clone();
-    corrected_state.chunks.remove(&fixture.chunk_id_b);
-    corrected_state.cards.clear();
-    corrected_state.evidences.clear();
-    let artifact = corrected_state
-        .artifacts
+    Arc::make_mut(&mut corrected_state.chunks).remove(&fixture.chunk_id_b);
+    Arc::make_mut(&mut corrected_state.cards).clear();
+    Arc::make_mut(&mut corrected_state.evidences).clear();
+    let artifact = Arc::make_mut(&mut corrected_state.artifacts)
         .get_mut(&fixture.artifact_id)
         .ok_or_else(|| std::io::Error::other("replay artifact missing"))?;
     artifact.chunk_ids.remove(&fixture.chunk_id_b);
@@ -430,7 +430,7 @@ fn reconcile_projections_evidence_replace_overwrites_stale_row()
     };
 
     // Directly insert into state (bypass domain validation for the stale row).
-    state.evidences.insert(evidence_id, stale_evidence.clone());
+    Arc::make_mut(&mut state.evidences).insert(evidence_id, stale_evidence.clone());
 
     let store = SqliteStore::in_memory()?;
 
@@ -463,9 +463,7 @@ fn reconcile_projections_evidence_replace_overwrites_stale_row()
         observed_at: LogicalTick::new(2),
         security: maestria_domain::SecurityMetadata::default(),
     };
-    corrected_state
-        .evidences
-        .insert(evidence_id, corrected_evidence.clone());
+    Arc::make_mut(&mut corrected_state.evidences).insert(evidence_id, corrected_evidence.clone());
 
     // Second reconcile must overwrite the stale row with the corrected one.
     reconcile_projections(&corrected_state, &store)?;
@@ -507,8 +505,8 @@ fn reconcile_graph_projection_repairs_missing_rows_and_filters_unevidenced()
         confidence_milli: 900,
         security: maestria_domain::SecurityMetadata::default(),
     };
-    state.relations.insert(valid.id, valid.clone());
-    state.relations.insert(unevidenced.id, unevidenced);
+    Arc::make_mut(&mut state.relations).insert(valid.id, valid.clone());
+    Arc::make_mut(&mut state.relations).insert(unevidenced.id, unevidenced);
 
     let graph = maestria_graph_sqlite::SqliteGraphIndex::in_memory()?;
     graph.insert_relation(maestria_domain::Relation {

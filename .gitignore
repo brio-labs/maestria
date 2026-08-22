@@ -13,3 +13,8 @@ web/assets/tailwind.css
 /.venv-*/
 **/__pycache__/
 
+dhat-heap.json
+perf.data
+perf.data.old
+*.svg
+crates/apps/maestria-cli/dhat-heap.json

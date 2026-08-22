@@ -23,6 +23,11 @@ pub struct RuntimeConfig {
     pub max_retries: u32,
     pub embedding_model: Option<String>,
     pub drain_effects_on_shutdown: bool,
+    /// Invoked once after the effect executor has joined on shutdown, before
+    /// `run` returns. Projection adapters use it to make buffered writes
+    /// durable (e.g. a lazy tantivy commit) so callers that snapshot
+    /// projection state after `run` observe committed data.
+    pub flush_projections: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl Default for RuntimeConfig {
@@ -37,6 +42,7 @@ impl Default for RuntimeConfig {
             max_retries: 3,
             embedding_model: None,
             drain_effects_on_shutdown: false,
+            flush_projections: None,
         }
     }
 }

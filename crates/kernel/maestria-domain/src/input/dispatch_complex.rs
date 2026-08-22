@@ -1,4 +1,5 @@
 use crate::types::*;
+use std::sync::Arc;
 
 impl KernelState {
     // ── Multi-event dispatch helpers ───────────────────────────────────────
@@ -45,7 +46,7 @@ impl KernelState {
         } else {
             // Store pending metadata in-memory only; no persisted events yet.
             // The artifact is committed only on successful ParserCompleted.
-            self.pending_artifacts.insert(
+            Arc::make_mut(&mut self.pending_artifacts).insert(
                 input.artifact_id,
                 PendingArtifact {
                     artifact_id: input.artifact_id,
@@ -152,8 +153,7 @@ impl KernelState {
                 run_id: request.run_id,
             });
         }
-        self.model_agent_requests
-            .insert(request.run_id, request.clone());
+        Arc::make_mut(&mut self.model_agent_requests).insert(request.run_id, request.clone());
         Ok(())
     }
     pub(super) fn process_model_agent_proposal_resumed(
@@ -215,8 +215,8 @@ impl KernelState {
         if self.model_agent_results.contains_key(&run_id) {
             return Err(DomainError::DuplicateModelAgentProposalRunId { run_id });
         }
-        self.model_agent_requests.remove(&run_id);
-        self.model_agent_results.insert(run_id, result.clone());
+        Arc::make_mut(&mut self.model_agent_requests).remove(&run_id);
+        Arc::make_mut(&mut self.model_agent_results).insert(run_id, result.clone());
         Ok(())
     }
 
@@ -269,7 +269,7 @@ impl KernelState {
         // including when the watcher sees unchanged content and suppresses a
         // duplicate parser event.
         let source_key = SourceIdentityKey::try_from(input.source_path.clone()).ok();
-        self.stale_sources.remove(&input.source_path);
+        Arc::make_mut(&mut self.stale_sources).remove(&input.source_path);
         if let Some(existing) = self.pending_parsers.get(&input.artifact_id)
             && existing.title == input.title
             && existing.source_path == input.source_path
@@ -277,15 +277,14 @@ impl KernelState {
             && existing.blob_id == input.blob_id
         {
             if let Some(source_key) = source_key {
-                self.active_sources.insert(source_key, input.artifact_id);
+                Arc::make_mut(&mut self.active_sources).insert(source_key, input.artifact_id);
             }
             // Identical metadata — skip duplicate event and effect.
             return Ok(KernelOutput::default());
         }
-        self.pending_parsers
-            .insert(input.artifact_id, input.clone());
+        Arc::make_mut(&mut self.pending_parsers).insert(input.artifact_id, input.clone());
         if let Some(source_key) = source_key {
-            self.active_sources.insert(source_key, input.artifact_id);
+            Arc::make_mut(&mut self.active_sources).insert(source_key, input.artifact_id);
         }
         let event = self.emit_event(DomainEvent::ParserStarted {
             artifact_id: input.artifact_id,
@@ -379,11 +378,11 @@ impl KernelState {
     ) -> Result<KernelOutput, DomainError> {
         let mut output = KernelOutput::default();
         let source_path = input.source_path.clone();
-        if self.stale_sources.insert(source_path.clone()) {
+        if Arc::make_mut(&mut self.stale_sources).insert(source_path.clone()) {
             if let Ok(key) = SourceIdentityKey::try_from(source_path.clone())
                 && self.active_sources.get(&key) == Some(&input.artifact_id)
             {
-                self.active_sources.remove(&key);
+                Arc::make_mut(&mut self.active_sources).remove(&key);
             }
             let event = self.emit_event(DomainEvent::SourceBecameStale {
                 artifact_id: input.artifact_id,

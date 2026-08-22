@@ -51,18 +51,31 @@ fn daemon_instance_serves_search_status_and_open_evidence_while_running()
             .stderr(Stdio::null())
             .spawn()?,
     };
-    let query_timeout = Duration::from_secs(2);
+    // Generous per-command bound: under `--all-features` the CLI test
+    // binary may carry extra instrumentation, and CI runners are slow.
+    let query_timeout = Duration::from_secs(10);
     // Poll the daemon until it answers the status command instead of
     // sleeping a fixed startup window.
     let mut status_attempts = 200;
     let (_status_code, status_stdout, _status_stderr) = loop {
-        match run_bounded(&["status", "-i", &instance_path], query_timeout) {
-            Ok((0, stdout, stderr)) => break (0, stdout, stderr),
-            Ok(_) if status_attempts > 0 => {
+        // A timeout is a transient startup condition like any nonzero
+        // exit: retry instead of failing the whole test.
+        let attempt = match run_bounded(&["status", "-i", &instance_path], query_timeout) {
+            Ok(attempt) => attempt,
+            Err(_) if status_attempts > 0 => {
+                status_attempts -= 1;
+                thread::sleep(Duration::from_millis(25));
+                continue;
+            }
+            other => break other?,
+        };
+        match attempt {
+            (0, stdout, stderr) => break (0, stdout, stderr),
+            _ if status_attempts > 0 => {
                 status_attempts -= 1;
                 thread::sleep(Duration::from_millis(25));
             }
-            other => break other?,
+            other => break other,
         }
     };
     assert!(status_stdout.contains("events "));
@@ -72,11 +85,17 @@ fn daemon_instance_serves_search_status_and_open_evidence_while_running()
     // relying on a fixed startup sleep.
     let mut search_attempts = 200;
     let (search_live_code, search_live_stdout, search_live_stderr) = loop {
-        let attempt = run_bounded(
+        let attempt = match run_bounded(
             &["search", "-i", &instance_path, "lock test"],
             query_timeout,
-        )?;
-        if attempt.1.contains("evidence=") || search_attempts == 0 {
+        ) {
+            Ok(attempt) => Some(attempt),
+            Err(_) if search_attempts > 0 => None,
+            Err(error) => return Err(error),
+        };
+        if let Some(attempt) = attempt
+            && (attempt.1.contains("evidence=") || search_attempts == 0)
+        {
             break attempt;
         }
         search_attempts -= 1;

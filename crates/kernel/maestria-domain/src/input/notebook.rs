@@ -5,6 +5,7 @@ use super::notebook_support::{
 use crate::notebook_inputs::*;
 use crate::types::*;
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 impl KernelState {
     pub(super) fn process_create_notebook(
@@ -20,7 +21,7 @@ impl KernelState {
             created_at: tick,
             updated_at: tick,
         });
-        self.notebooks.insert(
+        Arc::make_mut(&mut self.notebooks).insert(
             notebook_id,
             Notebook {
                 id: notebook_id,
@@ -39,12 +40,11 @@ impl KernelState {
     ) -> Result<KernelOutput, DomainError> {
         let title = notebook_title(input.title)?;
         let tick = self.current_notebook_tick();
-        let notebook =
-            self.notebooks
-                .get_mut(&input.notebook_id)
-                .ok_or(DomainError::MissingNotebook {
-                    id: input.notebook_id,
-                })?;
+        let notebook = Arc::make_mut(&mut self.notebooks)
+            .get_mut(&input.notebook_id)
+            .ok_or(DomainError::MissingNotebook {
+                id: input.notebook_id,
+            })?;
         notebook.title = title.clone();
         notebook.updated_at = tick;
         let event = self.emit_event(DomainEvent::NotebookRenamed {
@@ -67,8 +67,8 @@ impl KernelState {
         let event = self.emit_event(DomainEvent::NotebookDeleted {
             notebook_id: input.notebook_id,
         });
-        self.notebooks.remove(&input.notebook_id);
-        self.notebook_drafts
+        Arc::make_mut(&mut self.notebooks).remove(&input.notebook_id);
+        Arc::make_mut(&mut self.notebook_drafts)
             .retain(|_, draft| draft.notebook_id != input.notebook_id);
         Ok(Self::output_for_event(event))
     }
@@ -100,12 +100,11 @@ impl KernelState {
             return Err(DomainError::NotebookSourceUnavailable { key: source_key });
         }
         let tick = self.current_notebook_tick();
-        let notebook =
-            self.notebooks
-                .get_mut(&input.notebook_id)
-                .ok_or(DomainError::MissingNotebook {
-                    id: input.notebook_id,
-                })?;
+        let notebook = Arc::make_mut(&mut self.notebooks)
+            .get_mut(&input.notebook_id)
+            .ok_or(DomainError::MissingNotebook {
+                id: input.notebook_id,
+            })?;
         notebook.source_keys.insert(source_key.clone());
         notebook.updated_at = tick;
         let event = self.emit_event(DomainEvent::NotebookSourceAttached {
@@ -133,12 +132,11 @@ impl KernelState {
             return Ok(KernelOutput::default());
         }
         let tick = self.current_notebook_tick();
-        let notebook =
-            self.notebooks
-                .get_mut(&input.notebook_id)
-                .ok_or(DomainError::MissingNotebook {
-                    id: input.notebook_id,
-                })?;
+        let notebook = Arc::make_mut(&mut self.notebooks)
+            .get_mut(&input.notebook_id)
+            .ok_or(DomainError::MissingNotebook {
+                id: input.notebook_id,
+            })?;
         notebook.source_keys.remove(&source_key);
         notebook.updated_at = tick;
         let event = self.emit_event(DomainEvent::NotebookSourceDetached {
@@ -237,7 +235,7 @@ impl KernelState {
             draft_id: input.draft_id,
             revision: input.expected_revision,
         });
-        self.notebook_drafts.remove(&input.draft_id);
+        Arc::make_mut(&mut self.notebook_drafts).remove(&input.draft_id);
         Ok(Self::output_for_event(event))
     }
 

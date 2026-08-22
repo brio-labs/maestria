@@ -250,7 +250,7 @@ fn test_all_legal_task_transitions() -> Result<(), DomainError> {
     assert!(matches!(err, DomainError::ValidationRequired { .. }));
 
     // Replay property: sequential transitions must be fully isomorphic to event stream application
-    let replayed = replay_events(&state.event_log)?;
+    let replayed = replay_events(&state.event_log_owned())?;
     assert_eq!(state, replayed);
 
     Ok(())

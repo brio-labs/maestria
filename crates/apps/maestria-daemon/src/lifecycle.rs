@@ -2,7 +2,6 @@ use anyhow::{Context, Result, anyhow};
 use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_domain::{ArtifactId, DomainInput, KernelState, TaskId};
 use maestria_governance::AutonomyProfile;
-use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_storage_sqlite::SqliteStore;
 use std::collections::BTreeMap;
 use tokio::sync::mpsc;
@@ -16,9 +15,7 @@ use crate::lock::{
     acquire as acquire_instance_write_lock, try_acquire as try_acquire_instance_write_lock,
 };
 use crate::parser_resume::verify_pending_blobs;
-use crate::projection_recovery::{
-    reconcile_full_text_projection, reconcile_graph_projection, reconcile_projections,
-};
+use crate::projection_watermark;
 use crate::recovery_inputs::RecoveryInputs;
 use crate::recovery_staging::{
     RecoveryQueueStage, queue_recovery_inputs, recovery_artifact_ids, source_artifact_ids,
@@ -26,9 +23,7 @@ use crate::recovery_staging::{
 };
 use crate::runtime_construction::build_runtime;
 use crate::supervision_recovery::supervise_recovery;
-use crate::vector_startup::{
-    reconcile_retrieval_generations, reconcile_vector_projection_for_layout,
-};
+use crate::vector_startup::reconcile_vector_projection_for_layout;
 
 /// Preserve a startup/recovery failure together with a concurrent shutdown failure.
 ///
@@ -130,32 +125,28 @@ impl InstanceLifecycle {
             .with_context(|| "read instance manifest")?;
         let manifest = InstanceManifest::decode(&manifest_contents)
             .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
-        reconcile_retrieval_generations(&layout, &mut state, &manifest)
-            .with_context(|| "reconcile retrieval generations")?;
+        let embedding_hash = projection_watermark::embedding_config_hash(&manifest);
+        let watermark_clean = projection_watermark::reconcile_after_drift(
+            &layout,
+            &mut state,
+            &store,
+            &manifest,
+            &embedding_hash,
+        )
+        .with_context(|| "startup projection reconciliation")?;
 
-        reconcile_projections(&state, &store)
-            .with_context(|| "reconcile projection repositories")?;
-        let search_index =
-            crate::projection_open::open_full_text_index(&layout, &state, true, true)
-                .with_context(|| "open full-text projection")?;
-        reconcile_full_text_projection(&state, &*search_index)
-            .with_context(|| "reconcile full-text projection")?;
-        drop(search_index);
-        let graph_index = SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))
-            .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?;
-        reconcile_graph_projection(&state, &graph_index)
-            .with_context(|| "reconcile graph projection")?;
         reconcile_approval_repo(&state, &store).with_context(|| "reconcile approval repository")?;
         reconcile_pending_approvals(&state, &store, &store)
             .with_context(|| "reconcile pending approvals")?;
-        if rebuild_vector_projection {
+        if rebuild_vector_projection && !watermark_clean {
             reconcile_vector_projection_for_layout(&layout, &state)
                 .with_context(|| "reconcile vector projection")?;
         }
-        if manifest
-            .sparse
-            .as_ref()
-            .is_some_and(|config| config.enabled)
+        if !watermark_clean
+            && manifest
+                .sparse
+                .as_ref()
+                .is_some_and(|config| config.enabled)
         {
             crate::sparse_startup::reconcile_sparse_projection_for_layout(
                 &layout, &mut state, &manifest,
@@ -178,9 +169,34 @@ impl InstanceLifecycle {
         let runtime_handle = runtime.handle();
         let runtime = runtime.with_graceful_shutdown();
         let runtime_shutdown = shutdown_token.clone();
+        let watermark_layout = layout.clone();
+        let watermark_embedding_hash = embedding_hash.clone();
         let runtime_task = tokio::spawn(async move {
             let _instance_lock = lock;
-            runtime.run(input_rx, runtime_shutdown).await
+            // Scope the runtime so every projection adapter (and any lazy
+            // tantivy commit registered by its Drop) is torn down before the
+            // watermark below snapshots the durable projections.
+            let result = {
+                let runtime = runtime;
+                runtime.run(input_rx, runtime_shutdown).await
+            };
+            if result.is_ok() {
+                // The session admitted and dispatched every input it
+                // accepted, so durable projections are in step with the
+                // event log; pin the reconciliation watermark so the next
+                // start skips reconciliation. A crashed or failed session
+                // leaves the stale watermark in place and the next start
+                // repairs from truth.
+                projection_watermark::finalize(
+                    &watermark_layout,
+                    projection_watermark::snapshot(
+                        &watermark_layout,
+                        None,
+                        &watermark_embedding_hash,
+                    ),
+                );
+            }
+            result
         });
         info!(root = %layout.root.display(), "runtime started");
         Ok(Self {
@@ -336,7 +352,6 @@ enum RuntimeTermination {
     InternalShutdown,
     TaskCompleted,
 }
-
 #[cfg(test)]
 #[path = "lifecycle_tests.rs"]
 mod tests;

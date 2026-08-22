@@ -1,4 +1,5 @@
 use crate::types::*;
+use std::sync::Arc;
 
 impl KernelState {
     // ── Handlers ─────────────────────────────────────────────────
@@ -18,9 +19,9 @@ impl KernelState {
 
         let task = Task::new(input.task_id, input.title.clone(), input.priority);
         let artifact_id = input.artifact_id;
-        self.tasks.insert(input.task_id, task);
+        Arc::make_mut(&mut self.tasks).insert(input.task_id, task);
         if let Some(artifact_id) = artifact_id
-            && let Some(task) = self.tasks.get_mut(&input.task_id)
+            && let Some(task) = Arc::make_mut(&mut self.tasks).get_mut(&input.task_id)
         {
             task.artifact_ids.insert(artifact_id);
         }
@@ -38,8 +39,7 @@ impl KernelState {
         task_id: TaskId,
         to: TaskStatus,
     ) -> Result<(TaskStatus, TaskStatus), DomainError> {
-        let task = self
-            .tasks
+        let task = Arc::make_mut(&mut self.tasks)
             .get_mut(&task_id)
             .ok_or(DomainError::MissingTask { id: task_id })?;
         let from = task.status;
@@ -57,8 +57,7 @@ impl KernelState {
         &mut self,
         input: CompleteTaskInput,
     ) -> Result<DomainEventEnvelope, DomainError> {
-        let task = self
-            .tasks
+        let task = Arc::make_mut(&mut self.tasks)
             .get_mut(&input.task_id)
             .ok_or(DomainError::MissingTask { id: input.task_id })?;
         let report = self
@@ -107,8 +106,7 @@ impl KernelState {
         &mut self,
         input: LinkEvidenceToTaskInput,
     ) -> Result<Option<DomainEventEnvelope>, DomainError> {
-        let task = self
-            .tasks
+        let task = Arc::make_mut(&mut self.tasks)
             .get_mut(&input.task_id)
             .ok_or(DomainError::MissingTask { id: input.task_id })?;
         if !self.evidences.contains_key(&input.evidence_id) {
@@ -147,7 +145,7 @@ impl KernelState {
         if let Some(art_id) = artifact_id {
             task.artifact_ids.insert(art_id);
         }
-        self.tasks.insert(task_id, task);
+        Arc::make_mut(&mut self.tasks).insert(task_id, task);
         Ok(())
     }
 
@@ -157,8 +155,7 @@ impl KernelState {
         from: TaskStatus,
         to: TaskStatus,
     ) -> Result<(), DomainError> {
-        let task = self
-            .tasks
+        let task = Arc::make_mut(&mut self.tasks)
             .get_mut(&task_id)
             .ok_or(DomainError::MissingTask { id: task_id })?;
         if task.status != from {
@@ -188,8 +185,7 @@ impl KernelState {
         task_id: TaskId,
         status: TaskStatus,
     ) -> Result<(), DomainError> {
-        let task = self
-            .tasks
+        let task = Arc::make_mut(&mut self.tasks)
             .get_mut(&task_id)
             .ok_or(DomainError::MissingTask { id: task_id })?;
         let validation_report_id = status
@@ -240,8 +236,7 @@ impl KernelState {
         task_id: TaskId,
         evidence_id: EvidenceId,
     ) -> Result<(), DomainError> {
-        let task = self
-            .tasks
+        let task = Arc::make_mut(&mut self.tasks)
             .get_mut(&task_id)
             .ok_or(DomainError::MissingTask { id: task_id })?;
         if !self.evidences.contains_key(&evidence_id) {

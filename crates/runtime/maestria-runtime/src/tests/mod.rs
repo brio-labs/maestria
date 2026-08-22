@@ -74,7 +74,7 @@ pub async fn run_complete_task_test(
         event_log
             .append(envelope.clone())
             .map_err(|e| format!("seed append failed: {:?}", e))?;
-        state.event_log.push(envelope);
+        state.event_log.push(Arc::new(envelope));
     }
     let adapters = crate::Adapters {
         event_log: event_log.clone(),

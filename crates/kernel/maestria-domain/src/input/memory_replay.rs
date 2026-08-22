@@ -1,5 +1,6 @@
 use crate::security::SecurityMetadata;
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use crate::types::*;
 
@@ -40,7 +41,7 @@ impl KernelState {
                 });
             }
         }
-        self.memory_candidates.insert(
+        Arc::make_mut(&mut self.memory_candidates).insert(
             candidate_id,
             MemoryCandidate::try_new(
                 candidate_id,
@@ -103,7 +104,7 @@ impl KernelState {
                 reason: "insufficient confidence",
             });
         }
-        self.memories.insert(
+        Arc::make_mut(&mut self.memories).insert(
             memory_id,
             Memory {
                 id: memory_id,
@@ -128,8 +129,7 @@ impl KernelState {
                 id: contradicting_candidate_id,
             });
         }
-        let memory = self
-            .memories
+        let memory = Arc::make_mut(&mut self.memories)
             .get_mut(&memory_id)
             .ok_or(DomainError::MissingMemory { id: memory_id })?;
         memory.status = MemoryStatus::Contradicted;
@@ -140,8 +140,7 @@ impl KernelState {
         &mut self,
         memory_id: MemoryId,
     ) -> Result<(), DomainError> {
-        let memory = self
-            .memories
+        let memory = Arc::make_mut(&mut self.memories)
             .get_mut(&memory_id)
             .ok_or(DomainError::MissingMemory { id: memory_id })?;
         memory.status = MemoryStatus::Deprecated;
@@ -159,8 +158,7 @@ impl KernelState {
         if !self.memories.contains_key(&by_memory_id) {
             return Err(DomainError::MissingMemory { id: by_memory_id });
         }
-        let memory = self
-            .memories
+        let memory = Arc::make_mut(&mut self.memories)
             .get_mut(&memory_id)
             .ok_or(DomainError::MissingMemory { id: memory_id })?;
         memory.status = MemoryStatus::Superseded;

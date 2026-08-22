@@ -1,6 +1,7 @@
 use crate::search::ContentHash;
 use crate::security::SecurityMetadata;
 use crate::types::*;
+use std::sync::Arc;
 
 impl KernelState {
     fn validate_existing_deterministic_evidence_for_chunk(
@@ -89,11 +90,11 @@ impl KernelState {
         if self.artifacts.contains_key(&artifact_id) {
             return Err(DomainError::DuplicateArtifact { id: artifact_id });
         }
-        self.artifacts.insert(
+        Arc::make_mut(&mut self.artifacts).insert(
             artifact_id,
             Artifact::with_title(artifact_id, title.to_string()),
         );
-        if let Some(artifact) = self.artifacts.get_mut(&artifact_id) {
+        if let Some(artifact) = Arc::make_mut(&mut self.artifacts).get_mut(&artifact_id) {
             artifact.security = security.clone();
         }
         Ok(())
@@ -120,7 +121,7 @@ impl KernelState {
         }
         self.validate_existing_deterministic_evidence_for_chunk(input.artifact_id, input.order)?;
 
-        self.chunks.insert(
+        Arc::make_mut(&mut self.chunks).insert(
             input.chunk_id,
             Chunk::new(
                 input.chunk_id,
@@ -132,13 +133,13 @@ impl KernelState {
                 input.text.clone(),
             ),
         );
-        if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
+        if let Some(artifact) = Arc::make_mut(&mut self.artifacts).get_mut(&input.artifact_id) {
             artifact.chunk_ids.insert(input.chunk_id);
         }
         if let Some(artifact) = self.artifacts.get(&input.artifact_id)
             && artifact.index_status == IndexStatus::Pending
         {
-            self.pending_full_text.insert(input.chunk_id);
+            Arc::make_mut(&mut self.pending_full_text).insert(input.chunk_id);
         }
         Ok(())
     }
@@ -152,15 +153,15 @@ impl KernelState {
             return Err(DomainError::MissingArtifact { id: artifact_id });
         }
         if status != crate::provenance::ParseStatus::Parsed {
-            self.pending_parsers.remove(&artifact_id);
+            Arc::make_mut(&mut self.pending_parsers).remove(&artifact_id);
         }
-        if let Some(artifact) = self.artifacts.get_mut(&artifact_id) {
+        if let Some(artifact) = Arc::make_mut(&mut self.artifacts).get_mut(&artifact_id) {
             artifact.parse_status = Some(status);
             if status != crate::provenance::ParseStatus::Parsed {
                 artifact.index_status = IndexStatus::Unindexed;
             }
         }
-        self.parsed_artifact_ids.insert(artifact_id);
+        Arc::make_mut(&mut self.parsed_artifact_ids).insert(artifact_id);
         Ok(())
     }
 
@@ -193,12 +194,9 @@ impl KernelState {
                 detail: "document tree event failed structural validation",
             });
         }
-        self.artifact_versions
-            .insert(artifact_id, artifact_version_id);
-        self.artifact_content_hashes
-            .insert(artifact_id, content_hash);
-        self.document_trees
-            .insert(artifact_id, (root_id, nodes.to_vec()));
+        Arc::make_mut(&mut self.artifact_versions).insert(artifact_id, artifact_version_id);
+        Arc::make_mut(&mut self.artifact_content_hashes).insert(artifact_id, content_hash);
+        Arc::make_mut(&mut self.document_trees).insert(artifact_id, (root_id, nodes.to_vec()));
         Ok(())
     }
 
@@ -212,7 +210,7 @@ impl KernelState {
     ) -> Result<(), DomainError> {
         // Reconstruct pending-parser metadata so the daemon can find
         // stranded artifacts on restart and re-drive parsing.
-        self.pending_parsers.insert(
+        Arc::make_mut(&mut self.pending_parsers).insert(
             artifact_id,
             ParserStarted {
                 artifact_id,
@@ -224,8 +222,8 @@ impl KernelState {
         );
         match SourceIdentityKey::try_from(source_path.to_owned()) {
             Ok(source_key) => {
-                self.stale_sources.remove(source_path);
-                self.active_sources.insert(source_key, artifact_id);
+                Arc::make_mut(&mut self.stale_sources).remove(source_path);
+                Arc::make_mut(&mut self.active_sources).insert(source_key, artifact_id);
             }
             Err(error) => {
                 return Err(DomainError::InvalidSourceIdentityKey {
@@ -240,8 +238,7 @@ impl KernelState {
         artifact_id: ArtifactId,
         content_hash: &ContentHash,
     ) -> Result<(), DomainError> {
-        let artifact = self
-            .artifacts
+        let artifact = Arc::make_mut(&mut self.artifacts)
             .get_mut(&artifact_id)
             .ok_or(DomainError::MissingArtifact { id: artifact_id })?;
         artifact.content_hash = Some(content_hash.clone());
@@ -267,7 +264,7 @@ impl KernelState {
                 actual: chunk.artifact_id,
             });
         }
-        self.pending_full_text.remove(&chunk_id);
+        Arc::make_mut(&mut self.pending_full_text).remove(&chunk_id);
         Ok(())
     }
 
@@ -300,12 +297,11 @@ impl KernelState {
                 reason: "ArtifactIndexed requires complete source-backed evidence",
             });
         }
-        let artifact = self
-            .artifacts
+        let artifact = Arc::make_mut(&mut self.artifacts)
             .get_mut(&artifact_id)
             .ok_or(DomainError::MissingArtifact { id: artifact_id })?;
         artifact.index_status = IndexStatus::Indexed;
-        self.pending_parsers.remove(&artifact_id);
+        Arc::make_mut(&mut self.pending_parsers).remove(&artifact_id);
         Ok(())
     }
 }
