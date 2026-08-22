@@ -228,11 +228,11 @@ pub(super) fn load_all_documents(
     let identity_json = identity_json(identity)?;
     let connection = store.lock()?;
     let mut statement = connection
-        .prepare(
+        .prepare_cached(
             "SELECT chunk_id, vector_json
-             FROM learned_sparse_projection_documents
-             WHERE identity_json = ?1 AND tombstoned = 0
-             ORDER BY chunk_id",
+     FROM learned_sparse_projection_documents
+     WHERE identity_json = ?1 AND tombstoned = 0
+     ORDER BY chunk_id",
         )
         .map_err(to_port_error)?;
     let rows = statement

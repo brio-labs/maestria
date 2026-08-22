@@ -19,6 +19,14 @@ impl SqliteStore {
         connection
             .pragma_update(None, "journal_mode", "WAL")
             .map_err(to_port_error)?;
+        // WAL + synchronous=NORMAL keeps commits safe against application
+        // crashes while dropping the per-transaction fsync that dominated
+        // batch-ingestion wall time; an OS-level power loss may discard the
+        // most recent commits, and startup recovery re-drives the affected
+        // artifacts from the durable event-log prefix.
+        connection
+            .pragma_update(None, "synchronous", "NORMAL")
+            .map_err(to_port_error)?;
         migrate(&mut connection)?;
         Ok(Self {
             connection: std::sync::Mutex::new(connection),

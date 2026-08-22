@@ -85,11 +85,11 @@ pub(crate) fn load_latest(
     table: &'static str,
 ) -> Result<Option<StoredPromotionRecord>, PortError> {
     let mut statement = connection
-        .prepare(&format!(
+        .prepare_cached(&format!(
             "SELECT evaluation_id, corpus_id, evaluation_date, report_hash, record_json, created_at
-             FROM {table}
-             ORDER BY created_at DESC, evaluation_id DESC
-             LIMIT 1"
+         FROM {table}
+         ORDER BY created_at DESC, evaluation_id DESC
+         LIMIT 1"
         ))
         .map_err(to_port_error)?;
     let mut rows = statement.query([]).map_err(to_port_error)?;
@@ -105,10 +105,10 @@ pub(crate) fn list(
     table: &'static str,
 ) -> Result<Vec<StoredPromotionRecord>, PortError> {
     let mut statement = connection
-        .prepare(&format!(
+        .prepare_cached(&format!(
             "SELECT evaluation_id, corpus_id, evaluation_date, report_hash, record_json, created_at
-             FROM {table}
-             ORDER BY created_at DESC, evaluation_id DESC"
+         FROM {table}
+         ORDER BY created_at DESC, evaluation_id DESC"
         ))
         .map_err(to_port_error)?;
     let mut rows = statement.query([]).map_err(to_port_error)?;

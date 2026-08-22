@@ -45,6 +45,14 @@ intelligence to a reviewed set of directories.
   latency on a 60k-event instance drops ~15%), and `Scope` stores its root
   and pattern lists behind shared slices so cloning an effect execution
   context no longer deep-copies governance configuration per effect.
+- SQLite write connections use WAL `synchronous=NORMAL`: commits stop
+  fsyncing per transaction, which removes an fsync stall per persisted
+  batch during indexing (1,200-file corpus drops from 6.6 minutes to under
+  2 minutes). Application crashes remain safe — only OS-level power loss can
+  lose the most recent commits, and startup recovery re-drives any pending
+  work from the durable event log.
+- Repository queries reuse parsed SQLite statements (`prepare_cached`), so
+  per-hit authorization lookups no longer re-plan SQL on every call.
 - `privacy_exclusions` defaults covering machine-state directories, wired
   into index-selection scanning and blocked patterns.
 - `IndexGenerationRegistry` with lifecycle transitions and retired-generation
