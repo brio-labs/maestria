@@ -30,7 +30,7 @@ struct StagedInput {
     approval_continuation: Option<maestria_domain::ModelAgentProposalRequest>,
     should_resume_approval: bool,
     barriers: TransitionBarriers,
-    previous_state: KernelState,
+    pre_event_count: usize,
 }
 enum EffectBatchPreparationError {
     Admission,
@@ -241,12 +241,14 @@ impl MaestriaRuntime {
         }
         let harness_feedback = Self::harness_feedback(&input);
         let approval_barrier = Self::approval_barrier(&input, command.as_ref());
-        let Some((candidate, output, should_resume_approval)) = self
+        let Some(staged) = self
             .stage_correlated_input(input.clone(), approval_continuation.is_some(), &mut command)
             .await
         else {
             return true;
         };
+        let output = staged.output;
+        let should_resume_approval = staged.should_resume_approval;
         let mut effects = output.effects;
         Self::assign_notebook_draft_correlation(
             &input,
@@ -278,9 +280,7 @@ impl MaestriaRuntime {
             approval_barrier,
             prepare_before_reply,
         );
-        let previous_state = self
-            .commit_staged_input(candidate, harness_feedback, &effects)
-            .await;
+        self.commit_staged_input(harness_feedback, &effects);
         if !self
             .dispatch_admitted_effects(permit, prepared, effects, &mut command, shutdown_token)
             .await
@@ -304,7 +304,7 @@ impl MaestriaRuntime {
                 approval_continuation,
                 should_resume_approval,
                 barriers,
-                previous_state,
+                pre_event_count: staged.pre_event_count,
             },
             &mut command,
             &mut outcome,

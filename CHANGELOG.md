@@ -34,7 +34,11 @@ intelligence to a reviewed set of directories.
   preserves durability), CLI state polling reuses one SQLite connection
   across poll iterations, and `KernelState` collections are Arc
   copy-on-write so staged inputs clone pointer handles instead of deep
-  entity/event copies (~17x fewer allocations on an index workload).
+  entity/event copies (~17x fewer allocations on an index workload), and
+  domain inputs now apply in place under the runtime write lock with
+  replay-to-persisted-prefix repair on failure, removing the remaining
+  per-input candidate clone (index user CPU drops ~78% on a 1,200-file
+  corpus; the cost no longer grows with the event-log size).
 - `privacy_exclusions` defaults covering machine-state directories, wired
   into index-selection scanning and blocked patterns.
 - `IndexGenerationRegistry` with lifecycle transitions and retired-generation

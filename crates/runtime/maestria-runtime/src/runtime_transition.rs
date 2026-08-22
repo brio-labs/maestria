@@ -10,6 +10,14 @@ pub(crate) struct TransitionBarriers {
         Vec<(maestria_domain::EventId, maestria_domain::GrantTokenDigest)>,
 }
 
+/// Result of staging one domain input in place: the emitted output plus the
+/// rollback anchor (event count before the input mutated the state).
+pub(crate) struct StagedOutcome {
+    pub(crate) output: maestria_domain::KernelOutput,
+    pub(crate) should_resume_approval: bool,
+    pub(crate) pre_event_count: usize,
+}
+
 impl MaestriaRuntime {
     pub(crate) fn correlate_proposal(
         input: DomainInput,
@@ -108,18 +116,55 @@ impl MaestriaRuntime {
         &self,
         input: DomainInput,
         has_approval_continuation: bool,
-    ) -> Result<(KernelState, maestria_domain::KernelOutput, bool), DomainError> {
-        let state = self.state.read().await;
-        let mut candidate = state.clone();
+    ) -> Result<StagedOutcome, DomainError> {
+        // In-place application under the write lock: the input loop is the
+        // only writer, so mutating the shared state directly removes the
+        // per-input deep copy that made ingestion quadratic in the event-log
+        // size. Failure paths repair by replaying the durable event prefix.
+        let mut state = self.state.write().await;
+        let pre_event_count = state.event_log.len();
         let should_resume_approval = matches!(
             &input,
             DomainInput::ApprovalResolved(decision)
                 if has_approval_continuation
                     && !state.resolved_approvals.contains(&decision.approval_id())
         );
-        drop(state);
-        let output = candidate.apply_input(input)?;
-        Ok((candidate, output, should_resume_approval))
+        match state.apply_input(input) {
+            Ok(output) => Ok(StagedOutcome {
+                output,
+                should_resume_approval,
+                pre_event_count,
+            }),
+            Err(error) => {
+                Self::repair_state_to_persisted_prefix(&mut state, pre_event_count);
+                Err(error)
+            }
+        }
+    }
+
+    /// Rebuild `state` from its durable event prefix after a failed in-place
+    /// application. Handlers may have partially mutated projections before
+    /// returning an error; the prefix `[0..pre_event_count)` was fully
+    /// persisted by earlier inputs (the input loop awaits persistence before
+    /// processing the next input), so replaying it deterministically restores
+    /// the last committed state without any snapshot cost on the happy path.
+    pub(crate) fn repair_state_to_persisted_prefix(
+        state: &mut KernelState,
+        pre_event_count: usize,
+    ) {
+        let prefix: Vec<_> = state.event_log[..pre_event_count].to_vec();
+        let mut rebuilt = KernelState::new();
+        for envelope in &prefix {
+            if let Err(error) = rebuilt.apply_event(envelope.as_ref().clone()) {
+                // The prefix is sequential by construction; hitting this is a
+                // replay-engine invariant violation. Keep the mutated state
+                // rather than dropping to an empty one, and let the caller's
+                // error path surface the original domain error.
+                tracing::error!(%error, "kernel-state repair replay diverged");
+                return;
+            }
+        }
+        *state = rebuilt;
     }
 
     pub(crate) fn transition_barriers(
