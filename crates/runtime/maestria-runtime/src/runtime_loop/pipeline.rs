@@ -8,7 +8,8 @@
 use super::{ApplicationOutcome, EffectBatchPreparationError, StagedInput};
 use crate::effect_dispatch::EffectWork;
 use crate::runtime::{DomainApplicationResult, MaestriaRuntime};
-use maestria_domain::{DomainError, DomainInput, KernelOutput, KernelState, MaestriaEffect};
+use crate::runtime_transition::StagedOutcome;
+use maestria_domain::{DomainError, DomainInput, MaestriaEffect};
 use tokio::sync::mpsc;
 
 impl MaestriaRuntime {
@@ -51,7 +52,7 @@ impl MaestriaRuntime {
         false
     }
 
-    /// Stage the correlated input against a candidate kernel state, replying
+    /// Stage the correlated input against the shared kernel state, replying
     /// the domain error when staging fails. Returns `None` when an error has
     /// already been replied.
     pub(super) async fn stage_correlated_input(
@@ -59,7 +60,7 @@ impl MaestriaRuntime {
         input: DomainInput,
         resume_approval: bool,
         command: &mut Option<crate::runtime::RuntimeCommand>,
-    ) -> Option<(KernelState, KernelOutput, bool)> {
+    ) -> Option<StagedOutcome> {
         match self.stage_input(input, resume_approval).await {
             Ok(staged) => Some(staged),
             Err(error) => {
@@ -100,18 +101,15 @@ impl MaestriaRuntime {
         }
     }
 
-    /// Swap the candidate kernel state into the runtime, register any
-    /// harness feedback, and return the previous state for rollback.
-    pub(super) async fn commit_staged_input(
+    /// Register harness feedback for the committed input. The state itself
+    /// was already mutated in place by `stage_input`; there is no candidate
+    /// to swap.
+    pub(super) fn commit_staged_input(
         &self,
-        candidate: KernelState,
         harness_feedback: Option<(maestria_domain::HarnessRunId, u64)>,
         effects: &[MaestriaEffect],
-    ) -> KernelState {
-        let mut state = self.state.write().await;
-        let previous = std::mem::replace(&mut *state, candidate);
+    ) {
         self.register_harness_feedback(harness_feedback, effects);
-        previous
     }
 
     /// Dispatch the admitted effects to the executor, replying the admission
@@ -154,7 +152,7 @@ impl MaestriaRuntime {
             .await
         {
             let mut state = self.state.write().await;
-            *state = staged.previous_state;
+            Self::repair_state_to_persisted_prefix(&mut state, staged.pre_event_count);
             Self::reply_persistence_error(command.take());
             return true;
         }
