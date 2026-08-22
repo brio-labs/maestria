@@ -620,7 +620,7 @@ async fn model_agent_recovery_consumes_stored_success_without_reexecution()
         journal_generation: entry.generation,
     };
     let mut state = KernelState::new();
-    state.model_agent_requests.insert(run_id, canonical);
+    Arc::make_mut(&mut state.model_agent_requests).insert(run_id, canonical);
     let (input_tx, mut input_rx) = mpsc::channel(8);
     let context = EffectExecutionContext::test_default(
         adapters.clone(),
@@ -739,7 +739,7 @@ async fn journal_recovery_rejects_missing_or_invalid_durable_feedback()
             journal_generation: generation,
         };
         let mut state = KernelState::new();
-        state.model_agent_requests.insert(run_id, canonical);
+        Arc::make_mut(&mut state.model_agent_requests).insert(run_id, canonical);
         let (input_tx, mut input_rx) = mpsc::channel(8);
         let context = EffectExecutionContext::test_default(
             adapters.clone(),

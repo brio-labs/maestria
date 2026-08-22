@@ -1,4 +1,5 @@
 use crate::types::*;
+use std::sync::Arc;
 
 impl KernelState {
     // ── Handlers ─────────────────────────────────────────────────
@@ -25,13 +26,15 @@ impl KernelState {
                 c.artifact_id == input.artifact_id && self.pending_full_text.contains(&c.id)
             });
             if !has_pending && self.evidence_complete_for(input.artifact_id) {
-                if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
+                if let Some(artifact) =
+                    Arc::make_mut(&mut self.artifacts).get_mut(&input.artifact_id)
+                {
                     artifact.index_status = IndexStatus::Indexed;
                 }
                 generated.push(self.emit_event(DomainEvent::ArtifactIndexed {
                     artifact_id: input.artifact_id,
                 }));
-                self.pending_parsers.remove(&input.artifact_id);
+                Arc::make_mut(&mut self.pending_parsers).remove(&input.artifact_id);
             }
         }
         Ok(generated)
@@ -62,7 +65,7 @@ impl KernelState {
 
         let mut generated = Vec::new();
 
-        if self.pending_full_text.remove(&input.chunk_id) {
+        if Arc::make_mut(&mut self.pending_full_text).remove(&input.chunk_id) {
             generated.push(self.emit_event(DomainEvent::FullTextIndexed {
                 artifact_id: input.artifact_id,
                 chunk_id: input.chunk_id,
@@ -73,7 +76,9 @@ impl KernelState {
             });
 
             if all_done && self.evidence_complete_for(input.artifact_id) {
-                if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
+                if let Some(artifact) =
+                    Arc::make_mut(&mut self.artifacts).get_mut(&input.artifact_id)
+                {
                     artifact.index_status = IndexStatus::Indexed;
                 }
                 generated.push(self.emit_event(DomainEvent::ArtifactIndexed {
@@ -81,7 +86,7 @@ impl KernelState {
                 }));
                 // Terminal indexing frees the pending parser entry so a crash
                 // after ArtifactIndexed does not re-trigger parsing on resume.
-                self.pending_parsers.remove(&input.artifact_id);
+                Arc::make_mut(&mut self.pending_parsers).remove(&input.artifact_id);
             }
         }
 

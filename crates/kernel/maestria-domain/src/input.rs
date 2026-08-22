@@ -1,4 +1,5 @@
 use crate::types::*;
+use std::sync::Arc;
 mod artifact;
 mod card;
 mod claim;
@@ -126,7 +127,7 @@ impl KernelState {
     fn emit_event(&mut self, event: DomainEvent) -> DomainEventEnvelope {
         let id = EventId(self.event_log.len() as u64 + 1);
         let envelope = DomainEventEnvelope { id, event };
-        self.event_log.push(envelope.clone());
+        self.event_log.push(Arc::new(envelope.clone()));
         envelope
     }
 }

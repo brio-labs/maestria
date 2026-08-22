@@ -1,6 +1,7 @@
 use crate::input::notebook_support::DraftDeletionViolation;
 use crate::types::*;
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 impl KernelState {
     pub(super) fn replay_notebook_event(&mut self, event: &DomainEvent) -> Result<(), DomainError> {
@@ -51,7 +52,7 @@ impl KernelState {
         if self.notebooks.contains_key(notebook_id) {
             return Err(DomainError::DuplicateNotebook { id: *notebook_id });
         }
-        self.notebooks.insert(
+        Arc::make_mut(&mut self.notebooks).insert(
             *notebook_id,
             Notebook {
                 id: *notebook_id,
@@ -70,8 +71,7 @@ impl KernelState {
         title: &NotebookTitle,
         updated_at: LogicalTick,
     ) -> Result<(), DomainError> {
-        let notebook = self
-            .notebooks
+        let notebook = Arc::make_mut(&mut self.notebooks)
             .get_mut(notebook_id)
             .ok_or(DomainError::MissingNotebook { id: *notebook_id })?;
         notebook.title = title.clone();
@@ -80,10 +80,13 @@ impl KernelState {
     }
 
     fn replay_notebook_deleted(&mut self, notebook_id: &NotebookId) -> Result<(), DomainError> {
-        if self.notebooks.remove(notebook_id).is_none() {
+        if Arc::make_mut(&mut self.notebooks)
+            .remove(notebook_id)
+            .is_none()
+        {
             return Err(DomainError::MissingNotebook { id: *notebook_id });
         }
-        self.notebook_drafts
+        Arc::make_mut(&mut self.notebook_drafts)
             .retain(|_, draft| draft.notebook_id != *notebook_id);
         Ok(())
     }
@@ -94,8 +97,7 @@ impl KernelState {
         source_key: &SourceIdentityKey,
         updated_at: LogicalTick,
     ) -> Result<(), DomainError> {
-        let notebook = self
-            .notebooks
+        let notebook = Arc::make_mut(&mut self.notebooks)
             .get_mut(notebook_id)
             .ok_or(DomainError::MissingNotebook { id: *notebook_id })?;
         notebook.source_keys.insert(source_key.clone());
@@ -109,8 +111,7 @@ impl KernelState {
         source_key: &SourceIdentityKey,
         updated_at: LogicalTick,
     ) -> Result<(), DomainError> {
-        let notebook = self
-            .notebooks
+        let notebook = Arc::make_mut(&mut self.notebooks)
             .get_mut(notebook_id)
             .ok_or(DomainError::MissingNotebook { id: *notebook_id })?;
         notebook.source_keys.remove(source_key);
@@ -148,7 +149,7 @@ impl KernelState {
         {
             return Err(DomainError::MissingNotebookDraft { id: *draft_id });
         }
-        self.notebook_drafts.insert(
+        Arc::make_mut(&mut self.notebook_drafts).insert(
             *draft_id,
             NotebookDraft {
                 id: *draft_id,
@@ -162,7 +163,7 @@ impl KernelState {
                 updated_at: *updated_at,
             },
         );
-        if let Some(notebook) = self.notebooks.get_mut(notebook_id) {
+        if let Some(notebook) = Arc::make_mut(&mut self.notebooks).get_mut(notebook_id) {
             notebook.updated_at = *updated_at;
         }
         Ok(())
@@ -196,7 +197,7 @@ impl KernelState {
                 });
             }
         }
-        self.notebook_drafts.remove(draft_id);
+        Arc::make_mut(&mut self.notebook_drafts).remove(draft_id);
         Ok(())
     }
 }

@@ -3,6 +3,7 @@ use crate::events::DomainEvent;
 use crate::inputs::{OcrCompleted, OcrFailed, OcrRequested};
 use crate::ocr::{OcrCompletion, OcrIntent};
 use crate::{DomainError, KernelOutput};
+use std::sync::Arc;
 
 impl crate::KernelState {
     /// Shared OCR correlation validation used by the live handlers and the
@@ -53,8 +54,8 @@ impl crate::KernelState {
             intent: intent.clone(),
         });
         let mut output = Self::output_for_event(event);
-        self.pending_ocr.insert(request_id.clone(), intent.clone());
-        self.ocr_intents.insert(request_id.clone(), intent.clone());
+        Arc::make_mut(&mut self.pending_ocr).insert(request_id.clone(), intent.clone());
+        Arc::make_mut(&mut self.ocr_intents).insert(request_id.clone(), intent.clone());
         output.effects.push(MaestriaEffect::Ocr(intent));
         Ok(output)
     }
@@ -105,8 +106,8 @@ impl crate::KernelState {
             completion: completion.clone(),
         });
         let mut output = Self::output_for_event(event);
-        self.pending_ocr.remove(&request_id);
-        self.ocr_results.insert(request_id, completion);
+        Arc::make_mut(&mut self.pending_ocr).remove(&request_id);
+        Arc::make_mut(&mut self.ocr_results).insert(request_id, completion);
         output
             .effects
             .push(MaestriaEffect::ParseArtifact(ParseArtifactRequest {
@@ -159,9 +160,9 @@ impl crate::KernelState {
             request_id: input.request_id.clone(),
             reason: input.reason.clone(),
         });
-        self.pending_ocr.remove(&input.request_id);
-        self.pending_parsers.remove(&input.artifact_id);
-        self.ocr_failures.insert(input.request_id, input.reason);
+        Arc::make_mut(&mut self.pending_ocr).remove(&input.request_id);
+        Arc::make_mut(&mut self.pending_parsers).remove(&input.artifact_id);
+        Arc::make_mut(&mut self.ocr_failures).insert(input.request_id, input.reason);
         Ok(Self::output_for_event(event))
     }
 }

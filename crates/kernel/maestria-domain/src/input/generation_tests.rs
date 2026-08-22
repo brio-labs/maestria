@@ -166,7 +166,7 @@ fn event_replay_reconstructs_generation_registry() -> Result<(), DomainError> {
     let name = RepresentationName::new("code_dense_v1");
     start(&mut original, 7, &name)?;
     activate(&mut original, 7)?;
-    let replayed = replay_events(&original.event_log)?;
+    let replayed = replay_events(&original.event_log_owned())?;
     assert_eq!(original.index_generations, replayed.index_generations);
     assert_eq!(
         replayed.index_generations.get_active(&name).map(|g| g.id),

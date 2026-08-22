@@ -1,5 +1,6 @@
 use crate::SearchCompatibilityError;
 use crate::types::*;
+use std::sync::Arc;
 
 impl KernelState {
     // ── Handlers ─────────────────────────────────────────────────
@@ -51,7 +52,7 @@ impl KernelState {
                 .values()
                 .any(|intent| intent.artifact_id() == input.artifact_id);
         if input.status != crate::provenance::ParseStatus::Parsed && !ocr_pending {
-            self.pending_parsers.remove(&input.artifact_id);
+            Arc::make_mut(&mut self.pending_parsers).remove(&input.artifact_id);
         }
         if !self.artifacts.contains_key(&input.artifact_id) {
             return Err(DomainError::MissingArtifact {
@@ -73,8 +74,8 @@ impl KernelState {
                 status: input.status,
             });
             generated.push(parsed);
-            self.parsed_artifact_ids.insert(input.artifact_id);
-            if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
+            Arc::make_mut(&mut self.parsed_artifact_ids).insert(input.artifact_id);
+            if let Some(artifact) = Arc::make_mut(&mut self.artifacts).get_mut(&input.artifact_id) {
                 artifact.parse_status = Some(input.status);
                 if input.status != crate::provenance::ParseStatus::Parsed {
                     artifact.index_status = IndexStatus::Unindexed;
@@ -169,7 +170,7 @@ impl KernelState {
                     approval_id,
                     outcome: ApprovalOutcome::Acknowledged { task_id, approved },
                 }));
-                self.resolved_approvals.insert(approval_id);
+                Arc::make_mut(&mut self.resolved_approvals).insert(approval_id);
                 return Ok(emitted);
             }
             ApprovalDecision::Resolve {
@@ -199,7 +200,7 @@ impl KernelState {
             },
         }));
 
-        self.resolved_approvals.insert(approval_id);
+        Arc::make_mut(&mut self.resolved_approvals).insert(approval_id);
         Ok(emitted)
     }
 
@@ -300,7 +301,7 @@ mod tests {
     fn effect_approval_retains_task_audit_without_transition() -> Result<(), DomainError> {
         let task_id = TaskId::new(7);
         let mut state = KernelState::new();
-        state.tasks.insert(
+        Arc::make_mut(&mut state.tasks).insert(
             task_id,
             Task::new(task_id, "task".into(), TaskPriority::High),
         );
@@ -329,7 +330,7 @@ mod tests {
     fn approval_transition_replays_to_active() -> Result<(), DomainError> {
         let task_id = TaskId::new(7);
         let mut state = KernelState::new();
-        state.tasks.insert(
+        Arc::make_mut(&mut state.tasks).insert(
             task_id,
             Task::new(task_id, "task".into(), TaskPriority::High),
         );
@@ -351,7 +352,7 @@ mod tests {
     fn approval_replay_rejects_mismatched_from_status() -> Result<(), DomainError> {
         let task_id = TaskId::new(7);
         let mut state = KernelState::new();
-        state.tasks.insert(
+        Arc::make_mut(&mut state.tasks).insert(
             task_id,
             Task::new(task_id, "task".into(), TaskPriority::High),
         );

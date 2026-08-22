@@ -142,7 +142,7 @@ fn command_correlation_ids_are_seeded_from_persisted_state() {
     let mut state = KernelState::new();
     assert_eq!(MaestriaRuntime::seed_next_command_id(&state), 1);
 
-    state.model_agent_requests.insert(
+    Arc::make_mut(&mut state.model_agent_requests).insert(
         maestria_domain::HarnessRunId::new(10),
         maestria_domain::ModelAgentProposalRequest {
             run_id: maestria_domain::HarnessRunId::new(10),
@@ -163,7 +163,7 @@ fn command_correlation_ids_are_seeded_from_persisted_state() {
     );
     assert_eq!(MaestriaRuntime::seed_next_command_id(&state), 8);
 
-    state.model_agent_results.insert(
+    Arc::make_mut(&mut state.model_agent_results).insert(
         maestria_domain::HarnessRunId::new(11),
         maestria_domain::ModelAgentProposalResult::Failed {
             run_id: maestria_domain::HarnessRunId::new(11),

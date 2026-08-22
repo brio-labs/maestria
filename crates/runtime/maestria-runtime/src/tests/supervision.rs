@@ -461,9 +461,7 @@ async fn approval_ack_includes_inline_continuation_admission_before_shutdown()
     let mut canonical = proposal.clone();
     canonical.execution = ModelAgentProposalExecution::Fresh;
     let mut state = KernelState::new();
-    state
-        .model_agent_requests
-        .insert(canonical.run_id, canonical);
+    Arc::make_mut(&mut state.model_agent_requests).insert(canonical.run_id, canonical);
     let adapters = Adapters {
         approval_repo: Arc::new(approval_repo),
         effect_journal: journal.clone(),
@@ -520,9 +518,7 @@ async fn approval_ack_propagates_inline_continuation_admission_failure()
     let mut canonical = proposal.clone();
     canonical.execution = ModelAgentProposalExecution::Fresh;
     let mut state = KernelState::new();
-    state
-        .model_agent_requests
-        .insert(canonical.run_id, canonical);
+    Arc::make_mut(&mut state.model_agent_requests).insert(canonical.run_id, canonical);
     let adapters = Adapters {
         approval_repo: Arc::new(approval_repo),
         effect_journal: Arc::new(InMemoryEffectJournal::default()),

@@ -65,7 +65,7 @@ fn test_replay_artifact_chunk_card_evidence() -> Result<(), Box<dyn std::error::
     }))?;
 
     // Now check equality of replay
-    let replayed = replay_events(&state.event_log)?;
+    let replayed = replay_events(&state.event_log_owned())?;
     assert_eq!(state, replayed);
     Ok(())
 }

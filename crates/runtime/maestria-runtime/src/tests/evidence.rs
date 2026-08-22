@@ -65,8 +65,8 @@ async fn evidence_recorded_persistence_replaces_malformed_record()
         security: maestria_domain::SecurityMetadata::default(),
     };
     let mut state = KernelState::new();
-    state.artifacts.insert(artifact_id, artifact);
-    state.evidences.insert(evidence_id, valid_evidence.clone());
+    Arc::make_mut(&mut state.artifacts).insert(artifact_id, artifact);
+    Arc::make_mut(&mut state.evidences).insert(evidence_id, valid_evidence.clone());
 
     let adapters = Adapters {
         evidence_repo: evidence_repo.clone(),

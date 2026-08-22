@@ -4,6 +4,7 @@ use maestria_domain::{
     KernelState, MaestriaEffect, ParseStatus, ParserResult, ParserStarted, RegisterChunkInput,
     SourceSpan, StructureNode, StructureNodeId, StructureNodeType,
 };
+use std::sync::Arc;
 
 #[test]
 fn pending_start_full_text_groups_by_artifact() -> Result<(), Box<dyn std::error::Error>> {
@@ -192,7 +193,7 @@ fn pending_start_full_text_skips_orphan_chunk_ids() -> Result<(), Box<dyn std::e
     // If pending_full_text references a chunk_id not in state.chunks,
     // the helper should silently skip it.
     let mut state = KernelState::new();
-    state.pending_full_text.insert(ChunkId::new(999));
+    Arc::make_mut(&mut state.pending_full_text).insert(ChunkId::new(999));
 
     let inputs = pending_start_full_text(&state);
     assert!(inputs.is_empty(), "orphan chunk ids should be skipped");
@@ -264,7 +265,7 @@ fn pending_start_full_text_excludes_pending_parser_artifacts()
     // replayed, pending_parsers set) but the process crashed before
     // ParserCompleted.  Old chunks from the prior parse still have
     // pending_full_text entries.
-    state.pending_parsers.insert(
+    Arc::make_mut(&mut state.pending_parsers).insert(
         artifact_a,
         ParserStarted {
             artifact_id: artifact_a,

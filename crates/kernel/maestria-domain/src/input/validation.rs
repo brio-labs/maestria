@@ -1,4 +1,5 @@
 use crate::types::*;
+use std::sync::Arc;
 
 impl KernelState {
     // ── Handlers ─────────────────────────────────────────────────
@@ -31,8 +32,7 @@ impl KernelState {
             ClaimStatus::Disputed
         };
 
-        let claim = self
-            .claims
+        let claim = Arc::make_mut(&mut self.claims)
             .get_mut(&input.claim_id)
             .ok_or(DomainError::MissingClaim { id: input.claim_id })?;
         claim.status = status.clone();
@@ -60,7 +60,7 @@ impl KernelState {
         {
             return Err(DomainError::MissingTask { id: tid });
         }
-        self.validation_reports.insert(
+        Arc::make_mut(&mut self.validation_reports).insert(
             report_id,
             ValidationReportRecord {
                 task_id,

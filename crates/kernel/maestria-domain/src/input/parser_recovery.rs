@@ -1,5 +1,6 @@
 use crate::security::SecurityMetadata;
 use std::collections::{BTreeSet, btree_map::Entry};
+use std::sync::Arc;
 
 use crate::types::*;
 
@@ -13,8 +14,11 @@ impl KernelState {
         input: &ParserResult,
     ) -> Result<Vec<DomainEventEnvelope>, DomainError> {
         let mut generated = Vec::new();
-        if let Some(pending) = self.pending_artifacts.remove(&input.artifact_id) {
-            if let Entry::Vacant(entry) = self.artifacts.entry(input.artifact_id) {
+        if let Some(pending) = Arc::make_mut(&mut self.pending_artifacts).remove(&input.artifact_id)
+        {
+            if let Entry::Vacant(entry) =
+                Arc::make_mut(&mut self.artifacts).entry(input.artifact_id)
+            {
                 let mut artifact = Artifact::with_title(input.artifact_id, pending.title.clone());
                 artifact.security = SecurityMetadata::default();
                 entry.insert(artifact);
@@ -25,7 +29,7 @@ impl KernelState {
                 });
                 generated.push(register_event);
             }
-            if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
+            if let Some(artifact) = Arc::make_mut(&mut self.artifacts).get_mut(&input.artifact_id) {
                 artifact.content_hash = Some(pending.content_hash.clone());
                 artifact.index_status = IndexStatus::Pending;
             }
@@ -45,7 +49,9 @@ impl KernelState {
     ) -> Result<Vec<DomainEventEnvelope>, DomainError> {
         let mut generated = Vec::new();
         if let Some(parser) = self.pending_parsers.get(&input.artifact_id).cloned() {
-            if let Entry::Vacant(entry) = self.artifacts.entry(input.artifact_id) {
+            if let Entry::Vacant(entry) =
+                Arc::make_mut(&mut self.artifacts).entry(input.artifact_id)
+            {
                 let mut artifact = Artifact::with_title(input.artifact_id, parser.title.clone());
                 artifact.security = SecurityMetadata::default();
                 entry.insert(artifact);
@@ -55,13 +61,14 @@ impl KernelState {
                     security: SecurityMetadata::default(),
                 });
                 generated.push(register_event);
-            } else if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id)
+            } else if let Some(artifact) =
+                Arc::make_mut(&mut self.artifacts).get_mut(&input.artifact_id)
                 && artifact.title.is_empty()
                 && !parser.title.is_empty()
             {
                 artifact.title = parser.title.clone();
             }
-            if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
+            if let Some(artifact) = Arc::make_mut(&mut self.artifacts).get_mut(&input.artifact_id) {
                 let needs_pending = artifact.index_status != IndexStatus::Pending
                     || artifact.content_hash.as_ref() != Some(&parser.content_hash);
                 if needs_pending {
@@ -105,7 +112,7 @@ impl KernelState {
                     }
                 } else {
                     generated.push(self.handle_register_chunk(chunk.clone())?);
-                    self.pending_full_text.insert(chunk.chunk_id);
+                    Arc::make_mut(&mut self.pending_full_text).insert(chunk.chunk_id);
                     new_chunks += 1;
                 }
             }
@@ -186,11 +193,11 @@ impl KernelState {
                     root_id: tree_root_id,
                     nodes: input.tree_nodes.clone(),
                 });
-                self.artifact_versions
+                Arc::make_mut(&mut self.artifact_versions)
                     .insert(input.artifact_id, input.artifact_version_id);
-                self.artifact_content_hashes
+                Arc::make_mut(&mut self.artifact_content_hashes)
                     .insert(input.artifact_id, input.content_hash.clone());
-                self.document_trees
+                Arc::make_mut(&mut self.document_trees)
                     .insert(input.artifact_id, (tree_root_id, input.tree_nodes.clone()));
                 generated.push(tree_event);
             }

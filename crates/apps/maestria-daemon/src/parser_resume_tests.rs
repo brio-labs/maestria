@@ -1,4 +1,5 @@
 use std::fs;
+use std::sync::Arc;
 
 use maestria_blob_fs::FsBlobStore;
 use maestria_core::InstanceLayout;
@@ -21,7 +22,7 @@ fn pending_input(
     let artifact_id = ArtifactId::new(artifact_id);
     let blob_id = BlobId::new(blob_id);
     let content_hash = ContentHash::new(content_hash.to_string())?;
-    state.pending_parsers.insert(
+    Arc::make_mut(&mut state.pending_parsers).insert(
         artifact_id,
         ParserStarted {
             artifact_id,
@@ -66,7 +67,7 @@ fn pending_resume_parsers_collects_all_pending() -> Result<(), Box<dyn std::erro
     let blob_a = BlobId::new(100);
     let blob_b = BlobId::new(200);
 
-    state.pending_parsers.insert(
+    Arc::make_mut(&mut state.pending_parsers).insert(
         artifact_a,
         ParserStarted {
             artifact_id: artifact_a,
@@ -76,7 +77,7 @@ fn pending_resume_parsers_collects_all_pending() -> Result<(), Box<dyn std::erro
             blob_id: blob_a,
         },
     );
-    state.pending_parsers.insert(
+    Arc::make_mut(&mut state.pending_parsers).insert(
         artifact_b,
         ParserStarted {
             artifact_id: artifact_b,
@@ -109,7 +110,7 @@ fn pending_resume_parsers_preserves_all_fields() -> Result<(), Box<dyn std::erro
     let blob_id = BlobId::new(999);
     let expected_hash = maestria_test_support::content_hash(12)?;
 
-    state.pending_parsers.insert(
+    Arc::make_mut(&mut state.pending_parsers).insert(
         artifact_id,
         ParserStarted {
             artifact_id,
@@ -263,7 +264,7 @@ fn verify_pending_blobs_fails_when_content_hash_mismatch() -> Result<(), Box<dyn
     });
 
     let mut state = KernelState::new();
-    state.pending_parsers.insert(
+    Arc::make_mut(&mut state.pending_parsers).insert(
         artifact_id,
         ParserStarted {
             artifact_id,

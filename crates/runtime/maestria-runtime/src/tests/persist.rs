@@ -306,10 +306,10 @@ fn build_persist_test_state() -> Result<PersistTestState, Box<dyn std::error::Er
     };
 
     let mut state = KernelState::new();
-    state.artifacts.insert(artifact_id, artifact);
-    state.chunks.insert(chunk_id, chunk);
-    state.cards.insert(card_id, card);
-    state.evidences.insert(evidence_id, evidence);
+    Arc::make_mut(&mut state.artifacts).insert(artifact_id, artifact);
+    Arc::make_mut(&mut state.chunks).insert(chunk_id, chunk);
+    Arc::make_mut(&mut state.cards).insert(card_id, card);
+    Arc::make_mut(&mut state.evidences).insert(evidence_id, evidence);
     Ok((state, chunk_id, card_id, evidence_id, artifact_id))
 }
 

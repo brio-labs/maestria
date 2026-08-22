@@ -269,9 +269,7 @@ fn seed_canonical_fresh(
         .state
         .try_write()
         .map_err(|_| "canonical proposal state lock poisoned")?;
-    state
-        .model_agent_requests
-        .insert(canonical.run_id, canonical);
+    Arc::make_mut(&mut state.model_agent_requests).insert(canonical.run_id, canonical);
     Ok(())
 }
 

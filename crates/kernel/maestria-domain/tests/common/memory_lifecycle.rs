@@ -1,4 +1,5 @@
 use maestria_domain::*;
+use std::sync::Arc;
 #[path = "evidence.rs"]
 mod evidence;
 #[path = "file_evidence.rs"]
@@ -14,15 +15,13 @@ pub fn state_with_memory_candidate(
         authority: Authority::User,
         ..SecurityMetadata::default()
     };
-    state
-        .artifacts
+    Arc::make_mut(&mut state.artifacts)
         .get_mut(&ArtifactId::new(1))
         .ok_or(DomainError::MissingArtifact {
             id: ArtifactId::new(1),
         })?
         .security = trusted_security.clone();
-    state
-        .claims
+    Arc::make_mut(&mut state.claims)
         .get_mut(&ClaimId::new(20))
         .ok_or(DomainError::MissingClaim {
             id: ClaimId::new(20),

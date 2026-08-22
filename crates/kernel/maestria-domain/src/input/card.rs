@@ -1,5 +1,6 @@
 use crate::security::SecurityMetadata;
 use crate::types::*;
+use std::sync::Arc;
 
 pub(crate) struct ApplyCardCreatedArgs<'a> {
     pub card_id: CardId,
@@ -31,7 +32,7 @@ impl KernelState {
         if let Some(artifact) = self.artifacts.get(&input.artifact_id) {
             security = security.taint_from(&artifact.security);
         }
-        self.cards.insert(
+        Arc::make_mut(&mut self.cards).insert(
             input.card_id,
             Card::new(
                 input.card_id,
@@ -44,7 +45,7 @@ impl KernelState {
             ),
         );
 
-        if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
+        if let Some(artifact) = Arc::make_mut(&mut self.artifacts).get_mut(&input.artifact_id) {
             artifact.card_ids.insert(input.card_id);
         }
 
@@ -79,7 +80,7 @@ impl KernelState {
         if self.cards.contains_key(&card_id) {
             return Err(DomainError::DuplicateCard { id: card_id });
         }
-        self.cards.insert(
+        Arc::make_mut(&mut self.cards).insert(
             card_id,
             Card::new(
                 card_id,
@@ -91,7 +92,7 @@ impl KernelState {
                 security.clone(),
             ),
         );
-        if let Some(artifact) = self.artifacts.get_mut(&artifact_id) {
+        if let Some(artifact) = Arc::make_mut(&mut self.artifacts).get_mut(&artifact_id) {
             artifact.card_ids.insert(card_id);
         }
         Ok(())

@@ -76,12 +76,10 @@ async fn index_full_text_effect_indexes_cards_before_chunks()
     };
 
     let mut state = KernelState::new();
-    state
-        .artifacts
-        .insert(artifact_id, artifact_fixture(artifact_id));
-    state.chunks.insert(chunk_id, chunk);
-    state.cards.insert(card_id, card);
-    state.pending_full_text.insert(chunk_id);
+    Arc::make_mut(&mut state.artifacts).insert(artifact_id, artifact_fixture(artifact_id));
+    Arc::make_mut(&mut state.chunks).insert(chunk_id, chunk);
+    Arc::make_mut(&mut state.cards).insert(card_id, card);
+    Arc::make_mut(&mut state.pending_full_text).insert(chunk_id);
 
     let search_index = Arc::new(InMemoryFullTextIndex::new());
     let (input_tx, _input_rx) = mpsc::channel(8);
@@ -151,11 +149,9 @@ async fn index_full_text_effect_no_cards_when_state_has_none()
     };
 
     let mut state = KernelState::new();
-    state
-        .artifacts
-        .insert(artifact_id, artifact_fixture(artifact_id));
-    state.chunks.insert(chunk_id, chunk);
-    state.pending_full_text.insert(chunk_id);
+    Arc::make_mut(&mut state.artifacts).insert(artifact_id, artifact_fixture(artifact_id));
+    Arc::make_mut(&mut state.chunks).insert(chunk_id, chunk);
+    Arc::make_mut(&mut state.pending_full_text).insert(chunk_id);
     // No cards inserted.
 
     let search_index = Arc::new(InMemoryFullTextIndex::new());
@@ -239,12 +235,10 @@ async fn index_full_text_effect_reindexing_is_idempotent() -> Result<(), Box<dyn
     };
 
     let mut state = KernelState::new();
-    state
-        .artifacts
-        .insert(artifact_id, artifact_fixture(artifact_id));
-    state.chunks.insert(chunk_id, chunk);
-    state.cards.insert(card_id, card);
-    state.pending_full_text.insert(chunk_id);
+    Arc::make_mut(&mut state.artifacts).insert(artifact_id, artifact_fixture(artifact_id));
+    Arc::make_mut(&mut state.chunks).insert(chunk_id, chunk);
+    Arc::make_mut(&mut state.cards).insert(card_id, card);
+    Arc::make_mut(&mut state.pending_full_text).insert(chunk_id);
 
     let search_index = Arc::new(InMemoryFullTextIndex::new());
     let (input_tx, _input_rx) = mpsc::channel(8);
@@ -309,7 +303,7 @@ async fn index_full_text_rejects_secret_bearing_chunk() -> Result<(), Box<dyn st
     let artifact_id = ArtifactId::new(9);
     let chunk_id = ChunkId::new(90);
     let mut state = KernelState::new();
-    state.chunks.insert(
+    Arc::make_mut(&mut state.chunks).insert(
         chunk_id,
         Chunk {
             id: chunk_id,
