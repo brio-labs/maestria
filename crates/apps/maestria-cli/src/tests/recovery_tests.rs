@@ -3,6 +3,7 @@ use maestria_domain::{
     IndexStatus, KernelState, ParseStatus, ParserResult, ParserStarted, RegisterChunkInput,
     SourceSpan, StartFullTextIndex, StructureNodeId,
 };
+use std::sync::Arc;
 
 /// Verify that `recovery_inputs` — as called by `index_path` before
 /// `build_runtime` — correctly derives `ResumeParser` inputs from
@@ -20,7 +21,7 @@ fn index_path_recovery_derives_pending_inputs_with_correct_filter()
     let artifact_b = ArtifactId::new(2); // has pending chunks only
 
     // artifact_a: ParserStarted replayed (pending parser)
-    state.pending_parsers.insert(
+    Arc::make_mut(&mut state.pending_parsers).insert(
         artifact_a,
         ParserStarted {
             artifact_id: artifact_a,
@@ -226,16 +227,14 @@ fn recovery_drain_all_indexed_predicate() -> Result<(), Box<dyn std::error::Erro
     assert!(!all_indexed(&state, &[id_a, id_b]));
 
     // Mark only id_a as Indexed → still false.
-    state
-        .artifacts
+    Arc::make_mut(&mut state.artifacts)
         .get_mut(&id_a)
         .ok_or_else(|| std::io::Error::other("artifact A missing"))?
         .index_status = IndexStatus::Indexed;
     assert!(!all_indexed(&state, &[id_a, id_b]));
 
     // Mark id_b as Indexed → true.
-    state
-        .artifacts
+    Arc::make_mut(&mut state.artifacts)
         .get_mut(&id_b)
         .ok_or_else(|| std::io::Error::other("artifact B missing"))?
         .index_status = IndexStatus::Indexed;

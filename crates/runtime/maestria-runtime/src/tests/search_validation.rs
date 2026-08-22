@@ -14,7 +14,7 @@ async fn search_validation_failure_records_a_failed_report()
     let task_id = TaskId::new(7);
     let report_id = ValidationReportId::new(8);
     let mut state = KernelState::new();
-    state.tasks.insert(
+    Arc::make_mut(&mut state.tasks).insert(
         task_id,
         Task {
             id: task_id,
@@ -44,14 +44,16 @@ async fn search_validation_failure_records_a_failed_report()
         })?,
         conflicts: Vec::new(),
     };
-    state.event_log.push(maestria_domain::DomainEventEnvelope {
-        id: maestria_domain::EventId::new(1),
-        event: DomainEvent::SearchKnowledgeCompleted {
-            task_id: Some(task_id),
-            plan: None,
-            outcome,
-        },
-    });
+    state
+        .event_log
+        .push(Arc::new(maestria_domain::DomainEventEnvelope {
+            id: maestria_domain::EventId::new(1),
+            event: DomainEvent::SearchKnowledgeCompleted {
+                task_id: Some(task_id),
+                plan: None,
+                outcome,
+            },
+        }));
 
     let (input_tx, mut input_rx) = tokio::sync::mpsc::channel(8);
     let ctx = EffectExecutionContext::test_default(
@@ -133,8 +135,8 @@ async fn completion_rejects_a_forged_passing_search_report()
         },
     ];
     let mut state = KernelState::new();
-    state.tasks.insert(task_id, task);
-    state.validation_reports.insert(
+    Arc::make_mut(&mut state.tasks).insert(task_id, task);
+    Arc::make_mut(&mut state.validation_reports).insert(
         report_id,
         maestria_domain::ValidationReportRecord {
             task_id: Some(task_id),
@@ -160,7 +162,7 @@ async fn associated_search_coverage_and_conflicts_block_verified_completion()
 -> Result<(), Box<dyn std::error::Error>> {
     let task_id = TaskId::new(21);
     let mut state = KernelState::new();
-    state.tasks.insert(
+    Arc::make_mut(&mut state.tasks).insert(
         task_id,
         Task {
             id: task_id,
@@ -171,37 +173,39 @@ async fn associated_search_coverage_and_conflicts_block_verified_completion()
             evidence_ids: Default::default(),
         },
     );
-    state.event_log.push(maestria_domain::DomainEventEnvelope {
-        id: maestria_domain::EventId::new(1),
-        event: DomainEvent::SearchKnowledgeCompleted {
-            task_id: Some(task_id),
-            plan: None,
-            outcome: maestria_domain::SearchOutcome {
-                trace: maestria_domain::SearchTraceId::new(21),
-                trace_data: None,
-                fingerprint: maestria_domain::RetrievalModelFingerprint::new(
-                    "fixture:associated-search".to_string(),
-                )?,
-                index_generation: maestria_domain::IndexGenerationId::new(1),
-                status: maestria_domain::SearchStatus::SourcesConflict,
-                evidence: Vec::new(),
-                coverage: maestria_domain::EvidenceCoverage::new(EvidenceCoverageDto {
-                    percent_covered: 50,
-                    gaps_identified: vec!["unresolved claim".to_string()],
-                    required_claims: vec!["claim".to_string()],
-                    required_subquestions: Vec::new(),
-                    distinct_sources: 0,
-                    distinct_documents: 0,
-                    distinct_sections: 0,
-                    candidate_coverage_keys: Vec::new(),
-                })?,
-                conflicts: vec![maestria_domain::ConflictSet {
-                    id: maestria_domain::ConflictSetId::new(1),
-                    candidates: Vec::new(),
-                }],
+    state
+        .event_log
+        .push(Arc::new(maestria_domain::DomainEventEnvelope {
+            id: maestria_domain::EventId::new(1),
+            event: DomainEvent::SearchKnowledgeCompleted {
+                task_id: Some(task_id),
+                plan: None,
+                outcome: maestria_domain::SearchOutcome {
+                    trace: maestria_domain::SearchTraceId::new(21),
+                    trace_data: None,
+                    fingerprint: maestria_domain::RetrievalModelFingerprint::new(
+                        "fixture:associated-search".to_string(),
+                    )?,
+                    index_generation: maestria_domain::IndexGenerationId::new(1),
+                    status: maestria_domain::SearchStatus::SourcesConflict,
+                    evidence: Vec::new(),
+                    coverage: maestria_domain::EvidenceCoverage::new(EvidenceCoverageDto {
+                        percent_covered: 50,
+                        gaps_identified: vec!["unresolved claim".to_string()],
+                        required_claims: vec!["claim".to_string()],
+                        required_subquestions: Vec::new(),
+                        distinct_sources: 0,
+                        distinct_documents: 0,
+                        distinct_sections: 0,
+                        candidate_coverage_keys: Vec::new(),
+                    })?,
+                    conflicts: vec![maestria_domain::ConflictSet {
+                        id: maestria_domain::ConflictSetId::new(1),
+                        candidates: Vec::new(),
+                    }],
+                },
             },
-        },
-    });
+        }));
 
     let report = crate::validation::build_validation_report_from_state(
         &state,

@@ -156,7 +156,7 @@ async fn completed_ocr_is_selected_even_when_older_intent_is_pending()
         [maestria_domain::OcrPageText::new(1, "recognized")?],
     )?;
     let mut state = KernelState::new();
-    state.pending_parsers.insert(
+    Arc::make_mut(&mut state.pending_parsers).insert(
         artifact_id,
         maestria_domain::ParserStarted {
             artifact_id,
@@ -166,19 +166,15 @@ async fn completed_ocr_is_selected_even_when_older_intent_is_pending()
             blob_id,
         },
     );
-    state
-        .ocr_intents
+    Arc::make_mut(&mut state.ocr_intents)
         .insert(pending_intent.request_id().clone(), pending_intent.clone());
-    state
-        .pending_ocr
+    Arc::make_mut(&mut state.pending_ocr)
         .insert(pending_intent.request_id().clone(), pending_intent);
-    state.ocr_intents.insert(
+    Arc::make_mut(&mut state.ocr_intents).insert(
         completed_intent.request_id().clone(),
         completed_intent.clone(),
     );
-    state
-        .ocr_results
-        .insert(completed_intent.request_id().clone(), completion);
+    Arc::make_mut(&mut state.ocr_results).insert(completed_intent.request_id().clone(), completion);
 
     let adapters = Adapters {
         parser: Arc::new(NeedsOcrTestParser),

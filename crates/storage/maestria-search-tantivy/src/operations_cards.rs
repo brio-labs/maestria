@@ -56,6 +56,7 @@ impl TantivyFullTextIndex {
         if query.limit == 0 {
             return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Complete));
         }
+        self.commit_if_dirty()?;
         let searcher = self.reader.searcher();
         let fields = vec![self.fields.card_title, self.fields.card_body];
         let parsed_query = parse_query(&self.index, fields, trimmed)?;
@@ -110,6 +111,7 @@ impl TantivyFullTextIndex {
         if query.limit == 0 {
             return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Complete));
         }
+        self.commit_if_dirty()?;
         let searcher = self.reader.searcher();
         let (allowed, authorization_stop) =
             self.allowed_card_keys(&searcher, filter, &mut meter)?;

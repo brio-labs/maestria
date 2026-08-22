@@ -126,6 +126,9 @@ impl MaestriaRuntime {
                 reason: error.to_string(),
             }
         })?;
+        if let Some(flush_projections) = self.config.flush_projections.as_ref() {
+            flush_projections();
+        }
         Ok(())
     }
 

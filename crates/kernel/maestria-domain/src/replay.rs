@@ -1,4 +1,5 @@
 use crate::types::*;
+use std::sync::Arc;
 
 mod notebook;
 mod ocr;
@@ -86,7 +87,7 @@ impl KernelState {
             }
         }
 
-        self.event_log.push(envelope);
+        self.event_log.push(Arc::new(envelope));
         Ok(())
     }
 }

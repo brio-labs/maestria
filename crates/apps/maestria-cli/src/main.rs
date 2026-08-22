@@ -1,9 +1,14 @@
 mod cli_types;
 mod commands;
 mod helpers;
-
 #[cfg(test)]
 mod tests;
+
+/// Opt-in heap profiling: build with `--features dhat-heap`; stats are
+/// written to the path in `DHAT_OUT` (default `dhat-heap.json`) on exit.
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static DHAT_ALLOC: dhat::Alloc = dhat::Alloc;
 
 use anyhow::{Context, Result, anyhow};
 use clap::Parser as ClapParser;
@@ -73,6 +78,13 @@ fn open_studio_url(_url: &str) {}
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    #[cfg(feature = "dhat-heap")]
+    let dhat_output = match std::env::var("DHAT_OUT") {
+        Ok(path) => std::path::PathBuf::from(path),
+        Err(_) => std::path::PathBuf::from("dhat-heap.json"),
+    };
+    #[cfg(feature = "dhat-heap")]
+    let _dhat_profiler = dhat::Profiler::builder().file_name(dhat_output).build();
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .init();

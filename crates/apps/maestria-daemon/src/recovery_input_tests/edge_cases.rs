@@ -4,6 +4,7 @@ use maestria_domain::{
     KernelState, ParseStatus, ParserResult, ParserStarted, RegisterChunkInput, SourceSpan,
     StructureNode, StructureNodeId, StructureNodeType,
 };
+use std::sync::Arc;
 
 #[test]
 fn recovery_inputs_empty_when_nothing_pending() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,7 +22,7 @@ fn recovery_inputs_derives_both_kinds_from_state() -> Result<(), Box<dyn std::er
     let artifact_b = ArtifactId::new(2);
 
     // artifact_a: has pending parser (crashed mid-parse)
-    state.pending_parsers.insert(
+    Arc::make_mut(&mut state.pending_parsers).insert(
         artifact_a,
         ParserStarted {
             artifact_id: artifact_a,
@@ -141,7 +142,7 @@ fn recovery_inputs_excludes_parser_pending_from_full_text() -> Result<(), Box<dy
     }))?;
 
     // Now simulate re-ingestion crash: ParserStarted replayed
-    state.pending_parsers.insert(
+    Arc::make_mut(&mut state.pending_parsers).insert(
         artifact_id,
         ParserStarted {
             artifact_id,

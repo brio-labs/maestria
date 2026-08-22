@@ -272,10 +272,8 @@ async fn malformed_page_set_is_rejected_after_transport_and_not_completed() -> T
     let request = intent(blob, bytes, false)?;
     let request_id = request.request_id().clone();
     let mut state = KernelState::new();
-    state.pending_ocr.insert(request_id, request.clone());
-    state
-        .ocr_intents
-        .insert(request.request_id().clone(), request.clone());
+    Arc::make_mut(&mut state.pending_ocr).insert(request_id, request.clone());
+    Arc::make_mut(&mut state.ocr_intents).insert(request.request_id().clone(), request.clone());
     let (input_tx, mut input_rx) = mpsc::channel(8);
     let result = MaestriaRuntime::test_execute_effect(
         MaestriaEffect::Ocr(request),
@@ -317,7 +315,7 @@ async fn durable_ocr_completion_restart_resumes_parse_without_provider_retransmi
         ],
     )?;
     let mut state = KernelState::new();
-    state.pending_parsers.insert(
+    Arc::make_mut(&mut state.pending_parsers).insert(
         maestria_domain::ArtifactId::new(9),
         maestria_domain::ParserStarted {
             artifact_id: maestria_domain::ArtifactId::new(9),
@@ -327,12 +325,8 @@ async fn durable_ocr_completion_restart_resumes_parse_without_provider_retransmi
             blob_id: blob,
         },
     );
-    state
-        .ocr_intents
-        .insert(request.request_id().clone(), request.clone());
-    state
-        .ocr_results
-        .insert(request.request_id().clone(), completion);
+    Arc::make_mut(&mut state.ocr_intents).insert(request.request_id().clone(), request.clone());
+    Arc::make_mut(&mut state.ocr_results).insert(request.request_id().clone(), completion);
     let (input_tx, _input_rx) = mpsc::channel(8);
     let result = MaestriaRuntime::test_execute_effect(
         MaestriaEffect::ParseArtifact(maestria_domain::ParseArtifactRequest {

@@ -1,5 +1,6 @@
 use crate::types::*;
 use crate::{OcrCompletion, OcrIntent, OcrRequestId};
+use std::sync::Arc;
 
 impl KernelState {
     pub(super) fn replay_ocr_requested(&mut self, intent: &OcrIntent) -> Result<(), DomainError> {
@@ -26,8 +27,8 @@ impl KernelState {
                 });
             }
         }
-        self.pending_ocr.insert(request_id.clone(), intent.clone());
-        self.ocr_intents.insert(request_id, intent.clone());
+        Arc::make_mut(&mut self.pending_ocr).insert(request_id.clone(), intent.clone());
+        Arc::make_mut(&mut self.ocr_intents).insert(request_id, intent.clone());
         Ok(())
     }
 
@@ -70,8 +71,8 @@ impl KernelState {
             });
         }
         self.validate_ocr_correlation(artifact_id, completion, &intent)?;
-        self.pending_ocr.remove(completion.request_id());
-        self.ocr_results
+        Arc::make_mut(&mut self.pending_ocr).remove(completion.request_id());
+        Arc::make_mut(&mut self.ocr_results)
             .insert(completion.request_id().clone(), completion.clone());
         Ok(())
     }
@@ -120,10 +121,9 @@ impl KernelState {
                 detail: "OCR failure replay artifact does not correlate with intent",
             });
         }
-        self.pending_parsers.remove(&artifact_id);
-        self.pending_ocr.remove(request_id);
-        self.ocr_failures
-            .insert(request_id.clone(), reason.to_string());
+        Arc::make_mut(&mut self.pending_parsers).remove(&artifact_id);
+        Arc::make_mut(&mut self.pending_ocr).remove(request_id);
+        Arc::make_mut(&mut self.ocr_failures).insert(request_id.clone(), reason.to_string());
         Ok(())
     }
 }

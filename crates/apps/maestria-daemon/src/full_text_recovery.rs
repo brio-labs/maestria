@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 
 pub fn pending_start_full_text(state: &KernelState) -> Vec<DomainInput> {
     let mut artifacts: BTreeSet<ArtifactId> = BTreeSet::new();
-    for chunk_id in &state.pending_full_text {
+    for chunk_id in state.pending_full_text.iter() {
         if let Some(chunk) = state.chunks.get(chunk_id) {
             // Skip artifacts that have a pending parser — the resumed
             // parser flow owns completion, evidence, and index ordering

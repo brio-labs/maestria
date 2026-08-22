@@ -189,6 +189,8 @@ fn selected_artifact_ids(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use maestria_domain::{
         Artifact, ArtifactId, KernelState, Notebook, NotebookTitle, SecurityMetadata,
@@ -204,8 +206,8 @@ mod tests {
         let source_key = SourceIdentityKey::try_from(source_path.to_owned())?;
         let notebook_id = NotebookId::new(3);
         let mut state = KernelState::default();
-        state.active_sources.insert(source_key.clone(), artifact_id);
-        state.artifacts.insert(
+        Arc::make_mut(&mut state.active_sources).insert(source_key.clone(), artifact_id);
+        Arc::make_mut(&mut state.artifacts).insert(
             artifact_id,
             Artifact {
                 id: artifact_id,
@@ -220,7 +222,7 @@ mod tests {
                 security: SecurityMetadata::default(),
             },
         );
-        state.notebooks.insert(
+        Arc::make_mut(&mut state.notebooks).insert(
             notebook_id,
             Notebook {
                 id: notebook_id,

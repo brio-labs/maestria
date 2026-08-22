@@ -10,6 +10,7 @@ maestria-domain = { workspace = true }
 maestria-ports = { workspace = true }
 maestria-governance = { workspace = true }
 tantivy = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

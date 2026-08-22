@@ -34,6 +34,20 @@ impl SqliteGraphIndex {
         })
     }
 
+    /// Number of relations currently projected (drift signal for startup
+    /// reconciliation watermarking).
+    pub fn relation_count(&self) -> Result<u64, PortError> {
+        let connection = self.lock_connection()?;
+        connection
+            .query_row("SELECT COUNT(*) FROM relations", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map(|count| count.max(0) as u64)
+            .map_err(|error| PortError::InternalContext {
+                context: "graph relation count",
+                source: error.to_string(),
+            })
+    }
     pub(crate) fn lock_connection(&self) -> Result<MutexGuard<'_, Connection>, PortError> {
         maestria_sqlite_support::lock_connection(
             &self.connection,

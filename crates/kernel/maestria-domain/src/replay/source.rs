@@ -1,4 +1,5 @@
 use crate::types::*;
+use std::sync::Arc;
 
 impl KernelState {
     pub(super) fn replay_source_became_stale(
@@ -7,11 +8,11 @@ impl KernelState {
         source_path: &str,
     ) {
         let path = source_path.to_string();
-        self.stale_sources.insert(path.clone());
+        Arc::make_mut(&mut self.stale_sources).insert(path.clone());
         if let Ok(key) = SourceIdentityKey::try_from(path)
             && self.active_sources.get(&key) == Some(&artifact_id)
         {
-            self.active_sources.remove(&key);
+            Arc::make_mut(&mut self.active_sources).remove(&key);
         }
     }
 }

@@ -5,12 +5,22 @@ use maestria_storage_sqlite::db_retry::{is_database_busy, run_database_retry};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
-fn event_count(layout: &InstanceLayout) -> Result<i64> {
+/// One shared read-only connection per poll loop: opening per poll re-parsed
+/// the schema and every close of the last connection triggered a WAL
+/// checkpoint + fsync.
+fn open_read_only_connection(database_path: &std::path::Path) -> Result<rusqlite::Connection> {
     let connection = rusqlite::Connection::open_with_flags(
-        &layout.database_path,
+        database_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
     )
-    .with_context(|| "open database for event count while counting events")?;
+    .with_context(|| "open database for state polling")?;
+    connection
+        .busy_timeout(std::time::Duration::from_secs(5))
+        .with_context(|| "set database busy timeout for state polling")?;
+    Ok(connection)
+}
+
+fn event_count(connection: &rusqlite::Connection) -> Result<i64> {
     let count: i64 = connection
         .query_row("SELECT COUNT(*) FROM domain_events", [], |row| row.get(0))
         .or_else(|error| {
@@ -70,11 +80,10 @@ pub(crate) async fn wait_for_artifact_state(
     mut predicate: impl FnMut(&maestria_domain::Artifact) -> bool,
 ) -> Result<()> {
     let last_error = Arc::new(Mutex::new(None::<String>));
+    let store = maestria_storage_sqlite::SqliteStore::open_read_only(&layout.database_path)?;
     let result = timeout(timeout_budget, async {
         loop {
             let state = retry_db_busy(&wait_context, || {
-                let store =
-                    maestria_storage_sqlite::SqliteStore::open_read_only(&layout.database_path)?;
                 maestria_ports::ArtifactRepository::get(&store, artifact_id)
                     .with_context(|| format!("load artifact state while {wait_context}"))
             });
@@ -120,9 +129,10 @@ pub(crate) async fn wait_for_kernel_state(
     let last_error = Arc::new(Mutex::new(None::<String>));
     let last_error_for_wait = Arc::clone(&last_error);
     let mut last_count: Option<i64> = None;
+    let connection = open_read_only_connection(&layout.database_path)?;
     let result = timeout(timeout_budget, async {
         loop {
-            let count = match retry_db_busy(&wait_context, || event_count(layout)) {
+            let count = match retry_db_busy(&wait_context, || event_count(&connection)) {
                 Ok(count) => count,
                 Err(error) if is_database_busy(&error) => {
                     match last_error_for_wait.lock() {

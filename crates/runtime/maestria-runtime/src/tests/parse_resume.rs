@@ -32,7 +32,7 @@ async fn resume_parse_rejects_blob_when_durable_parser_hash_differs()
 
     let expected_content_hash = ContentHash::new(content_hash(expected_bytes))?;
     let mut state = KernelState::new();
-    state.pending_parsers.insert(
+    Arc::make_mut(&mut state.pending_parsers).insert(
         artifact_id,
         ParserStarted {
             artifact_id,

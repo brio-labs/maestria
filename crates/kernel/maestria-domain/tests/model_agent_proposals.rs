@@ -1,4 +1,5 @@
 use maestria_domain::*;
+use std::sync::Arc;
 
 fn proposal(run_id: u64) -> ModelAgentProposalRequest {
     ModelAgentProposalRequest {
@@ -158,7 +159,7 @@ fn proposal_request_and_completion_replay_reconstruct_lifecycle() -> Result<(), 
 
     let mut replayed = KernelState::new();
     for envelope in source.event_log.clone() {
-        replayed.apply_event(envelope)?;
+        replayed.apply_event(Arc::unwrap_or_clone(envelope))?;
     }
     assert!(replayed.model_agent_requests.is_empty());
     assert_eq!(
@@ -167,7 +168,7 @@ fn proposal_request_and_completion_replay_reconstruct_lifecycle() -> Result<(), 
     );
 
     let mut outstanding = KernelState::new();
-    outstanding.apply_event(source.event_log[0].clone())?;
+    outstanding.apply_event(Arc::unwrap_or_clone(source.event_log[0].clone()))?;
     assert_eq!(
         outstanding.model_agent_requests.get(&request.run_id),
         Some(&request)

@@ -489,6 +489,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "search_executor",
         "approval_recovery",
         "projection_recovery",
+        "projection_watermark",
         "vector_startup",
         "full_text_recovery",
         "parser_resume",

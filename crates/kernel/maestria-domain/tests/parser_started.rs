@@ -1,4 +1,5 @@
 use maestria_domain::*;
+use std::sync::Arc;
 #[path = "common/assertions.rs"]
 mod assertions;
 #[path = "common/fixtures.rs"]
@@ -59,7 +60,7 @@ fn parser_started_stores_metadata_and_emits_persist_event() -> Result<(), Box<dy
 fn resume_parser_emits_parse_artifact_with_source_blob() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     // Set up: pending_parsers exists from replay
-    state.pending_parsers.insert(
+    Arc::make_mut(&mut state.pending_parsers).insert(
         ArtifactId::new(1),
         ParserStarted {
             artifact_id: ArtifactId::new(1),

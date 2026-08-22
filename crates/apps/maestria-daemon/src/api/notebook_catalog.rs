@@ -187,6 +187,8 @@ pub(crate) async fn detach(
 }
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use maestria_domain::{
         Artifact, ArtifactId, IndexStatus, KernelState, SecurityMetadata, SourceIdentityKey,
@@ -199,8 +201,8 @@ mod tests {
         let artifact_id = ArtifactId::new(7);
         let source_key = SourceIdentityKey::try_from(source_path.to_owned())?;
         let mut state = KernelState::default();
-        state.active_sources.insert(source_key, artifact_id);
-        state.artifacts.insert(
+        Arc::make_mut(&mut state.active_sources).insert(source_key, artifact_id);
+        Arc::make_mut(&mut state.artifacts).insert(
             artifact_id,
             Artifact {
                 id: artifact_id,

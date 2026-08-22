@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use crate::security::SecurityMetadata;
 use crate::types::*;
@@ -39,8 +40,7 @@ impl KernelState {
         &mut self,
         input: LinkEvidenceToClaimInput,
     ) -> Result<DomainEventEnvelope, DomainError> {
-        let claim = self
-            .claims
+        let claim = Arc::make_mut(&mut self.claims)
             .get_mut(&input.claim_id)
             .ok_or(DomainError::MissingClaim { id: input.claim_id })?;
         let evidence =
@@ -65,7 +65,7 @@ impl KernelState {
 
         claim.security = claim.security.taint_from(&evidence.security);
         claim.evidence_ids.insert(input.evidence_id);
-        if let Some(evidence) = self.evidences.get_mut(&input.evidence_id) {
+        if let Some(evidence) = Arc::make_mut(&mut self.evidences).get_mut(&input.evidence_id) {
             evidence.claim_id = Some(input.claim_id);
         }
 
@@ -115,12 +115,12 @@ impl KernelState {
         let mut claim = Claim::new(claim_id, artifact_id, text.to_string(), security.clone());
         claim.evidence_ids.extend(evidence_ids.iter().copied());
         for evidence_id in evidence_ids {
-            if let Some(evidence) = self.evidences.get_mut(evidence_id) {
+            if let Some(evidence) = Arc::make_mut(&mut self.evidences).get_mut(evidence_id) {
                 evidence.claim_id = Some(claim_id);
             }
         }
-        self.claims.insert(claim_id, claim);
-        if let Some(artifact) = self.artifacts.get_mut(&artifact_id) {
+        Arc::make_mut(&mut self.claims).insert(claim_id, claim);
+        if let Some(artifact) = Arc::make_mut(&mut self.artifacts).get_mut(&artifact_id) {
             artifact.claim_ids.insert(claim_id);
         }
         Ok(())
@@ -131,8 +131,7 @@ impl KernelState {
         claim_id: ClaimId,
         status: &ClaimStatus,
     ) -> Result<(), DomainError> {
-        let claim = self
-            .claims
+        let claim = Arc::make_mut(&mut self.claims)
             .get_mut(&claim_id)
             .ok_or(DomainError::MissingClaim { id: claim_id })?;
         claim.status = status.clone();
@@ -144,8 +143,7 @@ impl KernelState {
         claim_id: ClaimId,
         evidence_id: EvidenceId,
     ) -> Result<(), DomainError> {
-        let claim = self
-            .claims
+        let claim = Arc::make_mut(&mut self.claims)
             .get_mut(&claim_id)
             .ok_or(DomainError::MissingClaim { id: claim_id })?;
         let evidence = self
@@ -165,7 +163,7 @@ impl KernelState {
         }
         claim.security = claim.security.taint_from(&evidence.security);
         claim.evidence_ids.insert(evidence_id);
-        if let Some(evidence) = self.evidences.get_mut(&evidence_id) {
+        if let Some(evidence) = Arc::make_mut(&mut self.evidences).get_mut(&evidence_id) {
             evidence.claim_id = Some(claim_id);
         }
         Ok(())

@@ -60,21 +60,40 @@ fn build_storage_adapters(layout: &InstanceLayout) -> Result<StorageAdapters> {
     })
 }
 
+type ProjectionFlushHook = std::sync::Arc<dyn Fn() + Send + Sync>;
+
+/// Flush hook for lazy projection commits: keeps a concrete handle to the
+/// writable tantivy index so the runtime can commit buffered documents
+/// before `run` returns (session-end watermarking reads committed counts).
 fn build_index_adapters(
     layout: &InstanceLayout,
     state: &KernelState,
     read_only_search_index: bool,
     has_embedding_provider: bool,
-) -> Result<IndexAdapters> {
-    let search_index: Arc<dyn FullTextIndex + Send + Sync> =
+) -> Result<(IndexAdapters, Option<ProjectionFlushHook>)> {
+    let concrete_search_index =
         open_full_text_index(layout, state, !read_only_search_index, false)?;
+    let flush_hook: Option<ProjectionFlushHook> = if read_only_search_index {
+        None
+    } else {
+        let index = std::sync::Arc::clone(&concrete_search_index);
+        Some(Arc::new(move || {
+            if let Err(error) = index.commit_if_dirty() {
+                tracing::warn!(%error, "projection flush failed to commit tantivy buffer");
+            }
+        }))
+    };
+    let search_index: Arc<dyn FullTextIndex + Send + Sync> = concrete_search_index;
     let vector_index = open_vector_index(layout, has_embedding_provider)?;
     let graph_index = open_graph_index(layout, state, false)?;
-    Ok(IndexAdapters {
-        search_index,
-        vector_index,
-        graph_index,
-    })
+    Ok((
+        IndexAdapters {
+            search_index,
+            vector_index,
+            graph_index,
+        },
+        flush_hook,
+    ))
 }
 
 fn build_ecosystem_adapters(
@@ -163,9 +182,9 @@ fn build_adapters(
     embedding_provider: Option<Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>>,
     repository_execution_policy: RepositoryExecutionPolicy,
     read_only_search_index: bool,
-) -> Result<Adapters> {
+) -> Result<(Adapters, Option<ProjectionFlushHook>)> {
     let storage = build_storage_adapters(layout)?;
-    let indexes = build_index_adapters(
+    let (indexes, flush_hook) = build_index_adapters(
         layout,
         state,
         read_only_search_index,
@@ -202,6 +221,7 @@ fn build_adapters(
         effect_journal: storage.sqlite_store.clone(),
         approval_repo: storage.sqlite_store,
     })
+    .map(|adapters| (adapters, flush_hook))
 }
 
 pub(crate) fn build_runtime(
@@ -239,7 +259,7 @@ pub(crate) fn build_runtime_with_repository_policy(
         .filter(|config| config.enabled)
         .map(|config| config.model.clone());
     let embedding_provider = build_embedding_provider(&manifest, &state)?;
-    let adapters = build_adapters(
+    let (adapters, flush_hook) = build_adapters(
         layout,
         &state,
         &manifest,
@@ -268,6 +288,7 @@ pub(crate) fn build_runtime_with_repository_policy(
         profile,
         scope,
         embedding_model,
+        flush_projections: flush_hook,
         ..Default::default()
     };
 

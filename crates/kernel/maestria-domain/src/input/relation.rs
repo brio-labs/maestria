@@ -1,5 +1,6 @@
 use crate::security::SecurityMetadata;
 use crate::types::*;
+use std::sync::Arc;
 
 pub(crate) struct ApplyRelationCreatedArgs<'a> {
     pub relation_id: RelationId,
@@ -94,7 +95,7 @@ impl KernelState {
             confidence_milli: input.confidence_milli,
             security: security.clone(),
         };
-        self.relations.insert(input.relation_id, relation);
+        Arc::make_mut(&mut self.relations).insert(input.relation_id, relation);
         Ok(self.emit_event(DomainEvent::RelationCreated {
             relation_id: input.relation_id,
             source: input.source,
@@ -166,7 +167,7 @@ impl KernelState {
         {
             return Err(DomainError::MissingEvidence { id: ev_id });
         }
-        self.relations.insert(
+        Arc::make_mut(&mut self.relations).insert(
             relation_id,
             Relation {
                 id: relation_id,

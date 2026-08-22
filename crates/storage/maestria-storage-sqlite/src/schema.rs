@@ -235,6 +235,10 @@ static BASE_SCHEMA_SQL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|
          version INTEGER NOT NULL,
          FOREIGN KEY (identity_json) REFERENCES learned_sparse_projections(identity_json)
              ON DELETE CASCADE
+    );
+     CREATE TABLE IF NOT EXISTS projection_meta (
+         key TEXT PRIMARY KEY,
+         value TEXT NOT NULL
      );"#,
         maestria_sqlite_support::DEFAULT_SECURITY_JSON,
         maestria_sqlite_support::DEFAULT_SECURITY_JSON,

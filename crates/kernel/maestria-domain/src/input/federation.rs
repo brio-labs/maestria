@@ -1,5 +1,6 @@
 use crate::types::*;
 use crate::{GrantTokenDigest, RealmId};
+use std::sync::Arc;
 
 impl KernelState {
     pub(crate) fn process_issue_realm_read_grant(
@@ -62,7 +63,7 @@ impl KernelState {
                 consumer_realm: grant.consumer_realm().clone(),
             });
         }
-        self.realm_read_grants.insert(digest, grant.clone());
+        Arc::make_mut(&mut self.realm_read_grants).insert(digest, grant.clone());
         Ok(())
     }
 
@@ -70,11 +71,11 @@ impl KernelState {
         &mut self,
         digest: &GrantTokenDigest,
     ) -> Result<(), DomainError> {
-        let grant = self.realm_read_grants.get_mut(digest).ok_or_else(|| {
-            DomainError::MissingRealmReadGrant {
+        let grant = Arc::make_mut(&mut self.realm_read_grants)
+            .get_mut(digest)
+            .ok_or_else(|| DomainError::MissingRealmReadGrant {
                 digest: digest.clone(),
-            }
-        })?;
+            })?;
         if grant.state() == RealmReadGrantState::Revoked {
             return Err(DomainError::RealmReadGrantAlreadyRevoked {
                 digest: digest.clone(),

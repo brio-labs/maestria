@@ -4,6 +4,7 @@
 /// - `search_executor`: search runtime assembly and execution.
 /// - `approval_recovery`: approval repository reconciliation.
 /// - `projection_recovery`: graph and vector projection recovery.
+/// - `projection_watermark`: startup reconciliation watermark snapshotting.
 /// - `vector_startup`: embedding generation activation and vector startup.
 /// - `full_text_recovery`: pending full-text recovery inputs.
 /// - `parser_resume`: pending parser blob verification.
@@ -47,6 +48,7 @@ mod notebook_draft_open;
 mod parser_resume;
 mod projection_open;
 mod projection_recovery;
+mod projection_watermark;
 mod providers;
 mod recovery_inputs;
 mod recovery_staging;

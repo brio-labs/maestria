@@ -1,4 +1,5 @@
 use crate::types::*;
+use std::sync::Arc;
 impl KernelState {
     // ── Group dispatch helpers ─────────────────────────────────────────────
 
@@ -177,7 +178,7 @@ impl KernelState {
                         run_id: request.run_id,
                     });
                 }
-                self.model_agent_requests
+                Arc::make_mut(&mut self.model_agent_requests)
                     .insert(request.run_id, request.clone());
                 Ok(())
             }
@@ -186,8 +187,8 @@ impl KernelState {
                 if self.model_agent_results.contains_key(&run_id) {
                     return Err(DomainError::DuplicateModelAgentProposalRunId { run_id });
                 }
-                self.model_agent_requests.remove(&run_id);
-                self.model_agent_results.insert(run_id, result.clone());
+                Arc::make_mut(&mut self.model_agent_requests).remove(&run_id);
+                Arc::make_mut(&mut self.model_agent_results).insert(run_id, result.clone());
                 Ok(())
             }
             DomainEvent::ApprovalRecorded {

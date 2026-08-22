@@ -69,7 +69,7 @@ async fn resume_parse_uses_existing_blob_and_skips_storage()
     let (input_tx, mut input_rx) = mpsc::channel(8);
 
     let mut state = KernelState::new();
-    state.pending_parsers.insert(
+    Arc::make_mut(&mut state.pending_parsers).insert(
         ArtifactId::new(200),
         ParserStarted {
             artifact_id: ArtifactId::new(200),
@@ -167,7 +167,7 @@ async fn resume_parse_missing_blob_returns_failure() -> Result<(), Box<dyn std::
     let (input_tx, _input_rx) = mpsc::channel(8);
 
     let mut state = KernelState::new();
-    state.pending_parsers.insert(
+    Arc::make_mut(&mut state.pending_parsers).insert(
         ArtifactId::new(201),
         ParserStarted {
             artifact_id: ArtifactId::new(201),
@@ -312,7 +312,7 @@ fn populate_resume_event_log_and_state(
             blob_id,
         },
     })?;
-    state.pending_parsers.insert(
+    Arc::make_mut(&mut state.pending_parsers).insert(
         art_id,
         ParserStarted {
             artifact_id: art_id,
@@ -322,7 +322,7 @@ fn populate_resume_event_log_and_state(
             blob_id,
         },
     );
-    state.evidences.insert(
+    Arc::make_mut(&mut state.evidences).insert(
         ev_id,
         Evidence {
             id: ev_id,

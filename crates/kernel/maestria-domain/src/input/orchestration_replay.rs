@@ -8,6 +8,7 @@
 //! `orchestration.rs` keeps one concept.
 
 use crate::types::*;
+use std::sync::Arc;
 
 impl KernelState {
     pub(crate) fn apply_search_completed(
@@ -38,7 +39,7 @@ impl KernelState {
     ) -> Result<(), DomainError> {
         match outcome {
             ApprovalOutcome::Acknowledged { .. } => {
-                self.resolved_approvals.insert(approval_id);
+                Arc::make_mut(&mut self.resolved_approvals).insert(approval_id);
             }
             ApprovalOutcome::TaskTransition {
                 task_id,
@@ -46,7 +47,7 @@ impl KernelState {
                 to_status,
                 ..
             } => {
-                let Some(task) = self.tasks.get_mut(&task_id) else {
+                let Some(task) = Arc::make_mut(&mut self.tasks).get_mut(&task_id) else {
                     return Err(DomainError::MissingTask { id: task_id });
                 };
                 if task.status != from_status {
@@ -65,7 +66,7 @@ impl KernelState {
                     }
                     task.status = to_status;
                 }
-                self.resolved_approvals.insert(approval_id);
+                Arc::make_mut(&mut self.resolved_approvals).insert(approval_id);
             }
         }
         Ok(())

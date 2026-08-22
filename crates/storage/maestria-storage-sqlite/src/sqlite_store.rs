@@ -1,6 +1,6 @@
 use maestria_ports::PortError;
 use maestria_sqlite_support::lock_connection;
-use rusqlite::{Connection, Error, ErrorCode, OpenFlags};
+use rusqlite::{Connection, Error, ErrorCode, OpenFlags, OptionalExtension};
 
 use crate::schema::migrate;
 
@@ -69,6 +69,70 @@ impl SqliteStore {
         let result = f(&transaction)?;
         transaction.commit().map_err(to_port_error)?;
         Ok(result)
+    }
+
+    /// Latest durable domain-event id (0 for an empty log).
+    ///
+    /// Concrete-store API for startup reconciliation watermarking; not part
+    /// of the [`maestria_ports::EventLog`] port.
+    pub fn max_event_id(&self) -> Result<i64, PortError> {
+        let connection = self.lock()?;
+        connection
+            .query_row(
+                "SELECT COALESCE(MAX(id), 0) FROM domain_events",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(to_port_error)
+    }
+
+    /// Stored startup-reconciliation watermark, when one has been written.
+    pub fn projection_watermark(&self) -> Result<Option<String>, PortError> {
+        let connection = self.lock()?;
+        connection
+            .query_row(
+                "SELECT value FROM projection_meta WHERE key = 'reconcile_event_watermark'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(to_port_error)
+    }
+
+    /// Persist the startup-reconciliation watermark.
+    pub fn set_projection_watermark(&self, value: &str) -> Result<(), PortError> {
+        let connection = self.lock()?;
+        connection
+            .execute(
+                "INSERT INTO projection_meta(key, value) VALUES ('reconcile_event_watermark', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                rusqlite::params![value],
+            )
+            .map_err(to_port_error)?;
+        Ok(())
+    }
+
+    /// Row counts of the entity projection tables (drift signal for startup
+    /// reconciliation watermarking).
+    pub fn projection_row_counts(&self) -> Result<(u64, u64, u64, u64), PortError> {
+        let connection = self.lock()?;
+        let count = |table: &str| -> Result<u64, PortError> {
+            connection
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .map(|count| count.max(0) as u64)
+                .map_err(|error| PortError::InternalContext {
+                    context: "projection row count",
+                    source: error.to_string(),
+                })
+        };
+        Ok((
+            count("artifacts")?,
+            count("chunks")?,
+            count("cards")?,
+            count("evidence")?,
+        ))
     }
 }
 

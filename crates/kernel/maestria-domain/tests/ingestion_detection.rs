@@ -1,4 +1,5 @@
 use maestria_domain::*;
+use std::sync::Arc;
 #[path = "common/assertions.rs"]
 mod assertions;
 #[path = "common/fixtures.rs"]
@@ -179,7 +180,7 @@ fn changed_hash_commits_new_pending_index_at_parse() -> Result<(), Box<dyn std::
     );
 
     // Mark as indexed so the second detection is not a no-op due to indexed-same-hash.
-    if let Some(artifact) = state.artifacts.get_mut(&ArtifactId::new(1)) {
+    if let Some(artifact) = Arc::make_mut(&mut state.artifacts).get_mut(&ArtifactId::new(1)) {
         artifact.index_status = IndexStatus::Indexed;
     }
 
