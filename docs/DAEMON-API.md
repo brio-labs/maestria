@@ -79,7 +79,10 @@ The response is one typed JSON envelope. A success has `response` set and both
 human-readable string `error`, and a machine-readable `error_code` from:
 `unauthorized`, `invalid_input`, `not_found`, `source_unavailable`,
 `source_not_selected`, `revision_conflict`, `no_evidence`,
-`request_too_large`, or `internal`.
+`request_too_large`, `daemon_unavailable`, or `internal`.
+`daemon_unavailable` is returned when the socket accepts no connection —
+nothing is serving the instance right now (never started, stopped, or
+killed). Clients may treat it as "run locally" instead of as a failure.
 
 ## Notebook operations
 

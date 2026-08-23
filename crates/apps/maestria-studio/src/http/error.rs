@@ -155,6 +155,7 @@ impl From<DaemonRequestError> for StudioError {
             ClientErrorCode::RevisionConflict => ProblemCode::RevisionConflict,
             ClientErrorCode::NoEvidence => ProblemCode::NoEvidence,
             ClientErrorCode::RequestTooLarge => ProblemCode::RequestTooLarge,
+            ClientErrorCode::DaemonUnavailable => ProblemCode::SourceUnavailable,
             ClientErrorCode::Internal => ProblemCode::Internal,
         };
         Self::with_source(code, anyhow::Error::new(error))

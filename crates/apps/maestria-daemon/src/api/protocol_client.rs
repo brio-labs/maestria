@@ -25,6 +25,10 @@ pub enum ClientErrorCode {
     RevisionConflict,
     NoEvidence,
     RequestTooLarge,
+    /// The daemon socket accepted no connection: nothing is serving the
+    /// instance right now (never started, stopped, or killed). Clients may
+    /// treat this as "run locally" instead of as a failure.
+    DaemonUnavailable,
     Internal,
 }
 
@@ -133,7 +137,7 @@ impl DaemonClient {
         let mut stream = UnixStream::connect(&self.socket_path)
             .await
             .map_err(|error| DaemonRequestError {
-                code: ClientErrorCode::Internal,
+                code: ClientErrorCode::DaemonUnavailable,
                 message: format!(
                     "connect daemon socket {}: {error}",
                     self.socket_path.display()

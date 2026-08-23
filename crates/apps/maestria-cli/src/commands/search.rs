@@ -21,10 +21,66 @@ pub async fn run(
     limit: usize,
 ) -> Result<()> {
     let layout = helpers::validated_instance(instance_dir)?;
+
+    // Daemon-first: a live daemon serves searches from its warm runtime, so
+    // the CLI skips the per-invocation state load entirely. Task-scoped
+    // searches stay local — the daemon search operation has no task
+    // binding. A missing daemon (no token/socket) falls back; a failing
+    // daemon is a real error and surfaces.
+    if task_id.is_none()
+        && let Some(response) = try_daemon_search(&layout, &query, limit).await?
+    {
+        let store = maestria_storage_sqlite::SqliteStore::open_read_only(&layout.database_path)?;
+        print_daemon_search(&store, &response);
+        return Ok(());
+    }
+
     let (_plan, outcome, _state) = run_search_command(&layout, task_id, query, limit).await?;
     let store = maestria_storage_sqlite::SqliteStore::open_read_only(&layout.database_path)?;
     print_search_outcome(&store, &outcome);
     Ok(())
+}
+
+/// Dispatch one search to a live instance daemon.
+///
+/// Returns `Ok(None)` when no daemon has ever started for this instance
+/// (missing token or socket), so the caller runs the search locally. Once
+/// the socket exists, daemon failures surface as errors: a daemon that is
+/// running but failing is not a fallback trigger.
+///
+/// # Cancellation
+///
+/// Dropping this future closes the in-flight daemon request; a frame already
+/// delivered to the daemon may still complete server-side.
+async fn try_daemon_search(
+    layout: &InstanceLayout,
+    query: &str,
+    limit: usize,
+) -> Result<Option<maestria_daemon::SearchResponse>> {
+    if !layout.system_dir.join("daemon.sock").exists() {
+        return Ok(None);
+    }
+    let client = match maestria_daemon::DaemonClient::from_instance(layout) {
+        Ok(client) => client,
+        Err(_) => return Ok(None),
+    };
+    let response = match client
+        .request(maestria_daemon::ClientOperation::Search {
+            query: query.to_string(),
+            limit,
+        })
+        .await
+    {
+        Ok(response) => response,
+        Err(error) if error.code == maestria_daemon::ClientErrorCode::DaemonUnavailable => {
+            return Ok(None);
+        }
+        Err(error) => return Err(error.into()),
+    };
+    match response {
+        maestria_daemon::ClientResponse::Search(search) => Ok(Some(search)),
+        _ => Err(anyhow!("daemon returned a non-search response")),
+    }
 }
 
 /// Execute one governed search, persisting search knowledge through the runtime when the
@@ -188,6 +244,44 @@ pub(super) fn print_search_outcome(
             rank + 1,
             artifact_id,
             evidence_candidate.evidence_id(),
+            source,
+            snippet,
+        );
+    }
+}
+
+/// Render a daemon-served search with the same line format as the local
+/// path. Hit details come from the same durable evidence projection the
+/// daemon authorized against, read through this instance's store.
+fn print_daemon_search(
+    store: &maestria_storage_sqlite::SqliteStore,
+    response: &maestria_daemon::SearchResponse,
+) {
+    use maestria_ports::EvidenceRepository;
+
+    if response.evidence.is_empty() {
+        println!("search_status={}", response.status);
+        return;
+    }
+    for (rank, hit) in response.evidence.iter().enumerate() {
+        let evidence_id = maestria_domain::EvidenceId::new(hit.evidence_id);
+        let (artifact_label, source, snippet) = match EvidenceRepository::get(store, evidence_id) {
+            Ok(Some(evidence)) => (
+                evidence.artifact_id.to_string(),
+                helpers::source_label(&evidence),
+                sanitize_snippet(&evidence.excerpt),
+            ),
+            _ => (
+                format!("artver:{}", hit.artifact_version),
+                "source=missing".to_string(),
+                "(missing evidence)".to_string(),
+            ),
+        };
+        println!(
+            "rank={} artifact={} evidence={} {} snippet={}",
+            rank + 1,
+            artifact_label,
+            hit.evidence_id,
             source,
             snippet,
         );
