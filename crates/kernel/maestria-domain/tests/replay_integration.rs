@@ -95,6 +95,7 @@ fn test_replay_duplicate_rejection() -> Result<(), Box<dyn std::error::Error>> {
             node_id: maestria_domain::StructureNodeId::new(1),
             source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
+            representations_digest: "sha256:fixture".to_string(),
             chunk_id: ChunkId::new(1),
             artifact_id: art_id,
             order: 1,

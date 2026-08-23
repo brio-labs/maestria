@@ -529,6 +529,7 @@ fn fixture_chunk(
         node_id: StructureNodeId::new(1),
         source_span: SourceSpan::text_span(1, 1)?,
         representations: Vec::new(),
+        representations_digest: "sha256:fixture".to_string(),
         order: 0,
         text: "semantic expansion evidence".to_string(),
     })

@@ -59,6 +59,7 @@ async fn index_full_text_effect_indexes_cards_before_chunks()
             end_line: 1,
         },
         representations: vec![],
+        representations_digest: "sha256:fixture".to_string(),
         order: 0,
         text: "chunk text for indexing".into(),
     };
@@ -144,6 +145,7 @@ async fn index_full_text_effect_no_cards_when_state_has_none()
             end_line: 1,
         },
         representations: vec![],
+        representations_digest: "sha256:fixture".to_string(),
         order: 0,
         text: "chunk without cards".into(),
     };
@@ -218,6 +220,7 @@ async fn index_full_text_effect_reindexing_is_idempotent() -> Result<(), Box<dyn
             end_line: 1,
         },
         representations: vec![],
+        representations_digest: "sha256:fixture".to_string(),
         order: 0,
         text: "reindexed chunk".into(),
     };
@@ -314,6 +317,7 @@ async fn index_full_text_rejects_secret_bearing_chunk() -> Result<(), Box<dyn st
                 end_line: 1,
             },
             representations: vec![],
+            representations_digest: "sha256:fixture".to_string(),
             order: 0,
             text: "password=do-not-index".into(),
         },

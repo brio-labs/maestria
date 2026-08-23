@@ -59,6 +59,16 @@ intelligence to a reviewed set of directories.
   reads the durable evidence store the engine already authorizes against
   (lock-contended searches drop from 3.9 s to 3.2 s on a 60k-event
   instance). Event-log replay also stops deep-cloning every envelope.
+- Slim `chunk_registered` events: the payload no longer duplicates the
+  chunk text inside every representation (`raw`/`retrieval` mirror it),
+  storing representation kinds plus a stable digest instead. Legacy rows
+  with inline contents keep replaying and recompute their digest on read.
+  On a 1,200-file corpus this cuts event-log payload bytes by ~62%
+  (111 MB → 42 MB), shrinks the database ~26%, speeds indexing ~25%, and
+  drops durable-search startup from 3.9 s to 2.3 s on a fresh log.
+- `Chunk` carries that `representations_digest`, so restart recovery
+  compares registrations by identity instead of requiring both sides to
+  hold full representation contents.
 - `privacy_exclusions` defaults covering machine-state directories, wired
   into index-selection scanning and blocked patterns.
 - `IndexGenerationRegistry` with lifecycle transitions and retired-generation

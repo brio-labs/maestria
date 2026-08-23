@@ -59,6 +59,7 @@ fn seed_records(
             node_id: StructureNodeId::new(0),
             source_span: SourceSpan::text_span(order + 1, order + 1)?,
             representations: vec![],
+            representations_digest: "sha256:fixture".to_string(),
             order: order as u32,
             text: text.to_string(),
         })?;

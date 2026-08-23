@@ -310,6 +310,7 @@ pub fn chunk(id: ChunkId, artifact_id: ArtifactId, source_span: SourceSpan) -> C
         node_id: maestria_domain::StructureNodeId::new(1),
         source_span,
         representations: Vec::new(),
+        representations_digest: "sha256:fixture".to_string(),
         order: 0,
         text: "needle".to_string(),
     }

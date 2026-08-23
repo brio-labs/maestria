@@ -31,6 +31,7 @@ fn event_append_scan_order_and_filter() -> Result<(), Box<dyn std::error::Error>
             node_id: maestria_domain::StructureNodeId::new(0),
             source_span: maestria_domain::SourceSpan::text_span(1, 2)?,
             representations: vec![],
+            representations_digest: "sha256:fixture".to_string(),
         },
     };
     let out_of_order = DomainEventEnvelope {
@@ -191,7 +192,7 @@ fn append_rejects_gapped_existing_event_rows() -> Result<(), PortError> {
 }
 
 #[test]
-fn fresh_schema_writes_payload_version_seven() -> Result<(), PortError> {
+fn fresh_schema_writes_payload_version_eight() -> Result<(), PortError> {
     let store = SqliteStore::in_memory()?;
     store.append(registered(1, 1))?;
     let connection = store.lock()?;
@@ -202,7 +203,7 @@ fn fresh_schema_writes_payload_version_seven() -> Result<(), PortError> {
             |row| row.get(0),
         )
         .map_err(to_port_error)?;
-    assert_eq!(version, 7);
+    assert_eq!(version, 8);
     Ok(())
 }
 
@@ -223,6 +224,51 @@ fn malformed_payload_is_rejected_without_defaults() -> Result<(), PortError> {
         store
             .scan(EventFilter { artifact_id: None })
             .is_err_and(|e| e.is_internal())
+    );
+    Ok(())
+}
+
+/// Legacy rows written before `representations_digest` carry full
+/// representation contents and no digest field; decoding must restore the
+/// digest so restart recovery can compare registrations against fresh
+/// parses.
+#[test]
+fn legacy_chunk_payload_without_digest_recomputes_it() -> Result<(), PortError> {
+    let store = SqliteStore::in_memory()?;
+    {
+        let connection = store.lock()?;
+        connection.execute(
+            "INSERT INTO domain_events (id, event_kind, artifact_id, payload_json, payload_version)
+                 VALUES (1, 'chunk_registered', 973040645, ?1, 7)",
+            params![r#"{"event_kind":"chunk_registered","chunk_id":973043564121936,"artifact_id":973040645,"node_id":973043564121936,"source_span":{"kind":"text_span","start_line":1,"end_line":3},"representations":[{"kind":"raw","content":"// generated corpus file\n\n/// Handles memory pipeline stage 0.\n"},{"kind":"retrieval","content":"// generated corpus file\n\n/// Handles memory pipeline stage 0."}],"order":0,"text":"// generated corpus file\n\n/// Handles memory pipeline stage 0."}"#],
+        )
+        .map_err(to_port_error)?;
+    }
+    let events = store.scan(EventFilter { artifact_id: None })?;
+    let [envelope] = events.as_slice() else {
+        return Err(PortError::internal(
+            "expected exactly one event",
+            "legacy chunk payload test".to_string(),
+        ));
+    };
+    let DomainEvent::ChunkRegistered {
+        representations_digest,
+        representations,
+        ..
+    } = &envelope.event
+    else {
+        return Err(PortError::internal(
+            "unexpected decoded kind",
+            "legacy chunk payload test".to_string(),
+        ));
+    };
+    assert_eq!(
+        representations_digest,
+        &maestria_domain::representations_digest(representations)
+    );
+    assert!(
+        !representations_digest.is_empty(),
+        "legacy contents must recompute a non-empty digest"
     );
     Ok(())
 }

@@ -1,7 +1,9 @@
 use super::event_payloads::{FamilyDecodeError, StoredEventPayload};
+use super::provenance_payloads::StoredParsedRepresentation;
 use super::stored_content::StoredContentHash;
 use super::stored_security::StoredSecurityMetadata;
 use super::stored_structure::StoredStructureNode;
+use crate::payloads::provenance_payloads::StoredRepresentationKind;
 use maestria_domain::{
     ArtifactId, ArtifactVersionId, BlobId, ChunkId, DomainEvent, StructureNodeId,
 };
@@ -18,23 +20,7 @@ impl StoredEventPayload {
                 title: title.clone(),
                 security: StoredSecurityMetadata::from_domain(security),
             }),
-            DomainEvent::ChunkRegistered {
-                chunk_id,
-                artifact_id,
-                node_id,
-                source_span,
-                representations,
-                order,
-                text,
-            } => Some(Self::from_chunk_registered(
-                *chunk_id,
-                *artifact_id,
-                *node_id,
-                *source_span,
-                representations,
-                *order,
-                text,
-            )),
+            DomainEvent::ChunkRegistered { .. } => Self::from_chunk_registered(event),
             DomainEvent::CardCreated {
                 card_id,
                 artifact_id,
@@ -69,23 +55,7 @@ impl StoredEventPayload {
                     .try_into_domain()
                     .map_err(FamilyDecodeError::Invalid)?,
             }),
-            Self::ChunkRegistered {
-                chunk_id,
-                artifact_id,
-                node_id,
-                source_span,
-                representations,
-                order,
-                text,
-            } => Ok(Self::into_chunk_registered(
-                chunk_id,
-                artifact_id,
-                node_id,
-                source_span,
-                representations,
-                order,
-                text,
-            )?),
+            Self::ChunkRegistered { .. } => Ok(Self::into_chunk_registered(self)?),
             Self::CardCreated {
                 card_id,
                 artifact_id,
@@ -98,7 +68,10 @@ impl StoredEventPayload {
                 card_id: maestria_domain::CardId::new(card_id),
                 artifact_id: ArtifactId::new(artifact_id),
                 node_id: StructureNodeId::new(node_id),
-                source_span: source_span.try_into().map_err(FamilyDecodeError::Invalid)?,
+                source_span: source_span
+                    .clone()
+                    .try_into()
+                    .map_err(FamilyDecodeError::Invalid)?,
                 title,
                 body,
                 security: security
@@ -269,24 +242,39 @@ impl StoredEventPayload {
         }
     }
 
-    fn from_chunk_registered(
-        chunk_id: ChunkId,
-        artifact_id: ArtifactId,
-        node_id: StructureNodeId,
-        source_span: maestria_domain::SourceSpan,
-        representations: &[maestria_domain::ParsedRepresentation],
-        order: u32,
-        text: &str,
-    ) -> Self {
-        Self::ChunkRegistered {
+    fn from_chunk_registered(event: &DomainEvent) -> Option<Self> {
+        let DomainEvent::ChunkRegistered {
+            chunk_id,
+            artifact_id,
+            node_id,
+            source_span,
+            representations,
+            representations_digest,
+            order,
+            text,
+        } = event
+        else {
+            return None;
+        };
+        Some(Self::ChunkRegistered {
             chunk_id: chunk_id.value(),
             artifact_id: artifact_id.value(),
             node_id: node_id.value(),
-            source_span: source_span.into(),
-            representations: representations.iter().cloned().map(Into::into).collect(),
-            order,
-            text: text.to_owned(),
-        }
+            source_span: (*source_span).into(),
+            // Kinds with empty contents: `raw`/`retrieval` mirror the chunk
+            // text and storing them tripled every payload; the digest
+            // carries the identity.
+            representations: representations
+                .iter()
+                .map(|representation| StoredParsedRepresentation {
+                    kind: StoredRepresentationKind::from_domain(representation.kind),
+                    content: String::new(),
+                })
+                .collect(),
+            representations_digest: representations_digest.clone(),
+            order: *order,
+            text: text.clone(),
+        })
     }
 
     fn from_card_created(
@@ -309,25 +297,45 @@ impl StoredEventPayload {
         }
     }
 
-    fn into_chunk_registered(
-        chunk_id: u64,
-        artifact_id: u64,
-        node_id: u64,
-        source_span: crate::payloads::StoredSourceSpan,
-        representations: Vec<crate::payloads::StoredParsedRepresentation>,
-        order: u32,
-        text: String,
-    ) -> Result<DomainEvent, FamilyDecodeError> {
+    fn into_chunk_registered(self) -> Result<DomainEvent, FamilyDecodeError> {
+        let Self::ChunkRegistered {
+            chunk_id,
+            artifact_id,
+            node_id,
+            source_span,
+            representations,
+            representations_digest,
+            order,
+            text,
+        } = self
+        else {
+            return Err(FamilyDecodeError::Invalid(
+                maestria_ports::PortError::internal(
+                    "chunk payload decoded from a different variant",
+                    "into_chunk_registered variant mismatch".to_string(),
+                ),
+            ));
+        };
+        let domain_representations = representations
+            .iter()
+            .cloned()
+            .map(|representation| representation.try_into_domain())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(FamilyDecodeError::Invalid)?;
+        // Legacy rows predate the stored digest but carry full contents;
+        // recompute so restart recovery can compare registrations.
+        let representations_digest = if representations_digest.is_empty() {
+            maestria_domain::representations_digest(&domain_representations)
+        } else {
+            representations_digest.clone()
+        };
         Ok(DomainEvent::ChunkRegistered {
             chunk_id: ChunkId::new(chunk_id),
             artifact_id: ArtifactId::new(artifact_id),
             node_id: StructureNodeId::new(node_id),
             source_span: source_span.try_into().map_err(FamilyDecodeError::Invalid)?,
-            representations: representations
-                .into_iter()
-                .map(|r| r.try_into_domain())
-                .collect::<Result<_, _>>()
-                .map_err(FamilyDecodeError::Invalid)?,
+            representations: domain_representations,
+            representations_digest,
             order,
             text,
         })

@@ -266,6 +266,7 @@ mod tests {
             node_id: maestria_domain::StructureNodeId::new(1),
             source_span: SourceSpan::pdf_span(1)?,
             representations: Vec::new(),
+            representations_digest: "sha256:fixture".to_string(),
             order: 0,
             text: "figure".to_string(),
         };

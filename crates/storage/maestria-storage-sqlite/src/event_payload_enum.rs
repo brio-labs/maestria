@@ -30,7 +30,12 @@ pub(crate) enum StoredEventPayload {
         artifact_id: u64,
         node_id: u64,
         source_span: crate::payloads::StoredSourceSpan,
-        representations: Vec<crate::payloads::StoredParsedRepresentation>,
+        /// Current writes store the kinds with empty contents — `raw` /
+        /// `retrieval` mirror the chunk text, so full contents tripled
+        /// every payload. Legacy rows carry real contents; both decode.
+        representations: Vec<super::super::provenance_payloads::StoredParsedRepresentation>,
+        #[serde(default)]
+        representations_digest: String,
         order: u32,
         text: String,
     },
