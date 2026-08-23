@@ -227,3 +227,5 @@ extracted CLI/daemon `--help` smoke tests.
 - `docs/BENCHMARKING.md`: measurement protocol for performance work —
   fresh-instance timing discipline, real-corpus envelope validation,
   profiling guidance, and measured estimation traps.
+- Embedding provider batching groundwork: `EmbeddingProvider::embed_batch`
+  with a true array implementation in the loopback HTTP provider.
