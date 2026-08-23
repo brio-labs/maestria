@@ -39,6 +39,20 @@ intelligence to a reviewed set of directories.
   replay-to-persisted-prefix repair on failure, removing the remaining
   per-input candidate clone (index user CPU drops ~78% on a 1,200-file
   corpus; the cost no longer grows with the event-log size).
+- Fixed per-invocation costs: stored-event payload validation now runs only
+  when the database schema changes (fresh database or migration) instead of
+  decoding the whole event log as JSON on every store open (single-command
+  latency on a 60k-event instance drops ~15%), and `Scope` stores its root
+  and pattern lists behind shared slices so cloning an effect execution
+  context no longer deep-copies governance configuration per effect.
+- SQLite write connections use WAL `synchronous=NORMAL`: commits stop
+  fsyncing per transaction, which removes an fsync stall per persisted
+  batch during indexing (1,200-file corpus drops from 6.6 minutes to under
+  2 minutes). Application crashes remain safe — only OS-level power loss can
+  lose the most recent commits, and startup recovery re-drives any pending
+  work from the durable event log.
+- Repository queries reuse parsed SQLite statements (`prepare_cached`), so
+  per-hit authorization lookups no longer re-plan SQL on every call.
 - `privacy_exclusions` defaults covering machine-state directories, wired
   into index-selection scanning and blocked patterns.
 - `IndexGenerationRegistry` with lifecycle transitions and retired-generation

@@ -401,6 +401,13 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     ensure_foreign_keys(connection)?;
     let transaction = connection.transaction().map_err(to_port_error)?;
     let state = detect_schema_state(&transaction)?;
+    // Payload-level validation decodes every stored event as JSON, which is
+    // O(event log) per store open. That cost is only justified when the
+    // schema (and therefore the writers) changed: fresh databases have no
+    // events yet, and migrations are exactly the moments where column/payload
+    // drift can be introduced. Steady-state opens keep the cheap structural
+    // validators below.
+    let schema_changed = matches!(state.version, None | Some(13) | Some(14) | Some(15));
     if let Some(version) = state.version
         && version != 13
         && version != 14
@@ -427,7 +434,9 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
 
     validate_domain_events_schema(&transaction)?;
     validate_event_order(&transaction)?;
-    validate_stored_event_payloads(&transaction)?;
+    if schema_changed {
+        validate_stored_event_payloads(&transaction)?;
+    }
 
     if state.version.is_none()
         || state.version == Some(13)

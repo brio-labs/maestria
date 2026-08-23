@@ -10,8 +10,7 @@ use crate::{
 impl ChunkRepository for crate::SqliteStore {
     fn get(&self, chunk_id: ChunkId) -> Result<Option<Chunk>, PortError> {
         let connection = self.lock()?;
-        let mut statement = connection
-            .prepare("SELECT id, artifact_id, chunk_order, text, node_id, source_span_json, representations_json FROM chunks WHERE id = ?1")
+        let mut statement = connection.prepare_cached("SELECT id, artifact_id, chunk_order, text, node_id, source_span_json, representations_json FROM chunks WHERE id = ?1")
             .map_err(to_port_error)?;
         let mut rows = statement
             .query(params![u64_to_i64(chunk_id.value())?])
@@ -24,7 +23,7 @@ impl ChunkRepository for crate::SqliteStore {
     fn find_artifact_id(&self, chunk_id: ChunkId) -> Result<Option<ArtifactId>, PortError> {
         let connection = self.lock()?;
         let mut statement = connection
-            .prepare("SELECT artifact_id FROM chunks WHERE id = ?1")
+            .prepare_cached("SELECT artifact_id FROM chunks WHERE id = ?1")
             .map_err(to_port_error)?;
         let mut rows = statement
             .query(params![u64_to_i64(chunk_id.value())?])
@@ -76,13 +75,10 @@ impl ChunkRepository for crate::SqliteStore {
 
     fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Chunk>, PortError> {
         let connection = self.lock()?;
-        let mut statement = connection
-            .prepare(
-                "SELECT id, artifact_id, chunk_order, text, node_id, source_span_json, representations_json
-                 FROM chunks
-                 WHERE artifact_id = ?1
-                 ORDER BY chunk_order ASC, id ASC",
-            )
+        let mut statement = connection.prepare_cached("SELECT id, artifact_id, chunk_order, text, node_id, source_span_json, representations_json
+         FROM chunks
+         WHERE artifact_id = ?1
+         ORDER BY chunk_order ASC, id ASC")
             .map_err(to_port_error)?;
         let mut rows = statement
             .query(params![u64_to_i64(artifact_id.value())?])

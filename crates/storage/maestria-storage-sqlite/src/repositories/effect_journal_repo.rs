@@ -246,13 +246,10 @@ pub(crate) fn record_terminal(
 pub(crate) fn scan_in_flight(
     connection: &Connection,
 ) -> Result<Vec<EffectJournalEntry>, PortError> {
-    let mut stmt = connection
-        .prepare(
-            "SELECT run_id, generation, task_id, capability, command, scope_id, status, feedback_json \
-             FROM effect_journal \
-             WHERE status IN ('Intent', 'Started', 'FeedbackAccepted') \
-             ORDER BY run_id, generation",
-        )
+    let mut stmt = connection.prepare_cached("SELECT run_id, generation, task_id, capability, command, scope_id, status, feedback_json \
+     FROM effect_journal \
+     WHERE status IN ('Intent', 'Started', 'FeedbackAccepted') \
+     ORDER BY run_id, generation")
         .map_err(to_port_error)?;
     let entries = stmt
         .query_map([], |row| {

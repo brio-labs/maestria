@@ -118,9 +118,9 @@ impl ApprovalRepository for crate::SqliteStore {
     fn find_pending(&self) -> Result<Vec<ApprovalRecord>, PortError> {
         let connection = self.lock()?;
         let mut stmt = connection
-            .prepare(
+            .prepare_cached(
                 "SELECT id, task_id, effect_kind, risk_level, capability, scope_id, tick, status \
-                 FROM approval_requests WHERE status = 'pending' ORDER BY id",
+         FROM approval_requests WHERE status = 'pending' ORDER BY id",
             )
             .map_err(to_port_error)?;
         let rows = stmt
@@ -135,9 +135,9 @@ impl ApprovalRepository for crate::SqliteStore {
     fn find_all(&self) -> Result<Vec<ApprovalRecord>, PortError> {
         let connection = self.lock()?;
         let mut stmt = connection
-            .prepare(
+            .prepare_cached(
                 "SELECT id, task_id, effect_kind, risk_level, capability, scope_id, tick, status \
-                 FROM approval_requests ORDER BY id",
+         FROM approval_requests ORDER BY id",
             )
             .map_err(to_port_error)?;
         let rows = stmt
@@ -153,9 +153,9 @@ impl ApprovalRepository for crate::SqliteStore {
     fn find_by_id(&self, id: ApprovalId) -> Result<Option<ApprovalRecord>, PortError> {
         let connection = self.lock()?;
         let mut stmt = connection
-            .prepare(
+            .prepare_cached(
                 "SELECT id, task_id, effect_kind, risk_level, capability, scope_id, tick, status \
-                 FROM approval_requests WHERE id = ?1",
+         FROM approval_requests WHERE id = ?1",
             )
             .map_err(to_port_error)?;
         let mut rows = stmt
@@ -183,9 +183,9 @@ impl ApprovalRepository for crate::SqliteStore {
         // Read the updated record within the same lock scope — do NOT
         // call find_by_id here, which would deadlock on the Mutex.
         let mut stmt = connection
-            .prepare(
+            .prepare_cached(
                 "SELECT id, task_id, effect_kind, risk_level, capability, scope_id, tick, status \
-                 FROM approval_requests WHERE id = ?1",
+         FROM approval_requests WHERE id = ?1",
             )
             .map_err(to_port_error)?;
         let mut rows = stmt
@@ -201,9 +201,9 @@ impl ApprovalRepository for crate::SqliteStore {
     fn find_by_task_id(&self, task_id: TaskId) -> Result<Vec<ApprovalRecord>, PortError> {
         let connection = self.lock()?;
         let mut stmt = connection
-            .prepare(
+            .prepare_cached(
                 "SELECT id, task_id, effect_kind, risk_level, capability, scope_id, tick, status \
-                 FROM approval_requests WHERE task_id = ?1 ORDER BY id",
+         FROM approval_requests WHERE task_id = ?1 ORDER BY id",
             )
             .map_err(to_port_error)?;
         let rows = stmt

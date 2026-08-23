@@ -13,10 +13,10 @@ impl RealmReadGrantRepository for crate::SqliteStore {
     fn get(&self, token_digest: &GrantTokenDigest) -> Result<Option<RealmReadGrant>, PortError> {
         let connection = self.lock()?;
         let mut statement = connection
-            .prepare(
+            .prepare_cached(
                 "SELECT token_digest, provider_realm, consumer_realm, access, max_sensitivity,
-                        max_results, max_evidence_bytes, state
-                 FROM realm_read_grants WHERE token_digest = ?1",
+                max_results, max_evidence_bytes, state
+         FROM realm_read_grants WHERE token_digest = ?1",
             )
             .map_err(to_port_error)?;
         let mut rows = statement
@@ -62,10 +62,10 @@ impl RealmReadGrantRepository for crate::SqliteStore {
     fn list(&self) -> Result<Vec<RealmReadGrant>, PortError> {
         let connection = self.lock()?;
         let mut statement = connection
-            .prepare(
+            .prepare_cached(
                 "SELECT token_digest, provider_realm, consumer_realm, access, max_sensitivity,
-                        max_results, max_evidence_bytes, state
-                 FROM realm_read_grants ORDER BY token_digest ASC",
+                max_results, max_evidence_bytes, state
+         FROM realm_read_grants ORDER BY token_digest ASC",
             )
             .map_err(to_port_error)?;
         let mut rows = statement.query([]).map_err(to_port_error)?;
@@ -80,7 +80,7 @@ impl RealmReadGrantRepository for crate::SqliteStore {
         let mut connection = self.lock()?;
         let existing = {
             let mut statement = connection
-                .prepare("SELECT token_digest FROM realm_read_grants")
+                .prepare_cached("SELECT token_digest FROM realm_read_grants")
                 .map_err(to_port_error)?;
             let mut rows = statement.query([]).map_err(to_port_error)?;
             let mut digests = Vec::new();

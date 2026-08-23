@@ -9,8 +9,7 @@ use crate::sqlite_store::{
 impl CardRepository for crate::SqliteStore {
     fn get(&self, card_id: CardId) -> Result<Option<Card>, PortError> {
         let connection = self.lock()?;
-        let mut statement = connection
-            .prepare("SELECT id, artifact_id, title, body, node_id, source_span_json, security_json FROM cards WHERE id = ?1")
+        let mut statement = connection.prepare_cached("SELECT id, artifact_id, title, body, node_id, source_span_json, security_json FROM cards WHERE id = ?1")
             .map_err(to_port_error)?;
         let mut rows = statement
             .query(params![u64_to_i64(card_id.value())?])
@@ -56,11 +55,11 @@ impl CardRepository for crate::SqliteStore {
     fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Card>, PortError> {
         let connection = self.lock()?;
         let mut statement = connection
-            .prepare(
+            .prepare_cached(
                 "SELECT id, artifact_id, title, body, node_id, source_span_json, security_json
-                 FROM cards
-                 WHERE artifact_id = ?1
-                 ORDER BY id ASC",
+         FROM cards
+         WHERE artifact_id = ?1
+         ORDER BY id ASC",
             )
             .map_err(to_port_error)?;
         let mut rows = statement

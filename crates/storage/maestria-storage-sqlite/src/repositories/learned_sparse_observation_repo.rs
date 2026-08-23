@@ -31,7 +31,7 @@ pub(crate) fn scan(
         }
     })?;
     let mut statement = connection
-        .prepare(&format!(
+        .prepare_cached(&format!(
             "SELECT observation_json FROM {TABLE} ORDER BY id DESC LIMIT ?1"
         ))
         .map_err(to_port_error)?;
@@ -80,7 +80,7 @@ pub(crate) fn prune(
         }
     })?;
     let mut statement = connection
-        .prepare(&format!("SELECT id FROM {TABLE} ORDER BY id ASC"))
+        .prepare_cached(&format!("SELECT id FROM {TABLE} ORDER BY id ASC"))
         .map_err(to_port_error)?;
     let mut rows = statement.query([]).map_err(to_port_error)?;
     let mut ids = Vec::new();

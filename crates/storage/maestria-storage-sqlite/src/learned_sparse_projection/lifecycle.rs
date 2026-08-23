@@ -63,9 +63,9 @@ pub(super) fn transition(
         let retired = lifecycle_json(IndexLifecycle::Retired)?;
         let active = lifecycle_json(IndexLifecycle::Active)?;
         let mut statement = transaction
-            .prepare(
+            .prepare_cached(
                 "SELECT identity_json FROM learned_sparse_projections
-                 WHERE lifecycle = ?1",
+         WHERE lifecycle = ?1",
             )
             .map_err(to_port_error)?;
         let rows = statement

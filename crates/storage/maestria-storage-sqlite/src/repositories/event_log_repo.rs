@@ -108,12 +108,12 @@ impl EventLog for crate::SqliteStore {
 
         if let Some(artifact_id) = filter.artifact_id {
             let mut statement = connection
-                .prepare(
+                .prepare_cached(
                     "SELECT e.id, e.event_kind, e.artifact_id, e.payload_json,
-                            e.payload_version
-                     FROM domain_events e
-                     WHERE e.artifact_id = ?1
-                     ORDER BY e.id ASC",
+                    e.payload_version
+             FROM domain_events e
+             WHERE e.artifact_id = ?1
+             ORDER BY e.id ASC",
                 )
                 .map_err(to_port_error)?;
             let mut rows = statement
@@ -124,11 +124,11 @@ impl EventLog for crate::SqliteStore {
             }
         } else {
             let mut statement = connection
-                .prepare(
+                .prepare_cached(
                     "SELECT e.id, e.event_kind, e.artifact_id, e.payload_json,
-                            e.payload_version
-                     FROM domain_events e
-                     ORDER BY e.id ASC",
+                    e.payload_version
+             FROM domain_events e
+             ORDER BY e.id ASC",
                 )
                 .map_err(to_port_error)?;
             let mut rows = statement.query([]).map_err(to_port_error)?;

@@ -84,7 +84,9 @@ fn remove_stale_projection_ids(
     keep_ids: impl Iterator<Item = u64>,
 ) -> Result<(), PortError> {
     let keep_ids = keep_ids.collect::<BTreeSet<_>>();
-    let mut statement = transaction.prepare(select_sql).map_err(to_port_error)?;
+    let mut statement = transaction
+        .prepare_cached(select_sql)
+        .map_err(to_port_error)?;
     let mut rows = statement.query([]).map_err(to_port_error)?;
     let mut stale_ids = Vec::new();
     while let Some(row) = rows.next().map_err(to_port_error)? {

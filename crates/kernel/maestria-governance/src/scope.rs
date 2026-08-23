@@ -95,11 +95,11 @@ pub fn check_containment(roots: &[PathBuf], candidate: &Path) -> Result<(), Cont
 /// Read/write root configuration for a governed workspace.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Scope {
-    read_roots: Vec<PathBuf>,
-    write_roots: Vec<PathBuf>,
-    allowed_harnesses: Vec<String>,
-    blocked_commands: Vec<String>,
-    blocked_patterns: Vec<String>,
+    read_roots: std::sync::Arc<[PathBuf]>,
+    write_roots: std::sync::Arc<[PathBuf]>,
+    allowed_harnesses: std::sync::Arc<[String]>,
+    blocked_commands: std::sync::Arc<[String]>,
+    blocked_patterns: std::sync::Arc<[String]>,
     web_allowed: bool,
 }
 
@@ -112,16 +112,16 @@ impl Scope {
         web_allowed: bool,
     ) -> Self {
         Self {
-            read_roots,
-            write_roots,
-            allowed_harnesses,
+            read_roots: read_roots.into(),
+            write_roots: write_roots.into(),
+            allowed_harnesses: allowed_harnesses.into(),
             // Pre-normalize so `command_allowed` never re-trims/lowercases
             // per entry.
             blocked_commands: blocked_commands
                 .into_iter()
                 .map(|entry| entry.trim().to_lowercase())
                 .collect(),
-            blocked_patterns: Vec::new(),
+            blocked_patterns: Vec::new().into(),
             web_allowed,
         }
     }
@@ -161,7 +161,7 @@ impl Scope {
     }
 
     pub fn with_blocked_patterns(mut self, patterns: Vec<String>) -> Self {
-        self.blocked_patterns = patterns;
+        self.blocked_patterns = patterns.into();
         self
     }
 

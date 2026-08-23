@@ -14,10 +14,10 @@ impl EvidenceRepository for crate::SqliteStore {
     fn get(&self, evidence_id: EvidenceId) -> Result<Option<Evidence>, PortError> {
         let connection = self.lock()?;
         let mut statement = connection
-            .prepare(
+            .prepare_cached(
                 "SELECT id, artifact_id, claim_id, kind_json, excerpt, observed_at, security_json
-                 FROM evidence
-                 WHERE id = ?1",
+         FROM evidence
+         WHERE id = ?1",
             )
             .map_err(to_port_error)?;
         let mut rows = statement
@@ -62,12 +62,9 @@ impl EvidenceRepository for crate::SqliteStore {
             }
 
             let existing = {
-                let mut statement = transaction
-                    .prepare(
-                        "SELECT id, artifact_id, claim_id, kind_json, excerpt, observed_at, security_json
-                         FROM evidence
-                         WHERE id = ?1",
-                    )
+                let mut statement = transaction.prepare_cached("SELECT id, artifact_id, claim_id, kind_json, excerpt, observed_at, security_json
+                 FROM evidence
+                 WHERE id = ?1")
                     .map_err(to_port_error)?;
                 let mut rows = statement
                     .query(params![evidence_id])
@@ -120,11 +117,11 @@ impl EvidenceRepository for crate::SqliteStore {
     fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Evidence>, PortError> {
         let connection = self.lock()?;
         let mut statement = connection
-            .prepare(
+            .prepare_cached(
                 "SELECT id, artifact_id, claim_id, kind_json, excerpt, observed_at, security_json
-                 FROM evidence
-                 WHERE artifact_id = ?1
-                 ORDER BY id ASC",
+         FROM evidence
+         WHERE artifact_id = ?1
+         ORDER BY id ASC",
             )
             .map_err(to_port_error)?;
         let mut rows = statement

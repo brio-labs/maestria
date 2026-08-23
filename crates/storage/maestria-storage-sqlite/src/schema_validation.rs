@@ -18,7 +18,7 @@ pub(crate) fn table_exists(connection: &Connection, table: &str) -> Result<bool,
 
 pub(crate) fn validate_domain_events_schema(connection: &Connection) -> Result<(), PortError> {
     let mut statement = connection
-        .prepare("PRAGMA table_info(domain_events)")
+        .prepare_cached("PRAGMA table_info(domain_events)")
         .map_err(to_port_error)?;
     let mut rows = statement.query([]).map_err(to_port_error)?;
     let mut columns = Vec::new();
@@ -60,7 +60,7 @@ pub(crate) fn validate_domain_events_schema(connection: &Connection) -> Result<(
 
     let indexes = {
         let mut statement = connection
-            .prepare("PRAGMA index_list(domain_events)")
+            .prepare_cached("PRAGMA index_list(domain_events)")
             .map_err(to_port_error)?;
         let mut rows = statement.query([]).map_err(to_port_error)?;
         let mut indexes = Vec::new();
@@ -76,7 +76,7 @@ pub(crate) fn validate_domain_events_schema(connection: &Connection) -> Result<(
     for (index_name, _unique) in indexes {
         let quoted_name = index_name.replace('"', "\"\"");
         let mut statement = connection
-            .prepare(&format!("PRAGMA index_info(\"{quoted_name}\")"))
+            .prepare_cached(&format!("PRAGMA index_info(\"{quoted_name}\")"))
             .map_err(to_port_error)?;
         let mut rows = statement.query([]).map_err(to_port_error)?;
         let mut index_columns = Vec::new();
@@ -98,7 +98,7 @@ pub(crate) fn validate_domain_events_schema(connection: &Connection) -> Result<(
 
 pub(crate) fn validate_event_order(connection: &Connection) -> Result<(), PortError> {
     let mut statement = connection
-        .prepare("SELECT id FROM domain_events ORDER BY id ASC")
+        .prepare_cached("SELECT id FROM domain_events ORDER BY id ASC")
         .map_err(to_port_error)?;
     let mut rows = statement.query([]).map_err(to_port_error)?;
     let mut expected = 1_u64;
@@ -122,10 +122,10 @@ pub(crate) fn validate_event_order(connection: &Connection) -> Result<(), PortEr
 
 pub(crate) fn validate_stored_event_payloads(connection: &Connection) -> Result<(), PortError> {
     let mut statement = connection
-        .prepare(
+        .prepare_cached(
             "SELECT e.event_kind, e.artifact_id, e.payload_json
-             FROM domain_events e
-             ORDER BY e.id ASC",
+     FROM domain_events e
+     ORDER BY e.id ASC",
         )
         .map_err(to_port_error)?;
     let mut rows = statement.query([]).map_err(to_port_error)?;

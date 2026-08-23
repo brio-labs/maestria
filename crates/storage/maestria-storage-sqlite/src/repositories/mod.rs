@@ -24,7 +24,7 @@ pub(super) fn load_id_set<T: Ord>(
     make: fn(u64) -> T,
 ) -> Result<BTreeSet<T>, PortError> {
     let mut statement = connection
-        .prepare(&format!(
+        .prepare_cached(&format!(
             "SELECT related_id FROM {table} WHERE artifact_id = ?1 ORDER BY related_id"
         ))
         .map_err(to_port_error)?;
@@ -53,7 +53,7 @@ pub(super) fn replace_id_set(
         .map_err(to_port_error)?;
 
     let mut statement = transaction
-        .prepare(&format!(
+        .prepare_cached(&format!(
             "INSERT INTO {table} (artifact_id, related_id) VALUES (?1, ?2)"
         ))
         .map_err(to_port_error)?;

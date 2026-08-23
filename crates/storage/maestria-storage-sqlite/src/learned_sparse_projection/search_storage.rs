@@ -58,11 +58,11 @@ pub(super) fn visit_documents(
     let metadata = {
         let connection = store.lock()?;
         let mut statement = connection
-            .prepare(
+            .prepare_cached(
                 "SELECT chunk_id, content_hash, length(CAST(vector_json AS BLOB))
-                 FROM learned_sparse_projection_documents
-                 WHERE identity_json = ?1 AND tombstoned = 0
-                 ORDER BY chunk_id LIMIT ?2",
+         FROM learned_sparse_projection_documents
+         WHERE identity_json = ?1 AND tombstoned = 0
+         ORDER BY chunk_id LIMIT ?2",
             )
             .map_err(to_port_error)?;
         let rows = statement
