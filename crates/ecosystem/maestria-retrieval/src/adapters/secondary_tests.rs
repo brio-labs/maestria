@@ -165,6 +165,7 @@ fn denied_relation_records(
         node_id: StructureNodeId::new(2),
         source_span: SourceSpan::text_span(1, 1)?,
         representations: Vec::new(),
+        representations_digest: "sha256:fixture".to_string(),
         order: 1,
         text: chunk_text.to_string(),
     })?;

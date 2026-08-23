@@ -46,6 +46,7 @@ pub fn assert_chunk_repository_round_trip(
             end_line: 2,
         },
         representations: vec![],
+        representations_digest: maestria_domain::representations_digest(&[]),
     };
     let second = Chunk {
         id: ChunkId::new(11),
@@ -58,6 +59,7 @@ pub fn assert_chunk_repository_round_trip(
             end_line: 2,
         },
         representations: vec![],
+        representations_digest: maestria_domain::representations_digest(&[]),
     };
     let unrelated = Chunk {
         id: ChunkId::new(12),
@@ -70,6 +72,7 @@ pub fn assert_chunk_repository_round_trip(
             end_line: 2,
         },
         representations: vec![],
+        representations_digest: maestria_domain::representations_digest(&[]),
     };
 
     repository.put(first.clone())?;

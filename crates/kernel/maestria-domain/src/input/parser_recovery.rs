@@ -104,7 +104,10 @@ impl KernelState {
                     if existing.artifact_id != chunk.artifact_id
                         || existing.node_id != chunk.node_id
                         || existing.source_span != chunk.source_span
-                        || existing.representations != chunk.representations
+                        // Representation contents may not survive storage
+                        // round-trips; the digest is their identity.
+                        || existing.representations_digest
+                            != crate::representations_digest(&chunk.representations)
                         || existing.order != chunk.order
                         || existing.text != chunk.text
                     {

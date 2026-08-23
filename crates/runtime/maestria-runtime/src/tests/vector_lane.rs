@@ -56,6 +56,7 @@ fn chunk_fixture(id: ChunkId, artifact_id: ArtifactId, order: u32, text: &str) -
             end_line: 1,
         },
         representations: vec![],
+        representations_digest: "sha256:fixture".to_string(),
         order,
         text: text.into(),
     }

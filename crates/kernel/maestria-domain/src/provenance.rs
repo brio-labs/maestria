@@ -26,6 +26,20 @@ pub enum RepresentationKind {
     Visual,
 }
 
+impl RepresentationKind {
+    /// Stable one-byte tag for digest encoding. Part of the
+    /// [`representations_digest`] contract — never renumber.
+    pub(crate) fn tag(self) -> u8 {
+        match self {
+            Self::Raw => 1,
+            Self::Retrieval => 2,
+            Self::Contextual => 3,
+            Self::Summary => 4,
+            Self::Visual => 5,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
 pub struct ParsedRepresentation {
     pub kind: RepresentationKind,
@@ -153,6 +167,26 @@ pub fn content_hash(bytes: &[u8]) -> String {
         out.push(HEX_CHARS[(byte & 0x0f) as usize] as char);
     }
     out
+}
+
+/// Stable content digest for a representation list.
+///
+/// Encodes each representation as a kind tag followed by a length-prefixed
+/// content byte string, then hashes the result. The encoding is part of the
+/// digest contract: it is persisted in events and projection rows, so any
+/// change requires a migration. Chunk registration uses the digest as the
+/// identity of the representation set — events carry it instead of
+/// duplicating chunk text once per representation, and restart recovery
+/// compares digests instead of requiring both sides to hold full contents.
+pub fn representations_digest(representations: &[ParsedRepresentation]) -> String {
+    let mut canonical = Vec::new();
+    for representation in representations {
+        canonical.push(representation.kind.tag());
+        let content = representation.content.as_bytes();
+        canonical.extend_from_slice(&(content.len() as u64).to_le_bytes());
+        canonical.extend_from_slice(content);
+    }
+    content_hash(&canonical)
 }
 /// Returns a stable artifact identity for an externally fetched source.
 pub fn web_artifact_id_for(url: &str, content_hash: &str) -> ArtifactId {

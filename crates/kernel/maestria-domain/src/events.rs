@@ -30,7 +30,12 @@ pub enum DomainEvent {
         artifact_id: ArtifactId,
         node_id: crate::ids::StructureNodeId,
         source_span: crate::provenance::SourceSpan,
+        /// Full representation contents on the live emission path; storage
+        /// round-trips keep only the kinds (contents are deduplicated —
+        /// `raw`/`retrieval` mirror `text`). The digest is the identity of
+        /// the set either way.
         representations: Vec<crate::provenance::ParsedRepresentation>,
+        representations_digest: String,
         order: u32,
         text: String,
     },

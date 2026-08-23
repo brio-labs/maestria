@@ -129,7 +129,7 @@ fn read_chunk(row: &Row<'_>) -> Result<Chunk, PortError> {
             });
         }
     };
-    let representations = serde_json::from_str::<
+    let representations: Vec<maestria_domain::ParsedRepresentation> = serde_json::from_str::<
         Vec<crate::payloads::provenance_payloads::StoredParsedRepresentation>,
     >(representations_json)
     .map_err(json_error)?
@@ -137,12 +137,17 @@ fn read_chunk(row: &Row<'_>) -> Result<Chunk, PortError> {
     .map(Into::into)
     .collect();
 
+    // Best-effort identity: rows rewritten from replayed (kind-only) state
+    // hash reduced contents; event-sourced digests remain authoritative.
+    let representations_digest = maestria_domain::representations_digest(&representations);
+
     Ok(Chunk {
         id: ChunkId::new(i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?),
         artifact_id: ArtifactId::new(i64_to_u64(row.get::<_, i64>(1).map_err(to_port_error)?)?),
         node_id: maestria_domain::StructureNodeId::new(i64_to_u64(node_id)?),
         source_span,
         representations,
+        representations_digest,
         order,
         text: row.get::<_, String>(3).map_err(to_port_error)?,
     })

@@ -276,6 +276,7 @@ fn build_persist_test_state() -> Result<PersistTestState, Box<dyn std::error::Er
             end_line: 1,
         },
         representations: vec![],
+        representations_digest: "sha256:fixture".to_string(),
         order: 0,
         text: "chunk text".into(),
     };
@@ -331,6 +332,7 @@ fn build_persist_test_envelopes(
                     end_line: 1,
                 },
                 representations: vec![],
+                representations_digest: "sha256:fixture".to_string(),
                 order: 0,
                 text: "chunk text".into(),
             },

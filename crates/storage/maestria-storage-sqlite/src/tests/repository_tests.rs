@@ -54,6 +54,7 @@ fn brain_state_round_trips_and_lists_deterministically() -> Result<(), Box<dyn s
         node_id: maestria_domain::StructureNodeId::new(0),
         source_span: maestria_domain::SourceSpan::text_span(1, 2)?,
         representations: vec![],
+        representations_digest: maestria_domain::representations_digest(&[]),
     };
     let early = Chunk {
         id: ChunkId::new(11),
@@ -63,6 +64,7 @@ fn brain_state_round_trips_and_lists_deterministically() -> Result<(), Box<dyn s
         node_id: maestria_domain::StructureNodeId::new(0),
         source_span: maestria_domain::SourceSpan::text_span(1, 2)?,
         representations: vec![],
+        representations_digest: maestria_domain::representations_digest(&[]),
     };
     let card = Card {
         id: CardId::new(20),

@@ -108,9 +108,7 @@ pub(crate) mod stored_search_trace_diversity;
 #[path = "stored_search_trace_rewrite.rs"]
 pub(crate) mod stored_search_trace_rewrite;
 
-pub(crate) use provenance_payloads::{
-    StoredParseStatus, StoredParsedRepresentation, StoredSourceSpan,
-};
+pub(crate) use provenance_payloads::{StoredParseStatus, StoredSourceSpan};
 
 pub(crate) use event_payloads::StoredEventPayload;
 pub(crate) use evidence_payloads::StoredEvidenceKind;
@@ -119,4 +117,4 @@ pub(crate) use evidence_payloads::StoredEvidenceKind;
 ///
 /// Rows write v5; tagged payload decoding remains compatible with records
 /// written by prior versions.
-pub(crate) const CURRENT_PAYLOAD_VERSION: i64 = 7;
+pub(crate) const CURRENT_PAYLOAD_VERSION: i64 = 8;

@@ -67,13 +67,15 @@ impl KernelState {
         &mut self,
         input: RegisterChunkInput,
     ) -> Result<DomainEventEnvelope, DomainError> {
-        self.apply_chunk_registered(&input)?;
+        let representations_digest = crate::representations_digest(&input.representations);
+        self.apply_chunk_registered(&input, &representations_digest)?;
         Ok(self.emit_event(DomainEvent::ChunkRegistered {
             chunk_id: input.chunk_id,
             artifact_id: input.artifact_id,
             node_id: input.node_id,
             source_span: input.source_span,
             representations: input.representations,
+            representations_digest,
             order: input.order,
             text: input.text,
         }))
@@ -103,6 +105,7 @@ impl KernelState {
     pub(crate) fn apply_chunk_registered(
         &mut self,
         input: &RegisterChunkInput,
+        representations_digest: &str,
     ) -> Result<(), DomainError> {
         if !self.artifacts.contains_key(&input.artifact_id) {
             return Err(DomainError::MissingArtifact {
@@ -123,15 +126,7 @@ impl KernelState {
 
         Arc::make_mut(&mut self.chunks).insert(
             input.chunk_id,
-            Chunk::new(
-                input.chunk_id,
-                input.artifact_id,
-                input.node_id,
-                input.source_span,
-                input.representations.clone(),
-                input.order,
-                input.text.clone(),
-            ),
+            Chunk::new(input, representations_digest.to_string()),
         );
         if let Some(artifact) = Arc::make_mut(&mut self.artifacts).get_mut(&input.artifact_id) {
             artifact.chunk_ids.insert(input.chunk_id);

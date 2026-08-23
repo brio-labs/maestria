@@ -57,6 +57,7 @@ fn with_indexed_retrieval(
         node_id: StructureNodeId::new(0),
         source_span: SourceSpan::text_span(1, 1)?,
         representations: vec![],
+        representations_digest: "sha256:fixture".to_string(),
         order: 0,
         text: "alpha-token paragraph.".to_owned(),
     })?;

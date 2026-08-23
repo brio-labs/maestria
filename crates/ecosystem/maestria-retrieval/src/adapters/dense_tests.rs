@@ -109,6 +109,7 @@ fn dense_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>>
         node_id: maestria_domain::StructureNodeId::new(1),
         source_span: maestria_domain::SourceSpan::text_span(1, 2)?,
         representations: Vec::new(),
+        representations_digest: "sha256:fixture".to_string(),
         order: 0,
         text: "alpha".to_string(),
     })?;

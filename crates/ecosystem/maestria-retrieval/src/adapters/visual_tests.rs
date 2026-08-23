@@ -392,6 +392,7 @@ fn visual_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>
         node_id: maestria_domain::StructureNodeId::new(1),
         source_span: SourceSpan::pdf_span(1)?,
         representations: Vec::new(),
+        representations_digest: "sha256:fixture".to_string(),
         order: 0,
         text: "figure".to_string(),
     })?;
@@ -535,6 +536,7 @@ fn visual_evidence_owner_mismatch_is_typed_conflict() -> Result<(), Box<dyn std:
         node_id: maestria_domain::StructureNodeId::new(1),
         source_span: SourceSpan::pdf_span(1)?,
         representations: Vec::new(),
+        representations_digest: "sha256:fixture".to_string(),
         order: 0,
         text: "figure".to_string(),
     })?;
@@ -606,6 +608,7 @@ fn assert_visual_evidence_denied_before_score(
         node_id: maestria_domain::StructureNodeId::new(1),
         source_span: SourceSpan::pdf_span(1)?,
         representations: Vec::new(),
+        representations_digest: "sha256:fixture".to_string(),
         order: 0,
         text: chunk_text.to_string(),
     })?;
