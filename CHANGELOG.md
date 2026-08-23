@@ -53,6 +53,12 @@ intelligence to a reviewed set of directories.
   work from the durable event log.
 - Repository queries reuse parsed SQLite statements (`prepare_cached`), so
   per-hit authorization lookups no longer re-plan SQL on every call.
+- Read-only search startup skips the full event-log replay: the retrieval
+  runtime consumes only the index-generation registry, which rebuilds from
+  the self-contained generation events (13 of ~60k), and evidence rendering
+  reads the durable evidence store the engine already authorizes against
+  (lock-contended searches drop from 3.9 s to 3.2 s on a 60k-event
+  instance). Event-log replay also stops deep-cloning every envelope.
 - `privacy_exclusions` defaults covering machine-state directories, wired
   into index-selection scanning and blocked patterns.
 - `IndexGenerationRegistry` with lifecycle transitions and retired-generation

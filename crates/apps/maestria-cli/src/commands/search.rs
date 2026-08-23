@@ -21,8 +21,9 @@ pub async fn run(
     limit: usize,
 ) -> Result<()> {
     let layout = helpers::validated_instance(instance_dir)?;
-    let (_plan, outcome, state) = run_search_command(&layout, task_id, query, limit).await?;
-    print_search_outcome(&state, &outcome);
+    let (_plan, outcome, _state) = run_search_command(&layout, task_id, query, limit).await?;
+    let store = maestria_storage_sqlite::SqliteStore::open_read_only(&layout.database_path)?;
+    print_search_outcome(&store, &outcome);
     Ok(())
 }
 
@@ -88,16 +89,24 @@ async fn run_durable_search(
     let (plan, outcome) = session.finish(result).await?;
     Ok((plan, outcome, state))
 }
-
 async fn run_read_only_search(
     layout: &InstanceLayout,
     task_id: Option<u64>,
     query: String,
     limit: usize,
 ) -> Result<(SearchPlan, SearchOutcome, maestria_domain::KernelState)> {
-    let state = helpers::load_kernel_state_with_retry(layout, "load kernel state for search")?;
-    let _task_id = validate_task_id(&state, task_id)?;
     let manifest = helpers::load_manifest(layout)?;
+    // Task validation needs the tasks slice; everything else the read-only
+    // assembly consumes is the generation registry, so plain searches skip
+    // the full event-log replay.
+    let (state, _task_id) = if task_id.is_some() {
+        let state = helpers::load_kernel_state_with_retry(layout, "load kernel state for search")?;
+        let task_id = validate_task_id(&state, task_id)?;
+        (state, task_id)
+    } else {
+        let state = maestria_daemon::load_search_generations_state(layout)?;
+        (state, None)
+    };
     let (plan, outcome) = execute_search(layout, &state, &manifest, query, limit).await?;
     Ok((plan, outcome, state))
 }
@@ -164,14 +173,16 @@ pub(crate) fn validate_task_id(
     }
     Ok(Some(task_id))
 }
-
-pub(super) fn print_search_outcome(state: &maestria_domain::KernelState, outcome: &SearchOutcome) {
+pub(super) fn print_search_outcome(
+    store: &maestria_storage_sqlite::SqliteStore,
+    outcome: &SearchOutcome,
+) {
     if outcome.evidence.is_empty() {
         println!("search_status={:?}", outcome.status);
         return;
     }
     for (rank, evidence_candidate) in outcome.evidence.iter().enumerate() {
-        let (artifact_id, source, snippet) = describe_evidence(state, evidence_candidate);
+        let (artifact_id, source, snippet) = describe_evidence(store, evidence_candidate);
         println!(
             "rank={} artifact={} evidence={} {} snippet={}",
             rank + 1,
@@ -184,17 +195,23 @@ pub(super) fn print_search_outcome(state: &maestria_domain::KernelState, outcome
 }
 
 fn describe_evidence(
-    state: &maestria_domain::KernelState,
+    store: &maestria_storage_sqlite::SqliteStore,
     candidate: &EvidenceCandidate,
 ) -> (String, String, String) {
-    let Some(evidence) = state.evidences.get(&candidate.evidence_id()) else {
-        return (
-            format!("artver:{}", candidate.artifact_version().value()),
-            "source=missing".to_string(),
-            "(missing evidence)".to_string(),
-        );
+    // Rendering reads the same durable evidence projection the retrieval
+    // engine authorizes against, so it works on both the durable and the
+    // replay-light read-only paths.
+    let evidence = match maestria_ports::EvidenceRepository::get(store, candidate.evidence_id()) {
+        Ok(Some(evidence)) => evidence,
+        _ => {
+            return (
+                format!("artver:{}", candidate.artifact_version().value()),
+                "source=missing".to_string(),
+                "(missing evidence)".to_string(),
+            );
+        }
     };
-    let source = helpers::source_label(evidence);
+    let source = helpers::source_label(&evidence);
     (
         evidence.artifact_id.to_string(),
         source,

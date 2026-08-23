@@ -29,7 +29,7 @@ fn ingestion_replay_from_detection_only() -> Result<(), Box<dyn std::error::Erro
     assert!(state.pending_artifacts.contains_key(&ArtifactId::new(1)));
     // Replay from an empty event log produces a fresh empty state (pending
     // metadata is in-memory only and is not reconstructed from events).
-    let replayed = replay_events(&events)?;
+    let replayed = replay_events(events)?;
     assert!(replayed.pending_artifacts.is_empty());
     Ok(())
 }
@@ -104,7 +104,7 @@ fn ingestion_replay_full_flow_reconstructs_state() -> Result<(), Box<dyn std::er
 
     // Replay events reconstructs the same artifacts, chunks, cards, and event log.
     // document_trees and artifact_versions are populated only during replay.
-    let replayed = replay_events(&events)?;
+    let replayed = replay_events(events)?;
     assert_eq!(state.artifacts, replayed.artifacts, "artifacts match");
     assert_eq!(state.chunks, replayed.chunks, "chunks match");
     assert_eq!(state.cards, replayed.cards, "cards match");

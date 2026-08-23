@@ -81,7 +81,7 @@ pub fn index_chunk(state: &mut KernelState, chunk_id: u64) -> Result<(), DomainE
 
 /// Assert that replaying `state.event_log` yields the same indexed state.
 pub fn replay_assert_indexed_parity(state: &KernelState) -> Result<(), DomainError> {
-    let replayed = replay_events(&state.event_log_owned())?;
+    let replayed = replay_events(state.event_log_owned())?;
     assert_eq!(state.artifacts, replayed.artifacts, "artifacts match");
     assert_eq!(state.chunks, replayed.chunks, "chunks match");
     assert_eq!(state.event_log, replayed.event_log, "event log matches");

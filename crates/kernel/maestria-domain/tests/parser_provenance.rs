@@ -81,7 +81,7 @@ fn parsed_provenance_survives_event_replay() -> Result<(), Box<dyn Error>> {
     ];
 
     let (state, events, _) = replay_inputs(&inputs)?;
-    let rebuilt = replay_events(&events)?;
+    let rebuilt = replay_events(events)?;
 
     assert_eq!(state, rebuilt);
     assert_eq!(state.chunks[&ChunkId::new(11)].representations.len(), 2);
@@ -113,7 +113,7 @@ fn non_parsed_status_is_replayed_without_index_work() -> Result<(), Box<dyn Erro
     ];
 
     let (state, events, effects) = replay_inputs(&inputs)?;
-    let rebuilt = replay_events(&events)?;
+    let rebuilt = replay_events(events)?;
 
     assert_eq!(state, rebuilt);
     assert_eq!(

@@ -21,7 +21,7 @@ fn resume_after_crash_replays_and_completes() -> Result<(), Box<dyn std::error::
         },
     }];
 
-    let mut state = replay_events(&events)?;
+    let mut state = replay_events(events)?;
     assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
 
     // Daemon finds pending entry and sends ResumeParser
@@ -85,7 +85,7 @@ fn parser_completed_cleanup_idempotent_on_resume_retry() -> Result<(), Box<dyn s
             blob_id: BlobId::new(42),
         },
     }];
-    let mut state = replay_events(&events)?;
+    let mut state = replay_events(events)?;
     state.apply_input(DomainInput::ResumeParser(ParserStarted {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),

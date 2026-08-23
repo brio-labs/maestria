@@ -48,7 +48,7 @@ fn link_evidence_to_task_succeeds() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Replay is deterministic
-    let replayed = replay_events(&state.event_log_owned())?;
+    let replayed = replay_events(state.event_log_owned())?;
     assert_eq!(state, replayed);
 
     Ok(())

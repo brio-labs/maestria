@@ -97,7 +97,7 @@ fn durable_completion_replay_keeps_result_without_pending_transport_intent()
             },
         },
     ];
-    let state = replay_events(&events)?;
+    let state = replay_events(events)?;
     assert!(state.pending_ocr.is_empty());
     assert_eq!(
         state.ocr_results.get(request.request_id()),
@@ -134,7 +134,7 @@ fn replay_rejects_uncorrelated_or_conflicting_ocr_terminals()
             completion: completion.clone(),
         },
     };
-    let replayed = replay_events(&[requested.clone(), completed.clone(), duplicate])?;
+    let replayed = replay_events([requested.clone(), completed.clone(), duplicate].to_vec())?;
     assert!(replayed.pending_ocr.is_empty());
     assert_eq!(
         replayed.ocr_results.get(request.request_id()),
@@ -152,7 +152,7 @@ fn replay_rejects_uncorrelated_or_conflicting_ocr_terminals()
             completion: conflicting_completion,
         },
     };
-    assert!(replay_events(&[requested.clone(), completed.clone(), conflict]).is_err());
+    assert!(replay_events([requested.clone(), completed.clone(), conflict].to_vec()).is_err());
 
     let wrong_artifact = DomainEventEnvelope {
         id: EventId::new(2),
@@ -161,7 +161,7 @@ fn replay_rejects_uncorrelated_or_conflicting_ocr_terminals()
             completion,
         },
     };
-    assert!(replay_events(&[requested.clone(), wrong_artifact]).is_err());
+    assert!(replay_events([requested.clone(), wrong_artifact].to_vec()).is_err());
 
     let uncorrelated_failure = DomainEventEnvelope {
         id: EventId::new(1),
@@ -171,7 +171,7 @@ fn replay_rejects_uncorrelated_or_conflicting_ocr_terminals()
             reason: "failed".to_string(),
         },
     };
-    assert!(replay_events(&[uncorrelated_failure]).is_err());
+    assert!(replay_events([uncorrelated_failure].to_vec()).is_err());
     Ok(())
 }
 
@@ -200,30 +200,33 @@ fn ocr_failure_terminalizes_parser_in_live_state_and_replay()
     assert!(!state.pending_parsers.contains_key(&request.artifact_id()));
     assert!(!state.pending_ocr.contains_key(request.request_id()));
 
-    let replayed = replay_events(&[
-        DomainEventEnvelope {
-            id: EventId::new(1),
-            event: DomainEvent::ParserStarted {
-                artifact_id: parser.artifact_id,
-                title: parser.title,
-                source_path: parser.source_path,
-                content_hash: parser.content_hash,
-                blob_id: parser.blob_id,
+    let replayed = replay_events(
+        [
+            DomainEventEnvelope {
+                id: EventId::new(1),
+                event: DomainEvent::ParserStarted {
+                    artifact_id: parser.artifact_id,
+                    title: parser.title,
+                    source_path: parser.source_path,
+                    content_hash: parser.content_hash,
+                    blob_id: parser.blob_id,
+                },
             },
-        },
-        DomainEventEnvelope {
-            id: EventId::new(2),
-            event: DomainEvent::OcrRequested { intent: request },
-        },
-        DomainEventEnvelope {
-            id: EventId::new(3),
-            event: DomainEvent::OcrFailed {
-                artifact_id: failure.artifact_id,
-                request_id: failure.request_id,
-                reason: failure.reason,
+            DomainEventEnvelope {
+                id: EventId::new(2),
+                event: DomainEvent::OcrRequested { intent: request },
             },
-        },
-    ])?;
+            DomainEventEnvelope {
+                id: EventId::new(3),
+                event: DomainEvent::OcrFailed {
+                    artifact_id: failure.artifact_id,
+                    request_id: failure.request_id,
+                    reason: failure.reason,
+                },
+            },
+        ]
+        .to_vec(),
+    )?;
     assert!(replayed.pending_parsers.is_empty());
     assert!(replayed.pending_ocr.is_empty());
     Ok(())

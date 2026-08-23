@@ -110,10 +110,31 @@ pub fn replay_inputs(
 }
 
 /// Replay a deterministic event log into a fresh state.
-pub fn replay_events(envelopes: &[DomainEventEnvelope]) -> Result<KernelState, DomainError> {
+///
+/// Takes ownership of the envelopes: each is moved into the state's event
+/// log without a deep clone, so replaying a 60k-event log no longer copies
+/// every payload (chunk representations dominate) a second time.
+pub fn replay_events(envelopes: Vec<DomainEventEnvelope>) -> Result<KernelState, DomainError> {
     let mut state = KernelState::new();
     for envelope in envelopes {
-        state.apply_event(envelope.clone())?;
+        state.apply_event(envelope)?;
     }
     Ok(state)
+}
+
+/// Rebuild only the index-generation registry from generation events.
+///
+/// Generation events are self-contained — they reference only generation
+/// ids, names, and fingerprints — so the registry rebuilds correctly from
+/// the generation-kind slice of the log. Read paths that consume nothing
+/// else from [`KernelState`] (read-only search assembly) use this to skip
+/// replaying artifact/chunk/evidence events entirely.
+pub fn replay_index_generations(
+    envelopes: &[DomainEventEnvelope],
+) -> Result<crate::generations::IndexGenerationRegistry, DomainError> {
+    let mut state = KernelState::new();
+    for envelope in envelopes {
+        state.replay_generation_events(&envelope.event)?;
+    }
+    Ok(state.index_generations)
 }

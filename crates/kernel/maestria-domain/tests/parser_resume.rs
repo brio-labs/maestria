@@ -109,7 +109,7 @@ fn parser_completed_resume_with_artifact_registered_restores_pending_index()
             },
         },
     ];
-    let mut state = replay_events(&events)?;
+    let mut state = replay_events(events)?;
 
     // Pre-conditions: artifact exists (Unindexed, no hash), pending_parsers set.
     assert!(state.artifacts.contains_key(&ArtifactId::new(1)));
@@ -208,7 +208,7 @@ fn parser_completed_resume_pending_same_hash_is_idempotent()
             },
         },
     ];
-    let mut state = replay_events(&events)?;
+    let mut state = replay_events(events)?;
 
     // Pre-condition: artifact is already Pending with correct hash.
     assert_eq!(

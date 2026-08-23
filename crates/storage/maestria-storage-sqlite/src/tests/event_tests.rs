@@ -355,7 +355,7 @@ fn source_became_stale_round_trips_after_restart_and_rebuilds_stale_sources()
         artifact_id: Some(ArtifactId::new(7)),
     })?;
     assert_eq!(scanned, vec![envelope]);
-    let replayed = replay_events(&scanned)?;
+    let replayed = replay_events(scanned)?;
     assert!(replayed.stale_sources.contains("notes/source.md"));
     assert_eq!(replayed.stale_sources.len(), 1);
     Ok(())

@@ -94,6 +94,35 @@ impl SqliteStore {
             .map_err(to_port_error)
     }
 
+    /// Scan only the index-generation lifecycle events.
+    ///
+    /// Concrete-store API for lightweight read-only search startup — the
+    /// retrieval engine consumes just the active index generations from
+    /// kernel state, so those callers skip decoding the rest of the log.
+    /// Not part of the [`maestria_ports::EventLog`] port.
+    pub fn scan_index_generation_events(
+        &self,
+    ) -> Result<Vec<maestria_domain::DomainEventEnvelope>, PortError> {
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare_cached(
+                "SELECT e.id, e.event_kind, e.artifact_id, e.payload_json, e.payload_version \
+                 FROM domain_events e \
+                 WHERE e.event_kind IN ('index_generation_started', \
+                 'index_generation_transitioned') \
+                 ORDER BY e.id ASC",
+            )
+            .map_err(to_port_error)?;
+        let mut rows = statement.query([]).map_err(to_port_error)?;
+        let mut events = Vec::new();
+        while let Some(row) = rows.next().map_err(to_port_error)? {
+            let (envelope, _trace_remap) =
+                crate::events::read_stored_event(row)?.into_domain_with_trace_remap()?;
+            events.push(envelope);
+        }
+        Ok(events)
+    }
+
     /// Stored startup-reconciliation watermark, when one has been written.
     pub fn projection_watermark(&self) -> Result<Option<String>, PortError> {
         let connection = self.lock()?;

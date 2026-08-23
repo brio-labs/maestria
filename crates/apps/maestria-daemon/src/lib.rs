@@ -75,7 +75,8 @@ pub use api::{
 pub use approval_recovery::{reconcile_approval_repo, reconcile_pending_approvals};
 pub use full_text_recovery::pending_start_full_text;
 pub use instance_setup::{
-    load_kernel_state, prepare_instance, prepare_instance_with_roots, validate_recovery_scope,
+    load_kernel_state, load_search_generations_state, prepare_instance,
+    prepare_instance_with_roots, validate_recovery_scope,
 };
 pub use learned_sparse_benchmark_executor::LearnedSparseBenchmarkExecutor;
 pub(crate) use lifecycle::InstanceLifecycle;

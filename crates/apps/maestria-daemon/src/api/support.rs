@@ -48,3 +48,15 @@ pub(super) fn load_state_and_manifest(
         .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
     Ok((state, manifest))
 }
+
+/// Load the manifest plus the kernel-state slice read-only search assembly
+/// consumes (the index-generation registry), skipping the full event-log
+/// replay. See [`crate::instance_setup::load_search_generations_state`].
+pub(super) fn load_search_generations_and_manifest(
+    layout: &InstanceLayout,
+) -> Result<(KernelState, InstanceManifest)> {
+    let state = crate::instance_setup::load_search_generations_state(layout)?;
+    let manifest = InstanceManifest::decode(&std::fs::read_to_string(&layout.manifest_path)?)
+        .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
+    Ok((state, manifest))
+}

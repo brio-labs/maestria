@@ -78,7 +78,7 @@ fn replay_events_reconstructs_new_memory_event_state() -> Result<(), Box<dyn std
         }),
     ];
     let (_state, events, _effects) = replay_inputs(&inputs)?;
-    let replayed = replay_events(&events)?;
+    let replayed = replay_events(events.clone())?;
 
     assert_eq!(replayed.event_log_owned(), events);
     assert_eq!(
@@ -257,7 +257,7 @@ fn replay_is_deterministic() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn replay_events_are_equivalent() -> Result<(), Box<dyn std::error::Error>> {
     let (state, events, _) = run_replay_once()?;
-    let replayed = replay_events(&events)?;
+    let replayed = replay_events(events.clone())?;
     assert_eq!(state.event_log, replayed.event_log);
     assert_eq!(state.artifacts.len(), replayed.artifacts.len());
     assert_eq!(state.claims.len(), replayed.claims.len());
