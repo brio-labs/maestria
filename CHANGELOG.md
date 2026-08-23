@@ -69,6 +69,14 @@ intelligence to a reviewed set of directories.
 - `Chunk` carries that `representations_digest`, so restart recovery
   compares registrations by identity instead of requiring both sides to
   hold full representation contents.
+- CLI `search` dispatches to a live instance daemon first (`daemon.sock` +
+  instance token) and renders from the same durable evidence projection,
+  falling back to local execution only when the socket accepts no
+  connection or `--task-id` scoping requires full local state. Daemon-served
+  searches drop from 2.3 s to 1.2 s on a 60k-event instance because the
+  warm daemon runtime replaces the per-invocation state load; a new
+  `daemon_unavailable` error code distinguishes "nothing serving" from
+  real failures so the fallback never masks errors.
 - `privacy_exclusions` defaults covering machine-state directories, wired
   into index-selection scanning and blocked patterns.
 - `IndexGenerationRegistry` with lifecycle transitions and retired-generation
