@@ -29,6 +29,9 @@ class FakeEngine:
             raise ValueError("fake failure")
         return [0.6, 0.8, 0.0]
 
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        return [self.embed(text) for text in texts]
+
 
 class EmbeddingServerTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -72,8 +75,19 @@ class EmbeddingServerTests(unittest.TestCase):
         status, data = self.post({"input": "   ", "model": "bekko-embedding-v1-a25m"})
         self.assertEqual(status, 400)
 
-    def test_rejects_non_string_input(self) -> None:
-        status, data = self.post({"input": ["array"], "model": "bekko-embedding-v1-a25m"})
+    def test_accepts_batch_of_strings(self) -> None:
+        status, data = self.post(
+            {"input": ["first", "second"], "model": "bekko-embedding-v1-a25m"}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual([item["index"] for item in data["data"]], [0, 1])
+
+    def test_rejects_non_string_list_input(self) -> None:
+        status, data = self.post({"input": [1, 2], "model": "bekko-embedding-v1-a25m"})
+        self.assertEqual(status, 400)
+
+    def test_rejects_empty_list_input(self) -> None:
+        status, data = self.post({"input": [], "model": "bekko-embedding-v1-a25m"})
         self.assertEqual(status, 400)
 
     def test_rejects_unknown_path(self) -> None:

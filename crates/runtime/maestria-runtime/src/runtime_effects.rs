@@ -9,8 +9,10 @@ use tokio::sync::mpsc;
 
 /// Dedicated lane for `IndexVector` effects: a degraded vector flood must
 /// never occupy the main effect semaphore to the exclusion of full-text and
-/// parse effects. Two permits keep provider-backed runs concurrent.
-const VECTOR_LANE_PERMITS: usize = 2;
+/// parse effects. Eight permits keep provider-backed embedding runs
+/// concurrent: measured dense-ingest throughput saturates near the host
+/// core count, and higher permit counts over-subscribe ONNX inference.
+const VECTOR_LANE_PERMITS: usize = 8;
 
 /// Effect semaphores: the main lane carries every effect except vector
 /// indexing, which runs under [`VECTOR_LANE_PERMITS`].

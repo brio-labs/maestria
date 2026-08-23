@@ -83,6 +83,52 @@ class EmbeddingEngine:
             )
         return [float(value) for value in vector]
 
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Encode a batch in one padded session run; pool and normalize rows.
+
+        Padding to the longest sequence in the batch lets the ONNX session
+        process every text in one run instead of one run per chunk.
+        """
+        np = self._np
+        encodings = [self._tokenizer.encode(text) for text in texts]
+        max_len = max(len(encoding.ids) for encoding in encodings)
+        rows = len(encodings)
+        ids = np.zeros((rows, max_len), dtype=np.int64)
+        mask = np.zeros((rows, max_len), dtype=np.int64)
+        for row, encoding in enumerate(encodings):
+            length = len(encoding.ids)
+            ids[row, :length] = encoding.ids
+            mask[row, :length] = encoding.attention_mask
+        feed = {"input_ids": ids}
+        if "attention_mask" in self._input_names:
+            feed["attention_mask"] = mask
+        elif "input_mask" in self._input_names:
+            feed["input_mask"] = mask
+        if "token_type_ids" in self._input_names:
+            feed["token_type_ids"] = np.zeros_like(ids)
+        elif "segment_ids" in self._input_names:
+            feed["segment_ids"] = np.zeros_like(ids)
+        hidden = np.asarray(self._session.run(None, feed)[0], dtype=np.float32)
+        if hidden.ndim != 3 or hidden.shape[0] != rows:
+            raise ValueError("embedding model produced unexpected output shape")
+        vectors: list[list[float]] = []
+        for row in range(rows):
+            pooled = hidden[row, 0] if self._pooling == "cls" else (
+                (hidden[row] * mask[row].astype(np.float32)[:, None]).sum(axis=0)
+                / max(float(mask[row].sum()), 1.0)
+            )
+            norm = float(np.linalg.norm(pooled))
+            if norm <= 0.0 or not np.all(np.isfinite(pooled)):
+                raise ValueError("embedding model produced an invalid vector")
+            normalized = pooled / norm
+            if len(normalized) != self._dimensions:
+                raise ValueError(
+                    f"embedding dimension mismatch: expected {self._dimensions}, got {len(normalized)}"
+                )
+            vectors.append([float(value) for value in normalized])
+        return vectors
+
+
 
 class EmbeddingServer(ThreadingHTTPServer):
     engine: EmbeddingEngine
@@ -109,8 +155,18 @@ class RequestHandler(BaseHTTPRequestHandler):
         try:
             payload = json.loads(self.rfile.read(content_length))
             text = payload.get("input")
-            if not isinstance(text, str) or not text.strip():
-                raise ValueError("input must be a non-empty string")
+            if isinstance(text, str):
+                if not text.strip():
+                    raise ValueError("input must be a non-empty string")
+                texts = [text]
+            elif isinstance(text, list) and text and all(
+                isinstance(item, str) and item.strip() for item in text
+            ):
+                texts = text
+            else:
+                raise ValueError(
+                    "input must be a non-empty string or a non-empty list of strings"
+                )
             requested_model = payload.get("model")
             if requested_model and requested_model != server.model:
                 raise ValueError("requested model does not match the served model")
@@ -118,13 +174,16 @@ class RequestHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.BAD_REQUEST, str(error))
             return
         try:
-            embedding = server.engine.embed(text)
+            embeddings = server.engine.embed_batch(texts)
         except Exception as error:
             self.send_error(HTTPStatus.BAD_GATEWAY, f"embedding model failed: {error}")
             return
         body = json.dumps(
             {
-                "data": [{"embedding": embedding, "index": 0}],
+                "data": [
+                    {"embedding": embedding, "index": index}
+                    for index, embedding in enumerate(embeddings)
+                ],
                 "model": server.model,
             }
         ).encode("utf-8")
