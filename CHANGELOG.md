@@ -77,6 +77,12 @@ intelligence to a reviewed set of directories.
   warm daemon runtime replaces the per-invocation state load; a new
   `daemon_unavailable` error code distinguishes "nothing serving" from
   real failures so the fallback never masks errors.
+- Vector-lane concurrency raised from two to eight permits: dense-lane
+  embedding runs now use the host core count instead of serializing behind
+  a pair of in-flight requests (dense indexing of a 250-file slice drops
+  from 134.6 s to 81.8 s; sixteen permits over-subscribe ONNX inference
+  and regress). The local embedding sidecar also accepts array `input`
+  batches, matching the OpenAI embeddings contract.
 - `privacy_exclusions` defaults covering machine-state directories, wired
   into index-selection scanning and blocked patterns.
 - `IndexGenerationRegistry` with lifecycle transitions and retired-generation
