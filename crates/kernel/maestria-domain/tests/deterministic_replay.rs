@@ -19,7 +19,7 @@ fn replay_events_rejects_malformed_deterministic_evidence_before_retry()
     let evidence_id = evidence_id_for(art_id, 0);
     let events = malformed_deterministic_evidence_events(art_id, chunk_id, evidence_id)?;
     let error = require_error(
-        replay_events(&events),
+        replay_events(events),
         "malformed deterministic evidence must fail replay",
     )?;
     assert!(matches!(
@@ -68,7 +68,7 @@ fn replay_events_valid_duplicate_evidence_still_errors() -> Result<(), Box<dyn s
     // A valid deterministic evidence record followed by a *different*
     // valid record at the same ID must still fail replay.
     let events = valid_duplicate_evidence_events()?;
-    let err = require_error(replay_events(&events), "duplicate valid evidence must fail")?;
+    let err = require_error(replay_events(events), "duplicate valid evidence must fail")?;
     assert!(
         matches!(err, DomainError::DuplicateEvidence { .. }),
         "expected DuplicateEvidence error, got {:?}",

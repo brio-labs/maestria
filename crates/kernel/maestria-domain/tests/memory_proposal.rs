@@ -432,7 +432,7 @@ fn propose_memory_candidate_survives_replay() -> Result<(), Box<dyn std::error::
     ))?;
 
     // Use the full event log from the state for replay.
-    let replayed = replay_events(&state.event_log_owned())?;
+    let replayed = replay_events(state.event_log_owned())?;
 
     assert!(replayed.claims.contains_key(&ClaimId::new(20)));
     assert!(

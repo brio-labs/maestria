@@ -40,7 +40,7 @@ fn issue_revoke_and_replay_reconstructs_one_provider_grant()
 
     let mut events = issued.events;
     events.extend(revoked.events);
-    let replayed = replay_events(&events)?;
+    let replayed = replay_events(events)?;
     assert_eq!(state.realm_read_grants, replayed.realm_read_grants);
     assert_eq!(replayed.realm_read_grants.len(), 1);
     Ok(())

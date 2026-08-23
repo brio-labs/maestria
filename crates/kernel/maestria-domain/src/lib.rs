@@ -141,7 +141,7 @@ pub use crate::provenance::{
     web_evidence_id_for,
 };
 pub use crate::realm_identity::{RealmId, RealmIdError};
-pub use crate::replay::{replay_events, replay_inputs};
+pub use crate::replay::{replay_events, replay_index_generations, replay_inputs};
 pub use crate::search::{
     ArtifactVersion, ConflictSet, ContentHash, CorpusScope, DiversityPlacement,
     DiversitySkipReason, EvidenceCandidate, EvidenceCandidateDto, EvidenceCoverage,

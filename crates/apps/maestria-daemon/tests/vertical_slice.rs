@@ -281,7 +281,7 @@ async fn search_and_open_evidence_after_restart(
 
     let sqlite = SqliteStore::open(&layout.database_path)?;
     let events = EventLog::scan(&sqlite, EventFilter { artifact_id: None })?;
-    let state = maestria_domain::replay_events(&events)?;
+    let state = maestria_domain::replay_events(events)?;
     let manifest = InstanceManifest::decode(&fs::read_to_string(&layout.manifest_path)?)?;
     drop(sqlite);
 

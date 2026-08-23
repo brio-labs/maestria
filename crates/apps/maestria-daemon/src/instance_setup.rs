@@ -106,7 +106,34 @@ pub fn load_kernel_state(layout: &InstanceLayout) -> Result<KernelState> {
     let events =
         maestria_ports::EventLog::scan(&sqlite_store, EventFilter { artifact_id: None })
             .with_context(|| format!("scan domain events {}", layout.database_path.display()))?;
-    replay_events(&events).map_err(|error| anyhow!(error))
+    replay_events(events).map_err(|error| anyhow!(error))
+}
+
+/// Load the kernel-state slice consumed by read-only search assembly.
+///
+/// The read-only retrieval runtime reads only `index_generations` from
+/// kernel state — lexical/dense/sparse lane eligibility and generation
+/// identities; candidate authorization and evidence rendering hit the
+/// stores directly. Rebuilding that slice needs just the self-contained
+/// generation events, skipping the full event-log replay (O(event log)
+/// with chunk-text payloads) on every search invocation.
+///
+/// The returned state MUST NOT be used where other slices are read: task
+/// validation, output rendering, and any runtime execution need
+/// [`load_kernel_state`] instead.
+pub fn load_search_generations_state(layout: &InstanceLayout) -> Result<KernelState> {
+    let sqlite_store = SqliteStore::open_read_only(&layout.database_path).with_context(|| {
+        format!(
+            "open sqlite store for search generations {}",
+            layout.database_path.display()
+        )
+    })?;
+    let events = sqlite_store.scan_index_generation_events()?;
+    let index_generations =
+        maestria_domain::replay_index_generations(&events).map_err(|error| anyhow!(error))?;
+    let mut state = KernelState::new();
+    state.index_generations = index_generations;
+    Ok(state)
 }
 
 #[cfg(test)]

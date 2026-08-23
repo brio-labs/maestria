@@ -54,10 +54,11 @@ async fn prepare_read_only_search_runtime(
     context: &ApiContext,
 ) -> Result<Arc<crate::SearchRuntime>> {
     let layout = context.layout.clone();
-    let (state, manifest) =
-        tokio::task::spawn_blocking(move || super::support::load_state_and_manifest(&layout))
-            .await
-            .map_err(|error| anyhow!("load search state task failed: {error}"))??;
+    let (state, manifest) = tokio::task::spawn_blocking(move || {
+        super::support::load_search_generations_and_manifest(&layout)
+    })
+    .await
+    .map_err(|error| anyhow!("load search state task failed: {error}"))??;
     let layout = context.layout.clone();
     tokio::task::spawn_blocking(move || {
         crate::prepare_search_runtime_read_only(
@@ -84,10 +85,11 @@ async fn prepare_read_only_search_runtime(
 /// Any error fails the whole read closed; no partial status is fabricated.
 pub(super) async fn retrieval_status(context: &ApiContext) -> Result<RetrievalStatusResponse> {
     let layout = context.layout.clone();
-    let (state, manifest) =
-        tokio::task::spawn_blocking(move || super::support::load_state_and_manifest(&layout))
-            .await
-            .map_err(|error| anyhow!("load retrieval status task failed: {error}"))??;
+    let (state, manifest) = tokio::task::spawn_blocking(move || {
+        super::support::load_search_generations_and_manifest(&layout)
+    })
+    .await
+    .map_err(|error| anyhow!("load retrieval status task failed: {error}"))??;
     let store = SqliteStore::open_read_only(&context.layout.database_path)?;
     let (primary_generation, corpus_snapshot, dense_generation) =
         crate::projection_open::resolve_index_generations(&state)?;

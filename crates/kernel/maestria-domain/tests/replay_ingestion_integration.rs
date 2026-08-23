@@ -79,7 +79,7 @@ fn parser_result_with_multiple_chunks() -> Result<ParserResult, Box<dyn std::err
 }
 
 fn replay_assert_parity(state: &KernelState) -> Result<KernelState, DomainError> {
-    let replayed = replay_events(&state.event_log_owned())?;
+    let replayed = replay_events(state.event_log_owned())?;
     assert_eq!(state.artifacts, replayed.artifacts, "artifacts match");
     assert_eq!(state.chunks, replayed.chunks, "chunks match");
     assert_eq!(state.cards, replayed.cards, "cards match");
@@ -128,7 +128,7 @@ fn replay_ingestion_flow_state_parity() -> Result<(), Box<dyn std::error::Error>
         cards: Vec::new(),
     }))?;
 
-    let replayed = replay_events(&state.event_log_owned())?;
+    let replayed = replay_events(state.event_log_owned())?;
     assert_eq!(state.artifacts, replayed.artifacts, "artifacts match");
     assert_eq!(state.chunks, replayed.chunks, "chunks match");
     assert_eq!(state.event_log, replayed.event_log, "event log matches");
@@ -194,7 +194,7 @@ fn replay_ingestion_detection_only() -> Result<(), Box<dyn std::error::Error>> {
     assert!(state.artifacts.is_empty());
     assert!(state.pending_artifacts.contains_key(&ArtifactId::new(1)));
     assert!(
-        replay_events(&state.event_log_owned())?
+        replay_events(state.event_log_owned())?
             .pending_artifacts
             .is_empty()
     );
@@ -633,7 +633,7 @@ fn replay_parser_started_via_convenience() -> Result<(), Box<dyn std::error::Err
             blob_id: BlobId::new(7),
         },
     }];
-    let replayed = replay_events(&events)?;
+    let replayed = replay_events(events)?;
     assert_eq!(replayed.pending_parsers.len(), 1);
     assert_eq!(
         replayed.pending_parsers[&ArtifactId::new(1)].blob_id,

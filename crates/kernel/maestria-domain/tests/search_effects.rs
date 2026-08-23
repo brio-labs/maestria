@@ -146,7 +146,7 @@ fn search_executed_is_deterministic_on_replay() -> Result<(), DomainError> {
         at: LogicalTick::new(7),
     }))?;
 
-    let replayed = replay_events(&state_a.event_log_owned())?;
+    let replayed = replay_events(state_a.event_log_owned())?;
     assert_eq!(state_a, replayed);
     Ok(())
 }

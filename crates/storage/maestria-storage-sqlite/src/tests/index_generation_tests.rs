@@ -124,7 +124,7 @@ fn full_lifecycle_replay_asserts_active_generation() -> Result<(), Box<dyn std::
     assert_eq!(scanned.len(), 4);
 
     // Replay into state
-    let state = maestria_domain::replay_events(&scanned)?;
+    let state = maestria_domain::replay_events(scanned)?;
 
     // Assert active generation and fingerprint are preserved
     let active_gen = state
