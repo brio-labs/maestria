@@ -4,6 +4,7 @@ pub mod code_intel_auth;
 pub mod doctor;
 pub mod evidence;
 pub mod index;
+pub mod index_batch;
 pub mod index_metrics;
 pub mod index_selection;
 pub mod init;

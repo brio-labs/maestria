@@ -1,9 +1,5 @@
-use anyhow::{Context, Result, anyhow};
-use maestria_core::{
-    InstanceLayout, InstanceManifest, artifact_id_for_content_hash, build_artifact_detected_input,
-    content_hash,
-};
-use maestria_domain::{ArtifactId, IndexStatus, KernelState, TaskId};
+use anyhow::{Result, anyhow};
+use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_governance::{PrivacyExclusions, Scope};
 use maestria_index_selection::{IndexPolicy, Selection};
 use std::{
@@ -13,182 +9,13 @@ use std::{
     time::Duration,
 };
 
-use super::index_metrics::{IndexMetrics, human_bytes};
+use super::index_batch::{
+    BatchTallies, ProcessContext, SUBMIT_WINDOW, SubmitOutcome, await_file_terminal,
+    drain_recovery, drain_validation_recovery, submit_file,
+};
+use super::index_metrics::IndexMetrics;
 use super::index_selection::{SelectionPlan, approve_interactively, approve_scripted, record_skip};
 use crate::helpers;
-
-// ---------------------------------------------------------------------------
-// Private helpers
-// ---------------------------------------------------------------------------
-
-/// Shared context for processing a single file through indexing.
-struct ProcessContext<'a> {
-    scope: &'a Scope,
-    privacy: &'a PrivacyExclusions,
-    manifest: &'a InstanceManifest,
-    preexisting_state: &'a KernelState,
-    session: &'a maestria_daemon::MutationSession,
-    layout: &'a InstanceLayout,
-    index_timeout: Duration,
-}
-
-/// Process a single file through read, scope check, duplicate detection,
-/// runtime submission, and wait-for-indexing.
-///
-/// Returns an error for scope violations, I/O failures, runtime submission errors,
-/// Terminal per-file outcome for the batch summary.
-enum FileOutcome {
-    Indexed,
-    Unchanged,
-    Skipped(String),
-}
-
-/// Process one file, or return the error that prevented it from reaching a
-/// terminal state. The caller continues the batch on error; the summary
-/// reports the failure. Returns the number of source bytes read alongside
-/// the terminal outcome for aggregate throughput metrics.
-async fn process_file(
-    file: &Path,
-    done: usize,
-    total: usize,
-    ctx: &ProcessContext<'_>,
-) -> Result<(FileOutcome, u64)> {
-    let file = file
-        .canonicalize()
-        .with_context(|| format!("canonicalize index path {}", file.display()))?;
-    // Preserve scope, privacy, and manifest checks before reading.
-    if ctx.scope.check_read_containment(&file).is_err()
-        || ctx.privacy.is_excluded(&file)
-        || !ctx.manifest.allows_source(&file)
-    {
-        return Err(anyhow!(
-            "index path is outside the instance read scope or excluded by policy: {}",
-            file.display()
-        ));
-    }
-
-    let bytes = fs::read(&file)?;
-    let bytes_len = bytes.len() as u64;
-    let prefix = format!("[{done}/{total}]");
-    let size = human_bytes(bytes_len);
-    let hash_string = content_hash(&bytes);
-    let artifact_id = artifact_id_for_content_hash(&file, &hash_string);
-    let hash = maestria_domain::ContentHash::new(hash_string.clone())?;
-    // Check whether this exact artifact was already indexed before this session.
-    if let Some(artifact) = ctx.preexisting_state.artifacts.get(&artifact_id)
-        && artifact.content_hash.as_ref() == Some(&hash)
-        && artifact.index_status == IndexStatus::Indexed
-    {
-        println!(
-            "{prefix} unchanged artifact={} path={} ({size})",
-            artifact.id,
-            file.display()
-        );
-        return Ok((FileOutcome::Unchanged, bytes_len));
-    }
-
-    let input = build_artifact_detected_input(&file, bytes, hash_string)?;
-    ctx.session
-        .submit(input)
-        .await
-        .context("failed to submit artifact to runtime")?;
-    // Wait for the artifact to reach terminal persisted state. Unsupported,
-    // failed, and quarantined parses carry no indexable content, so the
-    // artifact never becomes `Indexed`; a terminal non-`Parsed` parse status
-    // is done and reported as skipped. The predicate records the outcome.
-    // Polls the artifact row directly — replaying the full event log per
-    // poll would dominate batch time as the log grows.
-    let outcome = std::cell::RefCell::new(None);
-    helpers::wait_for_artifact_state(
-        ctx.layout,
-        artifact_id,
-        ctx.index_timeout,
-        format!("waiting for artifact indexing: {}", file.display()),
-        |artifact| {
-            if artifact.index_status == IndexStatus::Indexed {
-                outcome.replace(Some(FileOutcome::Indexed));
-                return true;
-            }
-            let skipped = match artifact.parse_status {
-                Some(maestria_domain::ParseStatus::Unsupported) => Some("unsupported"),
-                Some(maestria_domain::ParseStatus::Failed) => Some("failed"),
-                Some(maestria_domain::ParseStatus::Quarantined) => Some("quarantined"),
-                _ => None,
-            };
-            if let Some(reason) = skipped {
-                outcome.replace(Some(FileOutcome::Skipped(reason.to_string())));
-                true
-            } else {
-                false
-            }
-        },
-    )
-    .await?;
-    let outcome = outcome
-        .into_inner()
-        .ok_or_else(|| anyhow!("artifact {artifact_id} has no terminal outcome"))?;
-    match &outcome {
-        FileOutcome::Indexed => {
-            println!(
-                "{prefix} indexed artifact={artifact_id} path={} ({size})",
-                file.display()
-            );
-        }
-        FileOutcome::Unchanged => {}
-        FileOutcome::Skipped(reason) => {
-            println!(
-                "{prefix} skipped artifact={artifact_id} path={} ({size}, {reason})",
-                file.display()
-            );
-        }
-    }
-    Ok((outcome, bytes_len))
-}
-
-/// Wait until every artifact in `recovery_artifact_ids` has reached
-/// `IndexStatus::Indexed`, or until `recovery_timeout` elapses.
-async fn drain_recovery(
-    layout: &InstanceLayout,
-    recovery_artifact_ids: &[ArtifactId],
-    recovery_timeout: Duration,
-) -> Result<()> {
-    helpers::wait_for_kernel_state(
-        layout,
-        recovery_timeout,
-        "waiting for recovery artifact indexing".to_string(),
-        |state| {
-            recovery_artifact_ids.iter().all(|id| {
-                state
-                    .artifacts
-                    .get(id)
-                    .is_some_and(|a| a.index_status == IndexStatus::Indexed)
-            })
-        },
-    )
-    .await?;
-    Ok(())
-}
-
-/// Wait until every recovered validation task has a durable validation
-/// report, or until `recovery_timeout` elapses.
-async fn drain_validation_recovery(
-    layout: &InstanceLayout,
-    validation_task_ids: &[TaskId],
-    recovery_timeout: Duration,
-) -> Result<()> {
-    helpers::wait_for_kernel_state(
-        layout,
-        recovery_timeout,
-        "waiting for recovered task validation reports".to_string(),
-        |state| {
-            validation_task_ids
-                .iter()
-                .all(|task_id| maestria_daemon::has_current_validation_report(state, *task_id))
-        },
-    )
-    .await?;
-    Ok(())
-}
 
 /// Index every selected file under per-file supervision, wait for recovery
 /// work, and print the run summary with live metrics. Returns `Ok(())` when
@@ -200,31 +27,33 @@ async fn run_selected_batch(
     policy_skipped_total: usize,
 ) -> Result<()> {
     let mut metrics = IndexMetrics::new(selected_files.len(), ctx.layout)?;
-    let mut indexed = 0usize;
-    let mut unchanged = 0usize;
-    let mut skipped = 0usize;
-    let mut failed = 0usize;
-    for (done, file) in selected_files.iter().enumerate() {
-        let done = done + 1;
-        match process_file(file, done, selected_files.len(), ctx).await {
-            Ok((FileOutcome::Indexed, bytes)) => {
-                indexed += 1;
-                metrics.add_bytes(bytes);
-            }
-            Ok((FileOutcome::Unchanged, bytes)) => {
-                unchanged += 1;
-                metrics.add_bytes(bytes);
-            }
-            Ok((FileOutcome::Skipped(_), bytes)) => {
-                skipped += 1;
-                metrics.add_bytes(bytes);
-            }
-            Err(error) => {
-                failed += 1;
-                eprintln!("failed artifact path={} error={error}", file.display());
+    let mut tallies = BatchTallies::new();
+    for window in selected_files.chunks(SUBMIT_WINDOW) {
+        let mut in_flight = Vec::with_capacity(window.len());
+        for (offset, file) in window.iter().enumerate() {
+            let prefix = format!(
+                "[{}/{}]",
+                tallies.completed + offset + 1,
+                selected_files.len()
+            );
+            match submit_file(file, prefix, ctx).await {
+                Ok(SubmitOutcome::Terminal(outcome, bytes)) => {
+                    tallies.record(outcome, bytes, &mut metrics);
+                }
+                Ok(SubmitOutcome::InFlight(pending)) => in_flight.push(pending),
+                Err(error) => {
+                    eprintln!("failed artifact path={} error={error}", file.display());
+                    tallies.failed += 1;
+                    tallies.completed += 1;
+                }
             }
         }
-        if let Some(line) = metrics.status_line(done) {
+        for pending in in_flight {
+            let bytes = pending.bytes;
+            let outcome = await_file_terminal(pending, ctx).await;
+            tallies.record(outcome, bytes, &mut metrics);
+        }
+        if let Some(line) = metrics.status_line(tallies.completed) {
             println!("{line}");
         }
     }
@@ -242,11 +71,17 @@ async fn run_selected_batch(
     }
     println!(
         "{}",
-        metrics.summary(indexed, unchanged, skipped + policy_skipped_total, failed)
+        metrics.summary(
+            tallies.indexed,
+            tallies.unchanged,
+            tallies.skipped + policy_skipped_total,
+            tallies.failed,
+        )
     );
-    if failed > 0 {
+    if tallies.failed > 0 {
         Err(anyhow!(
-            "{failed} of {} selected files failed to index",
+            "{} of {} selected files failed to index",
+            tallies.failed,
             selected_files.len()
         ))
     } else {
