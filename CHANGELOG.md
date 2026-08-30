@@ -221,3 +221,6 @@ extracted CLI/daemon `--help` smoke tests.
 
 [0.6.1]: https://github.com/brio-labs/maestria/releases/tag/v0.6.1
 [0.6.0]: https://github.com/brio-labs/maestria/releases/tag/v0.6.0
+- Windowed index submission in the CLI (windows of eight) with the per-file
+  pipeline split into `commands/index_batch.rs`; real-corpus validation
+  recorded (synthetic per-file cost sits inside the real-data envelope).
