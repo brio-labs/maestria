@@ -32,6 +32,7 @@ jobs:
       domain: ${{ steps.filter.outputs.domain }}
       governance: ${{ steps.filter.outputs.governance }}
       retrieval: ${{ steps.filter.outputs.retrieval }}
+      evidence: ${{ steps.filter.outputs.evidence }}
     steps:
       - uses: actions/checkout@v7.0.0
       - uses: dorny/paths-filter@v4.0.1
@@ -49,9 +50,20 @@ jobs:
               - "crates/ecosystem/maestria-retrieval/**"
               - "crates/apps/maestria-daemon/**"
               - "crates/ecosystem/maestria-sparse-local/**"
+            evidence:
+              - ".github/workflows/benchmarks.yml"
               - "scripts/benchmark_evidence.py"
               - "scripts/test_benchmark_evidence.py"
               - "tests/contracts/benchmark_evidence_v1.json"
+  evidence-validate:
+    needs: [changes]
+    if: needs.changes.outputs.evidence == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Validate benchmark evidence manifest
+        run: python3 scripts/benchmark_evidence.py --manifest tests/contracts/benchmark_evidence_v1.json
+
   bench:
     needs: [changes]
     runs-on: ubuntu-latest

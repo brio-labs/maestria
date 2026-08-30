@@ -229,3 +229,7 @@ extracted CLI/daemon `--help` smoke tests.
   profiling guidance, and measured estimation traps.
 - Embedding provider batching groundwork: `EmbeddingProvider::embed_batch`
   with a true array implementation in the loopback HTTP provider.
+- CI path-gating: benchmark-evidence ledger changes validate the manifest
+  only (new `evidence-validate` job) instead of running the full retrieval
+  bench shards; pure-Python `scripts/` edits no longer trigger the whole
+  Rust CI matrix (#480).
