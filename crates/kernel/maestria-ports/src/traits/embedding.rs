@@ -83,6 +83,22 @@ pub trait EmbeddingProvider: Send + Sync {
     /// The transport-bound disclosure that must be checked before input bytes.
     fn disclosure(&self) -> ProviderDisclosure;
     fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, crate::PortError>;
+
+    /// Embed a batch with one provider round-trip when the transport
+    /// supports it. Responses are position-aligned with `requests`.
+    /// The default loops [`EmbeddingProvider::embed`]; providers with a
+    /// batched transport override this.
+    fn embed_batch(
+        &self,
+        requests: &[EmbeddingRequest],
+    ) -> Result<Vec<EmbeddingResponse>, crate::PortError> {
+        requests
+            .iter()
+            .cloned()
+            .map(|request| self.embed(request))
+            .collect()
+    }
+
     fn identity(&self) -> Option<EmbeddingIdentity> {
         None
     }

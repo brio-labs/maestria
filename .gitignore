@@ -18,3 +18,8 @@ perf.data
 perf.data.old
 *.svg
 crates/apps/maestria-cli/dhat-heap.json
+
+# profiling artifacts
+perf.data*
+dhat-heap.json
+*.svg.tmp

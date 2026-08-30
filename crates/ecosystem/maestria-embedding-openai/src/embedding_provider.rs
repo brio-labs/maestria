@@ -187,6 +187,82 @@ impl EmbeddingProvider for LocalHttpEmbeddingProvider {
             disclosure: self.transport.disclosure().clone(),
         })
     }
+
+    /// One round-trip for the whole batch: `input` carries every template-
+    /// applied text and the response entries are re-ordered by their
+    /// `index` field to stay position-aligned with `requests`.
+    fn embed_batch(
+        &self,
+        requests: &[EmbeddingRequest],
+    ) -> Result<Vec<EmbeddingResponse>, PortError> {
+        if requests.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut inputs = Vec::with_capacity(requests.len());
+        for request in requests {
+            if request.text.trim().is_empty() {
+                return Err(PortError::InvalidInputContext {
+                    context: "embedding text is empty",
+                    source: "text must contain a non-whitespace value".to_string(),
+                });
+            }
+            if request.model != self.model || request.identity != self.identity {
+                return Err(PortError::InvalidInputContext {
+                    context: "embedding request model or identity mismatch",
+                    source: "batch requests must match the provider identity".to_string(),
+                });
+            }
+            let template = match request.kind {
+                EmbeddingInputKind::Document => &self.document_template,
+                EmbeddingInputKind::Query => &self.query_template,
+            };
+            inputs.push(template.replace("{{text}}", truncate_text(&request.text)));
+        }
+        let payload = EmbeddingBatchPayload {
+            input: inputs,
+            model: self.model.clone(),
+            dimensions: self.dimensions,
+        };
+        let body = serde_json::to_vec(&payload)
+            .map_err(|error| PortError::internal("encode embedding batch", error.to_string()))?;
+        let response = self.transport.post(body)?;
+        let mut parsed: EmbeddingApiResponse =
+            serde_json::from_slice(&response).map_err(|error| {
+                PortError::downstream("decode embedding response", error.to_string())
+            })?;
+        if parsed.data.len() != requests.len() {
+            return Err(PortError::downstream(
+                "decode embedding response data",
+                format!(
+                    "embedding batch returned {} entries for {} inputs",
+                    parsed.data.len(),
+                    requests.len()
+                ),
+            ));
+        }
+        parsed.data.sort_by_key(|entry| entry.index);
+        let model_version = if parsed.model.trim().is_empty() {
+            self.model.clone()
+        } else {
+            parsed.model
+        };
+        parsed
+            .data
+            .into_iter()
+            .zip(requests.iter())
+            .map(|(entry, _)| {
+                validate_vector(&entry.embedding, self.dimensions)?;
+                Ok(EmbeddingResponse {
+                    vector: entry.embedding,
+                    provider_id: self.transport.endpoint().as_str().to_string(),
+                    model: self.model.clone(),
+                    model_version: model_version.clone(),
+                    identity: self.identity.clone(),
+                    disclosure: self.transport.disclosure().clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, PortError>>()
+    }
     fn identity(&self) -> Option<EmbeddingIdentity> {
         Some(self.identity.clone())
     }
@@ -195,6 +271,14 @@ impl EmbeddingProvider for LocalHttpEmbeddingProvider {
 #[derive(Debug, Serialize)]
 struct EmbeddingPayload {
     input: String,
+    model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dimensions: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+struct EmbeddingBatchPayload {
+    input: Vec<String>,
     model: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     dimensions: Option<usize>,
@@ -209,6 +293,8 @@ struct EmbeddingApiResponse {
 
 #[derive(Debug, Deserialize)]
 struct EmbeddingData {
+    #[serde(default)]
+    index: usize,
     embedding: Vec<f32>,
 }
 
