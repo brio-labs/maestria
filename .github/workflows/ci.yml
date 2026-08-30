@@ -48,6 +48,7 @@ jobs:
               - '.github/workflows/**'
               - '.github/actions/**'
               - 'scripts/*'
+              - '!scripts/*.py'
               - 'web/**'
             philosophy:
               - 'README.md'
