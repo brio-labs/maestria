@@ -224,3 +224,6 @@ extracted CLI/daemon `--help` smoke tests.
 - Windowed index submission in the CLI (windows of eight) with the per-file
   pipeline split into `commands/index_batch.rs`; real-corpus validation
   recorded (synthetic per-file cost sits inside the real-data envelope).
+- `docs/BENCHMARKING.md`: measurement protocol for performance work —
+  fresh-instance timing discipline, real-corpus envelope validation,
+  profiling guidance, and measured estimation traps.
