@@ -770,6 +770,7 @@ bash scripts/release-contract.sh
 - [`docs/SECURITY.md`](./docs/SECURITY.md) — scope, trust, taint, and secrets
 - [`docs/OPERATIONS.md`](./docs/OPERATIONS.md) — runtime lifecycle and recovery
 - [`docs/ROADMAP.md`](./docs/ROADMAP.md) — canonical implementation roadmap
+- [`docs/BENCHMARKING.md`](./docs/BENCHMARKING.md) — measurement protocol for performance claims
 - [`docs/RESEARCH.md`](./docs/RESEARCH.md) — dated non-normative evaluation candidates
 - [`docs/architecture/`](./docs/architecture/) — architecture books
 - `docs/first-pr-guide.md` — contributor onboarding
