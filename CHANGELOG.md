@@ -233,3 +233,6 @@ extracted CLI/daemon `--help` smoke tests.
   only (new `evidence-validate` job) instead of running the full retrieval
   bench shards; pure-Python `scripts/` edits no longer trigger the whole
   Rust CI matrix (#480).
+- `docs/adr/ADR-0008`: per-artifact vector effects proposal — replaces
+  per-chunk `IndexVector` effects with one `IndexArtifactVectors` effect
+  per artifact generation, with pending-vector tracking in `KernelState`.
