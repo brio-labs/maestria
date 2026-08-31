@@ -17,6 +17,10 @@ intelligence to a reviewed set of directories.
   the journal loader stops decoding the state-free audit family below it,
   `status` reports the boundary, and retired trace lookups answer
   explicitly. No deletions.
+- Daemon-first search posture (#483): `search` prints `served=daemon|local`
+  so numbers are attributable, and `docs/OPERATIONS.md` documents the
+  recommended per-instance daemon posture with the explicit, never
+  auto-started lifecycle.
 - Hybrid dense-lane activation: a real-instance benchmark
   (`maestria_hybrid_evaluation`, manual) measures lexical vs hybrid recall on
   six query classes with RAPL energy telemetry and writes a promotion record

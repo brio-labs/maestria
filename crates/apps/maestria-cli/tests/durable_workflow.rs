@@ -372,8 +372,8 @@ fn pdf_no_text_is_rejected() -> Result<(), Box<dyn std::error::Error>> {
         "anything",
     ])?;
     assert!(
-        stdout.contains("search_status=NoEvidenceFound"),
-        "expected explicit no-evidence status, got: {stdout}"
+        stdout.contains("search_status=NoEvidenceFound") && stdout.contains("served=local"),
+        "expected explicit no-evidence status with local attribution, got: {stdout}"
     );
     Ok(())
 }

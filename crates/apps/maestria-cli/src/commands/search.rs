@@ -32,12 +32,14 @@ pub async fn run(
     {
         let store = maestria_storage_sqlite::SqliteStore::open_read_only(&layout.database_path)?;
         print_daemon_search(&store, &response);
+        println!("served=daemon");
         return Ok(());
     }
 
     let (_plan, outcome, _state) = run_search_command(&layout, task_id, query, limit).await?;
     let store = maestria_storage_sqlite::SqliteStore::open_read_only(&layout.database_path)?;
     print_search_outcome(&store, &outcome);
+    println!("served=local");
     Ok(())
 }
 
