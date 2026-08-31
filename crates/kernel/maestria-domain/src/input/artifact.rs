@@ -135,6 +135,7 @@ impl KernelState {
             && artifact.index_status == IndexStatus::Pending
         {
             Arc::make_mut(&mut self.pending_full_text).insert(input.chunk_id);
+            Arc::make_mut(&mut self.pending_vector_chunks).insert(input.chunk_id);
         }
         Ok(())
     }
@@ -260,6 +261,7 @@ impl KernelState {
             });
         }
         Arc::make_mut(&mut self.pending_full_text).remove(&chunk_id);
+        Arc::make_mut(&mut self.pending_vector_chunks).remove(&chunk_id);
         Ok(())
     }
 

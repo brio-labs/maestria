@@ -2,7 +2,7 @@
 //! full-text/parse lanes.
 //!
 //! Three observable contracts are defended here:
-//! 1. `IndexVector` effects admit under a dedicated vector lane, so a vector
+//! 1. `IndexArtifactVectors` effects admit under a dedicated vector lane, so a vector
 //!    flood can neither wait on the main semaphore behind a saturated
 //!    full-text lane nor block the main lane from the other side.
 //! 2. The vector lane degrades permanently per artifact: the stale-projection
@@ -16,8 +16,8 @@ use crate::config::EffectExecutionContext;
 use crate::effect_dispatch::EffectWork;
 use crate::test_support::*;
 use maestria_domain::{
-    Artifact, ArtifactId, Chunk, ChunkId, DomainInput, IndexChunkRequest, KernelState, LogicalTick,
-    MaestriaEffect, SourceSpan, StructureNodeId,
+    Artifact, ArtifactId, Chunk, ChunkId, DomainInput, IndexArtifactVectorsRequest,
+    IndexChunkRequest, KernelState, LogicalTick, MaestriaEffect, SourceSpan, StructureNodeId,
 };
 use maestria_ports::lexical::{IndexedLexicalCard, IndexedLexicalChunk};
 use maestria_ports::{
@@ -159,6 +159,19 @@ impl FullTextIndex for BlockingFullTextIndex {
     }
 }
 
+/// Register six degradable vector artifacts (ids 100..106) with one chunk
+/// each, so a no-provider artifact effect has stale rows to invalidate.
+fn register_degradable_flood_fixtures(state: &mut KernelState) {
+    for i in 0..6usize {
+        let artifact = ArtifactId::new(100 + i as u64);
+        let chunk = ChunkId::new(1000 + i as u64);
+        Arc::make_mut(&mut state.artifacts).insert(artifact, artifact_fixture(artifact));
+        Arc::make_mut(&mut state.chunks)
+            .insert(chunk, chunk_fixture(chunk, artifact, 0, "clean chunk text"));
+        Arc::make_mut(&mut state.pending_vector_chunks).insert(chunk);
+    }
+}
+
 /// A full-text effect on the main lane, plus a degrading vector flood on the
 /// vector lane: the flood must admit (and complete) while the main lane is
 /// saturated, and the blocked full-text effect must still deliver its
@@ -188,6 +201,8 @@ async fn vector_effects_admit_while_main_lane_is_saturated()
         chunk_fixture(chunk_id, artifact_id, 0, "clean full-text chunk"),
     );
     Arc::make_mut(&mut state.pending_full_text).insert(chunk_id);
+
+    register_degradable_flood_fixtures(&mut state);
 
     let adapters = Adapters {
         search_index: search_index.clone(),
@@ -233,10 +248,9 @@ async fn vector_effects_admit_while_main_lane_is_saturated()
     // chunk per artifact runs the invalidation port, which is observable.
     let flood = (0..6)
         .map(|i| {
-            EffectWork::Pending(MaestriaEffect::IndexVector(IndexChunkRequest {
-                artifact_id: ArtifactId::new(100 + i),
-                chunk_id: ChunkId::new(1000 + i),
-            }))
+            EffectWork::Pending(MaestriaEffect::IndexArtifactVectors(
+                IndexArtifactVectorsRequest::new(ArtifactId::new(100 + i)),
+            ))
         })
         .collect::<Vec<_>>();
     effect_tx.send(flood).await?;
@@ -301,6 +315,8 @@ async fn executor_consumes_batches_while_lane_is_saturated()
     );
     Arc::make_mut(&mut state.pending_full_text).insert(chunk_id);
 
+    register_degradable_flood_fixtures(&mut state);
+
     let adapters = Adapters {
         search_index: search_index.clone(),
         vector_index: Some(vector_index),
@@ -352,12 +368,11 @@ async fn executor_consumes_batches_while_lane_is_saturated()
         ))])
         .await?;
     effect_tx
-        .send(vec![EffectWork::Pending(MaestriaEffect::IndexVector(
-            IndexChunkRequest {
-                artifact_id: ArtifactId::new(101),
-                chunk_id: ChunkId::new(1001),
-            },
-        ))])
+        .send(vec![EffectWork::Pending(
+            MaestriaEffect::IndexArtifactVectors(IndexArtifactVectorsRequest::new(
+                ArtifactId::new(101),
+            )),
+        )])
         .await?;
 
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -417,6 +432,17 @@ async fn full_text_effect_completes_while_vector_lane_is_saturated()
     );
     Arc::make_mut(&mut state.pending_full_text).insert(full_text_chunk);
 
+    // The degraded vector artifacts own chunk rows that invalidation clears.
+    for (artifact, chunk) in [
+        (ArtifactId::new(101), ChunkId::new(1001)),
+        (ArtifactId::new(102), ChunkId::new(1002)),
+    ] {
+        Arc::make_mut(&mut state.artifacts).insert(artifact, artifact_fixture(artifact));
+        Arc::make_mut(&mut state.chunks)
+            .insert(chunk, chunk_fixture(chunk, artifact, 0, "clean chunk text"));
+        Arc::make_mut(&mut state.pending_vector_chunks).insert(chunk);
+    }
+
     let adapters = Adapters {
         vector_index: Some(vector_index),
         ..crate::test_helpers::test_adapters()
@@ -442,14 +468,12 @@ async fn full_text_effect_completes_while_vector_lane_is_saturated()
     // its first (and only) stale-projection invalidation.
     effect_tx
         .send(vec![
-            EffectWork::Pending(MaestriaEffect::IndexVector(IndexChunkRequest {
-                artifact_id: ArtifactId::new(101),
-                chunk_id: ChunkId::new(1001),
-            })),
-            EffectWork::Pending(MaestriaEffect::IndexVector(IndexChunkRequest {
-                artifact_id: ArtifactId::new(102),
-                chunk_id: ChunkId::new(1002),
-            })),
+            EffectWork::Pending(MaestriaEffect::IndexArtifactVectors(
+                IndexArtifactVectorsRequest::new(ArtifactId::new(101)),
+            )),
+            EffectWork::Pending(MaestriaEffect::IndexArtifactVectors(
+                IndexArtifactVectorsRequest::new(ArtifactId::new(102)),
+            )),
         ])
         .await?;
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -506,28 +530,31 @@ async fn vector_degradation_invalidates_at_most_once_per_artifact()
         vector_index: Some(vector_index),
         ..crate::test_helpers::test_adapters()
     };
-    let (input_tx, _input_rx) = mpsc::channel(8);
-    let context = EffectExecutionContext::test_default(
-        Arc::new(adapters),
-        Arc::new(crate::test_helpers::test_governance()),
-        Arc::new(RwLock::new(KernelState::new())),
-        input_tx,
-    );
-
     let artifact_a = ArtifactId::new(1);
     let artifact_b = ArtifactId::new(2);
-    let effects = [
+    let mut state = KernelState::new();
+    for (artifact, chunk) in [
         (artifact_a, ChunkId::new(10)),
         (artifact_a, ChunkId::new(11)),
         (artifact_a, ChunkId::new(12)),
         (artifact_b, ChunkId::new(20)),
-    ];
-    for (artifact_id, chunk_id) in effects {
+    ] {
+        Arc::make_mut(&mut state.artifacts).insert(artifact, artifact_fixture(artifact));
+        Arc::make_mut(&mut state.chunks)
+            .insert(chunk, chunk_fixture(chunk, artifact, 0, "clean chunk text"));
+        Arc::make_mut(&mut state.pending_vector_chunks).insert(chunk);
+    }
+    let (input_tx, _input_rx) = mpsc::channel(8);
+    let context = EffectExecutionContext::test_default(
+        Arc::new(adapters),
+        Arc::new(crate::test_helpers::test_governance()),
+        Arc::new(RwLock::new(state)),
+        input_tx,
+    );
+
+    for artifact_id in [artifact_a, artifact_a, artifact_a, artifact_b] {
         let result = MaestriaRuntime::test_execute_effect(
-            MaestriaEffect::IndexVector(IndexChunkRequest {
-                artifact_id,
-                chunk_id,
-            }),
+            MaestriaEffect::IndexArtifactVectors(IndexArtifactVectorsRequest::new(artifact_id)),
             context.clone(),
             None,
         )
@@ -537,9 +564,12 @@ async fn vector_degradation_invalidates_at_most_once_per_artifact()
             "vector effect without a provider must degrade, not complete"
         );
     }
+    // The spy counts deleted chunk ids: artifact A contributes its 3 chunks,
+    // artifact B its 1 — four effects degrade into exactly two invalidation
+    // passes (once per artifact), covering 4 ids, not 10.
     assert_eq!(
         deletes.load(Ordering::SeqCst),
-        2,
+        4,
         "stale-projection invalidation must run at most once per artifact"
     );
     Ok(())
@@ -671,6 +701,8 @@ async fn secret_chunk_degrades_vector_lane_without_cancelling_runtime()
         clean_chunk,
         chunk_fixture(clean_chunk, clean_artifact, 0, "clean chunk text"),
     );
+    Arc::make_mut(&mut state.pending_vector_chunks).insert(secret_chunk);
+    Arc::make_mut(&mut state.pending_vector_chunks).insert(clean_chunk);
 
     let provider = CountingEmbeddingProvider::default();
     let adapters = Adapters {
@@ -696,12 +728,9 @@ async fn secret_chunk_degrades_vector_lane_without_cancelling_runtime()
         runtime.spawn_effect_executor(effect_rx, effect_shutdown.clone(), runtime_shutdown.clone());
 
     effect_tx
-        .send(vec![EffectWork::Pending(MaestriaEffect::IndexVector(
-            IndexChunkRequest {
-                artifact_id,
-                chunk_id: secret_chunk,
-            },
-        ))])
+        .send(vec![EffectWork::Pending(
+            MaestriaEffect::IndexArtifactVectors(IndexArtifactVectorsRequest::new(artifact_id)),
+        )])
         .await?;
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(
@@ -711,12 +740,9 @@ async fn secret_chunk_degrades_vector_lane_without_cancelling_runtime()
     );
 
     effect_tx
-        .send(vec![EffectWork::Pending(MaestriaEffect::IndexVector(
-            IndexChunkRequest {
-                artifact_id: clean_artifact,
-                chunk_id: clean_chunk,
-            },
-        ))])
+        .send(vec![EffectWork::Pending(
+            MaestriaEffect::IndexArtifactVectors(IndexArtifactVectorsRequest::new(clean_artifact)),
+        )])
         .await?;
     tokio::time::timeout(Duration::from_secs(5), async {
         while provider.calls() == 0 {

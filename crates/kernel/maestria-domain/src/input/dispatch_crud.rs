@@ -65,10 +65,7 @@ impl KernelState {
         let mut output = Self::output_for_event(event);
         if let Some((artifact_id, chunk_id)) = ids {
             let request = IndexChunkRequest::new(artifact_id, chunk_id);
-            output
-                .effects
-                .push(MaestriaEffect::IndexFullText(request.clone()));
-            output.effects.push(MaestriaEffect::IndexVector(request));
+            output.effects.push(MaestriaEffect::IndexFullText(request));
         }
         Ok(output)
     }

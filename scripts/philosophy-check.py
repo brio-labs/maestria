@@ -386,6 +386,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "visual_contract_tests",
     ),
     "crates/kernel/maestria-domain/src/lib.rs": (
+        "approval_outcome",
         "effects",
         "evidence_source",
         "entities",

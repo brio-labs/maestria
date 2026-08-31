@@ -71,16 +71,17 @@ fn providerless_index_vector_is_admitted_to_degrade_under_read_only()
     let calls = Arc::new(AtomicUsize::new(0));
     let (mut context, _, _) = default_context(Arc::new(InMemoryApprovalRepository::new()), calls);
     context.profile = AutonomyProfile::ReadOnly;
-    let effect = MaestriaEffect::IndexVector(maestria_domain::IndexChunkRequest {
-        artifact_id: maestria_domain::ArtifactId::new(1),
-        chunk_id: maestria_domain::ChunkId::new(10),
-    });
+    let effect = MaestriaEffect::IndexArtifactVectors(
+        maestria_domain::IndexArtifactVectorsRequest::new(maestria_domain::ArtifactId::new(1)),
+    );
     match admit(&context, &effect) {
         EffectAdmission::Execute { risk, claim: None } => {
             assert_eq!(risk, maestria_governance::RiskClass::Medium);
         }
         other => {
-            return Err(format!("provider-less IndexVector was not admitted: {other:?}").into());
+            return Err(
+                format!("provider-less IndexArtifactVectors was not admitted: {other:?}").into(),
+            );
         }
     }
     Ok(())

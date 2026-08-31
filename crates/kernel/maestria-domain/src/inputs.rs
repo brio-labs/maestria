@@ -231,6 +231,11 @@ pub struct StartFullTextIndex {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VectorIndexingCompleted {
+    pub artifact_id: ArtifactId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HarnessRunCompleted {
     pub run_id: HarnessRunId,
     pub generation: u64,
@@ -406,6 +411,7 @@ pub enum DomainInput {
     RequestTaskValidation(RequestTaskValidation),
     UserIntent(UserIntent),
     FullTextIndexCompleted(FullTextIndexCompleted),
+    VectorIndexingCompleted(VectorIndexingCompleted),
     StartFullTextIndex(StartFullTextIndex),
     ArtifactDetected(ArtifactDetected),
     SourceRemoved(SourceRemoved),

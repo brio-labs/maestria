@@ -145,7 +145,7 @@ fn pending_start_full_text_resumes_indexing_without_reparse()
     let parser_vector_effects = output
         .effects
         .iter()
-        .filter(|effect| matches!(effect, MaestriaEffect::IndexVector(_)))
+        .filter(|effect| matches!(effect, MaestriaEffect::IndexArtifactVectors(_)))
         .count();
     assert_eq!(parser_full_text_effects, 0);
     assert_eq!(parser_vector_effects, 0);
@@ -171,10 +171,11 @@ fn pending_start_full_text_resumes_indexing_without_reparse()
     let restart_vector_effects = restart_output
         .effects
         .iter()
-        .filter(|effect| matches!(effect, MaestriaEffect::IndexVector(_)))
+        .filter(|effect| matches!(effect, MaestriaEffect::IndexArtifactVectors(_)))
         .count();
     assert_eq!(restart_full_text_effects, 2);
-    assert_eq!(restart_vector_effects, 2);
+    // One vector effect per artifact (ADR-0008), not per chunk.
+    assert_eq!(restart_vector_effects, 1);
 
     assert_eq!(state.pending_full_text.len(), 2);
     Ok(())

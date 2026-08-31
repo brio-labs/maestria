@@ -1,3 +1,4 @@
+use crate::events::DomainEvent;
 use crate::types::*;
 use std::sync::Arc;
 
@@ -38,6 +39,58 @@ impl KernelState {
             }
         }
         Ok(generated)
+    }
+
+    /// Clear the artifact's pending vector chunks and emit the completion
+    /// event. The vector lane is a projection (rule 9): completion never
+    /// changes `IndexStatus`, which the full-text lane terminalizes.
+    pub(super) fn handle_vector_indexing_completed(
+        &mut self,
+        input: &VectorIndexingCompleted,
+    ) -> Result<Vec<DomainEventEnvelope>, DomainError> {
+        if !self.artifacts.contains_key(&input.artifact_id) {
+            return Err(DomainError::MissingArtifact {
+                id: input.artifact_id,
+            });
+        }
+        let had_pending = self.chunks.values().any(|c| {
+            c.artifact_id == input.artifact_id && self.pending_vector_chunks.contains(&c.id)
+        });
+        self.apply_vector_indexing_completed(input.artifact_id)?;
+        if !had_pending {
+            return Ok(Vec::new());
+        }
+        Ok(vec![self.emit_event(
+            DomainEvent::VectorIndexingCompleted {
+                artifact_id: input.artifact_id,
+            },
+        )])
+    }
+
+    pub(crate) fn apply_vector_indexing_completed(
+        &mut self,
+        artifact_id: ArtifactId,
+    ) -> Result<(), DomainError> {
+        if !self.artifacts.contains_key(&artifact_id) {
+            return Err(DomainError::MissingArtifact { id: artifact_id });
+        }
+        let had_pending = self
+            .chunks
+            .values()
+            .any(|c| c.artifact_id == artifact_id && self.pending_vector_chunks.contains(&c.id));
+        if !had_pending {
+            return Ok(());
+        }
+        let chunk_ids: Vec<ChunkId> = self
+            .chunks
+            .values()
+            .filter(|c| c.artifact_id == artifact_id && self.pending_vector_chunks.contains(&c.id))
+            .map(|c| c.id)
+            .collect();
+        for chunk_id in chunk_ids {
+            Arc::make_mut(&mut self.pending_vector_chunks).remove(&chunk_id);
+        }
+        Ok(())
     }
 
     pub(super) fn handle_full_text_index_completed(

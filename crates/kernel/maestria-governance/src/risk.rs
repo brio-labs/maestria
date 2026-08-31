@@ -72,7 +72,7 @@ impl ClassifyRisk for DefaultRiskClassifier {
             MaestriaEffect::SearchKnowledge(_) => RiskClass::Low,
             MaestriaEffect::RunValidation(_)
             | MaestriaEffect::RequestApproval(_)
-            | MaestriaEffect::IndexVector(_)
+            | MaestriaEffect::IndexArtifactVectors(_)
             | MaestriaEffect::UpdateGraph(_) => RiskClass::Medium,
             MaestriaEffect::FetchWeb(_) => {
                 if scope.web_allowed() {

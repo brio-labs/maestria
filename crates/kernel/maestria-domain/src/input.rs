@@ -90,6 +90,9 @@ impl KernelState {
             DomainInput::FullTextIndexCompleted(input) => {
                 self.process_full_text_index_completed(input)
             }
+            DomainInput::VectorIndexingCompleted(input) => {
+                self.process_vector_indexing_completed(input)
+            }
             DomainInput::IssueRealmReadGrant(input) => self.process_issue_realm_read_grant(input),
             DomainInput::RevokeRealmReadGrant(input) => self.process_revoke_realm_read_grant(input),
             DomainInput::RecordFederatedAccess(input) => {

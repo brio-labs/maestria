@@ -133,6 +133,11 @@ impl StoredEventPayload {
                 artifact_id: artifact_id.value(),
                 chunk_id: chunk_id.value(),
             }),
+            DomainEvent::VectorIndexingCompleted { artifact_id } => {
+                Some(Self::VectorIndexingCompleted {
+                    artifact_id: artifact_id.value(),
+                })
+            }
             DomainEvent::ArtifactIndexed { artifact_id } => Some(Self::ArtifactIndexed {
                 artifact_id: artifact_id.value(),
             }),
@@ -203,6 +208,11 @@ impl StoredEventPayload {
                 artifact_id: ArtifactId::new(artifact_id),
                 chunk_id: ChunkId::new(chunk_id),
             }),
+            Self::VectorIndexingCompleted { artifact_id } => {
+                Ok(DomainEvent::VectorIndexingCompleted {
+                    artifact_id: ArtifactId::new(artifact_id),
+                })
+            }
             Self::ArtifactIndexed { artifact_id } => Ok(DomainEvent::ArtifactIndexed {
                 artifact_id: ArtifactId::new(artifact_id),
             }),
@@ -221,6 +231,7 @@ impl StoredEventPayload {
             Self::SearchCompleted { .. } => Some("search_completed"),
             Self::PendingIndex { .. } => Some("pending_index"),
             Self::FullTextIndexed { .. } => Some("full_text_indexed"),
+            Self::VectorIndexingCompleted { .. } => Some("vector_indexing_completed"),
             Self::ArtifactIndexed { .. } => Some("artifact_indexed"),
             _ => None,
         }
@@ -235,6 +246,7 @@ impl StoredEventPayload {
             | Self::SearchCompleted { artifact_id, .. }
             | Self::PendingIndex { artifact_id, .. }
             | Self::FullTextIndexed { artifact_id, .. }
+            | Self::VectorIndexingCompleted { artifact_id }
             | Self::ArtifactIndexed { artifact_id, .. }
             | Self::ParserStarted { artifact_id, .. }
             | Self::DocumentTreeCaptured { artifact_id, .. } => Some(*artifact_id),

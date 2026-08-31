@@ -27,7 +27,7 @@ fn effect_variant_name(effect: &MaestriaEffect) -> &'static str {
         MaestriaEffect::ParseArtifact(_) => "parse_artifact",
         MaestriaEffect::Ocr(_) => "ocr",
         MaestriaEffect::IndexFullText(_) => "index_full_text",
-        MaestriaEffect::IndexVector(_) => "index_vector",
+        MaestriaEffect::IndexArtifactVectors(_) => "index_artifact_vectors",
         MaestriaEffect::UpdateGraph(_) => "update_graph",
         MaestriaEffect::QueryHarness(_) => "query_harness",
         MaestriaEffect::QueryHarnessProposal(_) => "query_harness_proposal",
@@ -246,7 +246,9 @@ impl EffectExecutionContext {
                 self.handle_index_full_text(request).await,
                 "index full text",
             ),
-            MaestriaEffect::IndexVector(request) => self.handle_index_vector(request).await,
+            MaestriaEffect::IndexArtifactVectors(request) => {
+                self.handle_index_artifact_vectors(request).await
+            }
             MaestriaEffect::UpdateGraph(request) => {
                 handler_result(self.handle_update_graph(request).await, "update graph")
             }

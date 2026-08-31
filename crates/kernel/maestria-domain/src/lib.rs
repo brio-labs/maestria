@@ -5,6 +5,7 @@
 //! This module is pure and side-effect free. All environment interaction is
 //! represented via `MaestriaEffect` values and executed by a runtime layer.
 
+mod approval_outcome;
 mod effects;
 mod entities;
 mod errors;
@@ -22,6 +23,7 @@ mod model_agent;
 mod notebook;
 mod notebook_inputs;
 /// Responsibility map:
+/// - `approval_outcome`: operator decision outcomes carried by approval events.
 /// - `effects`: module responsibility.
 /// - `evidence_source`: immutable text and snapshot evidence boundaries.
 /// - `entities`: module responsibility.
@@ -59,11 +61,12 @@ mod sparse_namespace;
 mod task_status;
 mod types;
 
+pub use crate::approval_outcome::ApprovalOutcome;
 pub use crate::effects::{
-    FetchWebRequest, HarnessExecution, IndexChunkRequest, KernelOutput, MaestriaEffect,
-    NotebookDraftBlobRequest, ParseArtifactRequest, ParseArtifactSource, QueryHarnessRequest,
-    RequestApprovalRequest, RunValidationRequest, SearchKnowledgeRequest, UpdateGraphRequest,
-    ValidationTarget,
+    FetchWebRequest, HarnessExecution, IndexArtifactVectorsRequest, IndexChunkRequest,
+    KernelOutput, MaestriaEffect, NotebookDraftBlobRequest, ParseArtifactRequest,
+    ParseArtifactSource, QueryHarnessRequest, RequestApprovalRequest, RunValidationRequest,
+    SearchKnowledgeRequest, UpdateGraphRequest, ValidationTarget,
 };
 pub use crate::entities::{
     Artifact, Card, Chunk, Claim, ClaimStatus, ContentRange, ContentRangeError, Evidence,
@@ -73,9 +76,7 @@ pub use crate::entities::{
     Task, TaskPriority, TestStatus, ValidationReportRecord,
 };
 pub use crate::errors::DomainError;
-pub use crate::events::{
-    ApprovalOutcome, DomainEvent, DomainEventEnvelope, active_source_versions,
-};
+pub use crate::events::{DomainEvent, DomainEventEnvelope, active_source_versions};
 pub use crate::evidence_pack::{
     ClaimCoverageStatusRecord, ClaimEvidenceCoverageRecord, EvidenceFreshnessRecord,
     EvidencePackCompressionRecord, EvidencePackMetadataRecord, EvidencePackReplayKeyRecord,
@@ -114,7 +115,7 @@ pub use crate::inputs::{
     RegisterArtifactInput, RegisterChunkInput, RequestTaskValidation, RevokeRealmReadGrantInput,
     SearchExecutedInput, SearchKnowledgeCompleted, SearchKnowledgeRequested, SearchResultSet,
     SourceRemoved, StartFullTextIndex, StartIndexGenerationInput, SupersedeMemoryInput,
-    TransitionIndexGenerationInput, UserIntent, ValidationCompleted,
+    TransitionIndexGenerationInput, UserIntent, ValidationCompleted, VectorIndexingCompleted,
 };
 pub use crate::kernel_state::KernelState;
 pub use crate::model_agent::{

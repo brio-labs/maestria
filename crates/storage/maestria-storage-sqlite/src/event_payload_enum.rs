@@ -181,6 +181,9 @@ pub(crate) enum StoredEventPayload {
         artifact_id: u64,
         chunk_id: u64,
     },
+    VectorIndexingCompleted {
+        artifact_id: u64,
+    },
     ArtifactIndexed {
         artifact_id: u64,
     },
