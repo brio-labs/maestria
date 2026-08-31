@@ -18,6 +18,8 @@ mod realm_grant_services;
 mod repository_index_browse;
 #[path = "repository_index_services.rs"]
 mod repository_index_services;
+#[path = "retention_services.rs"]
+mod retention_services;
 #[path = "search_services.rs"]
 mod search_services;
 #[path = "support.rs"]
@@ -38,7 +40,9 @@ pub(crate) async fn dispatch(
     match operation {
         operation @ (ClientOperation::Status
         | ClientOperation::Task { .. }
-        | ClientOperation::Evidence { .. }) => dispatch_read(context, operation).await,
+        | ClientOperation::Evidence { .. }) => {
+            read_services::dispatch_read(context, operation).await
+        }
         ClientOperation::RetrievalStatus => Ok(ClientResponse::RetrievalStatus(Box::new(
             search_services::retrieval_status(context).await?,
         ))),
@@ -71,27 +75,20 @@ pub(crate) async fn dispatch(
         | ClientOperation::NotebookDraftDelete { .. }) => {
             dispatch_notebook(context, operation).await
         }
-        ClientOperation::ModelAgentPropose { proposal } => {
-            model_agent_services::propose(context, proposal).await
+        operation @ (ClientOperation::ModelAgentPropose { .. }
+        | ClientOperation::ModelAgentStatus { .. }
+        | ClientOperation::ModelAgentResolve { .. }) => {
+            dispatch_model_agent(context, operation).await
         }
-        ClientOperation::ModelAgentStatus { run_id } => {
-            let layout = context.layout.clone();
-            let response = support::run_database_retry("model-agent status", move || {
-                proposal_service::status(&layout, run_id)
-            })
-            .await?;
-            Ok(ClientResponse::ModelAgentStatus(response))
-        }
-        ClientOperation::ModelAgentResolve {
-            run_id,
-            approval_id,
-            approved,
-        } => model_agent_services::resolve(context, run_id, approval_id, approved).await,
         operation @ (ClientOperation::RealmGrantCreate { .. }
         | ClientOperation::RealmGrantList
         | ClientOperation::RealmGrantRevoke { .. }) => {
             dispatch_realm_grant(context, &principal, operation).await
         }
+        ClientOperation::RetireRetrievalEvents {
+            before_sequence,
+            reason,
+        } => retention_services::retire(context, &principal, before_sequence, reason).await,
         ClientOperation::InstallFederationBinding {
             provider_realm,
             provider_socket_path,
@@ -132,33 +129,28 @@ pub(crate) async fn dispatch(
     }
 }
 
-async fn dispatch_read(context: &ApiContext, operation: ClientOperation) -> Result<ClientResponse> {
+async fn dispatch_model_agent(
+    context: &ApiContext,
+    operation: ClientOperation,
+) -> Result<ClientResponse> {
     match operation {
-        ClientOperation::Status => {
+        ClientOperation::ModelAgentPropose { proposal } => {
+            model_agent_services::propose(context, proposal).await
+        }
+        ClientOperation::ModelAgentStatus { run_id } => {
             let layout = context.layout.clone();
-            let socket_path = context.socket_path.clone();
-            let response = support::run_database_retry("status", move || {
-                read_services::status(&layout, &socket_path)
+            let response = support::run_database_retry("model-agent status", move || {
+                proposal_service::status(&layout, run_id)
             })
             .await?;
-            Ok(ClientResponse::Status(response))
+            Ok(ClientResponse::ModelAgentStatus(response))
         }
-        ClientOperation::Task { task_id } => {
-            let layout = context.layout.clone();
-            let response =
-                support::run_database_retry("task", move || read_services::task(&layout, task_id))
-                    .await?;
-            Ok(ClientResponse::Task(response))
-        }
-        ClientOperation::Evidence { evidence_id } => {
-            let layout = context.layout.clone();
-            let response = support::run_database_retry("evidence", move || {
-                read_services::open_evidence(&layout, evidence_id)
-            })
-            .await?;
-            Ok(ClientResponse::Evidence(response))
-        }
-        _ => Err(anyhow!("invalid read operation")),
+        ClientOperation::ModelAgentResolve {
+            run_id,
+            approval_id,
+            approved,
+        } => model_agent_services::resolve(context, run_id, approval_id, approved).await,
+        _ => Err(anyhow!("invalid model-agent operation")),
     }
 }
 

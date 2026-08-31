@@ -7,12 +7,16 @@ mod protocol_client;
 mod protocol_federation;
 #[path = "protocol_index.rs"]
 mod protocol_index;
+#[path = "protocol_model_agent.rs"]
+mod protocol_model_agent;
 #[path = "protocol_notebook.rs"]
 mod protocol_notebook;
 #[path = "protocol_read.rs"]
 mod protocol_read;
 #[path = "protocol_repository_index.rs"]
 mod protocol_repository_index;
+#[path = "protocol_retention.rs"]
+mod protocol_retention;
 pub use protocol_client::{ClientErrorCode, DaemonClient, DaemonRequestError};
 pub(crate) use protocol_client::{ClientReplyOut, read_capped_ndjson_line};
 pub use protocol_federation::{
@@ -21,6 +25,10 @@ pub use protocol_federation::{
     RealmGrantResponse, RealmGrantSensitivity,
 };
 pub use protocol_index::{IndexCandidatesResponse, IndexRunResponse, IndexSelectionResponse};
+pub use protocol_model_agent::{
+    ModelAgentHarnessOutcome, ModelAgentMemoryCandidateSummary, ModelAgentProposalPayload,
+    ModelAgentProposalResponse, ModelAgentStatusResponse, ModelAgentValidationSummary,
+};
 pub use protocol_notebook::{
     FrozenNotebookCitationResponse, NotebookCitationResponse, NotebookContextResponse,
     NotebookDraftDeletedResponse, NotebookDraftListResponse, NotebookDraftResponse,
@@ -40,6 +48,7 @@ pub use protocol_repository_index::{
     RepositoryIndexRunResponse, RepositoryIndexSelectionResponse, RepositoryIndexStatusResponse,
     RepositoryIndexSummary,
 };
+pub use protocol_retention::RetrievalEventsRetiredResponse;
 pub(crate) const MAX_SEARCH_LIMIT: usize = 100;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -189,6 +198,10 @@ pub enum ClientOperation {
         path: String,
     },
     RepositoryIndexProgressGet,
+    RetireRetrievalEvents {
+        before_sequence: u64,
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -233,75 +246,7 @@ pub enum ClientResponse {
     RepositoryIndexChildren(RepositoryIndexChildrenResponse),
     RepositoryIndexFiles(RepositoryIndexFilesResponse),
     RepositoryIndexProgress(RepositoryIndexProgressResponse),
-}
-
-/// Untrusted proposal payload submitted to the model agent endpoint.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelAgentProposalPayload {
-    pub run_id: u64,
-    pub task_id: Option<u64>,
-    pub query: String,
-    pub limit: usize,
-    pub capability: String,
-    pub command: String,
-    pub working_directory: String,
-    pub timeout_secs: u64,
-    pub expected_generation: u64,
-    pub evidence_ids: Vec<u64>,
-    #[serde(default)]
-    pub task_validation: bool,
-    #[serde(default)]
-    pub memory_candidate: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelAgentProposalResponse {
-    pub run_id: u64,
-    pub correlation_id: u64,
-    pub status: String,
-    pub approval_id: Option<u64>,
-    pub trace_id: Option<u64>,
-    pub index_generation: u64,
-    pub evidence_count: usize,
-    pub harness: Option<ModelAgentHarnessOutcome>,
-    pub validation: Option<ModelAgentValidationSummary>,
-    pub memory_candidate: Option<ModelAgentMemoryCandidateSummary>,
-    pub warnings: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelAgentStatusResponse {
-    pub run_id: u64,
-    pub correlation_id: Option<u64>,
-    pub status: String,
-    pub approval_id: Option<u64>,
-    pub journal_generation: Option<u64>,
-    pub trace_id: Option<u64>,
-    pub evidence_count: usize,
-    pub harness: Option<ModelAgentHarnessOutcome>,
-    pub validation: Option<ModelAgentValidationSummary>,
-    pub memory_candidate: Option<ModelAgentMemoryCandidateSummary>,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelAgentHarnessOutcome {
-    pub exit_code: i32,
-    pub stdout: String,
-    pub stderr: String,
-    pub duration_ms: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelAgentValidationSummary {
-    pub passed: bool,
-    pub warnings: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelAgentMemoryCandidateSummary {
-    pub candidate_id: u64,
-    pub confidence_milli: u16,
-    pub decision: String,
+    RetrievalEventsRetired(RetrievalEventsRetiredResponse),
 }
 
 #[cfg(test)]
