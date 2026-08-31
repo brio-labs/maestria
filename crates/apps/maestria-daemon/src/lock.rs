@@ -44,10 +44,7 @@ pub fn try_acquire(layout: &InstanceLayout) -> Result<Option<InstanceWriteLock>>
         .open(&path)
     {
         Ok(mut file) => {
-            let nonce = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |duration| duration.as_nanos());
-            let token = format!("{}:{nonce}", std::process::id());
+            let token = lock_token();
             if let Err(error) = writeln!(file, "{token}") {
                 let write_error =
                     anyhow!(error).context(format!("write instance lock {}", path.display()));
@@ -126,33 +123,83 @@ pub async fn acquire(layout: &InstanceLayout) -> Result<InstanceWriteLock> {
     })?
 }
 
+/// Decide whether a recorded lock holder is gone.
+///
+/// The lock token records the holder's pid and its process start ticks.
+/// Comparing start ticks separates a genuinely alive holder from a reused
+/// pid: after a crash, the kernel can hand the pid to an unrelated process,
+/// and a pure `/proc/{pid}` existence check would then treat the stale lock
+/// as live indefinitely (the instance stays locked until manual cleanup).
+///
+/// Malformed or legacy files (no usable discriminator) fall back to the
+/// 30-second mtime staleness horizon.
 fn lock_owner_is_dead(path: &PathBuf) -> bool {
-    let contents = match fs::read_to_string(path) {
-        Ok(contents) => contents,
-        Err(_) => {
-            return fs::metadata(path)
-                .and_then(|metadata| metadata.modified())
-                .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
-                .is_ok_and(|age| age > Duration::from_secs(30));
-        }
-    };
-    let pid_text = contents
-        .trim()
-        .split_once(':')
-        .map_or(contents.trim(), |(pid, _)| pid);
-    let Ok(pid) = pid_text.parse::<u32>() else {
-        return fs::metadata(path)
+    let stale_by_age = || {
+        fs::metadata(path)
             .and_then(|metadata| metadata.modified())
             .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
-            .is_ok_and(|age| age > Duration::from_secs(30));
+            .is_ok_and(|age| age > Duration::from_secs(30))
+    };
+    let Ok(contents) = fs::read_to_string(path) else {
+        return stale_by_age();
+    };
+    let Some((pid_text, recorded)) = contents.trim().split_once(':') else {
+        return stale_by_age();
+    };
+    let Ok(pid) = pid_text.parse::<u32>() else {
+        return stale_by_age();
     };
     #[cfg(target_os = "linux")]
     {
-        !PathBuf::from(format!("/proc/{pid}")).exists()
+        let recorded_ticks = recorded
+            .strip_prefix('t')
+            .and_then(|value| value.parse::<u64>().ok());
+        match (recorded_ticks, process_start_ticks_for(pid)) {
+            // Same process incarnation: the holder is alive.
+            (Some(recorded), Some(live)) => recorded != live,
+            // Reused pid (no /proc entry for it): the holder is gone.
+            (_, None) => !PathBuf::from(format!("/proc/{pid}")).exists(),
+            // Legacy wall-clock nonce token: trust pid liveness.
+            (None, Some(_)) => false,
+        }
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = pid;
-        false
+        let _ = (pid, recorded);
+        stale_by_age()
     }
 }
+
+#[cfg(target_os = "linux")]
+fn process_start_ticks_for(pid: u32) -> Option<u64> {
+    // Field 22 of /proc/{pid}/stat is the start time in clock ticks. The
+    // comm field (field 2) may contain spaces and parentheses, so parsing
+    // starts after the last ')'; from there, state is field 3, making
+    // starttime the 20th whitespace-separated token that follows.
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let after_comm = stat.rsplit_once(')')?.1;
+    after_comm.split_whitespace().nth(19)?.parse().ok()
+}
+
+#[cfg(target_os = "linux")]
+fn process_start_ticks() -> Option<u64> {
+    process_start_ticks_for(std::process::id())
+}
+
+/// Build this process's lock token: pid plus a discriminator that
+/// identifies this exact process incarnation. Non-Linux platforms keep the
+/// wall-clock nonce (liveness falls back to the mtime horizon there).
+fn lock_token() -> String {
+    #[cfg(target_os = "linux")]
+    if let Some(ticks) = process_start_ticks() {
+        return format!("{}:t{ticks}", std::process::id());
+    }
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    format!("{}:{nonce}", std::process::id())
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "lock_tests.rs"]
+mod tests;

@@ -121,6 +121,10 @@ intelligence to a reviewed set of directories.
 
 ### Fixed
 
+- Instance write-lock liveness records the holder's process start ticks:
+  after a crash with pid reuse, a stale lock was treated as held by a live
+  process, wedging the instance (tests hit this as flaky approval/memory
+  workflow failures under parallel load; #489).
 - Dense lane `BudgetExhausted` only when an exhausted lane produced no
   candidates — a lane with results was misreported and could fail the search
   trace/plan match.
