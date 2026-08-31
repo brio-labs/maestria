@@ -112,10 +112,11 @@ pub use crate::inputs::{
     LinkEvidenceToClaimInput, LinkEvidenceToTaskInput, OcrCompleted, OcrFailed, OcrRequested,
     OpenTaskInput, ParserResult, ParserStarted, PromoteMemoryInput, ProposeMemoryCandidateInput,
     RecordEvidenceInput, RecordFederatedAccessInput, RecordValidationReportInput,
-    RegisterArtifactInput, RegisterChunkInput, RequestTaskValidation, RevokeRealmReadGrantInput,
-    SearchExecutedInput, SearchKnowledgeCompleted, SearchKnowledgeRequested, SearchResultSet,
-    SourceRemoved, StartFullTextIndex, StartIndexGenerationInput, SupersedeMemoryInput,
-    TransitionIndexGenerationInput, UserIntent, ValidationCompleted, VectorIndexingCompleted,
+    RegisterArtifactInput, RegisterChunkInput, RequestTaskValidation, RetrievalEventsRetired,
+    RevokeRealmReadGrantInput, SearchExecutedInput, SearchKnowledgeCompleted,
+    SearchKnowledgeRequested, SearchResultSet, SourceRemoved, StartFullTextIndex,
+    StartIndexGenerationInput, SupersedeMemoryInput, TransitionIndexGenerationInput, UserIntent,
+    ValidationCompleted, VectorIndexingCompleted,
 };
 pub use crate::kernel_state::KernelState;
 pub use crate::model_agent::{

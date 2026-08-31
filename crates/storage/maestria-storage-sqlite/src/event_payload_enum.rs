@@ -173,6 +173,10 @@ pub(crate) enum StoredEventPayload {
         plan: Option<Box<StoredSearchPlan>>,
         outcome: StoredSearchOutcome,
     },
+    RetrievalEventsRetired {
+        before_sequence: u64,
+        reason: String,
+    },
     PendingIndex {
         artifact_id: u64,
         content_hash: StoredContentHash,

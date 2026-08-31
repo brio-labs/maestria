@@ -128,6 +128,9 @@ impl EventLog for crate::SqliteStore {
                     "SELECT e.id, e.event_kind, e.artifact_id, e.payload_json,
                     e.payload_version
              FROM domain_events e
+             WHERE NOT (e.id < COALESCE((SELECT MAX(id) FROM domain_events
+                 WHERE event_kind = 'retrieval_events_retired'), 0)
+                 AND e.event_kind IN ('search_executed', 'search_knowledge_completed'))
              ORDER BY e.id ASC",
                 )
                 .map_err(to_port_error)?;
@@ -138,5 +141,77 @@ impl EventLog for crate::SqliteStore {
         }
 
         decode_scanned_events(stored)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use maestria_domain::{EventId, LogicalTick};
+
+    fn envelope(id: u64, event: DomainEvent) -> DomainEventEnvelope {
+        DomainEventEnvelope {
+            id: EventId::new(id),
+            event,
+        }
+    }
+
+    fn search_executed(query: &str) -> DomainEvent {
+        DomainEvent::SearchExecuted {
+            query: query.to_string(),
+            limit: 5,
+            evidence_ids: Vec::new(),
+            pack_metadata: None,
+            at: LogicalTick::new(1),
+        }
+    }
+
+    #[test]
+    fn scan_skips_retrieval_audit_events_below_marker() -> Result<(), PortError> {
+        let store = crate::SqliteStore::open(":memory:")?;
+        EventLog::append(&store, envelope(1, search_executed("retired query")))?;
+        EventLog::append(
+            &store,
+            envelope(
+                2,
+                DomainEvent::RetrievalEventsRetired {
+                    before_sequence: 2,
+                    reason: "audit policy".to_string(),
+                },
+            ),
+        )?;
+        EventLog::append(&store, envelope(3, search_executed("live query")))?;
+        EventLog::append(
+            &store,
+            envelope(
+                4,
+                DomainEvent::TickObserved {
+                    at: LogicalTick::new(7),
+                },
+            ),
+        )?;
+
+        let scanned = EventLog::scan(&store, EventFilter { artifact_id: None })?;
+        let kinds: Vec<&str> = scanned
+            .iter()
+            .map(|envelope| match envelope.event {
+                DomainEvent::SearchExecuted { .. } => "search_executed",
+                DomainEvent::RetrievalEventsRetired { .. } => "retrieval_events_retired",
+                DomainEvent::TickObserved { .. } => "tick_observed",
+                _ => "other",
+            })
+            .collect();
+        // The retired search row stays on disk but is no longer decoded;
+        // the marker, post-marker audit rows, and state-relevant rows replay.
+        assert_eq!(
+            kinds,
+            [
+                "retrieval_events_retired",
+                "search_executed",
+                "tick_observed"
+            ]
+        );
+        assert_eq!(store.retrieval_retired_through()?, 2);
+        Ok(())
     }
 }

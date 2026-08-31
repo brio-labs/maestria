@@ -209,6 +209,10 @@ pub enum DomainEvent {
         plan: Option<Box<crate::search::SearchPlan>>,
         outcome: crate::search::SearchOutcome,
     },
+    RetrievalEventsRetired {
+        before_sequence: u64,
+        reason: String,
+    },
     IndexGenerationStarted {
         id: IndexGenerationId,
         name: crate::generations::RepresentationName,

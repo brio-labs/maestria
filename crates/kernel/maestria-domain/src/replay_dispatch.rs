@@ -206,6 +206,9 @@ impl KernelState {
                 self.apply_tick_observed(*at);
                 Ok(())
             }
+            DomainEvent::RetrievalEventsRetired {
+                before_sequence, ..
+            } => self.apply_retrieval_events_retired(*before_sequence),
             _ => Err(DomainError::InternalInvariantViolation {
                 detail: "replay_orchestration_events: unexpected event variant",
             }),

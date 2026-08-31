@@ -12,6 +12,10 @@ intelligence to a reviewed set of directories.
 
 ### Added
 
+- Retrieval audit retention (ADR-0009): `retire-retrieval-events` emits a
+  governed append-only marker; the journal loader stops decoding the
+  state-free audit family below it, `status` reports the boundary, and
+  retired trace lookups answer explicitly. No deletions.
 - Hybrid dense-lane activation: a real-instance benchmark
   (`maestria_hybrid_evaluation`, manual) measures lexical vs hybrid recall on
   six query classes with RAPL energy telemetry and writes a promotion record

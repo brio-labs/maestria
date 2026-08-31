@@ -526,6 +526,18 @@ each component that opens successfully.
 maestria doctor [-i <dir>]
 ```
 
+### `retire-retrieval-events`
+
+Retire retrieval audit events strictly below a durable log sequence
+(ADR-0009). Emits one governed append-only marker — nothing is deleted;
+rows below the boundary stop being decoded at open, `status` reports
+`retrieval_events_retired_through`, and retired trace lookups answer
+explicitly. Requires a recorded `--reason`.
+
+```
+maestria retire-retrieval-events -i <dir> --before-sequence <n> --reason "<why>" [--yes]
+```
+
 ### `start`
 
 Start the Maestria daemon for the given instance.
