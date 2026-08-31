@@ -116,6 +116,7 @@ impl KernelState {
                 } else {
                     generated.push(self.handle_register_chunk(chunk.clone())?);
                     Arc::make_mut(&mut self.pending_full_text).insert(chunk.chunk_id);
+                    Arc::make_mut(&mut self.pending_vector_chunks).insert(chunk.chunk_id);
                     new_chunks += 1;
                 }
             }

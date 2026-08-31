@@ -45,6 +45,17 @@ impl IndexChunkRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexArtifactVectorsRequest {
+    pub artifact_id: ArtifactId,
+}
+
+impl IndexArtifactVectorsRequest {
+    pub fn new(artifact_id: ArtifactId) -> Self {
+        Self { artifact_id }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpdateGraphRequest {
     pub relation_id: RelationId,
 }
@@ -166,7 +177,7 @@ pub enum MaestriaEffect {
     ParseArtifact(ParseArtifactRequest),
     Ocr(crate::ocr::OcrIntent),
     IndexFullText(IndexChunkRequest),
-    IndexVector(IndexChunkRequest),
+    IndexArtifactVectors(IndexArtifactVectorsRequest),
     UpdateGraph(UpdateGraphRequest),
     QueryHarnessProposal(Box<crate::model_agent::ModelAgentProposalRequest>),
     QueryHarness(QueryHarnessRequest),

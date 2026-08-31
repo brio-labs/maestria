@@ -174,7 +174,7 @@ fn parser_completed_does_not_emit_index_effects() -> Result<(), Box<dyn std::err
         output
             .effects
             .iter()
-            .filter(|e| matches!(e, MaestriaEffect::IndexVector(_)))
+            .filter(|e| matches!(e, MaestriaEffect::IndexArtifactVectors(_)))
             .count(),
         0
     );

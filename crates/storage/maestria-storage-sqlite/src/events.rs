@@ -122,6 +122,7 @@ pub(super) fn leaked_kind(kind: &str) -> Result<&'static str, PortError> {
         "model_agent_proposal_completed" => Ok("model_agent_proposal_completed"),
         "pending_index" => Ok("pending_index"),
         "full_text_indexed" => Ok("full_text_indexed"),
+        "vector_indexing_completed" => Ok("vector_indexing_completed"),
         "artifact_indexed" => Ok("artifact_indexed"),
         "parser_started" => Ok("parser_started"),
         "ocr_requested" => Ok("ocr_requested"),

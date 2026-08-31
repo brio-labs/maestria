@@ -221,12 +221,14 @@ impl MaestriaRuntime {
                 return AdmitOutcome::Stop;
             }
         };
-        let is_vector_effect = matches!(&work, EffectWork::Pending(MaestriaEffect::IndexVector(_)))
-            || matches!(
-                &work,
-                EffectWork::Prepared(PreparedEffect::Dispatch { effect, .. })
-                    if matches!(**effect, MaestriaEffect::IndexVector(_))
-            );
+        let is_vector_effect = matches!(
+            &work,
+            EffectWork::Pending(MaestriaEffect::IndexArtifactVectors(_))
+        ) || matches!(
+            &work,
+            EffectWork::Prepared(PreparedEffect::Dispatch { effect, .. })
+                if matches!(**effect, MaestriaEffect::IndexArtifactVectors(_))
+        );
         let lane = if is_vector_effect {
             Arc::clone(&lanes.vector)
         } else {

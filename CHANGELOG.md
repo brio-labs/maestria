@@ -236,3 +236,6 @@ extracted CLI/daemon `--help` smoke tests.
 - `docs/adr/ADR-0008`: per-artifact vector effects proposal — replaces
   per-chunk `IndexVector` effects with one `IndexArtifactVectors` effect
   per artifact generation, with pending-vector tracking in `KernelState`.
+- Per-artifact vector effects (ADR-0008): one `IndexArtifactVectors` effect
+  per artifact replaces per-chunk `IndexVector`, consuming `embed_batch`
+  with a single projection upsert; dense slice 81.8 s -> 40.6 s (2.0x).

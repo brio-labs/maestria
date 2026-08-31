@@ -60,7 +60,7 @@ impl maestria_governance::AdmissionPolicy for EffectExecutionContext {
             // the effect on that path instead of producing a per-chunk
             // governance denial under restrictive profiles — a guaranteed
             // denial storm at home scale (issue #434).
-            MaestriaEffect::IndexVector(_) => self.adapters.embedding_provider.is_none(),
+            MaestriaEffect::IndexArtifactVectors(_) => self.adapters.embedding_provider.is_none(),
             _ => false,
         }
     }

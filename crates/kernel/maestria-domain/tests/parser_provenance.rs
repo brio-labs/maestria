@@ -129,7 +129,7 @@ fn non_parsed_status_is_replayed_without_index_work() -> Result<(), Box<dyn Erro
     assert!(state.pending_full_text.is_empty());
     assert!(!effects.iter().any(|effect| matches!(
         effect,
-        MaestriaEffect::IndexFullText(_) | MaestriaEffect::IndexVector(_)
+        MaestriaEffect::IndexFullText(_) | MaestriaEffect::IndexArtifactVectors(_)
     )));
     Ok(())
 }

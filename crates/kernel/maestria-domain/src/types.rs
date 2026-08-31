@@ -2,6 +2,7 @@
 //! internal consumers (`input.rs`, `replay.rs`, `handlers.rs`).
 //! External consumers access through the crate root via `lib.rs`.
 
+pub(crate) use crate::approval_outcome::*;
 pub(crate) use crate::effects::*;
 pub(crate) use crate::entities::*;
 pub(crate) use crate::errors::*;

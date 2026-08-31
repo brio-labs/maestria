@@ -24,6 +24,7 @@ impl KernelState {
             | DomainEvent::DocumentTreeCaptured { .. }
             | DomainEvent::PendingIndex { .. }
             | DomainEvent::FullTextIndexed { .. }
+            | DomainEvent::VectorIndexingCompleted { .. }
             | DomainEvent::ArtifactIndexed { .. }
             | DomainEvent::OcrRequested { .. }
             | DomainEvent::OcrCompleted { .. }

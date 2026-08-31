@@ -47,6 +47,9 @@ pub struct KernelState {
     pub model_agent_requests: CowMap<HarnessRunId, crate::model_agent::ModelAgentProposalRequest>,
     pub model_agent_results: CowMap<HarnessRunId, crate::model_agent::ModelAgentProposalResult>,
     pub pending_full_text: CowSet<ChunkId>,
+    /// Registered chunks whose vectors are not yet projected. Cleared per
+    /// artifact by `VectorIndexingCompleted`; derivable replay state.
+    pub pending_vector_chunks: CowSet<ChunkId>,
     pub parsed_artifact_ids: CowSet<ArtifactId>,
     pub stale_sources: CowSet<String>,
     pub notebooks: CowMap<NotebookId, Notebook>,

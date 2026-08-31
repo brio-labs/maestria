@@ -82,6 +82,14 @@ impl KernelState {
         Ok(Self::output_for_events(generated))
     }
 
+    pub(super) fn process_vector_indexing_completed(
+        &mut self,
+        input: crate::inputs::VectorIndexingCompleted,
+    ) -> Result<KernelOutput, DomainError> {
+        let generated = self.handle_vector_indexing_completed(&input)?;
+        Ok(Self::output_for_events(generated))
+    }
+
     pub(super) fn process_start_full_text_index(
         &mut self,
         input: StartFullTextIndex,
@@ -98,13 +106,17 @@ impl KernelState {
                         artifact_id: input.artifact_id,
                         chunk_id: chunk.id,
                     }));
-                output
-                    .effects
-                    .push(MaestriaEffect::IndexVector(IndexChunkRequest {
-                        artifact_id: input.artifact_id,
-                        chunk_id: chunk.id,
-                    }));
             }
+        }
+        // One vector effect per artifact: the handler embeds the artifact's
+        // whole pending chunk set in one batch (ADR-0008).
+        let has_pending_vectors = self.chunks.values().any(|chunk| {
+            chunk.artifact_id == input.artifact_id && self.pending_vector_chunks.contains(&chunk.id)
+        });
+        if has_pending_vectors {
+            output.effects.push(MaestriaEffect::IndexArtifactVectors(
+                IndexArtifactVectorsRequest::new(input.artifact_id),
+            ));
         }
         Ok(output)
     }

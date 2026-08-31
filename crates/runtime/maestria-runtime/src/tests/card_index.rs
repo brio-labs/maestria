@@ -363,10 +363,9 @@ async fn vector_effect_without_provider_reports_degraded_failure()
 -> Result<(), Box<dyn std::error::Error>> {
     let (input_tx, _input_rx) = mpsc::channel(8);
     let result = MaestriaRuntime::test_execute_effect(
-        MaestriaEffect::IndexVector(maestria_domain::IndexChunkRequest {
-            artifact_id: ArtifactId::new(1),
-            chunk_id: ChunkId::new(10),
-        }),
+        MaestriaEffect::IndexArtifactVectors(maestria_domain::IndexArtifactVectorsRequest::new(
+            ArtifactId::new(1),
+        )),
         EffectExecutionContext::test_default(
             Arc::new(crate::test_helpers::test_adapters()),
             Arc::new(crate::test_helpers::test_governance()),
@@ -400,10 +399,9 @@ async fn vector_effect_without_model_reports_degraded_failure()
     );
 
     let result = MaestriaRuntime::test_execute_effect(
-        MaestriaEffect::IndexVector(maestria_domain::IndexChunkRequest {
-            artifact_id: ArtifactId::new(1),
-            chunk_id: ChunkId::new(10),
-        }),
+        MaestriaEffect::IndexArtifactVectors(maestria_domain::IndexArtifactVectorsRequest::new(
+            ArtifactId::new(1),
+        )),
         context,
         None,
     )

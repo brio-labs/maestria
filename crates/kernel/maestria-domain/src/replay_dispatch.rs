@@ -69,6 +69,9 @@ impl KernelState {
                 artifact_id,
                 chunk_id,
             } => self.apply_full_text_indexed(*artifact_id, *chunk_id),
+            DomainEvent::VectorIndexingCompleted { artifact_id } => {
+                self.apply_vector_indexing_completed(*artifact_id)
+            }
             DomainEvent::OcrRequested { intent } => self.replay_ocr_requested(intent),
             DomainEvent::OcrCompleted {
                 artifact_id,
