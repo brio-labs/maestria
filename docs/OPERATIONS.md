@@ -217,3 +217,26 @@ are `baseline`, `golden`, `shadow`, `promoted`, and `retired`.
 For pre-production validation, milestones may use `data_fidelity: "staged"`
 during `benchmark-complete`. Staged data cannot certify `product-complete`
 or `released` stages; a real benchmark must pass before final publication.
+
+## 7. Daemon-First Search Posture
+
+Run one daemon per instance for interactive use (`maestria start -i <dir>`).
+Daemon-served search is the fastest surface (measured 1.21 s versus 2.26 s
+local on the benchmark instance during the #475 campaign), because it reuses
+the daemon's warm retrieval runtime instead of assembling one per command.
+
+The CLI is daemon-first and never requires the daemon:
+
+- `search` submits to the instance daemon when its socket answers and prints
+  `served=daemon`; otherwise it runs locally and prints `served=local`. The
+  line makes benchmark and latency numbers attributable to a surface.
+- Only an absent daemon (no token, no socket, or a refused connection)
+  degrades to local execution. A daemon that is running but failing is an
+  error, not a fallback trigger.
+- While the daemon runs it owns the instance write lock: durable workflows
+  (task validation, approval resolution, memory promotion, retrieval audit
+  retirement) flow through the daemon surface, and direct mutation commands
+  fail with the lock error instead of fighting over the instance.
+- Lifecycle stays explicit (rule 28): the operator starts and stops the
+  daemon. Tooling never spawns or stops one on demand; every surface that
+  can degrade states so in its output rather than hiding the difference.

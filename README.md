@@ -438,6 +438,11 @@ maestria search compare [-i <dir>] <experiment_a> <experiment_b>
 `search trace` and `search compare` require durable, reproducible trace
 payloads; missing or non-reproducible identifiers fail clearly.
 
+Direct `search` runs daemon-first: it prints `served=daemon` when the
+instance daemon served the query and `served=local` when it ran locally, so
+benchmark and latency numbers are attributable (see
+[`docs/OPERATIONS.md`](./docs/OPERATIONS.md) §7).
+
 #### `search code`
 
 Query the persisted repository code index built by `index repository`. All

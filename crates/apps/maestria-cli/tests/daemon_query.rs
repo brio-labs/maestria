@@ -102,7 +102,7 @@ fn daemon_instance_serves_search_status_and_open_evidence_while_running()
         thread::sleep(Duration::from_millis(50));
     };
     assert!(
-        search_live_stdout.contains("evidence="),
+        search_live_stdout.contains("evidence=") && search_live_stdout.contains("served=daemon"),
         "live search failed code={search_live_code} stdout={search_live_stdout} stderr={search_live_stderr}"
     );
 
