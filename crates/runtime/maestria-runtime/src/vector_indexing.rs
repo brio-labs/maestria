@@ -249,9 +249,20 @@ impl EffectExecutionContext {
                 });
                 Ok(())
             }
-            Err(crate::FeedbackError::RuntimeShutdown) => Err(EffectFailure::Failed(
-                "vector indexing completion dropped; runtime shutting down".to_string(),
-            )),
+            Err(crate::FeedbackError::RuntimeShutdown) => {
+                // The vectors are already projected; only the completion
+                // bookkeeping is deferred. `pending_vector_chunks` keeps the
+                // artifact listed until a re-parse re-emits the effect, which
+                // re-embeds nothing (rows are content-addressed by the
+                // projection). Downgrade to a warning: a lost delivery at
+                // shutdown is bounded bookkeeping drift, not a failed effect
+                // (#486).
+                tracing::warn!(
+                    artifact_id = %artifact_id,
+                    "vector indexing completion delivery deferred to shutdown"
+                );
+                Ok(())
+            }
         }
     }
 

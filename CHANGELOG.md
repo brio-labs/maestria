@@ -239,3 +239,6 @@ extracted CLI/daemon `--help` smoke tests.
 - Per-artifact vector effects (ADR-0008): one `IndexArtifactVectors` effect
   per artifact replaces per-chunk `IndexVector`, consuming `embed_batch`
   with a single projection upsert; dense slice 81.8 s -> 40.6 s (2.0x).
+- Vector indexing completion delivery at shutdown no longer fails the
+  effect: the projection is durable, so a delivery that races teardown is
+  a logged, bounded bookkeeping deferral (#486).
