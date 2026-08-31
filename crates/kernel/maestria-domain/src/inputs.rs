@@ -335,6 +335,16 @@ pub struct SearchKnowledgeCompleted {
     pub outcome: crate::search::SearchOutcome,
 }
 
+/// Operator-requested retirement of the retrieval audit event family
+/// (ADR-0009). The marker is append-only metadata: rows below
+/// `before_sequence` stop being decoded at open, and observability
+/// reports retirement explicitly. Rows are never deleted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetrievalEventsRetired {
+    pub before_sequence: u64,
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FetchWebRequested {
     pub request: crate::effects::FetchWebRequest,
@@ -434,6 +444,7 @@ pub enum DomainInput {
     SearchKnowledgeRequested(SearchKnowledgeRequested),
     SearchExecuted(SearchExecutedInput),
     SearchKnowledgeCompleted(SearchKnowledgeCompleted),
+    RetrievalEventsRetired(RetrievalEventsRetired),
     TransitionIndexGeneration(TransitionIndexGenerationInput),
     ClockTick(LogicalTick),
 }

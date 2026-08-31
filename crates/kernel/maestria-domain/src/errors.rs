@@ -146,6 +146,7 @@ pub enum DomainError {
     },
     EmptyIntent,
     EmptyClaimText,
+    EmptyRetirementReason,
     InvalidConfidence {
         max: u16,
         actual: u16,

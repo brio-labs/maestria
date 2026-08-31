@@ -198,6 +198,7 @@ impl fmt::Display for DomainError {
             error @ (Self::MemorySupersedesItself { .. }
             | Self::EmptyClaimText
             | Self::EmptyIntent
+            | Self::EmptyRetirementReason
             | Self::MemoryCandidateRequiresEvidence { .. }
             | Self::ArtifactIndexedRequiresEvidence { .. }
             | Self::InvalidEventId { .. }
@@ -218,6 +219,9 @@ impl DomainError {
             }
             Self::EmptyClaimText => write!(f, "claim text must not be empty"),
             Self::EmptyIntent => write!(f, "user intent must not be empty"),
+            Self::EmptyRetirementReason => {
+                write!(f, "retirement reason must not be empty")
+            }
             Self::MemoryCandidateRequiresEvidence { id } => {
                 write!(f, "memory_candidate {id} requires at least one evidence id")
             }

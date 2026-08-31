@@ -140,6 +140,12 @@ async fn dispatch(command: Commands) -> Result<()> {
         } => dispatch_evidence(command)?,
         Commands::Status { instance_dir } => commands::status::run(instance_dir)?,
         Commands::Doctor { instance_dir } => commands::doctor::run(instance_dir)?,
+        Commands::RetireRetrievalEvents {
+            instance_dir,
+            before_sequence,
+            reason,
+            yes,
+        } => commands::maintenance::run(instance_dir, before_sequence, reason, yes).await?,
         Commands::Studio {
             instance_dir,
             no_open,

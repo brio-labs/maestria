@@ -56,6 +56,12 @@ pub struct KernelState {
     pub notebook_drafts: CowMap<NotebookDraftId, NotebookDraft>,
     pub active_sources: CowMap<SourceIdentityKey, ArtifactId>,
     pub index_generations: crate::generations::IndexGenerationRegistry,
+    /// High-water of retrieval audit retirement (ADR-0009): the largest
+    /// `before_sequence` accepted from a `RetrievalEventsRetired` marker.
+    /// Derivable replay state; the journal loader stops decoding the
+    /// state-free audit family (`SearchExecuted`,
+    /// `SearchKnowledgeCompleted`) below it at open.
+    pub retrieval_retired_through: u64,
     /// Rebuildable provider grant current state. The event log is authoritative.
     pub realm_read_grants: CowMap<GrantTokenDigest, RealmReadGrant>,
     /// Cached latest observed clock tick. Written by `apply_tick_observed`

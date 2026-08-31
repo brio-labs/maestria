@@ -116,6 +116,13 @@ fn load_trace(store: &SqliteStore, id: SearchTraceId) -> Result<DurableTrace> {
             ));
         }
     }
+    let retired = store.retrieval_retired_through()?;
+    if retired > 0 {
+        return Err(anyhow!(
+            "trace {id} was not found; retrieval audit events are retired \
+             through sequence {retired}"
+        ));
+    }
     Err(anyhow!("trace {id} was not found"))
 }
 

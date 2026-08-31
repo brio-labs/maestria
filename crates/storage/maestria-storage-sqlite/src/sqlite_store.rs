@@ -2,6 +2,7 @@ use maestria_ports::PortError;
 use maestria_sqlite_support::lock_connection;
 use rusqlite::{Connection, Error, ErrorCode, OpenFlags, OptionalExtension};
 
+use crate::events::read_stored_event;
 use crate::schema::migrate;
 
 /// SQLite-backed implementation of artifact metadata and the domain event log.
@@ -92,6 +93,36 @@ impl SqliteStore {
                 |row| row.get(0),
             )
             .map_err(to_port_error)
+    }
+
+    /// Highest retrieval audit retirement marker (ADR-0009), as the
+    /// recorded `before_sequence` high-water (0 when nothing is retired).
+    ///
+    /// Concrete-store API for observability surfaces that must report
+    /// retirement explicitly instead of presenting silent absence; not
+    /// part of the [`maestria_ports::EventLog`] port.
+    pub fn retrieval_retired_through(&self) -> Result<u64, PortError> {
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare_cached(
+                "SELECT id, event_kind, artifact_id, payload_json, payload_version \
+                 FROM domain_events WHERE event_kind = 'retrieval_events_retired' \
+                 ORDER BY id ASC",
+            )
+            .map_err(to_port_error)?;
+        let mut rows = statement.query([]).map_err(to_port_error)?;
+        let mut high_water = 0u64;
+        while let Some(row) = rows.next().map_err(to_port_error)? {
+            let (envelope, _trace_remap) =
+                read_stored_event(row)?.into_domain_with_trace_remap()?;
+            if let maestria_domain::DomainEvent::RetrievalEventsRetired {
+                before_sequence, ..
+            } = envelope.event
+            {
+                high_water = high_water.max(before_sequence);
+            }
+        }
+        Ok(high_water)
     }
 
     /// Scan only the index-generation lifecycle events.

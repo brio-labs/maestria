@@ -87,4 +87,13 @@ impl KernelState {
     pub(crate) fn apply_search_knowledge_completed(&mut self) -> Result<(), DomainError> {
         Ok(())
     }
+    pub(crate) fn apply_retrieval_events_retired(
+        &mut self,
+        before_sequence: u64,
+    ) -> Result<(), DomainError> {
+        // Markers only advance; rebuilding derives the same high-water
+        // from the recorded marker events (rule 9).
+        self.retrieval_retired_through = self.retrieval_retired_through.max(before_sequence);
+        Ok(())
+    }
 }

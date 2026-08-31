@@ -62,6 +62,13 @@ impl StoredEventPayload {
                     .map(|plan| Box::new(StoredSearchPlan::from_domain(plan))),
                 outcome: StoredSearchOutcome::from_domain(outcome),
             }),
+            DomainEvent::RetrievalEventsRetired {
+                before_sequence,
+                reason,
+            } => Some(Self::RetrievalEventsRetired {
+                before_sequence: *before_sequence,
+                reason: reason.clone(),
+            }),
             DomainEvent::ModelAgentProposalRequested { request } => {
                 Some(Self::ModelAgentProposalRequested {
                     request: StoredModelAgentProposalRequest::from_domain(request),
@@ -171,6 +178,13 @@ impl StoredEventPayload {
                     .try_into_domain()
                     .map_err(FamilyDecodeError::Invalid)?,
             }),
+            Self::RetrievalEventsRetired {
+                before_sequence,
+                reason,
+            } => Ok(DomainEvent::RetrievalEventsRetired {
+                before_sequence,
+                reason,
+            }),
             Self::ModelAgentProposalRequested { request } => {
                 Ok(DomainEvent::ModelAgentProposalRequested {
                     request: request
@@ -223,6 +237,7 @@ impl StoredEventPayload {
             Self::RelationCreated { .. } => Some("relation_created"),
             Self::TickObserved { .. } => Some("tick_observed"),
             Self::SearchExecuted { .. } => Some("search_executed"),
+            Self::RetrievalEventsRetired { .. } => Some("retrieval_events_retired"),
             Self::IndexGenerationStarted { .. } => Some("index_generation_started"),
             Self::IndexGenerationTransitioned { .. } => Some("index_generation_transitioned"),
             _ => None,

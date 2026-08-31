@@ -82,6 +82,20 @@ pub enum Commands {
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
     },
+    /// Retire retrieval audit events below a durable log sequence (ADR-0009)
+    RetireRetrievalEvents {
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+        /// Retire retrieval audit events strictly below this sequence
+        #[arg(long)]
+        before_sequence: u64,
+        /// Durable reason recorded with the retirement marker
+        #[arg(long)]
+        reason: String,
+        /// Retire without an interactive confirmation prompt
+        #[arg(long)]
+        yes: bool,
+    },
     /// Start the daemon
     Start {
         #[arg(short, long, default_value = ".maestria-dev")]

@@ -9,5 +9,9 @@ pub fn run(instance_dir: PathBuf) -> Result<()> {
     println!("database {}", layout.database_path.display());
     println!("full_text_index {}", layout.full_text_index_dir.display());
     println!("events {}", state.event_log.len());
+    println!(
+        "retrieval_events_retired_through {}",
+        state.retrieval_retired_through
+    );
     Ok(())
 }

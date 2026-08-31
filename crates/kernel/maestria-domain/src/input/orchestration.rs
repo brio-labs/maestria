@@ -291,6 +291,25 @@ impl KernelState {
             outcome: input.outcome,
         }))
     }
+    pub(super) fn process_retrieval_events_retired(
+        &mut self,
+        input: crate::inputs::RetrievalEventsRetired,
+    ) -> Result<KernelOutput, DomainError> {
+        // The marker's reason is the durable record of who narrowed the
+        // audit trail and why (ADR-0009); an empty reason carries no
+        // accountability.
+        if input.reason.trim().is_empty() {
+            return Err(DomainError::EmptyRetirementReason);
+        }
+        // Markers only advance: a request below the current high-water is
+        // recorded but changes nothing.
+        self.retrieval_retired_through = self.retrieval_retired_through.max(input.before_sequence);
+        let envelope = self.emit_event(DomainEvent::RetrievalEventsRetired {
+            before_sequence: input.before_sequence,
+            reason: input.reason,
+        });
+        Ok(Self::output_for_event(envelope))
+    }
 }
 
 #[cfg(test)]

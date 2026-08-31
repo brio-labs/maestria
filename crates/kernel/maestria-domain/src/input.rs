@@ -123,6 +123,9 @@ impl KernelState {
             DomainInput::SearchKnowledgeCompleted(input) => {
                 self.process_search_knowledge_completed(input)
             }
+            DomainInput::RetrievalEventsRetired(input) => {
+                self.process_retrieval_events_retired(input)
+            }
             DomainInput::ClockTick(tick) => self.process_clock_tick(tick),
         }
     }

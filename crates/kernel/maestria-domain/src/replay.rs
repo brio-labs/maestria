@@ -52,6 +52,11 @@ impl KernelState {
             | DomainEvent::TickObserved { .. } => {
                 self.replay_orchestration_events(&envelope.event)?;
             }
+            DomainEvent::RetrievalEventsRetired {
+                before_sequence, ..
+            } => {
+                self.apply_retrieval_events_retired(*before_sequence)?;
+            }
             DomainEvent::CardCreated { .. } => self.replay_card_events(&envelope.event)?,
             DomainEvent::ClaimCreated { .. }
             | DomainEvent::ClaimValidationUpdated { .. }
