@@ -3,8 +3,11 @@ use maestria_core::InstanceLayout;
 use maestria_domain::{Evidence, EvidenceKind, KernelState, Task};
 
 use super::super::protocol::{
-    EvidenceResponse, EvidenceSourceResponse, StatusResponse, TaskResponse, TaskSummary,
+    ClientOperation, ClientResponse, EvidenceResponse, EvidenceSourceResponse, StatusResponse,
+    TaskResponse, TaskSummary,
 };
+use super::super::server::ApiContext;
+use super::support;
 
 pub(super) fn status(
     layout: &InstanceLayout,
@@ -149,3 +152,34 @@ fn task_summary(task: &Task) -> TaskSummary {
 #[cfg(test)]
 #[path = "read_services_tests.rs"]
 mod tests;
+
+pub(super) async fn dispatch_read(
+    context: &ApiContext,
+    operation: ClientOperation,
+) -> Result<ClientResponse> {
+    match operation {
+        ClientOperation::Status => {
+            let layout = context.layout.clone();
+            let socket_path = context.socket_path.clone();
+            let response =
+                support::run_database_retry("status", move || status(&layout, &socket_path))
+                    .await?;
+            Ok(ClientResponse::Status(response))
+        }
+        ClientOperation::Task { task_id } => {
+            let layout = context.layout.clone();
+            let response =
+                support::run_database_retry("task", move || task(&layout, task_id)).await?;
+            Ok(ClientResponse::Task(response))
+        }
+        ClientOperation::Evidence { evidence_id } => {
+            let layout = context.layout.clone();
+            let response = support::run_database_retry("evidence", move || {
+                open_evidence(&layout, evidence_id)
+            })
+            .await?;
+            Ok(ClientResponse::Evidence(response))
+        }
+        _ => Err(anyhow!("invalid read operation")),
+    }
+}

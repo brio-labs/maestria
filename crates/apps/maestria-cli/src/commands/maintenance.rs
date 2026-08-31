@@ -1,6 +1,9 @@
 use crate::helpers;
 use anyhow::{Result, anyhow, bail};
-use maestria_daemon::MutationSession;
+use maestria_core::InstanceLayout;
+use maestria_daemon::{
+    ClientErrorCode, ClientOperation, ClientResponse, DaemonClient, MutationSession,
+};
 use maestria_domain::{DomainInput, RetrievalEventsRetired};
 use maestria_governance::AutonomyProfile;
 use std::io::IsTerminal;
@@ -10,14 +13,16 @@ use std::path::PathBuf;
 /// (ADR-0009).
 ///
 /// The command emits one governed `RetrievalEventsRetired` marker through
-/// the runtime; nothing is deleted. Rows below the boundary stop being
-/// decoded at open, and trace lookups report retirement explicitly.
+/// the daemon when one serves the instance, or through a local mutation
+/// session otherwise; nothing is deleted. Rows below the boundary stop
+/// being decoded at open, and trace lookups report retirement explicitly.
 ///
 /// # Cancellation
 /// Dropping this future tears down the CLI-side session (instance lock
-/// released, runtime shutdown requested). If the marker input was already
-/// accepted by the runtime, it stays durable; re-running the command is
-/// safe (a repeat marker below the high-water is a recorded no-op).
+/// released, runtime shutdown requested) or aborts the daemon request. If
+/// the marker input was already accepted, it stays durable; re-running the
+/// command is safe (a repeat marker below the high-water is a recorded
+/// no-op).
 pub async fn run(
     instance_dir: PathBuf,
     before_sequence: u64,
@@ -37,6 +42,10 @@ pub async fn run(
     if std::io::stdin().is_terminal() && !yes {
         confirm(before_sequence)?;
     }
+    if let Some(retired_through) = daemon_retire(&layout, before_sequence, &reason).await? {
+        println!("retired_through={retired_through}");
+        return Ok(());
+    }
 
     let session = MutationSession::start(layout, AutonomyProfile::TrustedWorkspace).await?;
     session
@@ -55,6 +64,38 @@ pub async fn run(
     let retired_through = store.retrieval_retired_through()?;
     println!("retired_through={retired_through}");
     Ok(())
+}
+
+/// Submit the retirement marker through a live daemon.
+///
+/// Returns `Ok(None)` when no daemon currently serves the instance (no
+/// token, or the socket refuses connections per `ClientErrorCode::
+/// DaemonUnavailable`), so the caller can run the local session instead.
+async fn daemon_retire(
+    layout: &InstanceLayout,
+    before_sequence: u64,
+    reason: &str,
+) -> Result<Option<u64>> {
+    let Ok(client) = DaemonClient::from_instance(layout) else {
+        return Ok(None);
+    };
+    let response = client
+        .request(ClientOperation::RetireRetrievalEvents {
+            before_sequence,
+            reason: reason.to_string(),
+        })
+        .await;
+    let response = match response {
+        Ok(response) => response,
+        Err(error) if error.code == ClientErrorCode::DaemonUnavailable => {
+            return Ok(None);
+        }
+        Err(error) => return Err(anyhow!(error)),
+    };
+    let ClientResponse::RetrievalEventsRetired(reply) = response else {
+        bail!("daemon returned an unexpected retrieval-retirement response");
+    };
+    Ok(Some(reply.retired_through))
 }
 
 fn confirm(before_sequence: u64) -> Result<()> {
