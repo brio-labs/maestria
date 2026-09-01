@@ -4,7 +4,11 @@ use crate::runtime::{EffectPreparation, MaestriaRuntime};
 use crate::runtime_transition::TransitionBarriers;
 use maestria_domain::{DomainEventEnvelope, DomainInput, KernelState, MaestriaEffect};
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, Mutex, atomic::AtomicU64};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+};
+use std::time::Duration;
 use tokio::sync::{RwLock, mpsc, oneshot};
 
 /// Best-effort delivery of a command reply (R24: send failures are not
@@ -63,6 +67,10 @@ impl MaestriaRuntime {
                 feedback_acks: Arc::new(Mutex::new(BTreeMap::new())),
                 degraded_vector_artifacts: Arc::new(Mutex::new(BTreeMap::new())),
                 full_text_locks: Arc::new(Mutex::new(BTreeMap::new())),
+                pending_effect_batches: Arc::new(AtomicUsize::new(0)),
+                in_flight_effects: Arc::new(AtomicUsize::new(0)),
+                executor_quiescent: Arc::new(AtomicBool::new(true)),
+                admission_open: Arc::new(AtomicBool::new(true)),
                 pending_applications: Mutex::new(BTreeMap::new()),
                 pending_notebook_drafts: Mutex::new(BTreeMap::new()),
                 #[cfg(test)]
@@ -114,8 +122,24 @@ impl MaestriaRuntime {
 
         let queue_recovery =
             Self::queue_model_agent_recovery(recovery, &shutdown_token, &effect_tx);
-        let run_inputs = self.run_input_loop(input_rx, command_rx, &effect_tx, &shutdown_token);
+        let mut input_rx = input_rx;
+        let run_inputs =
+            self.run_input_loop(&mut input_rx, command_rx, &effect_tx, &shutdown_token);
         tokio::join!(queue_recovery, run_inputs);
+        if self.config.drain_effects_on_shutdown {
+            // Graceful mode: keep servicing the domain-input channel while
+            // in-flight effects finish, so their completion inputs are
+            // persisted instead of racing a closed channel.
+            // Exits when the executor reports quiescence (no queued batch,
+            // no running effect) or when `shutdown_drain_grace` elapses;
+            // stragglers degrade through the deferred-delivery path.
+            self.drain_effect_completions(&mut input_rx, &effect_tx, &shutdown_token)
+                .await;
+        }
+        // The drain is over: late submissions must fail fast instead of
+        // feeding batches to a runtime that is tearing down.
+        self.admission_open
+            .store(false, std::sync::atomic::Ordering::Relaxed);
         drop(effect_tx);
         if !self.config.drain_effects_on_shutdown {
             effect_shutdown.cancel();
@@ -134,7 +158,7 @@ impl MaestriaRuntime {
 
     async fn run_input_loop(
         &self,
-        mut input_rx: mpsc::Receiver<DomainInput>,
+        input_rx: &mut mpsc::Receiver<DomainInput>,
         mut command_rx: mpsc::Receiver<(DomainInput, crate::runtime::RuntimeCommand)>,
         effect_tx: &mpsc::Sender<crate::effect_dispatch::EffectBatch>,
         shutdown_token: &tokio_util::sync::CancellationToken,
@@ -156,6 +180,44 @@ impl MaestriaRuntime {
             {
                 break;
             }
+        }
+    }
+
+    /// Service completion deliveries until the effect executor is
+    /// quiescent (nothing queued, nothing running) or the grace elapses.
+    ///
+    /// The double `try_recv` after observing quiescence closes the race
+    /// where a completion input arrives between the queue scan and the
+    /// quiescence check: if one slipped in, the loop continues and waits
+    /// for the effects it admits.
+    async fn drain_effect_completions(
+        &self,
+        input_rx: &mut mpsc::Receiver<DomainInput>,
+        effect_tx: &mpsc::Sender<crate::effect_dispatch::EffectBatch>,
+        shutdown_token: &tokio_util::sync::CancellationToken,
+    ) {
+        // The tokio clock (not the wall clock) drives the grace so test
+        // time control and the async runtime agree on deadlines.
+        let deadline = tokio::time::Instant::now() + self.config.shutdown_drain_grace;
+        loop {
+            while let Ok(input) = input_rx.try_recv() {
+                if !self
+                    .process_input(input, None, effect_tx, shutdown_token)
+                    .await
+                {
+                    return;
+                }
+            }
+            if self.executor_quiescent.load(Ordering::Relaxed) && input_rx.try_recv().is_err() {
+                return;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                tracing::warn!(
+                    "shutdown drain grace elapsed; deferring remaining completion deliveries"
+                );
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
         }
     }
 

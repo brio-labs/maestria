@@ -6,6 +6,7 @@ mod completion;
 /// - `effect_dispatch`: effect admission and reservation.
 /// - `effect_execution`: effect execution handlers and retry lifecycle.
 /// - `effect_execution_dispatch`: governance dispatch and effect routing.
+/// - `effect_executor_shutdown`: executor join supervision and shutdown-drain quiescence.
 /// - `effect_result`: effect failure and result handling.
 /// - `harness`: harness execution effects.
 /// - `harness_gate`: harness capability, scope, and path gating policy.
@@ -38,6 +39,7 @@ mod effect_admission;
 mod effect_dispatch;
 mod effect_execution;
 mod effect_execution_dispatch;
+mod effect_executor_shutdown;
 mod effect_result;
 mod harness;
 mod harness_gate;

@@ -429,6 +429,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "validation",
     ),
     "crates/runtime/maestria-runtime/src/lib.rs": (
+        "effect_executor_shutdown",
         "config",
         "effect_admission",
         "effect_dispatch",

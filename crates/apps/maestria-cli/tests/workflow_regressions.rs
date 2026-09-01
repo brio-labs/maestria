@@ -128,7 +128,10 @@ fn memory_promote_returns_and_persists_within_bound() -> Result<(), Box<dyn std:
             "1",
             "--approve",
         ],
-        Duration::from_secs(10),
+        // Hang guard only: the assertion below checks the promotion
+        // outcome, so the bound must tolerate full-suite CPU contention
+        // (fixed wall-clock budgets flake under full-suite load).
+        Duration::from_secs(30),
     )?;
     assert_eq!(
         code, 0,

@@ -12,6 +12,12 @@ intelligence to a reviewed set of directories.
 
 ### Added
 
+- Graceful shutdown drain: with `drain_effects_on_shutdown`, the runtime
+  keeps servicing domain inputs while in-flight effects finish, so an
+  effect completing after cancellation still delivers (and persists) its
+  completion input. Exit is quiescence-driven — no queued batches, no
+  running effects — bounded by a `shutdown_drain_grace` ceiling, so quiet
+  sessions shut down as promptly as before.
 - Retrieval audit retention (ADR-0009): `retire-retrieval-events` emits a
   governed append-only marker through a live daemon or a local session;
   the journal loader stops decoding the state-free audit family below it,

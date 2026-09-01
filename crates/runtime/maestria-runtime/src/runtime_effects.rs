@@ -1,10 +1,13 @@
 use crate::config::EffectExecutionContext;
-use crate::effect_dispatch::EffectWork;
+use crate::effect_dispatch::{EffectBatch, EffectWork};
 use crate::effect_execution_dispatch::PreparedEffect;
 use crate::effect_result::EffectFailure;
 use crate::runtime::MaestriaRuntime;
 use maestria_domain::{KernelState, MaestriaEffect};
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use tokio::sync::mpsc;
 
 /// Dedicated lane for `IndexVector` effects: a degraded vector flood must
@@ -57,7 +60,7 @@ impl MaestriaRuntime {
         highest.saturating_add(1).max(1)
     }
 
-    fn supervise_effect_failure(
+    pub(super) fn supervise_effect_failure(
         error: EffectFailure,
         effect_shutdown: &tokio_util::sync::CancellationToken,
         runtime_shutdown: &tokio_util::sync::CancellationToken,
@@ -109,75 +112,6 @@ impl MaestriaRuntime {
             other => Ok(Some(other)),
         }
     }
-
-    fn supervise_effect_join(
-        result: Result<(), tokio::task::JoinError>,
-        effect_shutdown: &tokio_util::sync::CancellationToken,
-        runtime_shutdown: &tokio_util::sync::CancellationToken,
-    ) {
-        let Err(error) = result else {
-            return;
-        };
-        tracing::error!(
-            %error,
-            task_panicked = error.is_panic(),
-            task_cancelled = error.is_cancelled(),
-            "spawned effect task join failed; cancelling runtime execution"
-        );
-        effect_shutdown.cancel();
-        runtime_shutdown.cancel();
-    }
-
-    fn spawn_effect_task(
-        in_flight: &mut tokio::task::JoinSet<()>,
-        context: EffectExecutionContext,
-        work: EffectWork,
-        lane: Arc<tokio::sync::Semaphore>,
-        effect_shutdown: tokio_util::sync::CancellationToken,
-        runtime_shutdown: tokio_util::sync::CancellationToken,
-    ) {
-        in_flight.spawn(async move {
-            // Permit acquired inside the task so batch consumption never
-            // blocks on the semaphore; the lane still bounds concurrent
-            // executions and the effect channel cannot back up.
-            let permit = tokio::select! {
-                biased;
-                () = effect_shutdown.cancelled() => return,
-                permit = lane.acquire_owned() => match permit {
-                    Ok(permit) => permit,
-                    Err(_) => return,
-                },
-            };
-            let result = match work {
-                EffectWork::Pending(effect) => context.execute_with_retries(effect).await,
-                EffectWork::Prepared(effect) => {
-                    context.execute_prepared_with_watchdog(effect).await
-                }
-            };
-            if let Err(error) = result {
-                Self::supervise_effect_failure(error, &effect_shutdown, &runtime_shutdown);
-            }
-            drop(permit);
-        });
-    }
-
-    async fn finish_effect_executor(
-        in_flight: &mut tokio::task::JoinSet<()>,
-        drain_effects_on_shutdown: bool,
-        effect_shutdown: &tokio_util::sync::CancellationToken,
-        runtime_shutdown: &tokio_util::sync::CancellationToken,
-    ) {
-        if drain_effects_on_shutdown && !effect_shutdown.is_cancelled() {
-            while let Some(result) = in_flight.join_next().await {
-                Self::supervise_effect_join(result, effect_shutdown, runtime_shutdown);
-            }
-        } else {
-            in_flight.abort_all();
-            while let Some(result) = in_flight.join_next().await {
-                Self::supervise_effect_join(result, effect_shutdown, runtime_shutdown);
-            }
-        }
-    }
     pub(crate) fn effect_execution_context(&self) -> EffectExecutionContext {
         EffectExecutionContext {
             adapters: Arc::clone(&self.adapters),
@@ -202,6 +136,7 @@ impl MaestriaRuntime {
     /// dedicated vector lane.
     async fn admit_effect(
         in_flight: &mut tokio::task::JoinSet<()>,
+        in_flight_effects: &AtomicUsize,
         lanes: &EffectLanes,
         execution_context: EffectExecutionContext,
         work: EffectWork,
@@ -236,6 +171,7 @@ impl MaestriaRuntime {
         };
         Self::spawn_effect_task(
             in_flight,
+            in_flight_effects,
             execution_context,
             work,
             lane,
@@ -243,6 +179,46 @@ impl MaestriaRuntime {
             runtime_shutdown.clone(),
         );
         AdmitOutcome::Continue
+    }
+
+    /// Admit a received batch effect by effect. Returns `true` when the
+    /// executor must stop (persist failure); drops the batch remainder when
+    /// the executor is shutting down.
+    async fn admit_effect_batch(
+        in_flight: &mut tokio::task::JoinSet<()>,
+        in_flight_effects: &AtomicUsize,
+        lanes: &EffectLanes,
+        execution_context: &EffectExecutionContext,
+        effects: EffectBatch,
+        effect_shutdown: &tokio_util::sync::CancellationToken,
+        runtime_shutdown: &tokio_util::sync::CancellationToken,
+    ) -> bool {
+        let mut remaining = effects.len();
+        for work in effects {
+            remaining = remaining.saturating_sub(1);
+            match Self::admit_effect(
+                in_flight,
+                in_flight_effects,
+                lanes,
+                execution_context.clone(),
+                work,
+                effect_shutdown,
+                runtime_shutdown,
+            )
+            .await
+            {
+                AdmitOutcome::Continue | AdmitOutcome::Persisted => {}
+                AdmitOutcome::Stop => return true,
+                AdmitOutcome::DropBatch => {
+                    tracing::warn!(
+                        dropped_effects = remaining,
+                        "effect executor dropped admitted effects"
+                    );
+                    return false;
+                }
+            }
+        }
+        false
     }
 
     pub(crate) fn spawn_effect_executor(
@@ -256,12 +232,22 @@ impl MaestriaRuntime {
         let drain_effects_on_shutdown = self.config.drain_effects_on_shutdown;
         #[cfg(test)]
         let test_pre_failed_effect_task = self.test_pre_failed_effect_task;
+        let pending_effect_batches = Arc::clone(&self.pending_effect_batches);
+        let in_flight_effects = Arc::clone(&self.in_flight_effects);
+        let executor_quiescent = Arc::clone(&self.executor_quiescent);
         tokio::spawn(async move {
             let lanes = EffectLanes {
                 main: Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects)),
                 vector: Arc::new(tokio::sync::Semaphore::new(VECTOR_LANE_PERMITS)),
             };
             let mut in_flight = tokio::task::JoinSet::new();
+            // Publish the initial quiescent state before parking on recv():
+            // a quiet runtime's shutdown drain must observe it immediately.
+            Self::publish_quiescence(
+                &pending_effect_batches,
+                &in_flight_effects,
+                &executor_quiescent,
+            );
             #[cfg(test)]
             if test_pre_failed_effect_task {
                 let abort_handle = in_flight.spawn(std::future::pending::<()>());
@@ -269,9 +255,21 @@ impl MaestriaRuntime {
             }
             'executor: loop {
                 while let Some(result) = in_flight.try_join_next() {
-                    Self::supervise_effect_join(result, &effect_shutdown, &runtime_shutdown);
+                    Self::supervise_effect_join(
+                        result,
+                        &pending_effect_batches,
+                        &in_flight_effects,
+                        &executor_quiescent,
+                        &effect_shutdown,
+                        &runtime_shutdown,
+                    );
                 }
                 let has_in_flight = !in_flight.is_empty();
+                Self::publish_quiescence(
+                    &pending_effect_batches,
+                    &in_flight_effects,
+                    &executor_quiescent,
+                );
                 let message = tokio::select! {
                     biased;
                     () = effect_shutdown.cancelled() => break,
@@ -279,6 +277,9 @@ impl MaestriaRuntime {
                         if let Some(result) = join_result {
                             Self::supervise_effect_join(
                                 result,
+                                &pending_effect_batches,
+                                &in_flight_effects,
+                                &executor_quiescent,
                                 &effect_shutdown,
                                 &runtime_shutdown,
                             );
@@ -288,36 +289,36 @@ impl MaestriaRuntime {
                     message = receiver.recv() => message,
                 };
                 let Some(effects) = message else { break };
+                // The batch left the queue and is now this loop's sole
+                // responsibility (executed, inline-persisted, or dropped).
+                pending_effect_batches.fetch_sub(1, Ordering::Relaxed);
                 if effect_shutdown.is_cancelled() {
                     break;
                 }
-                let mut remaining = effects.len();
-                for work in effects {
-                    remaining = remaining.saturating_sub(1);
-                    match Self::admit_effect(
-                        &mut in_flight,
-                        &lanes,
-                        execution_context.clone(),
-                        work,
-                        &effect_shutdown,
-                        &runtime_shutdown,
-                    )
-                    .await
-                    {
-                        AdmitOutcome::Continue | AdmitOutcome::Persisted => {}
-                        AdmitOutcome::Stop => break 'executor,
-                        AdmitOutcome::DropBatch => {
-                            tracing::warn!(
-                                dropped_effects = remaining,
-                                "effect executor dropped admitted effects"
-                            );
-                            break;
-                        }
-                    }
+                if Self::admit_effect_batch(
+                    &mut in_flight,
+                    &in_flight_effects,
+                    &lanes,
+                    &execution_context,
+                    effects,
+                    &effect_shutdown,
+                    &runtime_shutdown,
+                )
+                .await
+                {
+                    break 'executor;
                 }
+                Self::publish_quiescence(
+                    &pending_effect_batches,
+                    &in_flight_effects,
+                    &executor_quiescent,
+                );
             }
             Self::finish_effect_executor(
                 &mut in_flight,
+                &pending_effect_batches,
+                &in_flight_effects,
+                &executor_quiescent,
                 drain_effects_on_shutdown,
                 &effect_shutdown,
                 &runtime_shutdown,

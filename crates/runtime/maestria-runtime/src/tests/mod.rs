@@ -32,6 +32,7 @@ mod resume;
 mod search;
 mod search_validation;
 mod shell_policy;
+mod shutdown_drain;
 mod submission;
 mod supervision;
 mod vector_lane;
