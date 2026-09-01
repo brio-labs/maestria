@@ -4,7 +4,10 @@ use crate::config::{
 };
 use maestria_domain::{DomainError, DomainEventEnvelope, DomainInput, HarnessRunId, KernelState};
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, atomic::AtomicU64};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, AtomicU64, AtomicUsize},
+};
 use tokio::sync::{RwLock, mpsc, oneshot};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +40,24 @@ pub struct MaestriaRuntime {
     pub(crate) feedback_acks: HarnessFeedbackAcks,
     pub(crate) degraded_vector_artifacts: DegradedVectorArtifacts,
     pub(crate) full_text_locks: FullTextLocks,
+    /// Effect batches sent to the executor but not yet taken by it. The
+    /// dispatcher increments before sending; the executor decrements on
+    /// receive. Zero together with zero in-flight effects means every
+    /// admitted batch has executed.
+    pub(crate) pending_effect_batches: Arc<AtomicUsize>,
+    /// Effects spawned into the executor's join set but not yet joined.
+    pub(crate) in_flight_effects: Arc<AtomicUsize>,
+    /// Published by the executor after every state change (and forced
+    /// false by the dispatcher after each send): true when no batch is
+    /// queued and no effect is running. The shutdown drain services
+    /// completion inputs until this settles.
+    pub(crate) executor_quiescent: Arc<AtomicBool>,
+    /// Whether effect-batch admission still accepts work. The shutdown
+    /// drain is the one legitimate post-cancellation admission window: it
+    /// persists completion deliveries whose batches must reach the still
+    /// live executor. `run` closes this when the drain ends, so late
+    /// external submissions fail fast instead of feeding a dying runtime.
+    pub(crate) admission_open: Arc<AtomicBool>,
     pub(crate) pending_applications: Mutex<BTreeMap<HarnessRunId, PendingApplication>>,
     pub(crate) pending_notebook_drafts: Mutex<BTreeMap<u64, RuntimeCommand>>,
     #[cfg(test)]

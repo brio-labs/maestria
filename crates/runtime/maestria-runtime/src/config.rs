@@ -23,6 +23,12 @@ pub struct RuntimeConfig {
     pub max_retries: u32,
     pub embedding_model: Option<String>,
     pub drain_effects_on_shutdown: bool,
+    /// Wall-clock ceiling for the shutdown drain phase: with
+    /// `drain_effects_on_shutdown`, the runtime keeps servicing domain
+    /// inputs (effect completion deliveries) until the executor reports
+    /// quiescence or this grace elapses. Quiet sessions exit immediately
+    /// via the quiescence signal; only genuinely busy sessions wait.
+    pub shutdown_drain_grace: Duration,
     /// Invoked once after the effect executor has joined on shutdown, before
     /// `run` returns. Projection adapters use it to make buffered writes
     /// durable (e.g. a lazy tantivy commit) so callers that snapshot
@@ -42,6 +48,7 @@ impl Default for RuntimeConfig {
             max_retries: 3,
             embedding_model: None,
             drain_effects_on_shutdown: false,
+            shutdown_drain_grace: Duration::from_secs(5),
             flush_projections: None,
         }
     }

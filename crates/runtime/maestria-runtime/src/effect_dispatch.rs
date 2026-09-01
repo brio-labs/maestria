@@ -2,6 +2,7 @@ use crate::MaestriaRuntime;
 use crate::effect_execution_dispatch::PreparedEffect;
 use maestria_domain::MaestriaEffect;
 use std::fmt;
+use std::sync::atomic::Ordering;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -40,7 +41,12 @@ impl MaestriaRuntime {
     ) -> Result<mpsc::Permit<'a, EffectBatch>, EffectAdmissionError> {
         tokio::select! {
             biased;
-            () = shutdown_token.cancelled() => Err(EffectAdmissionError::Cancelled),
+            // Cancellation closes admission only outside the shutdown
+            // drain: the drain itself must keep admitting completion
+            // deliveries so their batches reach the live executor.
+            () = shutdown_token.cancelled(), if !self.admission_open.load(Ordering::Relaxed) => {
+                Err(EffectAdmissionError::Cancelled)
+            }
             result = effect_tx.reserve() => {
                 result.map_err(|_| EffectAdmissionError::ChannelClosed)
             }
@@ -54,6 +60,11 @@ impl MaestriaRuntime {
         permit: mpsc::Permit<'_, EffectBatch>,
         effects: EffectBatch,
     ) -> Result<(), EffectAdmissionError> {
+        // Account the batch as queued before it leaves this task so the
+        // shutdown drain never observes a stale quiescent flag with work
+        // still in the channel; the executor decrements on receive.
+        self.pending_effect_batches.fetch_add(1, Ordering::Relaxed);
+        self.executor_quiescent.store(false, Ordering::Relaxed);
         permit.send(effects);
         Ok(())
     }
