@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use maestria_domain::{
     EvidenceCandidate, EvidenceCandidateDto, EvidenceCoverage, EvidenceCoverageDto,
     IndexGenerationId, SearchIntent, SearchOutcome, SearchStatus, SearchTraceId,
@@ -62,13 +61,12 @@ impl AsyncLane {
     }
 }
 
-#[async_trait]
 impl CandidateRetriever for AsyncLane {
     fn descriptor(&self) -> &maestria_retrieval::types::RetrieverDescriptor {
         &self.descriptor
     }
 
-    async fn retrieve(
+    fn retrieve(
         &self,
         request: maestria_retrieval::types::CandidateRequest,
     ) -> Result<maestria_retrieval::types::CandidateBatch, maestria_retrieval::RetrievalError> {
@@ -101,13 +99,12 @@ impl StaleCodeLane {
     }
 }
 
-#[async_trait]
 impl CandidateRetriever for StaleCodeLane {
     fn descriptor(&self) -> &maestria_retrieval::types::RetrieverDescriptor {
         &self.descriptor
     }
 
-    async fn retrieve(
+    fn retrieve(
         &self,
         request: maestria_retrieval::types::CandidateRequest,
     ) -> Result<maestria_retrieval::types::CandidateBatch, RetrievalError> {
@@ -178,13 +175,12 @@ impl CountingWebLane {
     }
 }
 
-#[async_trait]
 impl CandidateRetriever for CountingWebLane {
     fn descriptor(&self) -> &maestria_retrieval::types::RetrieverDescriptor {
         &self.descriptor
     }
 
-    async fn retrieve(
+    fn retrieve(
         &self,
         request: maestria_retrieval::types::CandidateRequest,
     ) -> Result<maestria_retrieval::types::CandidateBatch, RetrievalError> {
@@ -214,13 +210,12 @@ impl StaleGenerationLane {
     }
 }
 
-#[async_trait]
 impl CandidateRetriever for StaleGenerationLane {
     fn descriptor(&self) -> &maestria_retrieval::types::RetrieverDescriptor {
         &self.descriptor
     }
 
-    async fn retrieve(
+    fn retrieve(
         &self,
         _request: maestria_retrieval::types::CandidateRequest,
     ) -> Result<maestria_retrieval::types::CandidateBatch, RetrievalError> {
@@ -247,13 +242,12 @@ impl SpecializedGenerationLane {
     }
 }
 
-#[async_trait]
 impl CandidateRetriever for SpecializedGenerationLane {
     fn descriptor(&self) -> &maestria_retrieval::types::RetrieverDescriptor {
         &self.descriptor
     }
 
-    async fn retrieve(
+    fn retrieve(
         &self,
         request: maestria_retrieval::types::CandidateRequest,
     ) -> Result<maestria_retrieval::types::CandidateBatch, RetrievalError> {
@@ -291,13 +285,12 @@ impl ByteOverrunLane {
     }
 }
 
-#[async_trait]
 impl CandidateRetriever for ByteOverrunLane {
     fn descriptor(&self) -> &maestria_retrieval::types::RetrieverDescriptor {
         &self.descriptor
     }
 
-    async fn retrieve(
+    fn retrieve(
         &self,
         request: maestria_retrieval::types::CandidateRequest,
     ) -> Result<maestria_retrieval::types::CandidateBatch, RetrievalError> {
@@ -314,9 +307,8 @@ impl CandidateRetriever for ByteOverrunLane {
 
 struct AsyncEvaluator;
 
-#[async_trait]
 impl RetrievalEvaluator for AsyncEvaluator {
-    async fn evaluate(
+    fn evaluate(
         &self,
         experiment: maestria_retrieval::types::RetrievalExperiment,
     ) -> RetrievalResult<maestria_retrieval::types::RetrievalEvaluationReport> {
@@ -352,8 +344,8 @@ impl RetrievalEvaluator for AsyncEvaluator {
     }
 }
 
-#[tokio::test]
-async fn failed_lane_is_degraded_without_losing_successful_evidence() -> RetrievalResult<()> {
+#[test]
+fn failed_lane_is_degraded_without_losing_successful_evidence() -> RetrievalResult<()> {
     let plan = dummy_plan()?;
     let authorization = plan
         .authorization()
@@ -378,7 +370,7 @@ async fn failed_lane_is_degraded_without_losing_successful_evidence() -> Retriev
     )
     .with_fusion(Arc::new(FixedKRrf::new(60)));
 
-    let outcome = engine.search(&plan).await?;
+    let outcome = engine.search(&plan)?;
     assert_eq!(outcome.evidence.len(), 1);
     let trace = outcome
         .trace_data
@@ -421,8 +413,8 @@ async fn failed_lane_is_degraded_without_losing_successful_evidence() -> Retriev
     Ok(())
 }
 
-#[tokio::test]
-async fn stale_code_only_evidence_is_not_served_and_retains_stale_trace() -> RetrievalResult<()> {
+#[test]
+fn stale_code_only_evidence_is_not_served_and_retains_stale_trace() -> RetrievalResult<()> {
     let plan = dummy_plan()?
         .with_original_query("find function symbol compute".to_string())?
         .with_intent(SearchIntent::RepositoryCode)?
@@ -451,7 +443,7 @@ async fn stale_code_only_evidence_is_not_served_and_retains_stale_trace() -> Ret
             .map_err(|error| RetrievalError::Internal(error.to_string()))?,
     );
 
-    let outcome = engine.search(&plan).await?;
+    let outcome = engine.search(&plan)?;
     assert!(outcome.evidence.is_empty());
     assert_eq!(outcome.status, SearchStatus::StaleEvidenceOnly);
     let trace = outcome
@@ -470,8 +462,8 @@ async fn stale_code_only_evidence_is_not_served_and_retains_stale_trace() -> Ret
     Ok(())
 }
 
-#[tokio::test]
-async fn stale_generation_lane_is_rejected_before_dispatch() -> RetrievalResult<()> {
+#[test]
+fn stale_generation_lane_is_rejected_before_dispatch() -> RetrievalResult<()> {
     let plan = dummy_plan()?;
     let calls = Arc::new(AtomicUsize::new(0));
     let engine = RetrievalEngine::new(
@@ -488,7 +480,7 @@ async fn stale_generation_lane_is_rejected_before_dispatch() -> RetrievalResult<
         .with_generation(maestria_domain::IndexGenerationId::new(2)),
     );
 
-    let outcome = engine.search(&plan).await?;
+    let outcome = engine.search(&plan)?;
     assert!(outcome.evidence.is_empty());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     let trace = outcome
@@ -510,9 +502,8 @@ async fn stale_generation_lane_is_rejected_before_dispatch() -> RetrievalResult<
     Ok(())
 }
 
-#[tokio::test]
-async fn specialized_generation_is_served_while_primary_stale_lane_is_rejected()
--> RetrievalResult<()> {
+#[test]
+fn specialized_generation_is_served_while_primary_stale_lane_is_rejected() -> RetrievalResult<()> {
     let plan = dummy_plan()?;
     let authorization = plan
         .authorization()
@@ -556,7 +547,7 @@ async fn specialized_generation_is_served_while_primary_stale_lane_is_rejected()
         .with_generation(maestria_domain::IndexGenerationId::new(2)),
     );
 
-    let outcome = engine.search(&plan).await?;
+    let outcome = engine.search(&plan)?;
     assert_eq!(specialized_calls.load(Ordering::SeqCst), 1);
     assert_eq!(stale_calls.load(Ordering::SeqCst), 0);
     assert_eq!(outcome.evidence.len(), 1);
@@ -590,8 +581,8 @@ async fn specialized_generation_is_served_while_primary_stale_lane_is_rejected()
     Ok(())
 }
 
-#[tokio::test]
-async fn local_lane_byte_overrun_is_rejected_before_scoring() -> RetrievalResult<()> {
+#[test]
+fn local_lane_byte_overrun_is_rejected_before_scoring() -> RetrievalResult<()> {
     let plan = dummy_plan()?.with_budgets(maestria_domain::SearchBudget::with_resource_limits(
         1_000, 1_000, 1, 1, 0, 4, 1,
     )?)?;
@@ -609,7 +600,7 @@ async fn local_lane_byte_overrun_is_rejected_before_scoring() -> RetrievalResult
         .max_bytes_read(4),
     );
 
-    let outcome = engine.search(&plan).await?;
+    let outcome = engine.search(&plan)?;
     assert!(outcome.evidence.is_empty());
     let trace = outcome
         .trace_data
@@ -630,8 +621,8 @@ async fn local_lane_byte_overrun_is_rejected_before_scoring() -> RetrievalResult
     Ok(())
 }
 
-#[tokio::test]
-async fn web_budget_applies_across_deterministic_rewrites() -> RetrievalResult<()> {
+#[test]
+fn web_budget_applies_across_deterministic_rewrites() -> RetrievalResult<()> {
     let plan = dummy_plan()?
         .with_budgets(maestria_domain::SearchBudget::with_resource_limits(
             1000, 1000, 8, 3, 1, 16_384, 1,
@@ -648,7 +639,7 @@ async fn web_budget_applies_across_deterministic_rewrites() -> RetrievalResult<(
         maestria_governance::RetrievalSecurityPolicy::default(),
     );
 
-    let outcome = engine.search(&plan).await?;
+    let outcome = engine.search(&plan)?;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let trace = outcome
         .trace_data

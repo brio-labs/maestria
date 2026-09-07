@@ -13,9 +13,7 @@ impl SearchRuntime {
             .confine_to_scope(self.scope_id)
             .map_err(anyhow::Error::new)?;
         let engine = self.cached_retrieval_engine()?;
-        tokio::runtime::Handle::current()
-            .block_on(engine.search(&plan))
-            .map_err(anyhow::Error::new)
+        engine.search(&plan).map_err(anyhow::Error::new)
     }
 
     fn execute_query_blocking<F>(
@@ -41,9 +39,7 @@ impl SearchRuntime {
         limit: usize,
     ) -> Result<(SearchPlan, SearchOutcome)> {
         self.execute_query_blocking(query, limit, |engine, plan| {
-            tokio::runtime::Handle::current()
-                .block_on(engine.search(plan))
-                .map_err(anyhow::Error::new)
+            engine.search(plan).map_err(anyhow::Error::new)
         })
     }
 
@@ -54,8 +50,8 @@ impl SearchRuntime {
         authorization: maestria_governance::RetrievalAuthorizationContext,
     ) -> Result<(SearchPlan, SearchOutcome)> {
         self.execute_query_blocking(query, limit, |engine, plan| {
-            tokio::runtime::Handle::current()
-                .block_on(engine.search_pre_authorized(plan, authorization))
+            engine
+                .search_pre_authorized(plan, authorization)
                 .map_err(anyhow::Error::new)
         })
     }
@@ -68,8 +64,8 @@ impl SearchRuntime {
         source_filter: maestria_retrieval::CandidateSourceFilter,
     ) -> Result<(SearchPlan, SearchOutcome)> {
         self.execute_query_blocking(query, limit, |engine, plan| {
-            tokio::runtime::Handle::current()
-                .block_on(engine.search_pre_authorized_selected(plan, authorization, source_filter))
+            engine
+                .search_pre_authorized_selected(plan, authorization, source_filter)
                 .map_err(anyhow::Error::new)
         })
     }

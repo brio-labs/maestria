@@ -94,22 +94,7 @@ impl LearnedSparseBenchmarkExecutor {
         engine: &RetrievalEngine,
         plan: &SearchPlan,
     ) -> Result<SearchOutcome> {
-        // The engine is async; the daemon runs it on a blocking worker so the
-        // benchmark can run both inside and outside an existing runtime.
-        std::thread::scope(|scope| {
-            scope
-                .spawn(|| {
-                    let runtime = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(anyhow::Error::new)?;
-                    runtime
-                        .block_on(engine.search(plan))
-                        .map_err(anyhow::Error::new)
-                })
-                .join()
-                .map_err(|_| anyhow!("benchmark search worker panicked"))?
-        })
+        engine.search(plan).map_err(anyhow::Error::new)
     }
 
     /// The sparse-only ablation: the projection's own retriever through the
@@ -164,20 +149,10 @@ impl LearnedSparseBenchmarkExecutor {
             authorization,
             source_filter: None,
         };
-        let batch = std::thread::scope(|scope| {
-            scope
-                .spawn(|| {
-                    let runtime = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(anyhow::Error::new)?;
-                    runtime
-                        .block_on(lane.retriever.retrieve(request))
-                        .map_err(anyhow::Error::new)
-                })
-                .join()
-                .map_err(|_| anyhow!("benchmark sparse-only worker panicked"))?
-        })?;
+        let batch = lane
+            .retriever
+            .retrieve(request)
+            .map_err(anyhow::Error::new)?;
         Ok(Some(self.candidates_from(batch.candidates)))
     }
 

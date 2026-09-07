@@ -1,5 +1,7 @@
 #[path = "learned_sparse_shadow_execution.rs"]
 mod learned_sparse_shadow_execution;
+#[path = "learned_sparse_shadow_lane.rs"]
+mod learned_sparse_shadow_lane;
 #[path = "learned_sparse_shadow_store.rs"]
 mod learned_sparse_shadow_store;
 

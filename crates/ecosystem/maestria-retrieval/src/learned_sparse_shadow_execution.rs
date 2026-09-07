@@ -1,7 +1,8 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use maestria_domain::{RetrievalReason, RetrievalScoreKind, SearchLaneStatus, SearchPlan};
+use maestria_domain::SearchPlan;
 use maestria_ports::SearchQuery;
 
 use crate::learned_sparse_policy::classify_query;
@@ -10,9 +11,8 @@ use crate::types::{CandidateRequest, RetrieverDescriptor};
 
 use super::learned_sparse_shadow_store::{LearnedSparseShadowStore, bounded_error};
 use super::{
-    LearnedSparseShadowCandidate, LearnedSparseShadowLane, LearnedSparseShadowLaneStatus,
-    LearnedSparseShadowObservation, LearnedSparseShadowRoute, MAX_SHADOW_LATENCY_MS,
-    MAX_SHADOW_RETRIEVERS, SHADOW_SCHEMA_VERSION,
+    LearnedSparseShadowLane, LearnedSparseShadowLaneStatus, LearnedSparseShadowObservation,
+    LearnedSparseShadowRoute, MAX_SHADOW_LATENCY_MS, MAX_SHADOW_RETRIEVERS, SHADOW_SCHEMA_VERSION,
 };
 
 type ShadowRetriever = (
@@ -24,24 +24,26 @@ type ShadowRetriever = (
 
 /// Owned handle for one non-serving shadow execution.
 ///
-/// Dropping the handle aborts the provider task. A successfully completed
-/// search may call [`Self::release`] to preserve the existing fire-and-forget
-/// observation semantics.
+/// Dropping the handle signals cancellation; the shadow thread observes it
+/// between lanes and exits without recording a partial observation. A
+/// successfully completed search may call [`Self::release`] to preserve the
+/// existing fire-and-forget observation semantics.
 pub(crate) struct LearnedSparseShadowTask {
-    handle: Option<tokio::task::JoinHandle<()>>,
+    cancelled: Arc<AtomicBool>,
+    released: bool,
 }
 
 impl Drop for LearnedSparseShadowTask {
     fn drop(&mut self) {
-        if let Some(handle) = self.handle.take() {
-            handle.abort();
+        if !self.released {
+            self.cancelled.store(true, Ordering::Release);
         }
     }
 }
 
 impl LearnedSparseShadowTask {
     pub(crate) fn release(mut self) {
-        let _released = self.handle.take();
+        self.released = true;
     }
 }
 
@@ -65,51 +67,49 @@ pub(crate) fn spawn_learned_sparse_shadow(
     if retrievers.is_empty() {
         return None;
     }
-    Some(LearnedSparseShadowTask {
-        handle: Some(tokio::spawn(async move {
-            let observation = run_shadow(retrievers, plan, authorization, source_filter).await;
-            store.record(observation);
-        })),
-    })
-}
-async fn run_shadow(
-    retrievers: Vec<ShadowRetriever>,
-    plan: SearchPlan,
-    authorization: maestria_governance::RetrievalAuthorizationContext,
-    source_filter: Option<crate::types::CandidateSourceFilter>,
-) -> LearnedSparseShadowObservation {
-    let started = tokio::time::Instant::now();
-    let timeout_ms = u64::from(plan.budgets().max_latency_ms()).clamp(1, MAX_SHADOW_LATENCY_MS);
-    let shadow_retrievers = retrievers.clone();
-    let lanes = match plan.execution_budget() {
-        Ok(execution_budget) => match tokio::time::timeout(
-            Duration::from_millis(timeout_ms),
-            collect_shadow_lanes(
-                shadow_retrievers,
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let thread_cancelled = Arc::clone(&cancelled);
+    std::thread::Builder::new()
+        .name("learned-sparse-shadow".to_string())
+        .spawn(move || {
+            let observation = run_shadow(
+                retrievers,
                 &plan,
                 &authorization,
                 source_filter.as_ref(),
-                execution_budget,
-            ),
-        )
-        .await
-        {
-            Ok(lanes) => lanes,
-            Err(_) => retrievers
-                .iter()
-                .map(
-                    |(_, descriptor, namespace, sparse_identity)| LearnedSparseShadowLane {
-                        retriever_id: descriptor.id.clone(),
-                        representation: descriptor.representation.clone(),
-                        generation: descriptor.generation,
-                        namespace: namespace.clone(),
-                        sparse_identity: sparse_identity.clone(),
-                        status: LearnedSparseShadowLaneStatus::TimedOut,
-                        candidates: Vec::new(),
-                    },
-                )
-                .collect(),
-        },
+                &thread_cancelled,
+            );
+            if !thread_cancelled.load(Ordering::Acquire) {
+                store.record(observation);
+            }
+        })
+        .ok();
+    Some(LearnedSparseShadowTask {
+        cancelled,
+        released: false,
+    })
+}
+
+fn run_shadow(
+    retrievers: Vec<ShadowRetriever>,
+    plan: &SearchPlan,
+    authorization: &maestria_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&crate::types::CandidateSourceFilter>,
+    cancelled: &AtomicBool,
+) -> LearnedSparseShadowObservation {
+    let started = crate::MonotonicInstant::now();
+    let timeout_ms = u64::from(plan.budgets().max_latency_ms()).clamp(1, MAX_SHADOW_LATENCY_MS);
+    let lanes = match plan.execution_budget() {
+        Ok(execution_budget) => collect_shadow_lanes(ShadowLaneRequest {
+            retrievers,
+            plan,
+            authorization,
+            source_filter,
+            execution_budget,
+            started,
+            lane_deadline: Duration::from_millis(timeout_ms),
+            cancelled,
+        }),
         Err(error) => {
             let error = bounded_error(&format!("invalid shadow execution budget: {error}"));
             retrievers
@@ -154,18 +154,60 @@ fn shadow_lane_budget(
     .ok()
 }
 
-async fn collect_shadow_lanes(
+struct ShadowLaneRequest<'a> {
     retrievers: Vec<ShadowRetriever>,
-    plan: &SearchPlan,
-    authorization: &maestria_governance::RetrievalAuthorizationContext,
-    source_filter: Option<&crate::types::CandidateSourceFilter>,
+    plan: &'a SearchPlan,
+    authorization: &'a maestria_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&'a crate::types::CandidateSourceFilter>,
     execution_budget: maestria_domain::SearchExecutionBudget,
-) -> Vec<LearnedSparseShadowLane> {
+    started: crate::MonotonicInstant,
+    lane_deadline: Duration,
+    cancelled: &'a AtomicBool,
+}
+
+fn collect_shadow_lanes(request: ShadowLaneRequest<'_>) -> Vec<LearnedSparseShadowLane> {
+    let ShadowLaneRequest {
+        retrievers,
+        plan,
+        authorization,
+        source_filter,
+        execution_budget,
+        started,
+        lane_deadline,
+        cancelled,
+    } = request;
     let mut lanes = Vec::with_capacity(retrievers.len());
     let lane_count = retrievers.len().max(1);
+    let lane_meta: Vec<(
+        RetrieverDescriptor,
+        Option<maestria_domain::SparseNamespace>,
+        Option<maestria_ports::SparseIdentity>,
+    )> = retrievers
+        .iter()
+        .map(|(_, descriptor, namespace, sparse_identity)| {
+            (
+                descriptor.clone(),
+                namespace.clone(),
+                sparse_identity.clone(),
+            )
+        })
+        .collect();
     for (lane_index, (retriever, descriptor, namespace, sparse_identity)) in
         retrievers.into_iter().enumerate()
     {
+        if cancelled.load(Ordering::Acquire) {
+            return lanes;
+        }
+        if started.elapsed() >= lane_deadline {
+            for (descriptor, namespace, sparse_identity) in lane_meta.iter().skip(lane_index) {
+                lanes.push(timed_out_lane(
+                    descriptor.clone(),
+                    namespace.clone(),
+                    sparse_identity.clone(),
+                ));
+            }
+            return lanes;
+        }
         let Some(execution_budget) = shadow_lane_budget(execution_budget, lane_count, lane_index)
         else {
             lanes.push(failed_lane(
@@ -176,136 +218,114 @@ async fn collect_shadow_lanes(
             ));
             continue;
         };
-        let query_limit = maestria_domain::saturating_usize(execution_budget.max_results());
-        let max_candidates = maestria_domain::saturating_usize(execution_budget.max_candidates());
-        let max_contributions =
-            maestria_domain::saturating_usize(execution_budget.max_work_units());
-        let request = CandidateRequest {
-            plan: std::sync::Arc::new(plan.clone()),
-            query: SearchQuery {
-                q: plan.original_query().to_string(),
-                limit: query_limit,
-                offset: 0,
-                execution_budget,
-            },
-            execution_budget,
-            expected_generation: descriptor.generation,
-            authorization: authorization.clone(),
-            source_filter: source_filter.cloned(),
-        };
-        let lane = match retriever.retrieve(request).await {
-            Ok(batch)
-                if batch.execution.budget != execution_budget
-                    || batch.execution.usage.results
-                        < maestria_domain::saturating_u64(batch.candidates.len())
-                    || batch.execution.usage.candidates
-                        < maestria_domain::saturating_u64(batch.candidates.len())
-                    || batch.execution.usage.work_units
-                        < maestria_domain::saturating_u64(batch.candidates.len()) =>
-            {
-                failed_lane(
-                    descriptor,
-                    namespace.clone(),
-                    sparse_identity.clone(),
-                    "shadow lane returned invalid execution metadata",
-                )
-            }
-            Ok(batch) if batch.generation != Some(descriptor.generation) => failed_lane(
-                descriptor,
-                namespace.clone(),
-                sparse_identity.clone(),
-                "shadow lane returned an incompatible generation",
-            ),
-            Ok(batch) => lane_from_batch(
+        let lane = evaluate_shadow_lane(
+            ShadowLaneJob {
+                retriever,
                 descriptor,
                 namespace,
                 sparse_identity,
-                batch,
-                max_candidates,
-                max_contributions,
-            ),
-            Err(error) => failed_lane(descriptor, namespace, sparse_identity, &error.to_string()),
-        };
+                execution_budget,
+            },
+            plan,
+            authorization,
+            source_filter,
+        );
         lanes.push(lane);
     }
     lanes
 }
 
-fn lane_from_batch(
+/// One planned shadow lane ready for execution and validation.
+struct ShadowLaneJob {
+    retriever: Arc<dyn CandidateRetriever>,
     descriptor: RetrieverDescriptor,
     namespace: Option<maestria_domain::SparseNamespace>,
     sparse_identity: Option<maestria_ports::SparseIdentity>,
-    batch: crate::types::CandidateBatch,
-    max_candidates: usize,
-    max_contributions: usize,
+    execution_budget: maestria_domain::SearchExecutionBudget,
+}
+
+/// Executes one shadow lane and validates its execution metadata.
+fn evaluate_shadow_lane(
+    job: ShadowLaneJob,
+    plan: &SearchPlan,
+    authorization: &maestria_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&crate::types::CandidateSourceFilter>,
 ) -> LearnedSparseShadowLane {
-    // Lane ranks are bounded by `max_candidates`; a rank that cannot be
-    // represented in the typed lane contract degrades the whole lane
-    // explicitly instead of fabricating a sentinel value (R24).
-    let Ok(max_rank) = u32::try_from(max_candidates) else {
-        return failed_lane(
+    let ShadowLaneJob {
+        retriever,
+        descriptor,
+        namespace,
+        sparse_identity,
+        execution_budget,
+    } = job;
+    let query_limit = maestria_domain::saturating_usize(execution_budget.max_results());
+    let max_candidates = maestria_domain::saturating_usize(execution_budget.max_candidates());
+    let max_contributions = maestria_domain::saturating_usize(execution_budget.max_work_units());
+    let request = CandidateRequest {
+        plan: std::sync::Arc::new(plan.clone()),
+        query: SearchQuery {
+            q: plan.original_query().to_string(),
+            limit: query_limit,
+            offset: 0,
+            execution_budget,
+        },
+        execution_budget,
+        expected_generation: descriptor.generation,
+        authorization: authorization.clone(),
+        source_filter: source_filter.cloned(),
+    };
+    match retriever.retrieve(request) {
+        Ok(batch)
+            if batch.execution.budget != execution_budget
+                || batch.execution.usage.results
+                    < maestria_domain::saturating_u64(batch.candidates.len())
+                || batch.execution.usage.candidates
+                    < maestria_domain::saturating_u64(batch.candidates.len())
+                || batch.execution.usage.work_units
+                    < maestria_domain::saturating_u64(batch.candidates.len()) =>
+        {
+            failed_lane(
+                descriptor,
+                namespace.clone(),
+                sparse_identity.clone(),
+                "shadow lane returned invalid execution metadata",
+            )
+        }
+        Ok(batch) if batch.generation != Some(descriptor.generation) => failed_lane(
+            descriptor,
+            namespace.clone(),
+            sparse_identity.clone(),
+            "shadow lane returned an incompatible generation",
+        ),
+        Ok(batch) => super::learned_sparse_shadow_lane::lane_from_batch(
             descriptor,
             namespace,
             sparse_identity,
-            "shadow candidate rank exceeds the u32 lane contract",
-        );
-    };
-    let candidates = batch
-        .candidates
-        .iter()
-        .take(max_rank as usize)
-        .enumerate()
-        .filter_map(|(rank, candidate)| {
-            // `rank < max_rank` (take bound), so `rank + 1 <= max_rank` fits u32.
-            shadow_candidate(candidate, rank as u32 + 1, max_contributions)
-        })
-        .collect::<Vec<_>>();
-    let status = match batch.status {
-        SearchLaneStatus::Succeeded if candidates.is_empty() => {
-            LearnedSparseShadowLaneStatus::IncompatibleIdentity
-        }
-        SearchLaneStatus::Succeeded => LearnedSparseShadowLaneStatus::Succeeded,
-        SearchLaneStatus::Empty => LearnedSparseShadowLaneStatus::Empty,
-        SearchLaneStatus::Failed { error } => status_from_error(&error),
-    };
+            batch,
+            max_candidates,
+            max_contributions,
+        ),
+        Err(error) => failed_lane(descriptor, namespace, sparse_identity, &error.to_string()),
+    }
+}
+
+fn timed_out_lane(
+    descriptor: RetrieverDescriptor,
+    namespace: Option<maestria_domain::SparseNamespace>,
+    sparse_identity: Option<maestria_ports::SparseIdentity>,
+) -> LearnedSparseShadowLane {
     LearnedSparseShadowLane {
         retriever_id: descriptor.id,
         representation: descriptor.representation,
         generation: descriptor.generation,
         namespace,
         sparse_identity,
-        status,
-        candidates,
+        status: LearnedSparseShadowLaneStatus::TimedOut,
+        candidates: Vec::new(),
     }
 }
 
-fn shadow_candidate(
-    candidate: &maestria_domain::EvidenceCandidate,
-    lane_rank: u32,
-    max_contributions: usize,
-) -> Option<LearnedSparseShadowCandidate> {
-    let score = candidate
-        .scores()
-        .lane(&RetrievalScoreKind::LearnedSparse)?
-        .clone();
-    candidate.reasons().iter().find_map(|reason| {
-        let RetrievalReason::LearnedSparse(reason) = reason else {
-            return None;
-        };
-        let mut reason = reason.as_ref().clone();
-        reason.contributions.truncate(max_contributions);
-        Some(LearnedSparseShadowCandidate {
-            evidence_id: candidate.evidence_id(),
-            artifact_version: candidate.artifact_version(),
-            source_span: candidate.source_span().clone(),
-            lane_rank,
-            score: score.clone(),
-            reason,
-        })
-    })
-}
-
-fn failed_lane(
+pub(super) fn failed_lane(
     descriptor: RetrieverDescriptor,
     namespace: Option<maestria_domain::SparseNamespace>,
     sparse_identity: Option<maestria_ports::SparseIdentity>,
@@ -322,7 +342,7 @@ fn failed_lane(
     }
 }
 
-fn status_from_error(error: &str) -> LearnedSparseShadowLaneStatus {
+pub(super) fn status_from_error(error: &str) -> LearnedSparseShadowLaneStatus {
     let normalized = error.to_ascii_lowercase();
     if normalized.contains("privacy") {
         LearnedSparseShadowLaneStatus::PrivacyRejected

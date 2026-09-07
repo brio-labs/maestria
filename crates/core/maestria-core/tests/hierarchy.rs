@@ -318,9 +318,6 @@ fn execute_search(
     query: &str,
     limit: usize,
 ) -> Result<SearchOutcome, Box<dyn std::error::Error>> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
     let mut plan = engine.plan(query.to_string(), limit, context)?;
     if query.starts_with('"') && query.ends_with('"') && limit > 1 {
         let stop_conditions = plan.stop_conditions().clone();
@@ -332,7 +329,7 @@ fn execute_search(
     let mut requirements = plan.evidence_requirements().clone();
     requirements.minimum_sources = 3;
     plan = plan.with_evidence_requirements(requirements)?;
-    runtime.block_on(engine.search(&plan)).map_err(|error| {
+    (engine.search(&plan)).map_err(|error| {
         Box::<dyn std::error::Error>::from(std::io::Error::other(error.to_string()))
     })
 }

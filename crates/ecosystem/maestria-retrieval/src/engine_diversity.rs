@@ -93,7 +93,7 @@ fn expand_context(
     }
 }
 
-pub(crate) async fn run_diversity_stage(
+pub(crate) fn run_diversity_stage(
     plan: &SearchPlan,
     initial: crate::diversity::DiversitySelection,
     expander: &Option<Arc<dyn ContextExpander>>,
@@ -174,12 +174,10 @@ pub(crate) async fn run_diversity_stage(
         .iter()
         .map(|candidate| candidate.candidate.clone())
         .collect();
-    let report = evaluator
-        .evaluate(RetrievalExperiment {
-            plan: std::sync::Arc::new(plan.clone()),
-            candidates,
-        })
-        .await?;
+    let report = evaluator.evaluate(RetrievalExperiment {
+        plan: std::sync::Arc::new(plan.clone()),
+        candidates,
+    })?;
     let mut outcome = report.outcome;
     if expansion_budget_exhausted
         && matches!(

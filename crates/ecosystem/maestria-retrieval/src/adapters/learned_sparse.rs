@@ -7,7 +7,6 @@ use super::prescore_cache::PrescoreCache;
 use super::sparse_record_cache::RecordCache;
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
-use async_trait::async_trait;
 use maestria_domain::{RetrievalModelFingerprint, SearchLaneStatus};
 use maestria_governance::scan_secrets;
 use maestria_ports::{
@@ -135,8 +134,6 @@ impl LearnedSparseChunkRetriever {
         Ok(())
     }
 }
-
-#[async_trait]
 impl CandidateRetriever for LearnedSparseChunkRetriever {
     fn descriptor(&self) -> &RetrieverDescriptor {
         &self.descriptor
@@ -149,7 +146,7 @@ impl CandidateRetriever for LearnedSparseChunkRetriever {
         Some(self.identity.clone())
     }
 
-    async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
+    fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
         self.preflight(&request)?;
         let vector = self
             .provider

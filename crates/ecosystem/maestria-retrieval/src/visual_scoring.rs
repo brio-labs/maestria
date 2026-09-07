@@ -10,20 +10,20 @@ pub(super) const MAX_VISUAL_VECTOR_DIMENSIONS: usize = 4_096;
 
 impl VisualReranker {
     /// Embeds the query with the visual provider under a latency deadline.
-    pub(super) async fn query_vector(
+    pub(super) fn query_vector(
         &self,
         query: &str,
         remaining: Duration,
     ) -> Result<EmbeddingResponse, String> {
         let disclosure = self.parts.provider.disclosure();
-        let response = tokio::time::timeout(remaining, async {
-            self.parts
-                .provider
-                .embed_query(query, self.identity().clone())
-        })
-        .await
-        .map_err(|_| RetrievalError::Timeout.to_string())?
-        .map_err(|error| RetrievalError::Internal(error.to_string()).to_string())?;
+        if remaining.is_zero() {
+            return Err(RetrievalError::Timeout.to_string());
+        }
+        let response = self
+            .parts
+            .provider
+            .embed_query(query, self.identity().clone())
+            .map_err(|error| RetrievalError::Internal(error.to_string()).to_string())?;
         if response.identity != *self.identity()
             || response.disclosure != disclosure
             || response.vector.len() > MAX_VISUAL_VECTOR_DIMENSIONS
@@ -34,11 +34,11 @@ impl VisualReranker {
     }
 
     /// Scores one candidate against the query vector within the latency budget.
-    pub(super) async fn score_candidate(
+    pub(super) fn score_candidate(
         &self,
         candidate: &RankedCandidate,
         query_vector: &[f32],
-        started: tokio::time::Instant,
+        started: crate::MonotonicInstant,
         deadline: Duration,
     ) -> Result<u32, String> {
         let evidence = self
@@ -53,16 +53,18 @@ impl VisualReranker {
         let remaining = deadline
             .checked_sub(started.elapsed())
             .ok_or_else(|| "visual reranker latency budget exhausted".to_string())?;
-        let response = tokio::time::timeout(remaining, async {
-            self.parts.provider.embed_source(VisualEmbeddingRequest {
+        if remaining.is_zero() {
+            return Err(RetrievalError::Timeout.to_string());
+        }
+        let response = self
+            .parts
+            .provider
+            .embed_source(VisualEmbeddingRequest {
                 source,
                 bytes,
                 identity: self.identity().clone(),
             })
-        })
-        .await
-        .map_err(|_| RetrievalError::Timeout.to_string())?
-        .map_err(|error| RetrievalError::Internal(error.to_string()).to_string())?;
+            .map_err(|error| RetrievalError::Internal(error.to_string()).to_string())?;
         if response.identity != *self.identity()
             || response.disclosure != self.parts.provider.disclosure()
             || response.vector.len() > MAX_VISUAL_VECTOR_DIMENSIONS

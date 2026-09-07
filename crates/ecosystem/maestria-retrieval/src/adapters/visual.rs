@@ -1,5 +1,3 @@
-use async_trait::async_trait;
-
 use std::sync::Arc;
 
 use super::SourceSnapshotVerifier;
@@ -287,13 +285,12 @@ pub(super) fn ensure_local_no_retention(
     }
     Ok(disclosure)
 }
-#[async_trait]
 impl CandidateRetriever for VisualPageRegionRetriever {
     fn descriptor(&self) -> &RetrieverDescriptor {
         &self.descriptor
     }
 
-    async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
+    fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
         if request.plan.intent() != maestria_domain::SearchIntent::VisualDocument {
             return Ok(CandidateBatch {
                 descriptor: self.descriptor.clone(),

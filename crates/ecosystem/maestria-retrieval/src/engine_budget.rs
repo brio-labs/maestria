@@ -128,3 +128,53 @@ pub(crate) fn remaining_budget(
         }
     }
 }
+
+/// Counting semaphore bounding concurrent lane executions to the plan's
+/// `max_concurrency` budget.
+///
+/// The permit guard releases on drop, so a panicking or early-returning
+/// lane cannot leak capacity.
+pub(super) struct LanePermits {
+    available: std::sync::Mutex<usize>,
+    released: std::sync::Condvar,
+}
+
+impl LanePermits {
+    pub(super) fn new(total: usize) -> Self {
+        Self {
+            available: std::sync::Mutex::new(total.max(1)),
+            released: std::sync::Condvar::new(),
+        }
+    }
+
+    pub(super) fn acquire(&self) -> LanePermit<'_> {
+        let mut available = match self.available.lock() {
+            Ok(available) => available,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        while *available == 0 {
+            available = match self.released.wait(available) {
+                Ok(available) => available,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+        }
+        *available -= 1;
+        LanePermit { permits: self }
+    }
+}
+
+/// Held permit; releases one lane-execution slot on drop.
+pub(super) struct LanePermit<'a> {
+    permits: &'a LanePermits,
+}
+
+impl Drop for LanePermit<'_> {
+    fn drop(&mut self) {
+        let mut available = match self.permits.available.lock() {
+            Ok(available) => available,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *available += 1;
+        self.permits.released.notify_one();
+    }
+}

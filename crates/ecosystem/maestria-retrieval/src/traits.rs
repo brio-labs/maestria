@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use maestria_ports::SearchQuery;
 
 use crate::types::{
@@ -10,7 +9,6 @@ use crate::types::{
 /// A retriever is a security boundary: implementations must apply the
 /// configured scope, ACL, trust, sensitivity, quarantine, and prompt-injection
 /// filters before returning candidates.
-#[async_trait]
 pub trait CandidateRetriever: Send + Sync {
     fn descriptor(&self) -> &crate::types::RetrieverDescriptor;
 
@@ -21,7 +19,7 @@ pub trait CandidateRetriever: Send + Sync {
     fn sparse_identity(&self) -> Option<maestria_ports::SparseIdentity> {
         None
     }
-    async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError>;
+    fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError>;
 }
 
 pub trait RankFusion: Send + Sync {
@@ -32,20 +30,15 @@ pub trait RankFusion: Send + Sync {
     ) -> Result<Vec<FusedCandidate>, RetrievalError>;
 }
 
-#[async_trait]
 pub trait CandidateReranker: Send + Sync {
-    async fn rerank(&self, request: RerankRequest) -> Result<RerankResult, RetrievalError>;
+    fn rerank(&self, request: RerankRequest) -> Result<RerankResult, RetrievalError>;
 }
 
-#[async_trait]
 pub trait RerankScorer: Send + Sync {
     fn model(&self) -> String;
     fn fingerprint(&self) -> maestria_domain::RetrievalModelFingerprint;
     fn compatible_with(&self, plan: &maestria_domain::RetrievalModelFingerprint) -> bool;
-    async fn score(
-        &self,
-        input: RerankScorerInput,
-    ) -> Result<RerankScoreComponents, RetrievalError>;
+    fn score(&self, input: RerankScorerInput) -> Result<RerankScoreComponents, RetrievalError>;
 }
 
 pub trait ContextExpander: Send + Sync {
@@ -56,9 +49,8 @@ pub trait ContextExpander: Send + Sync {
     ) -> Result<ContextExpansion, RetrievalError>;
 }
 
-#[async_trait]
 pub trait RetrievalEvaluator: Send + Sync {
-    async fn evaluate(
+    fn evaluate(
         &self,
         experiment: RetrievalExperiment,
     ) -> Result<RetrievalEvaluationReport, RetrievalError>;

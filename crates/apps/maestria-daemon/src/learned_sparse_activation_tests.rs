@@ -596,20 +596,7 @@ async fn search(
     let plan = plan
         .confine_to_scope(runtime.scope_id)
         .map_err(anyhow::Error::new)?;
-    let outcome = std::thread::scope(|scope| {
-        scope
-            .spawn(|| {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .map_err(anyhow::Error::new)?;
-                runtime
-                    .block_on(engine.search(&plan))
-                    .map_err(anyhow::Error::new)
-            })
-            .join()
-            .map_err(|_| anyhow::Error::msg("search worker panicked"))?
-    })?;
+    let outcome = engine.search(&plan).map_err(anyhow::Error::new)?;
     Ok(outcome)
 }
 

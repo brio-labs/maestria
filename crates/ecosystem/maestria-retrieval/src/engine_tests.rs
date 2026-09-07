@@ -69,14 +69,12 @@ fn visual_lane_is_shadowed_until_a_winning_query_class_is_promoted() {
 struct StubRetriever {
     descriptor: RetrieverDescriptor,
 }
-
-#[async_trait::async_trait]
 impl crate::traits::CandidateRetriever for StubRetriever {
     fn descriptor(&self) -> &RetrieverDescriptor {
         &self.descriptor
     }
 
-    async fn retrieve(
+    fn retrieve(
         &self,
         request: crate::types::CandidateRequest,
     ) -> Result<crate::types::CandidateBatch, crate::RetrievalError> {
@@ -151,14 +149,12 @@ struct EmptyRecordingRetriever {
     descriptor: RetrieverDescriptor,
     calls: Arc<AtomicUsize>,
 }
-
-#[async_trait::async_trait]
 impl crate::traits::CandidateRetriever for EmptyRecordingRetriever {
     fn descriptor(&self) -> &RetrieverDescriptor {
         &self.descriptor
     }
 
-    async fn retrieve(
+    fn retrieve(
         &self,
         request: crate::types::CandidateRequest,
     ) -> Result<crate::types::CandidateBatch, crate::RetrievalError> {
@@ -225,8 +221,8 @@ fn tight_execution_plan()
         .build()
 }
 
-#[tokio::test]
-async fn empty_tightly_budgeted_lane_releases_capacity_to_later_lane()
+#[test]
+fn empty_tightly_budgeted_lane_releases_capacity_to_later_lane()
 -> Result<(), Box<dyn std::error::Error>> {
     let first_calls = Arc::new(AtomicUsize::new(0));
     let second_calls = Arc::new(AtomicUsize::new(0));
@@ -260,8 +256,7 @@ async fn empty_tightly_budgeted_lane_releases_capacity_to_later_lane()
         None,
         &mut web_requests_used,
         &mut execution_usage,
-    )
-    .await?;
+    )?;
 
     assert_eq!(first_calls.load(Ordering::SeqCst), 1);
     assert_eq!(second_calls.load(Ordering::SeqCst), 1);

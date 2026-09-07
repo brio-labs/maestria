@@ -80,13 +80,6 @@ type CompletedLane = Option<(
     SearchExecutionBudget,
     crate::types::CandidateBatch,
 )>;
-type RetrieverTask = (
-    usize,
-    crate::types::RetrieverDescriptor,
-    SearchExecutionBudget,
-    RetrievalResult<crate::types::CandidateBatch>,
-);
-
 fn lane_is_eligible(
     descriptor: &crate::types::RetrieverDescriptor,
     plan: &SearchPlan,
@@ -112,7 +105,7 @@ fn serial_dispatch_required(
             .any(|lane| lane_budget(plan, execution_usage, lane_count, lane).is_none())
 }
 
-async fn collect_batches_serially(
+fn collect_batches_serially(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     query: &SearchQuery,
@@ -191,7 +184,7 @@ async fn collect_batches_serially(
             authorization: authorization.clone(),
             source_filter: source_filter.cloned(),
         };
-        let batch = match retriever.retrieve(request).await {
+        let batch = match retriever.retrieve(request) {
             Ok(batch) => normalize_batch(
                 batch,
                 descriptor.clone(),
@@ -215,7 +208,7 @@ async fn collect_batches_serially(
     }
     Ok(batches)
 }
-async fn dispatch_eligible_lanes(
+fn plan_lane_dispatch(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     query: &SearchQuery,
@@ -223,7 +216,7 @@ async fn dispatch_eligible_lanes(
     source_filter: Option<&crate::types::CandidateSourceFilter>,
     web_requests_used: &mut u32,
     execution_usage: SearchExecutionUsage,
-) -> RetrievalResult<(Vec<CompletedLane>, JoinSet<RetrieverTask>, usize)> {
+) -> RetrievalResult<(Vec<CompletedLane>, Vec<super::lane_workers::LaneJob>, usize)> {
     let eligible = retrievers
         .iter()
         .enumerate()
@@ -236,10 +229,7 @@ async fn dispatch_eligible_lanes(
     let mut completed = std::iter::repeat_with(|| None)
         .take(retrievers.len())
         .collect::<Vec<CompletedLane>>();
-    let mut tasks = JoinSet::new();
-    let concurrency =
-        maestria_domain::saturating_usize(u64::from(plan.budgets().max_concurrency())).max(1);
-    let semaphore = Arc::new(Semaphore::new(concurrency));
+    let mut jobs = Vec::new();
     for (lane, (index, descriptor)) in eligible.into_iter().enumerate() {
         let Some(allocation) = lane_budget(plan, execution_usage, lane_count, lane) else {
             let exhausted_budget = plan.execution_budget()?;
@@ -282,22 +272,17 @@ async fn dispatch_eligible_lanes(
             authorization: authorization.clone(),
             source_filter: source_filter.cloned(),
         };
-        let semaphore = Arc::clone(&semaphore);
-        tasks.spawn(async move {
-            let result = match semaphore.acquire_owned().await {
-                Ok(permit) => {
-                    let result = retriever.retrieve(request).await;
-                    drop(permit);
-                    result
-                }
-                Err(error) => Err(RetrievalError::Internal(error.to_string())),
-            };
-            (index, descriptor.clone(), allocation, result)
+        jobs.push(super::lane_workers::LaneJob {
+            index,
+            descriptor,
+            allocation,
+            retriever,
+            request,
         });
     }
-    Ok((completed, tasks, lane_count))
+    Ok((completed, jobs, lane_count))
 }
-pub(crate) async fn collect_batches(
+pub(crate) fn collect_batches(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     query: &SearchQuery,
@@ -318,10 +303,9 @@ pub(crate) async fn collect_batches(
             source_filter,
             web_requests_used,
             execution_usage,
-        )
-        .await;
+        );
     }
-    let (mut completed, mut tasks, lane_count) = dispatch_eligible_lanes(
+    let (mut completed, jobs, lane_count) = plan_lane_dispatch(
         retrievers,
         plan,
         query,
@@ -329,8 +313,7 @@ pub(crate) async fn collect_batches(
         source_filter,
         web_requests_used,
         *execution_usage,
-    )
-    .await?;
+    )?;
     for (index, retriever) in retrievers.iter().enumerate() {
         if completed[index].is_some() {
             continue;
@@ -368,9 +351,8 @@ pub(crate) async fn collect_batches(
             },
         ));
     }
-    while let Some(result) = tasks.join_next().await {
-        let (index, descriptor, allocation, result) = result
-            .map_err(|error| RetrievalError::Internal(format!("retriever task failed: {error}")))?;
+    let results = super::lane_workers::run_lane_jobs(plan, jobs)?;
+    for (index, descriptor, allocation, result) in results {
         let batch = match result {
             Ok(batch) => normalize_batch(
                 batch,

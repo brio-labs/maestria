@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use maestria_domain::{EvidenceCandidate, EvidenceCandidateDto, RerankPosition};
 use maestria_retrieval::bounded_reranker::BoundedReranker;
 use maestria_retrieval::traits::{CandidateReranker, RerankScorer};
@@ -15,7 +14,6 @@ struct MockScorer {
     fingerprint: maestria_domain::RetrievalModelFingerprint,
 }
 
-#[async_trait]
 impl RerankScorer for MockScorer {
     fn model(&self) -> String {
         self.model.clone()
@@ -27,10 +25,7 @@ impl RerankScorer for MockScorer {
     fn compatible_with(&self, _plan: &maestria_domain::RetrievalModelFingerprint) -> bool {
         true
     }
-    async fn score(
-        &self,
-        input: RerankScorerInput,
-    ) -> Result<RerankScoreComponents, RetrievalError> {
+    fn score(&self, input: RerankScorerInput) -> Result<RerankScoreComponents, RetrievalError> {
         let id_val = input.candidate.evidence_id().value();
         if id_val == 999 {
             return Err(RetrievalError::Timeout);
@@ -64,8 +59,8 @@ fn create_test_candidate(id: u64, rank: usize) -> RetrievalResult<RankedCandidat
     Ok(RankedCandidate { candidate, rank })
 }
 
-#[tokio::test]
-async fn test_bounded_reranker_limits_and_trace() -> RetrievalResult<()> {
+#[test]
+fn test_bounded_reranker_limits_and_trace() -> RetrievalResult<()> {
     let scorer = Arc::new(MockScorer {
         model: "mock-scorer".into(),
         fingerprint: maestria_domain::RetrievalModelFingerprint::new("v1".to_string())?,
@@ -93,7 +88,7 @@ async fn test_bounded_reranker_limits_and_trace() -> RetrievalResult<()> {
         max_latency_ms: 100,
     };
 
-    let result = reranker.rerank(request).await?;
+    let result = reranker.rerank(request)?;
 
     assert_eq!(result.candidates.len(), 2);
     assert_eq!(result.candidates[0].candidate.evidence_id().value(), 3);
@@ -150,8 +145,8 @@ async fn test_bounded_reranker_limits_and_trace() -> RetrievalResult<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bounded_reranker_fallback() -> RetrievalResult<()> {
+#[test]
+fn test_bounded_reranker_fallback() -> RetrievalResult<()> {
     let scorer = Arc::new(MockScorer {
         model: "mock-scorer".into(),
         fingerprint: maestria_domain::RetrievalModelFingerprint::new("v1".to_string())?,
@@ -176,7 +171,7 @@ async fn test_bounded_reranker_fallback() -> RetrievalResult<()> {
         max_latency_ms: 100,
     };
 
-    let result = reranker.rerank(request).await?;
+    let result = reranker.rerank(request)?;
 
     assert_eq!(result.candidates[0].candidate.evidence_id().value(), 2);
     assert_eq!(result.candidates[1].candidate.evidence_id().value(), 1);
@@ -195,8 +190,8 @@ async fn test_bounded_reranker_fallback() -> RetrievalResult<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bounded_reranker_cancellation() -> RetrievalResult<()> {
+#[test]
+fn test_bounded_reranker_cancellation() -> RetrievalResult<()> {
     let scorer = Arc::new(MockScorer {
         model: "mock-scorer".into(),
         fingerprint: maestria_domain::RetrievalModelFingerprint::new("v1".to_string())?,
@@ -220,7 +215,7 @@ async fn test_bounded_reranker_cancellation() -> RetrievalResult<()> {
         max_latency_ms: 100,
     };
 
-    let result = reranker.rerank(request).await;
+    let result = reranker.rerank(request);
     assert!(matches!(result, Err(RetrievalError::Cancelled)));
     Ok(())
 }

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use maestria_domain::{EvidenceCandidate, IndexGenerationId, SearchLaneStatus};
 use maestria_governance::scan_secrets;
 use maestria_ports::{
@@ -218,14 +217,12 @@ impl DenseChunkRetriever {
         .map(Some)
     }
 }
-
-#[async_trait]
 impl CandidateRetriever for DenseChunkRetriever {
     fn descriptor(&self) -> &RetrieverDescriptor {
         &self.descriptor
     }
 
-    async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
+    fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
         if !scan_secrets(&request.query.q).is_clean() {
             return Err(RetrievalError::Internal(
                 "dense query rejected by secret scanner".to_string(),

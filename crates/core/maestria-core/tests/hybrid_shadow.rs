@@ -191,10 +191,7 @@ fn execute_search(
     engine: &RetrievalEngine,
     plan: &SearchPlan,
 ) -> Result<maestria_domain::SearchOutcome, Box<dyn std::error::Error>> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-    let output = runtime.block_on(engine.search(plan))?;
+    let output = (engine.search(plan))?;
     Ok(output)
 }
 

@@ -1,11 +1,12 @@
 /// Monotonic timestamp used for retrieval latency accounting.
 #[derive(Clone, Copy)]
-pub struct MonotonicInstant(tokio::time::Instant);
+pub struct MonotonicInstant(std::time::Instant);
+use std::time::Instant;
 
 impl MonotonicInstant {
     /// Capture the current monotonic instant.
     pub fn now() -> Self {
-        Self(tokio::time::Instant::now())
+        Self(Instant::now())
     }
 
     /// Return the elapsed duration since this instant.

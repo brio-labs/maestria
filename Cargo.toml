@@ -85,7 +85,6 @@ js-sys = "0.3.103"
 web-sys = { version = "0.3.103", features = ["Document", "Element", "History", "HtmlDialogElement", "HtmlElement", "Location", "Storage", "Window"] }
 pulldown-cmark = "0.13.4"
 dioxus = { version = "0.7.10", features = ["web", "router"] }
-async-trait = "0.1.80"
 insta = { version = "1", features = ["yaml"] }
 
 # Internal

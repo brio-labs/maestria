@@ -479,17 +479,16 @@ fn fixture_with_security_index(
     })
 }
 
-#[tokio::test]
-async fn denied_sparse_owner_reads_no_chunk_content_or_evidence()
--> Result<(), Box<dyn std::error::Error>> {
+#[test]
+fn denied_sparse_owner_reads_no_chunk_content_or_evidence() -> Result<(), Box<dyn std::error::Error>>
+{
     let fixture = fixture_with_security(maestria_domain::SecurityMetadata {
         read_allowed: false,
         ..maestria_domain::SecurityMetadata::default()
     })?;
     let batch = fixture
         .retriever
-        .retrieve(request(&fixture.identity, "semantic discovery")?)
-        .await?;
+        .retrieve(request(&fixture.identity, "semantic discovery")?)?;
     assert!(batch.candidates.is_empty());
     assert_eq!(fixture.chunks.owner_gets(), 1);
     assert_eq!(fixture.chunks.full_gets(), 0);
@@ -559,8 +558,8 @@ fn fixture_evidence(
     })
 }
 
-#[tokio::test]
-async fn sparse_owner_repository_errors_propagate() -> Result<(), Box<dyn std::error::Error>> {
+#[test]
+fn sparse_owner_repository_errors_propagate() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = fixture_with_document()?;
     fixture.chunks.set_owner_error(PortError::Downstream {
         message: "owner metadata unavailable".to_string(),
@@ -568,7 +567,6 @@ async fn sparse_owner_repository_errors_propagate() -> Result<(), Box<dyn std::e
     let error = match fixture
         .retriever
         .retrieve(request(&fixture.identity, "semantic discovery")?)
-        .await
     {
         Ok(_) => return Err("owner lookup failure must fail retrieval".into()),
         Err(error) => error,
@@ -580,9 +578,8 @@ async fn sparse_owner_repository_errors_propagate() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-#[tokio::test]
-async fn sparse_metadata_full_owner_mismatch_is_conflict() -> Result<(), Box<dyn std::error::Error>>
-{
+#[test]
+fn sparse_metadata_full_owner_mismatch_is_conflict() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = fixture_with_document()?;
     fixture
         .chunks
@@ -592,7 +589,6 @@ async fn sparse_metadata_full_owner_mismatch_is_conflict() -> Result<(), Box<dyn
     let error = match fixture
         .retriever
         .retrieve(request(&fixture.identity, "semantic discovery")?)
-        .await
     {
         Ok(_) => return Err("owner mismatch must fail retrieval".into()),
         Err(error) => error,
@@ -605,8 +601,8 @@ async fn sparse_metadata_full_owner_mismatch_is_conflict() -> Result<(), Box<dyn
     Ok(())
 }
 
-#[tokio::test]
-async fn sparse_evidence_owner_mismatch_is_conflict() -> Result<(), Box<dyn std::error::Error>> {
+#[test]
+fn sparse_evidence_owner_mismatch_is_conflict() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = fixture_with_document()?;
     let evidence_id = maestria_domain::evidence_id_for(fixture.artifact_id, 0);
     let mut evidence = fixture
@@ -619,7 +615,6 @@ async fn sparse_evidence_owner_mismatch_is_conflict() -> Result<(), Box<dyn std:
     let error = match fixture
         .retriever
         .retrieve(request(&fixture.identity, "semantic discovery")?)
-        .await
     {
         Ok(_) => return Err("evidence owner mismatch must fail retrieval".into()),
         Err(error) => error,
@@ -646,14 +641,13 @@ fn sparse_generation_capability_rejects_shadow_generation() -> Result<(), Box<dy
     Ok(())
 }
 
-#[tokio::test]
-async fn learned_sparse_retriever_preserves_score_and_source_lineage()
+#[test]
+fn learned_sparse_retriever_preserves_score_and_source_lineage()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = fixture_with_document()?;
     let batch = fixture
         .retriever
-        .retrieve(request(&fixture.identity, "semantic discovery")?)
-        .await?;
+        .retrieve(request(&fixture.identity, "semantic discovery")?)?;
     assert_eq!(batch.candidates.len(), 1);
     let candidate = &batch.candidates[0];
     assert_eq!(
@@ -677,18 +671,15 @@ async fn learned_sparse_retriever_preserves_score_and_source_lineage()
     Ok(())
 }
 
-#[tokio::test]
-async fn sparse_prescore_eviction_rechecks_authorized_records()
--> Result<(), Box<dyn std::error::Error>> {
+#[test]
+fn sparse_prescore_eviction_rechecks_authorized_records() -> Result<(), Box<dyn std::error::Error>>
+{
     let fixture = fixture_with_security_index(maestria_domain::SecurityMetadata::default(), true)?;
-    let batch = fixture
-        .retriever
-        .retrieve(request_with_limit(
-            &fixture.identity,
-            "semantic discovery",
-            1,
-        )?)
-        .await?;
+    let batch = fixture.retriever.retrieve(request_with_limit(
+        &fixture.identity,
+        "semantic discovery",
+        1,
+    )?)?;
     assert_eq!(batch.candidates.len(), 1);
     // Evicted prescore records are re-checked per chunk: every visited chunk
     // still runs the owner lookup and full record load in this request.
@@ -699,9 +690,8 @@ async fn sparse_prescore_eviction_rechecks_authorized_records()
     Ok(())
 }
 
-#[tokio::test]
-async fn learned_sparse_retriever_rejects_secret_queries() -> Result<(), Box<dyn std::error::Error>>
-{
+#[test]
+fn learned_sparse_retriever_rejects_secret_queries() -> Result<(), Box<dyn std::error::Error>> {
     let identity = fixture_identity()?;
     let provider = Arc::new(InMemoryLearnedSparseProvider::new(identity.clone())?);
     let retriever = LearnedSparseChunkRetriever::new(
@@ -715,9 +705,7 @@ async fn learned_sparse_retriever_rejects_secret_queries() -> Result<(), Box<dyn
         },
         fixture_capability(&identity)?,
     )?;
-    let result = retriever
-        .retrieve(request(&identity, "API_KEY=secret-value")?)
-        .await;
+    let result = retriever.retrieve(request(&identity, "API_KEY=secret-value")?);
     assert!(result.is_err());
     Ok(())
 }

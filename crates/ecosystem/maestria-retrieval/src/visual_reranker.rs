@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use async_trait::async_trait;
 use maestria_domain::{
     EvidenceCandidate, RerankPosition, RetrievalModelFingerprint, SearchTraceRerank,
     SearchTraceRerankCandidate, SourceLocation,
@@ -136,9 +135,8 @@ impl VisualReranker {
         )
     }
 }
-#[async_trait]
 impl CandidateReranker for VisualReranker {
-    async fn rerank(&self, request: RerankRequest) -> Result<RerankResult, RetrievalError> {
+    fn rerank(&self, request: RerankRequest) -> Result<RerankResult, RetrievalError> {
         let RerankRequest {
             plan,
             candidates,
@@ -171,9 +169,9 @@ impl CandidateReranker for VisualReranker {
             ));
         }
 
-        let started = tokio::time::Instant::now();
+        let started = crate::MonotonicInstant::now();
         let deadline = Duration::from_millis(u64::from(max_latency_ms));
-        let query_response = match self.query_vector(plan.original_query(), deadline).await {
+        let query_response = match self.query_vector(plan.original_query(), deadline) {
             Ok(response) => response,
             Err(reason) => return Ok(self.fallback(candidates, reason)),
         };
@@ -181,15 +179,12 @@ impl CandidateReranker for VisualReranker {
         let score_limit = self.limits.input_cap.min(self.limits.score_cap);
         let mut scored = Vec::with_capacity(score_limit.min(visual_positions.len()));
         for position in visual_positions.iter().copied().take(score_limit) {
-            let score = match self
-                .score_candidate(
-                    &candidates[position],
-                    &query_response.vector,
-                    started,
-                    deadline,
-                )
-                .await
-            {
+            let score = match self.score_candidate(
+                &candidates[position],
+                &query_response.vector,
+                started,
+                deadline,
+            ) {
                 Ok(score) => score,
                 Err(reason) => return Ok(self.fallback(candidates, reason)),
             };

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use maestria_domain::SearchOutcome;
 use maestria_ports::EvidenceRepository;
 
@@ -25,10 +24,8 @@ impl EvidenceOutcomeEvaluator {
         Self { evidence }
     }
 }
-
-#[async_trait]
 impl RetrievalEvaluator for EvidenceOutcomeEvaluator {
-    async fn evaluate(
+    fn evaluate(
         &self,
         experiment: crate::types::RetrievalExperiment,
     ) -> Result<RetrievalEvaluationReport, RetrievalError> {
