@@ -107,6 +107,11 @@ intelligence to a reviewed set of directories.
 
 ### Changed
 
+- Dependency batch: workspace pins advanced to thiserror 2, ureq 3,
+  rusqlite 0.40, getrandom 0.4, tokio 1.53, and tokio-util 0.7.19 in one
+  migration. The ureq 3 transport keeps the no-redirect policy and the
+  public-DNS-only resolver for web evidence; `getrandom::getrandom`
+  call sites move to `getrandom::fill`. No behavior changes.
 - Search execution budgets: default candidate/work ceilings raised
   (30 000 / 30 000 000) so the dense lane scans the whole projection instead
   of a truncated `chunk_id`-ordered prefix — the previous top-K was only the
