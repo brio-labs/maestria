@@ -85,6 +85,57 @@ fn resolve_public(netloc: &str) -> std::io::Result<Vec<SocketAddr>> {
     Ok(addresses)
 }
 
+/// Resolver that refuses private, loopback, and link-local addresses so a
+/// hostile hostname cannot pivot the fetcher at local infrastructure.
+#[derive(Debug)]
+struct PublicDnsResolver;
+
+impl ureq::unversioned::resolver::Resolver for PublicDnsResolver {
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        _config: &ureq::config::Config,
+        _timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        let host = uri.host().ok_or(ureq::Error::HostNotFound)?;
+        let port = match uri.port_u16() {
+            Some(port) => port,
+            None if uri.scheme_str() == Some("http") => 80,
+            None => 443,
+        };
+        let addresses = resolve_public(&format!("{host}:{port}")).map_err(|error| {
+            ureq::Error::Io(std::io::Error::new(error.kind(), error.to_string()))
+        })?;
+        let mut resolved = ureq::unversioned::resolver::ResolvedSocketAddrs::from_fn(|_| {
+            std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)), 0)
+        });
+        let mut filled = 0;
+        for address in addresses.into_iter().take(resolved.len()) {
+            resolved[filled] = address;
+            filled += 1;
+        }
+        resolved.truncate(filled);
+        if resolved.is_empty() {
+            return Err(ureq::Error::HostNotFound);
+        }
+        Ok(resolved)
+    }
+}
+
+/// Builds the shared agent: no redirects, a global deadline ceiling, and
+/// the public-DNS-only resolver.
+fn build_public_agent() -> ureq::Agent {
+    let config = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(15)))
+        .max_redirects(0)
+        .build();
+    ureq::Agent::with_parts(
+        config,
+        ureq::unversioned::transport::DefaultConnector::default(),
+        PublicDnsResolver,
+    )
+}
+
 fn validate_fetch_url(parsed: &url::Url) -> Result<(), PortError> {
     let scheme = parsed.scheme();
     if scheme != "http" && scheme != "https" {
@@ -146,23 +197,30 @@ impl HttpTransport for UreqTransport {
         let response = match self
             .agent
             .get(url)
-            .timeout(Duration::from_millis(u64::from(max_latency_ms)))
+            .config()
+            .timeout_per_call(Some(Duration::from_millis(u64::from(max_latency_ms))))
+            .build()
             .call()
         {
             Ok(resp) => resp,
-            Err(ureq::Error::Status(404, _)) => return Err(PortError::NotFound),
+            Err(ureq::Error::StatusCode(404)) => return Err(PortError::NotFound),
             Err(e) => return Err(downstream_error(e)),
         };
-        if (300..400).contains(&response.status()) {
+        if (300..400).contains(&response.status().as_u16()) {
             return Err(PortError::InvalidInputContext {
                 context: "validate web response redirect",
                 source: "web redirects are not allowed".to_string(),
             });
         }
-        let content_type = response.header("content-type").map(str::to_owned);
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
         let read_limit = u64::try_from(max_bytes).map_or(u64::MAX, |value| value.saturating_add(1));
         let mut bytes = Vec::new();
         response
+            .into_body()
             .into_reader()
             .take(read_limit)
             .read_to_end(&mut bytes)
@@ -188,11 +246,7 @@ impl Default for UreqWebFetcher {
     fn default() -> Self {
         Self {
             transport: std::sync::Arc::new(UreqTransport {
-                agent: ureq::AgentBuilder::new()
-                    .timeout(Duration::from_secs(15))
-                    .resolver(resolve_public)
-                    .redirects(0)
-                    .build(),
+                agent: build_public_agent(),
             }),
             primary_domains: BTreeSet::new(),
         }

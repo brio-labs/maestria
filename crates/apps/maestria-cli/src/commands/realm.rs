@@ -244,8 +244,7 @@ fn parse_realm_id(value: String) -> Result<RealmId> {
 
 fn generate_realm_id() -> Result<RealmId> {
     let mut bytes = [0_u8; 32];
-    getrandom::getrandom(&mut bytes)
-        .map_err(|error| anyhow!("generate realm identity: {error}"))?;
+    getrandom::fill(&mut bytes).map_err(|error| anyhow!("generate realm identity: {error}"))?;
     RealmId::try_from(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
         .map_err(|error| anyhow!(error))
 }

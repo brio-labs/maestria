@@ -15,7 +15,7 @@ const TOKEN_BYTES: usize = 32;
 /// OS randomness and hex-encoding policy are single-sourced.
 pub fn random_hex_credential(byte_len: usize) -> Result<String> {
     let mut bytes = vec![0u8; byte_len];
-    getrandom::getrandom(&mut bytes).map_err(|error| anyhow!("generate credential: {error}"))?;
+    getrandom::fill(&mut bytes).map_err(|error| anyhow!("generate credential: {error}"))?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 

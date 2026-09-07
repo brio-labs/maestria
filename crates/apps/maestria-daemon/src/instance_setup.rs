@@ -50,8 +50,7 @@ pub fn validate_recovery_scope(layout: &InstanceLayout, recovery: &RecoveryInput
 /// deterministic domain only accepts the already-validated value.
 pub fn generate_realm_id() -> Result<RealmId> {
     let mut bytes = [0u8; 32];
-    getrandom::getrandom(&mut bytes)
-        .map_err(|error| anyhow!("generate realm identity: {error}"))?;
+    getrandom::fill(&mut bytes).map_err(|error| anyhow!("generate realm identity: {error}"))?;
     let encoded = bytes
         .iter()
         .map(|byte| format!("{byte:02x}"))

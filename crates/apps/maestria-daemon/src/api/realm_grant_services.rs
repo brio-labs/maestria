@@ -99,7 +99,7 @@ fn require_instance(principal: &RequestPrincipal) -> Result<()> {
 
 fn generate_credential() -> Result<FederationCredential> {
     let mut bytes = [0_u8; 32];
-    getrandom::getrandom(&mut bytes)
+    getrandom::fill(&mut bytes)
         .map_err(|error| anyhow!("generate federation credential: {error}"))?;
     let value = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
     FederationCredential::try_from(value)

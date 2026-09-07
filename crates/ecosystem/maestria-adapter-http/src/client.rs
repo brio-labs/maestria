@@ -32,10 +32,7 @@ impl UreqJsonClient {
                 remote: false,
                 retention: RetentionPolicy::NoRetention,
             },
-            agent: ureq::AgentBuilder::new()
-                .timeout(single_timeout)
-                .redirects(0)
-                .build(),
+            agent: build_agent(single_timeout),
             single_timeout,
             batch_timeout,
         }
@@ -49,10 +46,7 @@ impl UreqJsonClient {
                 remote: false,
                 retention: RetentionPolicy::NoRetention,
             },
-            agent: ureq::AgentBuilder::new()
-                .timeout(timeout)
-                .redirects(0)
-                .build(),
+            agent: build_agent(timeout),
             single_timeout: timeout,
             batch_timeout: timeout,
         }
@@ -72,12 +66,15 @@ impl UreqJsonClient {
         let response = self
             .agent
             .post(url)
-            .timeout(timeout)
-            .set("content-type", "application/json")
-            .send_bytes(&body)
+            .config()
+            .timeout_per_call(Some(timeout))
+            .build()
+            .header("content-type", "application/json")
+            .send(body)
             .map_err(|error| PortError::downstream("provider request failed", error.to_string()))?;
         response
-            .into_string()
+            .into_body()
+            .read_to_string()
             .map(String::into_bytes)
             .map_err(|error| PortError::downstream("read provider response", error.to_string()))
     }
@@ -121,6 +118,17 @@ impl ProviderTransport for UreqJsonClient {
         let url = format!("{}{}", endpoint, path_suffix);
         self.post_bytes(&url, body, self.batch_timeout)
     }
+}
+
+/// Builds the shared agent: no redirects, one global timeout ceiling.
+///
+/// Per-call deadlines override it via `timeout_per_call` on each request.
+fn build_agent(timeout: Duration) -> ureq::Agent {
+    let config = ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .max_redirects(0)
+        .build();
+    ureq::Agent::new_with_config(config)
 }
 
 fn static_fallback_endpoint() -> &'static ProviderEndpoint {
