@@ -131,14 +131,10 @@ fn gate() -> GoldenGate {
 
 #[test]
 fn golden_fixture_gates_a_real_core_search_trace() -> Result<(), Box<dyn std::error::Error>> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-
     with_indexed_retrieval(|engine, context, _artifact_id, evidence_id| {
         let plan = engine.plan("alpha-token".to_string(), 5, context)?;
         let started = MonotonicInstant::now();
-        let outcome = runtime.block_on(engine.search(&plan))?;
+        let outcome = (engine.search(&plan))?;
         let latency_ms = u64::try_from(started.elapsed().as_millis())
             .map_err(|error| std::io::Error::other(format!("latency exceeds u64: {error}")))?;
         let trace = outcome

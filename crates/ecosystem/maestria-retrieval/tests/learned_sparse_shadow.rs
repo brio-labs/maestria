@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use maestria_domain::{
     ArtifactVersionId, ContentRange, CorpusScope, CorpusSnapshotId, DuplicateClusterId,
     EvidenceCandidate, EvidenceCandidateDto, EvidenceCoverage, EvidenceCoverageDto, EvidenceId,
@@ -109,7 +108,6 @@ struct FixedRetriever {
     candidate: EvidenceCandidate,
 }
 
-#[async_trait]
 impl CandidateRetriever for FixedRetriever {
     fn descriptor(&self) -> &RetrieverDescriptor {
         &self.descriptor
@@ -127,7 +125,7 @@ impl CandidateRetriever for FixedRetriever {
             .flatten()
     }
 
-    async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
+    fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
         Ok(CandidateBatch {
             descriptor: self.descriptor.clone(),
             query: request.query.q,
@@ -150,7 +148,6 @@ struct SlowRetriever {
     completed: Arc<AtomicUsize>,
 }
 
-#[async_trait]
 impl CandidateRetriever for SlowRetriever {
     fn descriptor(&self) -> &RetrieverDescriptor {
         &self.descriptor
@@ -168,9 +165,9 @@ impl CandidateRetriever for SlowRetriever {
             .flatten()
     }
 
-    async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
+    fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
         self.started.fetch_add(1, Ordering::SeqCst);
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        std::thread::sleep(Duration::from_millis(100));
         self.completed.fetch_add(1, Ordering::SeqCst);
         Ok(CandidateBatch {
             descriptor: self.descriptor.clone(),
@@ -189,9 +186,8 @@ impl CandidateRetriever for SlowRetriever {
 
 struct PassthroughEvaluator;
 
-#[async_trait]
 impl RetrievalEvaluator for PassthroughEvaluator {
-    async fn evaluate(
+    fn evaluate(
         &self,
         experiment: RetrievalExperiment,
     ) -> Result<RetrievalEvaluationReport, RetrievalError> {
@@ -345,24 +341,24 @@ fn engine(
     .with_learned_sparse_shadow_store(store))
 }
 
-async fn populated_store() -> TestResult<LearnedSparseShadowStore> {
+fn populated_store() -> TestResult<LearnedSparseShadowStore> {
     let store = LearnedSparseShadowStore::new(4)?;
     let engine = engine(LearnedSparseExecutionPolicy::Shadow, store.clone())?;
-    let _outcome = engine.search(&plan()?).await?;
+    let _outcome = engine.search(&plan()?)?;
     for _ in 0..50 {
         if !store.snapshot().is_empty() {
             return Ok(store);
         }
-        tokio::time::sleep(Duration::from_millis(1)).await;
+        std::thread::sleep(Duration::from_millis(1));
     }
     Err("shadow execution produced no observation".into())
 }
 
-#[tokio::test]
-async fn shadow_sparse_observation_cannot_change_served_evidence() -> TestResult {
+#[test]
+fn shadow_sparse_observation_cannot_change_served_evidence() -> TestResult {
     let store = LearnedSparseShadowStore::new(4)?;
     let engine = engine(LearnedSparseExecutionPolicy::Shadow, store.clone())?;
-    let outcome = engine.search(&plan()?).await?;
+    let outcome = engine.search(&plan()?)?;
 
     assert_eq!(outcome.evidence.len(), 1);
     assert_eq!(outcome.evidence[0].evidence_id(), EvidenceId::new(1));
@@ -379,7 +375,7 @@ async fn shadow_sparse_observation_cannot_change_served_evidence() -> TestResult
         if !observations.is_empty() {
             break;
         }
-        tokio::time::sleep(Duration::from_millis(1)).await;
+        std::thread::sleep(Duration::from_millis(1));
     }
     let Some(observation) = observations.first() else {
         return Err("shadow execution produced no observation".into());
@@ -398,62 +394,39 @@ async fn shadow_sparse_observation_cannot_change_served_evidence() -> TestResult
     Ok(())
 }
 
-#[tokio::test]
-async fn cancelled_search_aborts_shadow_provider_and_discards_observation() -> TestResult<()> {
+#[test]
+fn dropped_search_cancels_shadow_observation_recording() -> TestResult<()> {
     let store = LearnedSparseShadowStore::new(4)?;
-    let started = Arc::new(AtomicUsize::new(0));
-    let completed = Arc::new(AtomicUsize::new(0));
     let engine = RetrievalEngine::new(
-        vec![
-            Arc::new(SlowRetriever {
-                descriptor: descriptor("lexical", "text", "lexical_text_v1"),
-                candidate: lexical_candidate()?,
-                started: Arc::clone(&started),
-                completed: Arc::clone(&completed),
-            }),
-            Arc::new(SlowRetriever {
-                descriptor: descriptor("learned_sparse_chunks", "sparse-shadow", "sparse_text_v1"),
-                candidate: sparse_candidate()?,
-                started: Arc::clone(&started),
-                completed: Arc::clone(&completed),
-            }),
-        ],
+        vec![Arc::new(SlowRetriever {
+            descriptor: descriptor("learned_sparse_chunks", "sparse-shadow", "sparse_text_v1"),
+            candidate: sparse_candidate()?,
+            started: Arc::new(AtomicUsize::new(0)),
+            completed: Arc::new(AtomicUsize::new(0)),
+        })],
         Arc::new(PassthroughEvaluator),
         maestria_governance::RetrievalSecurityPolicy::default(),
     )
     .with_learned_sparse_execution_policy(LearnedSparseExecutionPolicy::Shadow)
     .with_learned_sparse_shadow_store(store.clone());
-    let plan = plan()?;
-    let search = tokio::spawn(async move { engine.search(&plan).await });
-    for _ in 0..100 {
-        if started.load(Ordering::SeqCst) == 2 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(1)).await;
-    }
-    if started.load(Ordering::SeqCst) != 2 {
-        search.abort();
-        let _ = search.await;
-        return Err("cancellation fixture did not start both providers".into());
-    }
-    search.abort();
-    let _ = search.await;
-    // Aborting the search task drops its JoinSet, which aborts the in-flight
-    // retriever tasks; give a misbehaving runner scheduler turns to (wrongly)
-    // complete them before asserting, without depending on wall clock.
-    for _ in 0..64 {
-        tokio::task::yield_now().await;
-    }
-    assert_eq!(completed.load(Ordering::SeqCst), 0);
+    // The sparse-shadow retriever is shadow-only, so the active search fails
+    // synchronously while the shadow lane is still executing; dropping the
+    // shadow task must cancel the observation instead of recording a partial
+    // result.
+    assert!(
+        engine.search(&plan()?).is_err(),
+        "a shadow-only engine has no active retrievers and must fail the search"
+    );
+    std::thread::sleep(Duration::from_millis(150));
     assert!(store.snapshot().is_empty());
     Ok(())
 }
 
-#[tokio::test]
-async fn disabled_sparse_policy_executes_no_shadow_lane() -> TestResult {
+#[test]
+fn disabled_sparse_policy_executes_no_shadow_lane() -> TestResult {
     let store = LearnedSparseShadowStore::new(4)?;
     let engine = engine(LearnedSparseExecutionPolicy::Disabled, store.clone())?;
-    let _outcome = engine.search(&plan()?).await?;
+    let _outcome = engine.search(&plan()?)?;
     assert!(
         store.snapshot().is_empty(),
         "disabled shadow policy must not record observations"
@@ -471,9 +444,9 @@ fn shadow_observations_round_trip_through_bounded_json() -> TestResult {
     Ok(())
 }
 
-#[tokio::test]
-async fn rejects_shadow_observation_without_sparse_namespace() -> TestResult<()> {
-    let store = populated_store().await?;
+#[test]
+fn rejects_shadow_observation_without_sparse_namespace() -> TestResult<()> {
+    let store = populated_store()?;
     let mut value: serde_json::Value = serde_json::from_str(&store.export_json()?)?;
     value[0]["lanes"][0]["namespace"] = serde_json::Value::Null;
     let replay = LearnedSparseShadowStore::new(4)?;
@@ -489,9 +462,9 @@ async fn rejects_shadow_observation_without_sparse_namespace() -> TestResult<()>
     Ok(())
 }
 
-#[tokio::test]
-async fn rejects_shadow_observation_with_cross_namespace_identity() -> TestResult<()> {
-    let store = populated_store().await?;
+#[test]
+fn rejects_shadow_observation_with_cross_namespace_identity() -> TestResult<()> {
+    let store = populated_store()?;
     let mut value: serde_json::Value = serde_json::from_str(&store.export_json()?)?;
     value[0]["lanes"][0]["sparse_identity"]["namespace"]["instance_id"] =
         serde_json::Value::String("fixture-instance-b".to_string());
@@ -508,9 +481,9 @@ async fn rejects_shadow_observation_with_cross_namespace_identity() -> TestResul
     Ok(())
 }
 
-#[tokio::test]
-async fn rejects_shadow_observation_with_stale_generation() -> TestResult<()> {
-    let store = populated_store().await?;
+#[test]
+fn rejects_shadow_observation_with_stale_generation() -> TestResult<()> {
+    let store = populated_store()?;
     let mut value: serde_json::Value = serde_json::from_str(&store.export_json()?)?;
     value[0]["index_generation"] = serde_json::Value::from(2_u64);
     let replay = LearnedSparseShadowStore::new(4)?;
@@ -526,9 +499,9 @@ async fn rejects_shadow_observation_with_stale_generation() -> TestResult<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn rejects_shadow_observation_with_excessive_latency() -> TestResult {
-    let store = populated_store().await?;
+#[test]
+fn rejects_shadow_observation_with_excessive_latency() -> TestResult {
+    let store = populated_store()?;
     let mut value: serde_json::Value = serde_json::from_str(&store.export_json()?)?;
     value[0]["elapsed_ms"] = serde_json::Value::from(5_001_u64);
     let replay = LearnedSparseShadowStore::new(4)?;
@@ -544,9 +517,9 @@ async fn rejects_shadow_observation_with_excessive_latency() -> TestResult {
     Ok(())
 }
 
-#[tokio::test]
-async fn rejects_shadow_observation_with_inconsistent_status() -> TestResult {
-    let store = populated_store().await?;
+#[test]
+fn rejects_shadow_observation_with_inconsistent_status() -> TestResult {
+    let store = populated_store()?;
     let mut value: serde_json::Value = serde_json::from_str(&store.export_json()?)?;
     value[0]["lanes"][0]["status"] = serde_json::Value::String("Empty".to_string());
     let replay = LearnedSparseShadowStore::new(4)?;
@@ -562,9 +535,9 @@ async fn rejects_shadow_observation_with_inconsistent_status() -> TestResult {
     Ok(())
 }
 
-#[tokio::test]
-async fn rejects_shadow_observation_with_invalid_lane_rank() -> TestResult {
-    let store = populated_store().await?;
+#[test]
+fn rejects_shadow_observation_with_invalid_lane_rank() -> TestResult {
+    let store = populated_store()?;
     let mut value: serde_json::Value = serde_json::from_str(&store.export_json()?)?;
     value[0]["lanes"][0]["candidates"][0]["lane_rank"] = serde_json::Value::from(0_u64);
     let replay = LearnedSparseShadowStore::new(4)?;

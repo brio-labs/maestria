@@ -4,7 +4,6 @@ use maestria_domain::{
 };
 use maestria_ports::SearchQuery;
 use std::sync::Arc;
-use tokio::{sync::Semaphore, task::JoinSet};
 
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateRequest, RetrievalError, RetrievalResult};
@@ -23,6 +22,8 @@ pub use engine_diversity::reconcile_status;
 pub(crate) use engine_diversity::run_diversity_stage;
 #[path = "engine_pipeline_dispatch.rs"]
 mod dispatch;
+#[path = "engine_lane_workers.rs"]
+mod lane_workers;
 pub(super) use dispatch::collect_batches;
 
 pub(crate) fn search_query_for_plan(
@@ -37,7 +38,7 @@ pub(crate) fn search_query_for_plan(
     })
 }
 
-pub(super) async fn collect_initial_batches(
+pub(super) fn collect_initial_batches(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
@@ -63,22 +64,19 @@ pub(super) async fn collect_initial_batches(
     let mut execution_usage = SearchExecutionUsage::default();
     for rewrite in session.records() {
         let rewrite_query = search_query_for_plan(plan, &rewrite.query)?;
-        batches.extend(
-            collect_batches(
-                retrievers,
-                plan,
-                &rewrite_query,
-                authorization,
-                source_filter,
-                &mut web_requests_used,
-                &mut execution_usage,
-            )
-            .await?,
-        );
+        batches.extend(collect_batches(
+            retrievers,
+            plan,
+            &rewrite_query,
+            authorization,
+            source_filter,
+            &mut web_requests_used,
+            &mut execution_usage,
+        )?);
     }
     Ok((batches, session, web_requests_used, execution_usage))
 }
-pub(super) async fn collect_missing_slot_batches(
+pub(super) fn collect_missing_slot_batches(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     query: &str,
@@ -97,7 +95,6 @@ pub(super) async fn collect_missing_slot_batches(
         web_requests_used,
         execution_usage,
     )
-    .await
 }
 
 pub(super) fn trace_lanes(

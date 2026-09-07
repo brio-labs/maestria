@@ -3094,7 +3094,6 @@ dependencies = [
 name = "maestria-retrieval"
 version = "0.6.1"
 dependencies = [
- "async-trait",
  "maestria-code-intel",
  "maestria-domain",
  "maestria-governance",
@@ -3105,7 +3104,6 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "thiserror 1.0.69",
- "tokio",
  "tracing",
 ]
 

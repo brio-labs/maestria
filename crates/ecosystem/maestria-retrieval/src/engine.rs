@@ -1,6 +1,5 @@
 use maestria_domain::{SearchOutcome, SearchPlan};
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::traits::{
     CandidateReranker, CandidateRetriever, ContextExpander, RankFusion, RetrievalEvaluator,
@@ -68,16 +67,18 @@ impl RetrievalEngine {
     /// Execute the search plan and return the outcome.
     ///
     /// # Cancellation
-    /// Dropping the future aborts the search. When `timeout_ms` is greater than zero, the search
-    /// is also aborted if the latency budget is exceeded.
-    pub async fn search(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
+    /// The latency budget is enforced at the pipeline's preemption points:
+    /// the adaptive iteration loop and the bounded reranker check the
+    /// elapsed deadline between blocking operations, and provider calls
+    /// are bounded by the transport agent timeout.
+    pub fn search(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
         let authorization = self
             .security_policy
             .authorization_context(plan.scope())
             .map_err(|error| {
                 RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
             })?;
-        self.search_pre_authorized(plan, authorization).await
+        self.search_pre_authorized(plan, authorization)
     }
 
     /// Executes with a caller-composed authorization context. This is the
@@ -85,34 +86,31 @@ impl RetrievalEngine {
     /// scoring and must not reconstruct policy from the engine configuration.
     ///
     /// # Cancellation
-    /// Dropping the future aborts the active search and its owned shadow task. When
-    /// `timeout_ms` is greater than zero, the search is also aborted if the latency budget
-    /// is exceeded.
-    pub async fn search_pre_authorized(
+    /// The latency budget is enforced at the pipeline's preemption points;
+    /// provider calls are bounded by the transport agent timeout.
+    pub fn search_pre_authorized(
         &self,
         plan: &SearchPlan,
         authorization: maestria_governance::RetrievalAuthorizationContext,
     ) -> RetrievalResult<SearchOutcome> {
         self.search_pre_authorized_with_filter(plan, authorization, None)
-            .await
     }
 
     /// Executes an authorized search restricted to the selected artifact set.
     ///
     /// # Cancellation
-    /// Dropping the future aborts every active lane and the owned shadow task.
-    /// A non-zero plan latency budget also aborts the search on timeout.
-    pub async fn search_pre_authorized_selected(
+    /// The latency budget is enforced at the pipeline's preemption points;
+    /// provider calls are bounded by the transport agent timeout.
+    pub fn search_pre_authorized_selected(
         &self,
         plan: &SearchPlan,
         authorization: maestria_governance::RetrievalAuthorizationContext,
         source_filter: CandidateSourceFilter,
     ) -> RetrievalResult<SearchOutcome> {
         self.search_pre_authorized_with_filter(plan, authorization, Some(source_filter))
-            .await
     }
 
-    async fn search_pre_authorized_with_filter(
+    fn search_pre_authorized_with_filter(
         &self,
         plan: &SearchPlan,
         authorization: maestria_governance::RetrievalAuthorizationContext,
@@ -122,22 +120,18 @@ impl RetrievalEngine {
         if maestria_governance::contains_prompt_injection_risk(plan.original_query()) {
             return self.prompt_injection_outcome(plan, source_filter.as_ref());
         }
-        let timeout_ms = plan.budgets().max_latency_ms() as u64;
-        let started = tokio::time::Instant::now();
-        let search = self.search_internal(plan, started, authorization, source_filter);
-        if timeout_ms > 0 {
-            tokio::time::timeout(Duration::from_millis(timeout_ms), search)
-                .await
-                .map_err(|_| RetrievalError::Timeout)?
-        } else {
-            search.await
-        }
+        self.search_internal(
+            plan,
+            crate::MonotonicInstant::now(),
+            authorization,
+            source_filter,
+        )
     }
 
-    async fn search_internal(
+    fn search_internal(
         &self,
         plan: &SearchPlan,
-        started: tokio::time::Instant,
+        started: crate::MonotonicInstant,
         authorization: maestria_governance::RetrievalAuthorizationContext,
         source_filter: Option<CandidateSourceFilter>,
     ) -> RetrievalResult<SearchOutcome> {
@@ -148,7 +142,7 @@ impl RetrievalEngine {
             source_filter.clone(),
             self.learned_sparse_shadow_store.clone(),
         );
-        let active_result = async {
+        let active_result: RetrievalResult<SearchOutcome> = {
             let active_retrievers = self.active_retrievers(plan);
             if active_retrievers.is_empty() {
                 return Err(RetrievalError::Internal("No retrievers configured".into()));
@@ -160,8 +154,7 @@ impl RetrievalEngine {
                     plan,
                     &authorization,
                     source_filter.as_ref(),
-                )
-                .await?;
+                )?;
             let (outcome, lanes, rerank_trace, diversity_trace) =
                 engine_evaluation::evaluate_batches(engine_evaluation::EvaluationRequest {
                     engine: self,
@@ -172,8 +165,7 @@ impl RetrievalEngine {
                     execution_usage: &mut execution_usage,
                     authorization: &authorization,
                     source_filter: source_filter.as_ref(),
-                })
-                .await?;
+                })?;
             let mut state = engine_adaptive::AdaptiveSearchState {
                 batches,
                 rewrites,
@@ -192,8 +184,7 @@ impl RetrievalEngine {
                 source_filter.as_ref(),
                 &mut state,
                 started,
-            )
-            .await?;
+            )?;
             let expansion_enabled = plan
                 .stages()
                 .contains(&maestria_domain::SearchStage::Filtering);
@@ -219,8 +210,7 @@ impl RetrievalEngine {
             )?;
             outcome.verify_compatibility(plan)?;
             Ok(outcome)
-        }
-        .await;
+        };
         match active_result {
             Ok(outcome) => {
                 if let Some(shadow_task) = shadow_task {

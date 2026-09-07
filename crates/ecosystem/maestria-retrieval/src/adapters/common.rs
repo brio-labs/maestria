@@ -2,7 +2,6 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
-use async_trait::async_trait;
 use maestria_domain::{
     ArtifactVersionId, ContentRange, Evidence, EvidenceCandidate, EvidenceCandidateDto,
     EvidenceKind, EvidenceSpan, FreshnessStatus, IndexGenerationId, RetrievalReason,
@@ -47,15 +46,13 @@ impl CurrentVersionFilter {
         }
     }
 }
-
-#[async_trait]
 impl CandidateRetriever for CurrentVersionFilter {
     fn descriptor(&self) -> &RetrieverDescriptor {
         self.inner.descriptor()
     }
 
-    async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
-        let mut batch = self.inner.retrieve(request).await?;
+    fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
+        let mut batch = self.inner.retrieve(request)?;
         if self.active_versions.is_empty() {
             batch.candidates.clear();
             batch.status = SearchLaneStatus::Empty;

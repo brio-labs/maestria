@@ -10,15 +10,13 @@ maestria-code-intel = { workspace = true }
 maestria-domain = { workspace = true }
 maestria-governance = { workspace = true }
 maestria-ports = { workspace = true }
-async-trait = { workspace = true }
 thiserror = { workspace = true }
 sha2 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
-tokio = { workspace = true, features = ["time", "macros", "rt", "sync"] }
+
 [dev-dependencies]
-tokio = { workspace = true, features = ["full", "test-util"] }
 tempfile = { workspace = true }
 maestria-ports = { workspace = true, features = ["contract-tests"] }
 maestria-test-support = { workspace = true }

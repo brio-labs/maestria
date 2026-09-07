@@ -21,14 +21,14 @@ pub(super) struct AdaptiveSearchState {
     pub(super) diversity_trace: SearchTraceDiversity,
 }
 
-pub(super) async fn iterate_until_stop(
+pub(super) fn iterate_until_stop(
     engine: &RetrievalEngine,
     plan: &SearchPlan,
     query: &SearchQuery,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
     source_filter: Option<&CandidateSourceFilter>,
     state: &mut AdaptiveSearchState,
-    started: tokio::time::Instant,
+    started: crate::MonotonicInstant,
 ) -> RetrievalResult<Option<SearchStopReason>> {
     use std::collections::BTreeSet;
 
@@ -68,9 +68,7 @@ pub(super) async fn iterate_until_stop(
             state,
             slot,
             started,
-        })
-        .await?
-        {
+        })? {
             return Ok(Some(SearchStopReason::BudgetExhausted));
         }
         iteration_count = iteration_count.saturating_add(1);
@@ -102,10 +100,10 @@ struct MissingSlotRequest<'a> {
     source_filter: Option<&'a CandidateSourceFilter>,
     state: &'a mut AdaptiveSearchState,
     slot: String,
-    started: tokio::time::Instant,
+    started: crate::MonotonicInstant,
 }
 
-async fn retrieve_missing_slot(request: MissingSlotRequest<'_>) -> RetrievalResult<bool> {
+fn retrieve_missing_slot(request: MissingSlotRequest<'_>) -> RetrievalResult<bool> {
     let MissingSlotRequest {
         engine,
         plan,
@@ -155,8 +153,9 @@ async fn retrieve_missing_slot(request: MissingSlotRequest<'_>) -> RetrievalResu
             RetrievalError::Internal("accepted missing-slot rewrite was not retained".to_string())
         })?;
     let active_retrievers = engine.active_retrievers(plan);
-    state.batches.extend(
-        engine_pipeline::collect_missing_slot_batches(
+    state
+        .batches
+        .extend(engine_pipeline::collect_missing_slot_batches(
             &active_retrievers,
             plan,
             &query_text,
@@ -164,9 +163,7 @@ async fn retrieve_missing_slot(request: MissingSlotRequest<'_>) -> RetrievalResu
             source_filter,
             &mut state.web_requests_used,
             &mut state.execution_usage,
-        )
-        .await?,
-    );
+        )?);
     let (outcome, lanes, rerank_trace, diversity_trace) =
         engine_evaluation::evaluate_batches(engine_evaluation::EvaluationRequest {
             engine,
@@ -177,8 +174,7 @@ async fn retrieve_missing_slot(request: MissingSlotRequest<'_>) -> RetrievalResu
             execution_usage: &mut state.execution_usage,
             authorization,
             source_filter,
-        })
-        .await?;
+        })?;
     state.outcome = outcome;
     state.lanes = lanes;
     state.rerank_trace = rerank_trace;

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use maestria_domain::{EvidenceCandidate, IndexGenerationId, IndexStatus, SearchLaneStatus};
 use maestria_governance::{RetrievalDecision, scan_secrets};
 use maestria_ports::{
@@ -174,14 +173,12 @@ impl CardRetriever {
         .map(Some)
     }
 }
-
-#[async_trait]
 impl CandidateRetriever for CardRetriever {
     fn descriptor(&self) -> &RetrieverDescriptor {
         &self.descriptor
     }
 
-    async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
+    fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
         if request.expected_generation != self.descriptor.generation {
             return Err(generation_mismatch(
                 request.expected_generation,
@@ -231,9 +228,9 @@ mod tests {
         InMemoryChunkRepository, InMemoryEvidenceRepository,
     };
 
-    #[tokio::test]
-    async fn denied_card_candidates_are_filtered_before_scoring()
-    -> Result<(), Box<dyn std::error::Error>> {
+    #[test]
+    fn denied_card_candidates_are_filtered_before_scoring() -> Result<(), Box<dyn std::error::Error>>
+    {
         let generation = IndexGenerationId::new(1);
         let artifact_id = ArtifactId::new(7);
         let index = Arc::new(FilteredFullTextSpy::new(
@@ -255,9 +252,7 @@ mod tests {
             generation,
         );
 
-        let batch = retriever
-            .retrieve(request(SearchIntent::FactualLocal, generation)?)
-            .await?;
+        let batch = retriever.retrieve(request(SearchIntent::FactualLocal, generation)?)?;
         assert_eq!(index.card_filter_calls(), 1);
         assert_eq!(index.card_score_calls(), 0);
         assert!(batch.candidates.is_empty());

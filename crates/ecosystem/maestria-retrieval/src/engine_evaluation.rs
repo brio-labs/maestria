@@ -9,13 +9,13 @@ pub(super) struct EvaluationRequest<'a> {
     pub(super) plan: &'a SearchPlan,
     pub(super) query: &'a SearchQuery,
     pub(super) batches: &'a [crate::types::CandidateBatch],
-    pub(super) started: tokio::time::Instant,
+    pub(super) started: crate::MonotonicInstant,
     pub(super) execution_usage: &'a mut maestria_domain::SearchExecutionUsage,
     pub(super) authorization: &'a maestria_governance::RetrievalAuthorizationContext,
     pub(super) source_filter: Option<&'a crate::types::CandidateSourceFilter>,
 }
 
-pub(super) async fn evaluate_batches(
+pub(super) fn evaluate_batches(
     request: EvaluationRequest<'_>,
 ) -> RetrievalResult<(
     SearchOutcome,
@@ -69,8 +69,7 @@ pub(super) async fn evaluate_batches(
             .map(|(rank, candidate)| RankedCandidate { candidate, rank })
             .collect()
     };
-    let (ranked, rerank_trace) =
-        apply_reranking(engine, plan, visual_enabled, started, ranked).await?;
+    let (ranked, rerank_trace) = apply_reranking(engine, plan, visual_enabled, started, ranked)?;
     let initial_diversity = crate::diversity::select_candidates(&ranked, plan)?;
     let expansion_enabled = plan
         .stages()
@@ -84,8 +83,7 @@ pub(super) async fn evaluate_batches(
         execution_usage,
         authorization,
         source_filter,
-    )
-    .await?;
+    )?;
     raw_outcome.status = reconcile_status(&raw_outcome.status, &final_diversity.status);
     if stale_code_only
         && raw_outcome.evidence.is_empty()
@@ -166,11 +164,11 @@ fn prepare_fusion_batches(
     (fusion_batches, stale_code_only)
 }
 
-async fn apply_reranking(
+fn apply_reranking(
     engine: &RetrievalEngine,
     plan: &SearchPlan,
     visual_enabled: bool,
-    started: tokio::time::Instant,
+    started: crate::MonotonicInstant,
     ranked: Vec<RankedCandidate>,
 ) -> RetrievalResult<(
     Vec<RankedCandidate>,
@@ -186,13 +184,11 @@ async fn apply_reranking(
         let remaining_ms = u64::from(plan.budgets().max_latency_ms())
             .saturating_sub(elapsed_ms)
             .min(u64::from(u32::MAX)) as u32;
-        let rerank_res = reranker
-            .rerank(RerankRequest {
-                plan: std::sync::Arc::new(plan.clone()),
-                candidates: ranked,
-                max_latency_ms: remaining_ms,
-            })
-            .await?;
+        let rerank_res = reranker.rerank(RerankRequest {
+            plan: std::sync::Arc::new(plan.clone()),
+            candidates: ranked,
+            max_latency_ms: remaining_ms,
+        })?;
         return Ok((rerank_res.candidates, Some(rerank_res.trace)));
     }
     Ok((ranked, None))

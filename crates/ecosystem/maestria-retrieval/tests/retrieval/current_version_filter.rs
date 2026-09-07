@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use maestria_domain::{ArtifactVersionId, EvidenceCandidate, SearchLaneStatus};
 use maestria_retrieval::RetrievalResult;
 use maestria_retrieval::adapters::CurrentVersionFilter;
@@ -15,13 +14,12 @@ struct FixedRetriever {
     descriptor: RetrieverDescriptor,
 }
 
-#[async_trait]
 impl CandidateRetriever for FixedRetriever {
     fn descriptor(&self) -> &RetrieverDescriptor {
         &self.descriptor
     }
 
-    async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
+    fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
         Ok(CandidateBatch {
             descriptor: (*self.descriptor()).clone(),
             query: request.query.q,
@@ -74,16 +72,16 @@ fn filter() -> RetrievalResult<CurrentVersionFilter> {
     ))
 }
 
-#[tokio::test]
-async fn empty_active_versions_fail_closed() -> RetrievalResult<()> {
-    let batch = filter()?.retrieve(request()?).await?;
+#[test]
+fn empty_active_versions_fail_closed() -> RetrievalResult<()> {
+    let batch = filter()?.retrieve(request()?)?;
     assert!(batch.candidates.is_empty());
     assert_eq!(batch.status, SearchLaneStatus::Empty);
     Ok(())
 }
 
-#[tokio::test]
-async fn active_versions_retain_matching_candidates() -> RetrievalResult<()> {
+#[test]
+fn active_versions_retain_matching_candidates() -> RetrievalResult<()> {
     let filtered = CurrentVersionFilter::new(
         std::sync::Arc::new(FixedRetriever {
             candidate: common::candidate_fixture()?,
@@ -96,7 +94,7 @@ async fn active_versions_retain_matching_candidates() -> RetrievalResult<()> {
         }),
         BTreeSet::from([ArtifactVersionId::new(19)]),
     );
-    let batch = filtered.retrieve(request()?).await?;
+    let batch = filtered.retrieve(request()?)?;
     assert_eq!(batch.candidates.len(), 1);
     assert_eq!(
         batch.candidates[0].artifact_version(),

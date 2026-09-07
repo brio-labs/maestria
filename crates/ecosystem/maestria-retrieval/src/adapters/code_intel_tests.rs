@@ -174,12 +174,12 @@ fn authorized_binding() -> Result<AuthorizedCodeBinding, Box<dyn std::error::Err
     })
 }
 
-#[tokio::test]
-async fn rejects_generation_mismatch() -> Result<(), Box<dyn std::error::Error>> {
+#[test]
+fn rejects_generation_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     let retriever = retriever(IndexGenerationId::new(2))?;
     let request = candidate_request(IndexGenerationId::new(1), "compute", 5)?;
     assert!(matches!(
-        retriever.retrieve(request).await,
+        retriever.retrieve(request),
         Err(RetrievalError::Internal(_))
     ));
     Ok(())

@@ -3,7 +3,6 @@ use crate::types::{
     RankedCandidate, RerankLimits, RerankRequest, RerankResult, RerankScoreComponents,
     RerankScorerInput, RetrievalError,
 };
-use async_trait::async_trait;
 use maestria_domain::{
     RerankPosition, SearchTraceConstraintScore, SearchTraceRerank, SearchTraceRerankCandidate,
 };
@@ -28,14 +27,14 @@ struct ScoredCandidate {
     fallback_error: Option<String>,
 }
 
-async fn score_candidates(
+fn score_candidates(
     scorer: &dyn RerankScorer,
     plan: &maestria_domain::SearchPlan,
     candidates: Vec<RankedCandidate>,
     score_cap: usize,
     max_latency_ms: u32,
 ) -> Result<(Vec<ScoredCandidate>, Vec<SearchTraceRerankCandidate>), RetrievalError> {
-    let started = tokio::time::Instant::now();
+    let started = crate::MonotonicInstant::now();
     let max_duration = Duration::from_millis(u64::from(max_latency_ms));
     let mut budget_exhausted = false;
     let mut scored = Vec::new();
@@ -59,16 +58,11 @@ async fn score_candidates(
                 budget_exhausted = true;
                 Err(RetrievalError::Timeout)
             } else {
-                tokio::time::timeout(max_duration.saturating_sub(elapsed), scorer.score(input))
-                    .await
-                    .map_err(|_| RetrievalError::Timeout)
+                scorer.score(input)
             }
         };
-        if matches!(&result, Err(RetrievalError::Timeout)) {
-            budget_exhausted = true;
-        }
         match result {
-            Ok(Ok(mut components)) => {
+            Ok(mut components) => {
                 components.constraints.sort_by(|left, right| {
                     left.name
                         .cmp(&right.name)
@@ -87,8 +81,8 @@ async fn score_candidates(
                     fallback_error: None,
                 });
             }
-            Ok(Err(RetrievalError::Cancelled)) => return Err(RetrievalError::Cancelled),
-            Ok(Err(error)) | Err(error) => scored.push(ScoredCandidate {
+            Err(RetrievalError::Cancelled) => return Err(RetrievalError::Cancelled),
+            Err(error) => scored.push(ScoredCandidate {
                 ranked,
                 components: RerankScoreComponents {
                     relevance: 0,
@@ -185,10 +179,8 @@ fn rank_key(position: &RerankPosition) -> usize {
         | RerankPosition::ErrorFallback(_) => usize::MAX,
     }
 }
-
-#[async_trait]
 impl CandidateReranker for BoundedReranker {
-    async fn rerank(&self, request: RerankRequest) -> Result<RerankResult, RetrievalError> {
+    fn rerank(&self, request: RerankRequest) -> Result<RerankResult, RetrievalError> {
         if !self.scorer.compatible_with(request.plan.fingerprint()) {
             return Err(RetrievalError::Compatibility(
                 maestria_domain::SearchCompatibilityError::ModelFingerprintMismatch {
@@ -212,8 +204,7 @@ impl CandidateReranker for BoundedReranker {
             input_candidates,
             self.limits.score_cap,
             max_latency_ms,
-        )
-        .await?;
+        )?;
         trace.extend(skipped);
         let (candidates, trace) = finish_candidates(scored, self.limits.output_cap, trace);
         Ok(RerankResult {

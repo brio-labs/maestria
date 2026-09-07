@@ -1,0 +1,27 @@
+# Per-crate override: `maestria-retrieval` owns the workspace monotonic
+# clock abstraction (`MonotonicInstant`), so its `monotonic` module is the
+# single sanctioned construction point for `std::time::Instant::now`. The
+# list below must stay identical to the root `clippy.toml` except for that
+# entry; `tests/clippy_config_parity.rs` enforces the parity contract.
+avoid-breaking-exported-api = false
+cognitive-complexity-threshold = 30
+too-many-lines-threshold = 100
+
+disallowed-methods = [
+  "std::option::Option::unwrap",
+  "std::option::Option::unwrap_or",
+  "std::option::Option::unwrap_or_else",
+  "std::option::Option::unwrap_or_default",
+  "std::result::Result::unwrap",
+  "std::result::Result::unwrap_or",
+  "std::result::Result::unwrap_or_else",
+  "std::result::Result::unwrap_or_default",
+  "std::collections::HashMap::new",
+  "std::collections::HashSet::new",
+  "std::vec::Vec::swap_remove",
+]
+
+disallowed-types = [
+  "std::collections::HashMap",
+  "std::collections::HashSet",
+]

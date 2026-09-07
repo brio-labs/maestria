@@ -3,7 +3,6 @@ use std::{
     sync::Arc,
 };
 
-use async_trait::async_trait;
 use maestria_domain::{
     EvidenceCandidate, IndexStatus, Relation, RelationEndpoint, SearchExecution,
     SearchExecutionCompletion, SearchExecutionResource, SearchExecutionUsage,
@@ -52,8 +51,6 @@ impl HierarchyGraphExpander {
         }
     }
 }
-
-#[async_trait]
 impl ContextExpander for HierarchyGraphExpander {
     fn expand(
         &self,

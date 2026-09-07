@@ -293,6 +293,18 @@ query request
 
 This is a capability graph, not a mandatory fixed pipeline. Stages may be skipped when the plan and policy permit it; executable plans use the canonical order declared by the validator, and unsupported stage orderings are rejected before effects.
 
+The engine is synchronous end to end. Lane fan-out runs on scoped worker
+threads bounded by the plan's `max_concurrency` budget; the learned-sparse
+shadow lane runs on a detached worker thread whose observation is recorded
+only when the owning search completes. Latency budgets are enforced by
+explicit deadline checks at the pipeline's preemption points (between
+adaptive iterations, between per-candidate rerank scores, and before each
+provider call), and every provider transport applies its own agent timeout,
+so no lane can block a caller indefinitely. The only async seam is the
+daemon's executor pool, which runs the synchronous engine on blocking
+workers; cancelling a daemon search future lets the worker finish without
+aborting lanes mid-call.
+
 ### Candidate Retrieval Lanes
 
 Implementations may provide any compatible combination of:

@@ -1,6 +1,5 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use async_trait::async_trait;
 use maestria_code_intel::{
     CodeQuery, QueryResult, REPOSITORY_CODE_PARSER_GENERATION, RepositoryCodeIndex,
     RepositoryFreshness, RepositoryIdentitySnapshot,
@@ -282,14 +281,12 @@ fn symbol_pattern(query: &str) -> String {
         .filter(|segment| !segment.trim().is_empty())
         .map_or_else(|| query.to_string(), ToString::to_string)
 }
-
-#[async_trait]
 impl CandidateRetriever for CodeIntelRetriever {
     fn descriptor(&self) -> &crate::types::RetrieverDescriptor {
         &self.descriptor
     }
 
-    async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
+    fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
         if request.expected_generation != self.descriptor.generation {
             return Err(generation_mismatch(
                 request.expected_generation,

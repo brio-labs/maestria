@@ -214,8 +214,8 @@ fn candidate(
     })?)
 }
 
-#[tokio::test]
-async fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
+#[test]
+fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
 -> Result<(), Box<dyn std::error::Error>> {
     let (capability, identity) = capability()?;
     let artifact_repo = Arc::new(InMemoryArtifactRepository::new());
@@ -281,22 +281,20 @@ async fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
     )?;
     let first = candidate(first_id, 1, 1)?;
     let second = candidate(second_id, 2, 20)?;
-    let result = reranker
-        .rerank(RerankRequest {
-            plan: std::sync::Arc::new(plan()?),
-            candidates: vec![
-                RankedCandidate {
-                    candidate: first,
-                    rank: 0,
-                },
-                RankedCandidate {
-                    candidate: second,
-                    rank: 1,
-                },
-            ],
-            max_latency_ms: 100,
-        })
-        .await?;
+    let result = reranker.rerank(RerankRequest {
+        plan: std::sync::Arc::new(plan()?),
+        candidates: vec![
+            RankedCandidate {
+                candidate: first,
+                rank: 0,
+            },
+            RankedCandidate {
+                candidate: second,
+                rank: 1,
+            },
+        ],
+        max_latency_ms: 100,
+    })?;
     assert_eq!(result.candidates[0].candidate.evidence_id(), second_id);
     assert_eq!(result.candidates[1].candidate.evidence_id(), first_id);
     assert_eq!(
@@ -316,8 +314,8 @@ async fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
     Ok(())
 }
 
-#[tokio::test]
-async fn visual_reranker_returns_traced_fallback_for_secret_queries()
+#[test]
+fn visual_reranker_returns_traced_fallback_for_secret_queries()
 -> Result<(), Box<dyn std::error::Error>> {
     let (capability, identity) = capability()?;
     let reranker = VisualReranker::new(
@@ -337,16 +335,14 @@ async fn visual_reranker_returns_traced_fallback_for_secret_queries()
     )?;
     let secret_plan = plan()?.with_original_query("password=not-for-search".to_string())?;
     let evidence_id = EvidenceId::new(103);
-    let result = reranker
-        .rerank(RerankRequest {
-            plan: std::sync::Arc::new(secret_plan),
-            candidates: vec![RankedCandidate {
-                candidate: candidate(evidence_id, 1, 1)?,
-                rank: 0,
-            }],
-            max_latency_ms: 100,
-        })
-        .await?;
+    let result = reranker.rerank(RerankRequest {
+        plan: std::sync::Arc::new(secret_plan),
+        candidates: vec![RankedCandidate {
+            candidate: candidate(evidence_id, 1, 1)?,
+            rank: 0,
+        }],
+        max_latency_ms: 100,
+    })?;
     assert_eq!(result.candidates[0].candidate.evidence_id(), evidence_id);
     assert!(matches!(
         result.trace.candidates[0].position,
