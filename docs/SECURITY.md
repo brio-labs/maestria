@@ -84,6 +84,18 @@ Every artifact, evidence object, provider result, and derived representation has
 
 Trust zones are security metadata, not claims about factual correctness.
 
+## Process topology
+
+The daemon has no network transport: it answers only on the per-instance
+Unix domain socket with per-instance token authentication and read/write
+scope checks (rule 48). The browser-facing HTTP surface — static UI
+assets, the REST shape, origin enforcement, and bearer-token checks —
+belongs exclusively to the Studio server, which holds no durable state
+and no database access. Studio's middleware is browser-boundary hygiene;
+the daemon's token-and-scope check is the authority. ADR-0010 records
+this topology decision; new browser capabilities extend the typed socket
+API, never the daemon's transport.
+
 ## 4. Scope and Authorization
 
 Scope is explicit on every operation that can read, write, execute, retrieve, fetch, or promote data.

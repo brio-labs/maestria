@@ -38,7 +38,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "c60a74e713b454edfbd59b06117a8674dccde43f9f1d4da17bffc02423b4f81f"
+        "source_hash": "84fa4da23d5b7096ab93478f7d83e3d397931ad192005dcc525009c5d678b909"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -95,7 +95,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "c60a74e713b454edfbd59b06117a8674dccde43f9f1d4da17bffc02423b4f81f"
+        "source_hash": "84fa4da23d5b7096ab93478f7d83e3d397931ad192005dcc525009c5d678b909"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -219,7 +219,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/formula-page.svg",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/scanned-page.svg"
         ],
-        "source_hash": "4f3ce6b10bcebfbf4442acdf2715f1ea3a1aad549096f25f4f6ccc8e721253e0"
+        "source_hash": "ebfd7340511ed755c445e5feeffb00175bb0e13f5f3518bfded9f157882f5cc3"
       },
       "fingerprints": {
         "corpus_snapshot": "visual-retrieval-benchmark-v1@visual-fixture-r2",

@@ -295,6 +295,16 @@ when present. See `crates/apps/maestria-daemon/src/api/search_services.rs:85`
 (`retrieval_status`) and `crates/apps/maestria-studio/src/http/retrieval.rs`.
 
 
+## Studio proxy contract
+
+Every Studio REST handler is a thin translation of one typed
+`ClientOperation` over the instance socket; the daemon's token and scope
+check is the authority, and Studio's origin/bearer middleware is
+browser-boundary hygiene only. New browser capabilities extend the typed
+socket API first — REST endpoints are never added without a
+corresponding `ClientOperation`. The daemon never serves HTTP or static
+assets; ADR-0010 records this topology decision.
+
 ## Studio and ACP
 
 Studio is an ACP v1 **client**. It does not implement or ship a model

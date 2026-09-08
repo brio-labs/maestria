@@ -99,6 +99,8 @@ The following boundaries are logical contracts. Crate names may change without c
 | Validation subsystem | Validation runners and reports | Unverified completion |
 | Harness subsystem | Normalized external execution and capability reporting | Memory writes or task finalization |
 | Application crates | Composition, transport, CLI, configuration | Domain logic, direct SQL mutations, policy bypasses |
+| Studio server | Browser-facing HTTP: UI assets, REST shape, origin/bearer checks; stateless proxy to the daemon socket | Durable state, database access, capability authority (ADR-0010) |
+| Daemon | Typed socket API with token auth and scope enforcement; no network transport | HTTP/browser serving, static assets (ADR-0010) |
 
 ---
 
