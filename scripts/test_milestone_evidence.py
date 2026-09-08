@@ -116,7 +116,7 @@ class MilestoneEvidenceFixtureTests(unittest.TestCase):
             if entry["closure"] == "open":
                 self.assertIn(
                     entry["release_stage"],
-                    {"planned", "implementation-complete"},
+                    {"planned", "implementation-complete", "benchmark-complete"},
                     f"{entry['milestone']}: open milestone has unexpected stage",
                 )
 
