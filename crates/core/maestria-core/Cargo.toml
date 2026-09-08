@@ -16,5 +16,5 @@ sha2 = { workspace = true }
 [dev-dependencies]
 maestria-ports = { workspace = true, features = ["contract-tests"] }
 maestria-retrieval = { workspace = true }
-tokio = { workspace = true, features = ["full", "test-util"] }
+tokio = { workspace = true, features = ["rt"] }
 maestria-test-support = { workspace = true }
