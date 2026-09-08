@@ -3,7 +3,7 @@
   "description": "Checked-in release milestone exit evidence for the actual GitHub milestones v0.4 through v0.9. Each entry carries the canonical milestone-description evidence block that validates against the release-exit-evidence contract (scripts/release_exit_evidence.py). The v0.6.1 binary release is a patch under the v0.6 milestone.",
   "milestones": [
     {
-      "milestone": "v0.4 — Deterministic Search Baseline",
+      "milestone": "v0.4 \u2014 Deterministic Search Baseline",
       "release_stage": "implementation-complete",
       "closure": "open",
       "summary": "Deterministic golden corpus recorded; live performance evidence remains pending",
@@ -12,7 +12,7 @@
       "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\",\n  \"benchmark\": {\n    \"benchmark_date\": \"2026-07-20\",\n    \"data_fidelity\": \"mixed\",\n    \"fingerprints\": {\n      \"corpus_snapshot\": \"maestria-document-snapshot-v1\",\n      \"index_generation\": \"tantivy-canonical-schema-v1\",\n      \"model_fingerprint\": \"lexical-only-no-model\"\n    },\n    \"environment\": {\n      \"os\": \"ubuntu-24.04\",\n      \"rust_toolchain\": \"nightly-2026-06-15\",\n      \"cpu_arch\": \"x86_64\"\n    },\n    \"results\": {\n      \"quality\": {\"status\": \"warning\"},\n      \"resource\": {\"status\": \"warning\"},\n      \"security\": {\"status\": \"pass\"}\n    },\n    \"degradations\": [\n      {\"area\": \"observations\", \"description\": \"Golden observations are deterministic contract fixtures; live performance evidence remains pending.\"}\n    ],\n    \"artifacts\": [\n      {\"source\": \"ci\", \"url\": \"https://github.com/brio-labs/maestria/blob/main/tests/contracts/benchmark_evidence_v1.json\", \"label\": \"versioned benchmark evidence ledger\"}\n    ]\n  }\n}\n```"
     },
     {
-      "milestone": "v0.5 — Evaluated Hybrid Retrieval",
+      "milestone": "v0.5 \u2014 Evaluated Hybrid Retrieval",
       "release_stage": "implementation-complete",
       "closure": "open",
       "summary": "Golden deterministic baseline recorded; hybrid comparison remains pending",
@@ -21,7 +21,7 @@
       "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\",\n  \"benchmark\": {\n    \"benchmark_date\": \"2026-07-20\",\n    \"data_fidelity\": \"mixed\",\n    \"fingerprints\": {\n      \"corpus_snapshot\": \"maestria-document-snapshot-v1\",\n      \"index_generation\": \"hybrid-generation-contract-v1\",\n      \"model_fingerprint\": \"provider-fingerprint-required-before-promotion\"\n    },\n    \"environment\": {\n      \"os\": \"ubuntu-24.04\",\n      \"rust_toolchain\": \"nightly-2026-06-15\",\n      \"cpu_arch\": \"x86_64\"\n    },\n    \"results\": {\n      \"quality\": {\"status\": \"warning\"},\n      \"resource\": {\"status\": \"warning\"},\n      \"security\": {\"status\": \"pass\"}\n    },\n    \"degradations\": [\n      {\"area\": \"comparison\", \"description\": \"The checked-in golden fixture has no v0.5 hybrid profile; hybrid quality and resource comparison remains pending.\"}\n    ],\n    \"artifacts\": [\n      {\"source\": \"ci\", \"url\": \"https://github.com/brio-labs/maestria/blob/main/tests/contracts/benchmark_evidence_v1.json\", \"label\": \"versioned benchmark evidence ledger\"}\n    ]\n  }\n}\n```"
     },
     {
-      "milestone": "v0.6 — Query-Adaptive Search",
+      "milestone": "v0.6 \u2014 Query-Adaptive Search",
       "release_stage": "implementation-complete",
       "closure": "closed",
       "summary": "Query-adaptive search, code intelligence, memory promotion (latest binary v0.6.1); no quality/resource/security measurements recorded",
@@ -29,7 +29,7 @@
       "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\"\n}\n```"
     },
     {
-      "milestone": "v0.7 — Repository Intelligence",
+      "milestone": "v0.7 \u2014 Repository Intelligence",
       "release_stage": "implementation-complete",
       "closure": "open",
       "summary": "Real Rust repository observations emitted; resource counters and promotion evidence remain pending",
@@ -38,19 +38,19 @@
       "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\",\n  \"benchmark\": {\n    \"benchmark_date\": \"2026-07-20\",\n    \"data_fidelity\": \"real\",\n    \"fingerprints\": {\n      \"corpus_snapshot\": \"rust-repository-frozen-v1\",\n      \"index_generation\": \"cargo-rust-code-v1\",\n      \"model_fingerprint\": \"repository-code-index-v1\"\n    },\n    \"environment\": {\n      \"os\": \"ubuntu-24.04\",\n      \"rust_toolchain\": \"nightly-2026-06-15\",\n      \"cpu_arch\": \"x86_64\"\n    },\n    \"results\": {\n      \"quality\": {\"status\": \"warning\"},\n      \"resource\": {\"status\": \"warning\"},\n      \"security\": {\"status\": \"pass\"}\n    },\n    \"degradations\": [\n      {\"area\": \"resource\", \"description\": \"Platform counters are unavailable in the code-intel adapter and are not inferred.\"}\n    ],\n    \"artifacts\": [\n      {\"source\": \"ci\", \"url\": \"https://github.com/brio-labs/maestria/blob/main/tests/contracts/benchmark_evidence_v1.json\", \"label\": \"versioned benchmark evidence ledger\"}\n    ]\n  }\n}\n```"
     },
     {
-      "milestone": "v0.8 — Visual Document Retrieval",
-      "release_stage": "implementation-complete",
+      "milestone": "v0.8 \u2014 Visual Document Retrieval",
+      "release_stage": "benchmark-complete",
       "closure": "open",
-      "summary": "Visual corpus r2 and OCR smoke observations recorded; visual-provider evidence remains pending",
+      "summary": "Real SigLIP visual-provider evaluation recorded: visual wins Text, Table, Chart, Figure, and Formula classes within budgets; ScannedPage stays on the OCR text baseline (visual route shadowed)",
       "published_release": null,
       "benchmark_manifest": "tests/contracts/benchmark_evidence_v1.json",
-      "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\",\n  \"benchmark\": {\n    \"benchmark_date\": \"2026-07-20\",\n    \"data_fidelity\": \"mixed\",\n    \"fingerprints\": {\n      \"corpus_snapshot\": \"visual-retrieval-benchmark-v1@visual-fixture-r2\",\n      \"index_generation\": \"visual-region-contract-v1\",\n      \"model_fingerprint\": \"visual-provider-required-before-promotion\"\n    },\n    \"environment\": {\n      \"os\": \"ubuntu-24.04\",\n      \"rust_toolchain\": \"nightly-2026-06-15\",\n      \"cpu_arch\": \"x86_64\"\n    },\n    \"results\": {\n      \"quality\": {\"status\": \"warning\"},\n      \"resource\": {\"status\": \"warning\"},\n      \"security\": {\"status\": \"pass\"}\n    },\n    \"degradations\": [\n      {\"area\": \"visual-provider\", \"description\": \"RapidOCR smoke observations are available for all six source pages; visual-provider quality, resource, privacy, security, and promotion evidence remain unavailable and are not fabricated.\"}\n    ],\n    \"artifacts\": [\n      {\"source\": \"ci\", \"url\": \"https://github.com/brio-labs/maestria/blob/main/tests/contracts/benchmark_evidence_v1.json\", \"label\": \"versioned benchmark evidence ledger\"}\n    ]\n  }\n}\n```"
+      "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"benchmark-complete\",\n  \"benchmark\": {\n    \"benchmark_date\": \"2026-09-08\",\n    \"data_fidelity\": \"real\",\n    \"fingerprints\": {\n      \"corpus_snapshot\": \"visual-retrieval-benchmark-v1@visual-fixture-r2\",\n      \"index_generation\": \"visual-region-contract-v1\",\n      \"model_fingerprint\": \"siglip-onnx:siglip-base-patch16-224@4649052661e53c7000355844105f8a1792088239\"\n    },\n    \"environment\": {\n      \"os\": \"linux\",\n      \"rust_toolchain\": \"local\",\n      \"cpu_arch\": \"x86_64\"\n    },\n    \"results\": {\n      \"quality\": {\"status\": \"pass\", \"note\": \"real SigLIP provider: visual page/region recall and nDCG@10 = 1.0 on Text, Table, Chart, Figure, Formula across both runs; text-layout baseline recall = 0 on those classes; ScannedPage visual recall varied 0-1.0 between runs (borderline ranking)\"},\n      \"resource\": {\"status\": \"warning\", \"note\": \"visual-route latency 86-161ms straddles the 160ms budget between runs, so near-budget classes flip resource_safe; memory delta and disk within budgets\"},\n      \"security\": {\"status\": \"pass\", \"note\": \"no privacy or security violations across 12 real-provider observations; both providers local and no-retention\"},\n      \"privacy\": {\"status\": \"pass\"}\n    },\n    \"degradations\": [\n      {\"area\": \"visual-route-latency\", \"description\": \"Visual-route latency straddles the 160ms class budget between runs, so promotion is per-run: winning classes were {Text, Table, Chart, Figure, Formula} and {Table, Chart, Figure, ScannedPage} across two runs. Classes without a per-run measured win stay shadowed.\"}\n    ]\n  },\n  \"post_release_work\": [\n    {\"group\": \"maintenance/release\", \"description\": \"Re-run the visual evaluation with readable RAPL energy counters so energy_millijoules carries a measured value instead of a recorded unavailable zero.\"},\n    {\"group\": \"retrieval\", \"description\": \"Evaluate a stronger page-level visual model for the ScannedPage class; its visual route stays shadowed on the OCR text-layout baseline at recall 0.\"}\n  ]\n}\n```"
     },
     {
-      "milestone": "v0.9 — Advanced Retrieval Research",
+      "milestone": "v0.9 \u2014 Advanced Retrieval Research",
       "release_stage": "planned",
       "closure": "open",
-      "summary": "Research issues #90–#95 remain open; benchmark-gated research is planned, not implementation-complete",
+      "summary": "Research issues #90\u2013#95 remain open; benchmark-gated research is planned, not implementation-complete",
       "published_release": null,
       "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"planned\"\n}\n```"
     }

@@ -203,8 +203,8 @@
     },
     {
       "milestone": "v0.8 \u2014 Visual Document Retrieval",
-      "release_stage": "implementation-complete",
-      "data_fidelity": "mixed",
+      "release_stage": "benchmark-complete",
+      "data_fidelity": "real",
       "corpus": {
         "id": "visual-retrieval-benchmark-v1",
         "snapshot": "sha256:4f3ce6b10bcebfbf4442acdf2715f1ea3a1aad549096f25f4f6ccc8e721253e0",
@@ -259,6 +259,10 @@
         {
           "kind": "visual",
           "path": "target/benchmark-reports/visual-provider-unavailable.json"
+        },
+        {
+          "kind": "visual-provider",
+          "path": "target/benchmark-reports/visual-provider-real.json"
         }
       ]
     },

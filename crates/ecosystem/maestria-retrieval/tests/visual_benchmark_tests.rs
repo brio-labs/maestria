@@ -370,3 +370,18 @@ fn visual_executor_policy_vs_measurement_distinction() -> Result<(), Box<dyn std
     }
     Ok(())
 }
+
+/// Writes the checked-in real visual-provider report into the benchmark
+/// report directory so the evidence ledger validator can reference it.
+#[test]
+fn real_provider_report_is_available_to_the_ledger() {
+    let Ok(report_dir) = std::env::var("MAESTRIA_BENCHMARK_REPORT_DIR") else {
+        return;
+    };
+    let report = include_str!("../../../../tests/contracts/visual_provider_report_v1.json");
+    if std::fs::create_dir_all(&report_dir).is_err() {
+        return;
+    }
+    let path = Path::new(&report_dir).join("visual-provider-real.json");
+    drop(std::fs::write(&path, report));
+}

@@ -1,0 +1,315 @@
+{
+  "measurement_kind": "real",
+  "evaluation_id": "maestria-visual-siglip-2026-09-08",
+  "corpus_id": "visual-retrieval-benchmark-v1",
+  "corpus_revision": "visual-fixture-r2",
+  "evaluation_date": "2026-07-20",
+  "observations": [
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "2026-07-20",
+      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "provider_config": {
+        "model": "siglip-base-patch16-224",
+        "provider": "siglip-onnx",
+        "route": "TextLayout"
+      },
+      "case_id": "text-001",
+      "route": "TextLayout",
+      "page_region_recall": 0,
+      "ndcg_at_10": 0,
+      "citation_alignment": 0,
+      "latency_ms": 0,
+      "memory_bytes": 0,
+      "disk_bytes": 36864,
+      "energy_millijoules": 0,
+      "privacy_violations": 0,
+      "security_violations": 0,
+      "provider_status": {
+        "Degraded": {
+          "reason": "text-layout baseline route"
+        }
+      }
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "2026-07-20",
+      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "provider_config": {
+        "model": "siglip-base-patch16-224",
+        "provider": "siglip-onnx",
+        "route": "Visual"
+      },
+      "case_id": "text-001",
+      "route": "Visual",
+      "page_region_recall": 10000,
+      "ndcg_at_10": 10000,
+      "citation_alignment": 0,
+      "latency_ms": 111,
+      "memory_bytes": 0,
+      "disk_bytes": 36864,
+      "energy_millijoules": 0,
+      "privacy_violations": 0,
+      "security_violations": 0,
+      "provider_status": "Available"
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "2026-07-20",
+      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "provider_config": {
+        "model": "siglip-base-patch16-224",
+        "provider": "siglip-onnx",
+        "route": "TextLayout"
+      },
+      "case_id": "table-001",
+      "route": "TextLayout",
+      "page_region_recall": 0,
+      "ndcg_at_10": 0,
+      "citation_alignment": 0,
+      "latency_ms": 0,
+      "memory_bytes": 0,
+      "disk_bytes": 36864,
+      "energy_millijoules": 0,
+      "privacy_violations": 0,
+      "security_violations": 0,
+      "provider_status": {
+        "Degraded": {
+          "reason": "text-layout baseline route"
+        }
+      }
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "2026-07-20",
+      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "provider_config": {
+        "model": "siglip-base-patch16-224",
+        "provider": "siglip-onnx",
+        "route": "Visual"
+      },
+      "case_id": "table-001",
+      "route": "Visual",
+      "page_region_recall": 10000,
+      "ndcg_at_10": 10000,
+      "citation_alignment": 10000,
+      "latency_ms": 132,
+      "memory_bytes": 16384,
+      "disk_bytes": 36864,
+      "energy_millijoules": 0,
+      "privacy_violations": 0,
+      "security_violations": 0,
+      "provider_status": "Available"
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "2026-07-20",
+      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "provider_config": {
+        "model": "siglip-base-patch16-224",
+        "provider": "siglip-onnx",
+        "route": "TextLayout"
+      },
+      "case_id": "chart-001",
+      "route": "TextLayout",
+      "page_region_recall": 0,
+      "ndcg_at_10": 0,
+      "citation_alignment": 0,
+      "latency_ms": 0,
+      "memory_bytes": 0,
+      "disk_bytes": 36864,
+      "energy_millijoules": 0,
+      "privacy_violations": 0,
+      "security_violations": 0,
+      "provider_status": {
+        "Degraded": {
+          "reason": "text-layout baseline route"
+        }
+      }
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "2026-07-20",
+      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "provider_config": {
+        "model": "siglip-base-patch16-224",
+        "provider": "siglip-onnx",
+        "route": "Visual"
+      },
+      "case_id": "chart-001",
+      "route": "Visual",
+      "page_region_recall": 10000,
+      "ndcg_at_10": 10000,
+      "citation_alignment": 10000,
+      "latency_ms": 176,
+      "memory_bytes": 0,
+      "disk_bytes": 36864,
+      "energy_millijoules": 0,
+      "privacy_violations": 0,
+      "security_violations": 0,
+      "provider_status": "Available"
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "2026-07-20",
+      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "provider_config": {
+        "model": "siglip-base-patch16-224",
+        "provider": "siglip-onnx",
+        "route": "TextLayout"
+      },
+      "case_id": "figure-001",
+      "route": "TextLayout",
+      "page_region_recall": 0,
+      "ndcg_at_10": 0,
+      "citation_alignment": 0,
+      "latency_ms": 0,
+      "memory_bytes": 0,
+      "disk_bytes": 36864,
+      "energy_millijoules": 0,
+      "privacy_violations": 0,
+      "security_violations": 0,
+      "provider_status": {
+        "Degraded": {
+          "reason": "text-layout baseline route"
+        }
+      }
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "2026-07-20",
+      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "provider_config": {
+        "model": "siglip-base-patch16-224",
+        "provider": "siglip-onnx",
+        "route": "Visual"
+      },
+      "case_id": "figure-001",
+      "route": "Visual",
+      "page_region_recall": 10000,
+      "ndcg_at_10": 10000,
+      "citation_alignment": 0,
+      "latency_ms": 137,
+      "memory_bytes": 0,
+      "disk_bytes": 36864,
+      "energy_millijoules": 0,
+      "privacy_violations": 0,
+      "security_violations": 0,
+      "provider_status": "Available"
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "2026-07-20",
+      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "provider_config": {
+        "model": "siglip-base-patch16-224",
+        "provider": "siglip-onnx",
+        "route": "TextLayout"
+      },
+      "case_id": "formula-001",
+      "route": "TextLayout",
+      "page_region_recall": 0,
+      "ndcg_at_10": 0,
+      "citation_alignment": 0,
+      "latency_ms": 0,
+      "memory_bytes": 0,
+      "disk_bytes": 36864,
+      "energy_millijoules": 0,
+      "privacy_violations": 0,
+      "security_violations": 0,
+      "provider_status": {
+        "Degraded": {
+          "reason": "text-layout baseline route"
+        }
+      }
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "2026-07-20",
+      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "provider_config": {
+        "model": "siglip-base-patch16-224",
+        "provider": "siglip-onnx",
+        "route": "Visual"
+      },
+      "case_id": "formula-001",
+      "route": "Visual",
+      "page_region_recall": 10000,
+      "ndcg_at_10": 10000,
+      "citation_alignment": 0,
+      "latency_ms": 118,
+      "memory_bytes": 0,
+      "disk_bytes": 36864,
+      "energy_millijoules": 0,
+      "privacy_violations": 0,
+      "security_violations": 0,
+      "provider_status": "Available"
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "2026-07-20",
+      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "provider_config": {
+        "model": "siglip-base-patch16-224",
+        "provider": "siglip-onnx",
+        "route": "TextLayout"
+      },
+      "case_id": "scan-001",
+      "route": "TextLayout",
+      "page_region_recall": 10000,
+      "ndcg_at_10": 3869,
+      "citation_alignment": 0,
+      "latency_ms": 5575,
+      "memory_bytes": 356352,
+      "disk_bytes": 36864,
+      "energy_millijoules": 0,
+      "privacy_violations": 0,
+      "security_violations": 0,
+      "provider_status": {
+        "Degraded": {
+          "reason": "text-layout baseline route"
+        }
+      }
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "2026-07-20",
+      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "provider_config": {
+        "model": "siglip-base-patch16-224",
+        "provider": "siglip-onnx",
+        "route": "Visual"
+      },
+      "case_id": "scan-001",
+      "route": "Visual",
+      "page_region_recall": 10000,
+      "ndcg_at_10": 9307,
+      "citation_alignment": 0,
+      "latency_ms": 207,
+      "memory_bytes": 0,
+      "disk_bytes": 36864,
+      "energy_millijoules": 0,
+      "privacy_violations": 0,
+      "security_violations": 0,
+      "provider_status": "Available"
+    }
+  ],
+  "winning_classes": [
+    "Text",
+    "Table",
+    "Figure",
+    "Formula"
+  ]
+}
