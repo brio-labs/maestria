@@ -23,7 +23,9 @@ TEXT_LENGTH = 64
 class VisualEngine(Protocol):
     def embed_text(self, text: str) -> list[float]: ...
 
-    def embed_image(self, image_bytes: bytes) -> list[float]: ...
+    def embed_image(
+        self, image: tuple[bytes, tuple[int, int, int, int] | None]
+    ) -> list[float]: ...
 
 
 def decode_data_url(value: str) -> bytes:
@@ -36,18 +38,34 @@ def decode_data_url(value: str) -> bytes:
         raise ValueError("visual bytes data URL is not valid base64") from error
 
 
-def input_from_request(payload: dict[str, Any]) -> tuple[str, bytes | None]:
+def input_from_request(
+    payload: dict[str, Any],
+) -> tuple[str, tuple[bytes, tuple[int, int, int, int] | None] | None]:
     value = payload.get("input")
     if isinstance(value, str):
         if not value.strip():
             raise ValueError("visual text input must not be empty")
         return value, None
-    if not isinstance(value, dict) or value.get("kind") != "visual_source":
-        raise ValueError("visual input must be text or a visual_source object")
+    if not isinstance(value, dict) or "bytes" not in value:
+        raise ValueError("visual input must be text or a visual source object")
     encoded = value.get("bytes")
     if not isinstance(encoded, str):
-        raise ValueError("visual_source must contain bytes")
-    return "", decode_data_url(encoded)
+        raise ValueError("visual source must contain bytes")
+    source = value.get("source") or {}
+    if not isinstance(source, dict):
+        raise ValueError("visual source description must be an object")
+    region: tuple[int, int, int, int] | None = None
+    if source.get("kind") == "region":
+        try:
+            region = (
+                int(source["x"]),
+                int(source["y"]),
+                int(source["width"]),
+                int(source["height"]),
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("visual region source is incomplete") from error
+    return "", (decode_data_url(encoded), region)
 
 
 def vector_response(model: str, vector: list[float]) -> bytes:
@@ -62,10 +80,10 @@ def vector_response(model: str, vector: list[float]) -> bytes:
 
 
 def run_embedding(engine: VisualEngine, payload: dict[str, Any]) -> list[float]:
-    text, image_bytes = input_from_request(payload)
-    if image_bytes is None:
+    text, image = input_from_request(payload)
+    if image is None:
         return engine.embed_text(text)
-    return engine.embed_image(image_bytes)
+    return engine.embed_image(image)
 
 
 class SiglipOnnxEngine:
@@ -80,6 +98,7 @@ class SiglipOnnxEngine:
         self._tokenizer = Tokenizer.from_file(tokenizer_path)
         vocab = self._tokenizer.get_vocab()
         self._pad_id = vocab.get("<pad>", 0)
+        self._text_inputs = {item.name for item in self._text.get_inputs()}
 
     def embed_text(self, text: str) -> list[float]:
         encoding = self._tokenizer.encode(text)
@@ -87,21 +106,32 @@ class SiglipOnnxEngine:
         mask = [1] * len(ids)
         ids.extend([self._pad_id] * (TEXT_LENGTH - len(ids)))
         mask.extend([0] * (TEXT_LENGTH - len(mask)))
-        inputs = {
+        candidates = {
             "input_ids": self._np.asarray([ids], dtype=self._np.int64),
             "attention_mask": self._np.asarray([mask], dtype=self._np.int64),
         }
-        return self._normalise(self._text.run(None, inputs)[0][0])
+        inputs = {name: value for name, value in candidates.items() if name in self._text_inputs}
+        return self._normalise(self._text.run(["pooler_output"], inputs)[0][0])
 
-    def embed_image(self, image_bytes: bytes) -> list[float]:
+    def embed_image(
+        self, image: tuple[bytes, tuple[int, int, int, int] | None]
+    ) -> list[float]:
         from PIL import Image
 
-        with Image.open(BytesIO(image_bytes)) as image:
-            rgb = image.convert("RGB").resize((IMAGE_SIZE, IMAGE_SIZE), Image.Resampling.BICUBIC)
+        image_bytes, region = image
+        with Image.open(BytesIO(image_bytes)) as decoded:
+            if region is not None:
+                x, y, width, height = region
+                decoded = decoded.crop((x, y, x + width, y + height))
+            rgb = decoded.convert("RGB").resize(
+                (IMAGE_SIZE, IMAGE_SIZE), Image.Resampling.BICUBIC
+            )
         pixels = self._np.asarray(rgb, dtype=self._np.float32) / 255.0
         pixels = (pixels - 0.5) / 0.5
         pixels = self._np.transpose(pixels, (2, 0, 1))[None, ...]
-        return self._normalise(self._vision.run(None, {"pixel_values": pixels})[0][0])
+        return self._normalise(
+            self._vision.run(["pooler_output"], {"pixel_values": pixels})[0][0]
+        )
 
     def _normalise(self, vector: Any) -> list[float]:
         values = self._np.asarray(vector, dtype=self._np.float32).reshape(-1)

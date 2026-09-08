@@ -39,5 +39,7 @@ getrandom = { workspace = true }
 ignore = { workspace = true }
 parking_lot = "0.12"
 [dev-dependencies]
+maestria-adapter-http = { workspace = true }
+maestria-visual-local = { workspace = true }
 maestria-ports = { workspace = true, features = ["contract-tests"] }
 maestria-test-support = { workspace = true }

@@ -22,8 +22,11 @@ class FixtureEngine:
     def embed_text(self, text: str) -> list[float]:
         return [float(len(text))]
 
-    def embed_image(self, image_bytes: bytes) -> list[float]:
-        return [float(len(image_bytes))]
+    def embed_image(
+        self, image: tuple[bytes, tuple[int, int, int, int] | None]
+    ) -> list[float]:
+        image_bytes, region = image
+        return [float(len(image_bytes)) + (sum(region) if region else 0.0)]
 
 
 class SiglipVisualProtocolTests(unittest.TestCase):
@@ -40,9 +43,31 @@ class SiglipVisualProtocolTests(unittest.TestCase):
         encoded = base64.b64encode(b"page").decode("ascii")
         self.assertEqual(
             input_from_request(
-                {"input": {"kind": "visual_source", "bytes": f"data:application/octet-stream;base64,{encoded}"}}
+                {"input": {"source": {"kind": "page", "blob": "b", "page_start": 1, "page_end": 1}, "bytes": f"data:application/octet-stream;base64,{encoded}"}}
             ),
-            ("", b"page"),
+            ("", (b"page", None)),
+        )
+
+    def test_region_source_carries_crop_rectangle(self) -> None:
+        encoded = base64.b64encode(b"page").decode("ascii")
+        self.assertEqual(
+            input_from_request(
+                {
+                    "input": {
+                        "source": {
+                            "kind": "region",
+                            "blob": "b",
+                            "page": 1,
+                            "x": 100,
+                            "y": 220,
+                            "width": 900,
+                            "height": 300,
+                        },
+                        "bytes": f"data:image/png;base64,{encoded}",
+                    }
+                }
+            ),
+            ("", (b"page", (100, 220, 900, 300))),
         )
 
     def test_dispatches_each_input_to_the_engine(self) -> None:
@@ -52,7 +77,7 @@ class SiglipVisualProtocolTests(unittest.TestCase):
         self.assertEqual(
             run_embedding(
                 engine,
-                {"input": {"kind": "visual_source", "bytes": f"data:image/png;base64,{encoded}"}},
+                {"input": {"source": {"kind": "page", "blob": "b"}, "bytes": f"data:image/png;base64,{encoded}"}},
             ),
             [4.0],
         )
