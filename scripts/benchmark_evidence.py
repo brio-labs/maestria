@@ -271,6 +271,13 @@ def errors_for_report(
             errors.append(f"{path}: visual report must state provider_status=unavailable")
         if not isinstance(report.get("observations"), list) or not report["observations"]:
             errors.append(f"{path}: observations must be non-empty")
+    elif kind == "visual-provider":
+        for key in ("measurement_kind", "evaluation_date", "corpus_id", "corpus_revision"):
+            if not str(report.get(key, "")).strip():
+                errors.append(f"{path}: missing {key}")
+        observations = report.get("observations")
+        if not isinstance(observations, list) or not observations:
+            errors.append(f"{path}: observations must be non-empty")
     elif kind == "learned-sparse":
         for key in (
             "measurement_kind",

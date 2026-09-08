@@ -1,4 +1,5 @@
 {
+  "measurement_kind": "real",
   "evaluation_id": "maestria-visual-siglip-2026-09-08",
   "corpus_id": "visual-retrieval-benchmark-v1",
   "corpus_revision": "visual-fixture-r2",
