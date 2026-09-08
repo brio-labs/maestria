@@ -60,7 +60,7 @@
 # ── Philosophy (project doctrine, reasoning guardrails) ─────────────────────
 /docs/PHILOSOPHY.md                                                            @carabistouflette
 /scripts/philosophy-check.py                                                   @carabistouflette
-/scripts/test_philosophy_check.py                                              @carabistouflette
+/scripts/philosophy_check/                                                    @carabistouflette
 
 # ── Release workflow (contract, exit evidence, versioning) ──────────────────
 /scripts/release-contract.sh                                                   @carabistouflette
