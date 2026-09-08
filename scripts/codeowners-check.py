@@ -55,10 +55,6 @@ REQUIRED_OWNERSHIP_PATHS: set[str] = {
     "/docs/adr/",
     "/scripts/philosophy-check.py",
     # ── Release workflow ───────────────────────────────────────
-    "/scripts/release-contract.sh",
-    "/scripts/release_exit_evidence.py",
-    "/scripts/version.py",
-    ".github/workflows/release.yml",
     # ── Security ───────────────────────────────────────────────
     "/deny.toml",
     "/scripts/strict-clippy.sh",

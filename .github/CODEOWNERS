@@ -63,12 +63,6 @@
 /scripts/philosophy_check/                                                    @carabistouflette
 
 # ── Release workflow (contract, exit evidence, versioning) ──────────────────
-/scripts/release-contract.sh                                                   @carabistouflette
-/scripts/release_exit_evidence.py                                              @carabistouflette
-/scripts/test_release_exit_evidence.py                                         @carabistouflette
-/scripts/version.py                                                            @carabistouflette
-/scripts/test_version.py                                                       @carabistouflette
-.github/workflows/release.yml                                                  @carabistouflette
 
 # ── Security & dependency hygiene ───────────────────────────────────────────
 /deny.toml                                                                     @carabistouflette

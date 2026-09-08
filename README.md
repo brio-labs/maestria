@@ -18,64 +18,10 @@ cargo build --release -p maestria-cli
 ./target/release/maestria-cli --help
 ```
 
-The GitHub release also provides a prebuilt Linux x86_64 archive containing
-the user-facing `maestria` CLI and `maestriad` daemon binaries.
+Maestria has no releases: the workspace version is pinned at `0.0.0` and
+`main` is always the current build. Build the CLI and daemon from source.
 
 
-## Release development
-
-The workspace version is defined once in `[workspace.package]` in the root
-`Cargo.toml`. Package manifests inherit it, and runtime version constants derive
-from `CARGO_PKG_VERSION`.
-
-To prepare a version change:
-
-```bash
-python3 scripts/version.py set 0.6.2
-python3 scripts/version.py check --expected 0.6.2
-```
-
-The `set` command validates the repository contract and refreshes `Cargo.lock`
-through Cargo metadata. Release publication now requires a milestone exit-evidence report
-in the milestone description as part of workflow preflight:
-
-*   `planned`: the milestone is specified but implementation issues remain open;
-*   `implementation-complete`: all implementation issues are closed;
-*   `benchmark-complete`: version-linked benchmark measurements are collected (synthetic is allowed but treated as provisional);
-*   `product-complete`: real measurements include corpus/index/model fingerprints, quality/resource/security results, and degradations;
-*   `released`: artifacts are published and follow-up work is explicitly listed in `post_release_work`.
-    *   If synthetic or staged evidence remains pending, follow-up entries should target `maintenance/release` grouping when that grouping exists.
-
-```release-exit-evidence
-{
-  "schema_version": 1,
-  "release_stage": "product-complete",
-  "benchmark": {
-    "benchmark_date": "2026-07-19",
-    "data_fidelity": "real",
-    "fingerprints": {
-      "corpus_snapshot": "corpus-v1",
-      "index_generation": "idx-42",
-      "model_fingerprint": "provider:rerank-v3"
-    },
-    "results": {
-      "quality": {"status": "pass", "metric": "p50=0.74"},
-      "resource": {"status": "pass", "p95_ms": 120},
-      "security": {"status": "pass", "violations": 0}
-    },
-    "degradations": [
-      {
-        "area": "query_class",
-        "status": "known",
-        "note": "table evidence is incomplete on scanned PDFs"
-      }
-    ]
-  },
-  "post_release_work": []
-}
-```
-
-The workflow must also enforce closed milestones and closed milestone issues.
 ## Quick start
 
 ```bash
@@ -334,18 +280,12 @@ they do not bypass scope or validation.
 
 Stable local indexing, lexical search, evidence opening, daemon projections,
 task validation, approvals, and evidence-backed memory candidates are shipped
-with the current `0.6.1` binary. Repository/code and visual-document features
+in the current build. Repository/code and visual-document features
 are implemented but remain release-visible capability surfaces with explicit
 freshness/provider degradation. Advanced dense, learned-sparse,
 late-interaction, graph/temporal, and multimodal promotions are
 benchmark-gated: unavailable or unproven routes abstain or use a bounded
 local fallback, and research candidates are not silently promoted.
-
-The current workspace version and latest published release are independent
-facts: `Cargo.toml` is the source for the next binary version, while
-`v0.6.1` is the latest published release at the time of this documentation.
-Release preflight requires version-linked exit evidence; closed issues alone do
-not make a milestone released.
 
 ## Command reference
 
@@ -765,9 +705,16 @@ where it left off without data loss or duplicate work.
 ## Development
 
 ```bash
-# Complete local gate: metadata, format, compile, lint, tests,
-# release contract, docs, dependency, philosophy, and script checks.
-bash scripts/verify-workspace.sh
+# Complete local gate: format, compile, lint, tests, docs,
+# dependency, philosophy, and script checks.
+cargo fmt --all -- --check
+./scripts/strict-clippy.sh
+cargo test --workspace --all-targets --all-features
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
+python3 scripts/philosophy-check.py
+python3 scripts/codeowners-check.py
+python3 scripts/doc-consistency-check.py
+python3 -m unittest discover -s scripts -p 'test_*.py'
 ```
 
 Focused helpers remain available:

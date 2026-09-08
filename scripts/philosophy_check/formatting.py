@@ -13,12 +13,11 @@ from .shared import (
     _scrubbed_source,
     is_test_source,
     logical_line_count,
-    parse_release_version,
     production_rust,
     read_text,
-    workspace_version,
 )
 from . import contract_tests
+import datetime
 import re
 
 MAX_PRODUCTION_LINE_WIDTH = 100
@@ -45,15 +44,12 @@ MIXED_RESPONSIBILITY_EXEMPTIONS: dict[str, str] = {}
 ADR_MODULE_EXEMPTIONS: dict[str, str] = {}
 
 
-def scan_exemption_expiry(current_version: str | None = None) -> list[str]:
-    current_text = current_version or workspace_version()
-    if current_text is None:
-        return ["workspace Cargo.toml has no parseable [workspace.package] version"]
-    current = parse_release_version(current_text)
-    if current is None:
-        return [
-            f"workspace version {current_text!r} is not a supported release version"
-        ]
+def scan_exemption_expiry(today: str | None = None) -> list[str]:
+    current_text = today or datetime.date.today().isoformat()
+    try:
+        current = datetime.date.fromisoformat(current_text)
+    except ValueError:
+        return [f"exemption scan date {current_text!r} is not a ISO calendar date"]
 
     violations: list[str] = []
     exemptions: dict[str, str] = {
@@ -65,18 +61,22 @@ def scan_exemption_expiry(current_version: str | None = None) -> list[str]:
         for item, target_text in items.items():
             exemptions[f"{path}::{item}"] = target_text
     for path, target_text in sorted(exemptions.items()):
-        target = parse_release_version(target_text)
-        if target is None:
+        try:
+            target = datetime.date.fromisoformat(target_text)
+        except ValueError:
             violations.append(
-                f"{path} has malformed exemption expiry {target_text!r}"
+                f"{path} has malformed exemption expiry {target_text!r} "
+                "(expected a YYYY-MM-DD calendar date)"
             )
-        elif current >= target:
+            continue
+        if current >= target:
             violations.append(
                 f"{path} exemption expired at {target_text} "
-                f"(workspace version {current_text}); refactor or renew the ADR"
+                "(today is {today}); refactor or renew the ADR".format(
+                    today=current.isoformat()
+                )
             )
     return violations
-
 
 def scan_module_sizes() -> list[str]:
     violations = []
