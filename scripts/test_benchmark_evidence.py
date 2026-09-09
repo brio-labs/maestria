@@ -22,24 +22,12 @@ class BenchmarkEvidenceManifestTests(unittest.TestCase):
 
     def test_source_hash_drift_is_rejected(self) -> None:
         payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        payload["milestones"][0]["corpus"]["source_hash"] = "0" * 64
+        payload["benchmarks"][0]["corpus"]["source_hash"] = "0" * 64
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "manifest.json"
             path.write_text(json.dumps(payload), encoding="utf-8")
             errors = EVIDENCE.errors_for_manifest(path)
         self.assertTrue(any("source_hash" in error for error in errors))
-
-    def test_product_stage_requires_real_passing_measurements(self) -> None:
-        payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        entry = payload["milestones"][0]
-        entry["release_stage"] = "product-complete"
-        entry["data_fidelity"] = "mixed"
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "manifest.json"
-            path.write_text(json.dumps(payload), encoding="utf-8")
-            errors = EVIDENCE.errors_for_manifest(path)
-        self.assertTrue(any("product stages require real" in error for error in errors))
-        self.assertTrue(any("product stages require passing" in error for error in errors))
 
     def test_repository_report_contract_rejects_missing_measurement_status(self) -> None:
         report = {

@@ -1,6 +1,7 @@
 # Changelog
 
-All notable Maestria releases are documented here.
+Rolling development log. Maestria has no releases: the workspace version is
+pinned at `0.0.0` and `main` is always the current build.
 
 ## [Unreleased]
 

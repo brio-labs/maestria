@@ -10,13 +10,6 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-ALLOWED_STAGES = {
-    "planned",
-    "implementation-complete",
-    "benchmark-complete",
-    "product-complete",
-    "released",
-}
 ALLOWED_FIDELITY = {"real", "synthetic", "mixed", "staged"}
 ALLOWED_STATUS = {"pass", "warning", "fail", "pending", "n/a"}
 REQUIRED_MILESTONES = (
@@ -48,22 +41,18 @@ def errors_for_manifest(path: Path) -> list[str]:
     if not isinstance(payload.get("measurement_policy"), dict):
         errors.append("measurement_policy must be an object")
 
-    entries = payload.get("milestones")
+    entries = payload.get("benchmarks")
     if not isinstance(entries, list):
-        return errors + ["milestones must be a list"]
-    observed = [entry.get("milestone") for entry in entries if isinstance(entry, dict)]
-    if tuple(observed) != REQUIRED_MILESTONES:
-        errors.append(f"milestones must be exactly {REQUIRED_MILESTONES!r}")
+        return errors + ["benchmarks must be a list"]
 
     for index, entry in enumerate(entries):
-        prefix = f"milestones[{index}]"
+        prefix = f"benchmarks[{index}]"
         if not isinstance(entry, dict):
             errors.append(f"{prefix} must be an object")
             continue
-        stage = entry.get("release_stage")
+        if not str(entry.get("benchmark", "")).strip():
+            errors.append(f"{prefix}.benchmark must be a non-empty name")
         fidelity = entry.get("data_fidelity")
-        if stage not in ALLOWED_STAGES:
-            errors.append(f"{prefix}.release_stage is invalid: {stage!r}")
         if fidelity not in ALLOWED_FIDELITY:
             errors.append(f"{prefix}.data_fidelity is invalid: {fidelity!r}")
 
@@ -136,17 +125,6 @@ def errors_for_manifest(path: Path) -> list[str]:
             for report_index, report in enumerate(reports):
                 if not isinstance(report, dict) or not report.get("kind") or not report.get("path"):
                     errors.append(f"{prefix}.reports[{report_index}] needs kind and path")
-
-        if stage in {"product-complete", "released"}:
-            if fidelity != "real":
-                errors.append(f"{prefix}: product stages require real data_fidelity")
-            result_map = results if isinstance(results, dict) else {}
-            if any(
-                not isinstance(result_map.get(key), dict)
-                or result_map[key].get("status") != "pass"
-                for key in REQUIRED_RESULT_KEYS
-            ):
-                errors.append(f"{prefix}: product stages require passing results")
 
     return errors
 
@@ -380,7 +358,7 @@ def validate(manifest: Path, report_root: Path | None) -> int:
             payload = json.loads(manifest.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             payload = {}
-        for entry in payload.get("milestones", []):
+        for entry in payload.get("benchmarks", []):
             if not isinstance(entry, dict):
                 continue
             for report in entry.get("reports", []):

@@ -47,30 +47,6 @@ SKIP_DIRS = {".git", "target", "node_modules", "dist", ".direnv", ".venv"}
 SKIP_FILES = set()
 
 
-VERSION_PATTERN = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$")
-
-
-def parse_release_version(value: str) -> tuple[int, int, int] | None:
-    match = VERSION_PATTERN.fullmatch(value.strip())
-    if match is None:
-        return None
-    return tuple(int(part) for part in match.groups())
-
-
-def workspace_version() -> str | None:
-    manifest = read_text(ROOT / "Cargo.toml")
-    if manifest is None:
-        return None
-    workspace_match = re.search(
-        r"(?ms)^\[workspace\.package\]\s*(.*?)(?=^\[|\Z)",
-        manifest,
-    )
-    if workspace_match is None:
-        return None
-    version_match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', workspace_match.group(1))
-    return version_match.group(1) if version_match else None
-
-
 def should_skip(path: Path) -> bool:
     rel = path.relative_to(ROOT)
     rel_parts = set(rel.parts)

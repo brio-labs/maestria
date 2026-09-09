@@ -54,14 +54,14 @@ class FormattingTests(PhilosophyCheckFixture):
         old_mixed = formatting.MIXED_RESPONSIBILITY_EXEMPTIONS
         try:
             formatting.MODULE_SIZE_EXEMPTIONS = {
-                "crates/example/src/large.rs": "v0.7.0",
+                "crates/example/src/large.rs": "2026-12-31",
             }
             formatting.ADR_MODULE_EXEMPTIONS = {}
             formatting.FUNCTION_SIZE_EXEMPTIONS = {}
             formatting.MIXED_RESPONSIBILITY_EXEMPTIONS = {}
-            self.assertEqual(formatting.scan_exemption_expiry("0.6.1"), [])
-            self.assertEqual(len(formatting.scan_exemption_expiry("0.7.0")), 1)
-            self.assertEqual(len(formatting.scan_exemption_expiry("0.8.0")), 1)
+            self.assertEqual(formatting.scan_exemption_expiry("2026-06-01"), [])
+            self.assertEqual(len(formatting.scan_exemption_expiry("2026-12-31")), 1)
+            self.assertEqual(len(formatting.scan_exemption_expiry("2027-01-01")), 1)
         finally:
             formatting.MODULE_SIZE_EXEMPTIONS = old_module
             formatting.ADR_MODULE_EXEMPTIONS = old_adr
@@ -75,12 +75,12 @@ class FormattingTests(PhilosophyCheckFixture):
         old_mixed = formatting.MIXED_RESPONSIBILITY_EXEMPTIONS
         try:
             formatting.MODULE_SIZE_EXEMPTIONS = {
-                "crates/example/src/large.rs": "v0.7",
+                "crates/example/src/large.rs": "2026-07",
             }
             formatting.ADR_MODULE_EXEMPTIONS = {}
             formatting.FUNCTION_SIZE_EXEMPTIONS = {}
             formatting.MIXED_RESPONSIBILITY_EXEMPTIONS = {}
-            violations = formatting.scan_exemption_expiry("0.6.1")
+            violations = formatting.scan_exemption_expiry("2026-06-01")
             self.assertEqual(len(violations), 1)
             self.assertIn("malformed", violations[0])
         finally:
@@ -270,14 +270,14 @@ class FormattingTests(PhilosophyCheckFixture):
         old_mixed = formatting.MIXED_RESPONSIBILITY_EXEMPTIONS
         try:
             formatting.FUNCTION_SIZE_EXEMPTIONS = {
-                "crates/example/src/large_fn.rs": {"large": "v0.6.0"},
+                "crates/example/src/large_fn.rs": {"large": "2026-06-01"},
             }
             formatting.MIXED_RESPONSIBILITY_EXEMPTIONS = {
-                "crates/example/src/mixed.rs": "v0.6.0",
+                "crates/example/src/mixed.rs": "2026-06-01",
             }
             formatting.MODULE_SIZE_EXEMPTIONS = {}
             formatting.ADR_MODULE_EXEMPTIONS = {}
-            violations = formatting.scan_exemption_expiry("0.7.0")
+            violations = formatting.scan_exemption_expiry("2026-07-01")
             self.assertEqual(len(violations), 2)
             paths = {v.split()[0] for v in violations}
             self.assertEqual(

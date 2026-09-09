@@ -21,7 +21,9 @@ The repository is opinionated: keep the domain pure, keep side effects explicit,
 
 ## 2) PR checklist
 
-- [ ] `bash scripts/verify-workspace.sh`
+- [ ] `cargo fmt --all -- --check`
+- [ ] `./scripts/strict-clippy.sh`
+- [ ] `python3 scripts/philosophy-check.py`
 - [ ] Required conventional commit format in all commit subjects
 
 The helper is the local aggregate; CI keeps the same checks split into

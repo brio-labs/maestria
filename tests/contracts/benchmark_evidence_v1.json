@@ -23,10 +23,8 @@
     ],
     "unavailable_measurements": "must be marked n/a or warning with a degradation; zero is never inferred as a measurement"
   },
-  "milestones": [
+  "benchmarks": [
     {
-      "milestone": "v0.4 \u2014 Deterministic Search Baseline",
-      "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
         "id": "maestria-document-snapshot-v1",
@@ -38,7 +36,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "84fa4da23d5b7096ab93478f7d83e3d397931ad192005dcc525009c5d678b909"
+        "source_hash": "101b678ed69295f98b0425627b0953832387d5d73517c887ab3449067da74db7"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -79,11 +77,10 @@
           "kind": "golden",
           "path": "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         }
-      ]
+      ],
+      "benchmark": "v0.4 \u2014 Deterministic Search Baseline"
     },
     {
-      "milestone": "v0.5 \u2014 Evaluated Hybrid Retrieval",
-      "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
         "id": "maestria-document-snapshot-v1",
@@ -95,7 +92,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "84fa4da23d5b7096ab93478f7d83e3d397931ad192005dcc525009c5d678b909"
+        "source_hash": "101b678ed69295f98b0425627b0953832387d5d73517c887ab3449067da74db7"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -136,11 +133,10 @@
           "kind": "golden",
           "path": "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         }
-      ]
+      ],
+      "benchmark": "v0.5 \u2014 Evaluated Hybrid Retrieval"
     },
     {
-      "milestone": "v0.7 \u2014 Repository Intelligence",
-      "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
         "id": "rust-repository-frozen-v1",
@@ -199,11 +195,10 @@
           "kind": "build-latency",
           "path": "target/benchmark-reports/repository-build-latency.json"
         }
-      ]
+      ],
+      "benchmark": "v0.7 \u2014 Repository Intelligence"
     },
     {
-      "milestone": "v0.8 \u2014 Visual Document Retrieval",
-      "release_stage": "benchmark-complete",
       "data_fidelity": "real",
       "corpus": {
         "id": "visual-retrieval-benchmark-v1",
@@ -264,11 +259,10 @@
           "kind": "visual-provider",
           "path": "target/benchmark-reports/visual-provider-real.json"
         }
-      ]
+      ],
+      "benchmark": "v0.8 \u2014 Visual Document Retrieval"
     },
     {
-      "milestone": "v0.9 \u2014 Doc & Marker Search",
-      "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
         "id": "rust-repository-frozen-v1",
@@ -319,11 +313,10 @@
           "kind": "repository",
           "path": "target/benchmark-reports/repository-real.json"
         }
-      ]
+      ],
+      "benchmark": "v0.9 \u2014 Doc & Marker Search"
     },
     {
-      "milestone": "v1.0 \u2014 Python Repository Intelligence",
-      "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
         "id": "python-repository-frozen-v1",
@@ -382,11 +375,10 @@
           "kind": "repository",
           "path": "target/benchmark-reports/python-repository-real.json"
         }
-      ]
+      ],
+      "benchmark": "v1.0 \u2014 Python Repository Intelligence"
     },
     {
-      "milestone": "v1.1 \u2014 Web Repository Intelligence",
-      "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
         "id": "web-repository-frozen-v1",
@@ -446,11 +438,10 @@
           "kind": "repository",
           "path": "target/benchmark-reports/web-repository-real.json"
         }
-      ]
+      ],
+      "benchmark": "v1.1 \u2014 Web Repository Intelligence"
     },
     {
-      "milestone": "v1.2 \u2014 Learned-Sparse Four-Profile Evaluation",
-      "release_stage": "benchmark-complete",
       "data_fidelity": "real",
       "corpus": {
         "id": "maestria-learned-sparse-real-tasks-v1",
@@ -504,11 +495,10 @@
           "kind": "learned-sparse",
           "path": "tests/contracts/learned_sparse_report_v1.json"
         }
-      ]
+      ],
+      "benchmark": "v1.2 \u2014 Learned-Sparse Four-Profile Evaluation"
     },
     {
-      "milestone": "v1.3 \u2014 Dense-Lane Promotion (re-justified judgment set v2)",
-      "release_stage": "benchmark-complete",
       "data_fidelity": "real",
       "corpus": {
         "id": "maestria-learned-sparse-real-tasks-v1",
@@ -549,7 +539,8 @@
           "kind": "learned-sparse",
           "path": "tests/contracts/learned_sparse_report_v2.json"
         }
-      ]
+      ],
+      "benchmark": "v1.3 \u2014 Dense-Lane Promotion (re-justified judgment set v2)"
     }
   ]
 }

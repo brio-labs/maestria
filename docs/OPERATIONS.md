@@ -81,142 +81,19 @@ process or network watcher. Removed paths are retained in the watch-state
 tombstone map for explicit operational review rather than being silently
 forgotten.
 
-## 6. Release Operations
+## 6. Versioning Posture
 
-Releases follow a staged workflow gated by milestone exit evidence and CI verification.
+Maestria is in continuous development with no external consumers: there are
+no releases, no version ladder, and no milestone exit-evidence process.
 
-### 6.1 Milestone Exit Evidence
+- The workspace version is pinned at `0.0.0`; `main` is always the current
+  build.
+- Measurement evidence (benchmark reports) is recorded in
+  `tests/contracts/benchmark_evidence_v1.json` and validated in CI, but it
+  gates nothing and is tied to no milestone.
+- Lint-exemption expiries in `scripts/philosophy_check` are calendar dates
+  (`YYYY-MM-DD`), enforced by `philosophy-check` on every run.
 
-Every release milestone must carry a machine-readable exit-evidence block in its
-description. The block is a fenced code block (` ```release-exit-evidence`) containing
-a JSON payload that documents the release readiness stage.
-
-The milestone lifecycle starts at `planned` while implementation issues remain
-open, then advances through:
-
-1. **implementation-complete** — all issues closed, stage marker only.
-2. **benchmark-complete** — benchmark measurements collected, may use synthetic/staged data.
-3. **product-complete** — real benchmark data with passing quality/resource/security results.
-4. **released** — publication complete with `post_release_work` tracking.
-
-The `scripts/release_exit_evidence.py` script provides subcommands for all five
-states, including validation of planned milestones.
-
-| Subcommand | Purpose |
-|---|---|
-| `validate` | Validate a milestone description against contract rules |
-| `generate` | Print a well-formed exit-evidence block to stdout |
-| `reconcile` | Compare exit evidence against actual metrics |
-| `validate-tracking` | Verify post-release follow-up completeness |
-
-### 6.3 Release Workflow
-
-1. Close all milestone issues and mark the milestone description with the
-   appropriate `release_stage`.
-2. Dispatch the [`release.yml`](../.github/workflows/release.yml) workflow with
-   the target version, commit SHA, and milestone title.
-3. The workflow preflight validates:
-   - Milestone closure and all-issues-closed.
-   - **Release exit evidence** via the `validate` subcommand.
-   - CI run status for the target commit.
-4. Verification runs the full [release contract](../scripts/release-contract.sh):
-   tests, golden gate, lint, dependency checks, philosophy checks.
-5. Build produces deterministic release archives with SHA-256 checksums.
-6. Publish creates a tag and GitHub Release with generated release notes.
-
-### 6.4 Post-Release Tracking
-
-After release, `post_release_work` items must be tracked for completion.
-Use `validate-tracking` to verify that all work items have valid statuses and
-that completed items link to issue URLs.
-
-### 6.5 Environment Consistency
-
-Benchmark evidence SHOULD include environment fingerprints
-(`benchmark.environment`) and artifact URLs (`benchmark.artifacts`) to ensure
-reproducibility. The `reconcile` subcommand detects environment drift between
-the evidence block and actual runner environments.
-
-### 6.6 GoldenProfiles
-
-Future release cycles MAY include a `profiles` section in the exit-evidence block
-to track benchmark profile stages across releases. The supported profile stages
-are `baseline`, `golden`, `shadow`, `promoted`, and `retired`.
-
-### 6.7 Staged Workflows
-
-For pre-production validation, milestones may use `data_fidelity: "staged"`
-during `benchmark-complete`. Staged data cannot certify `product-complete`
-or `released` stages; a real benchmark must pass before final publication.
-
-
-## 6. Release Operations
-
-Releases follow a staged workflow gated by milestone exit evidence and CI verification.
-
-### 6.1 Milestone Exit Evidence
-
-Every release milestone must carry a machine-readable exit-evidence block in its
-description. The block is a fenced code block (` ```release-exit-evidence`) containing
-a JSON payload that documents the release readiness stage.
-
-The four sequential stages are:
-
-1. **implementation-complete** — all issues closed, stage marker only.
-2. **benchmark-complete** — benchmark measurements collected, may use synthetic/staged data.
-3. **product-complete** — real benchmark data with passing quality/resource/security results.
-4. **released** — publication complete with `post_release_work` tracking.
-
-### 6.2 Exit-Evidence Tool
-
-The `scripts/release_exit_evidence.py` script provides four subcommands:
-
-| Subcommand | Purpose |
-|---|---|
-| `validate` | Validate a milestone description against contract rules |
-| `generate` | Print a well-formed exit-evidence block to stdout |
-| `reconcile` | Compare exit evidence against actual metrics |
-| `validate-tracking` | Verify post-release follow-up completeness |
-
-### 6.3 Release Workflow
-
-1. Close all milestone issues and mark the milestone description with the
-   appropriate `release_stage`.
-2. Dispatch the [`release.yml`](../.github/workflows/release.yml) workflow with
-   the target version, commit SHA, and milestone title.
-3. The workflow preflight validates:
-   - Milestone closure and all-issues-closed.
-   - **Release exit evidence** via the `validate` subcommand.
-   - CI run status for the target commit.
-4. Verification runs the full [release contract](../scripts/release-contract.sh):
-   tests, golden gate, lint, dependency checks, philosophy checks.
-5. Build produces deterministic release archives with SHA-256 checksums.
-6. Publish creates a tag and GitHub Release with generated release notes.
-
-### 6.4 Post-Release Tracking
-
-After release, `post_release_work` items must be tracked for completion.
-Use `validate-tracking` to verify that all work items have valid statuses and
-that completed items link to issue URLs.
-
-### 6.5 Environment Consistency
-
-Benchmark evidence SHOULD include environment fingerprints
-(`benchmark.environment`) and artifact URLs (`benchmark.artifacts`) to ensure
-reproducibility. The `reconcile` subcommand detects environment drift between
-the evidence block and actual runner environments.
-
-### 6.6 GoldenProfiles
-
-Future release cycles MAY include a `profiles` section in the exit-evidence block
-to track benchmark profile stages across releases. The supported profile stages
-are `baseline`, `golden`, `shadow`, `promoted`, and `retired`.
-
-### 6.7 Staged Workflows
-
-For pre-production validation, milestones may use `data_fidelity: "staged"`
-during `benchmark-complete`. Staged data cannot certify `product-complete`
-or `released` stages; a real benchmark must pass before final publication.
 
 ## 7. Daemon-First Search Posture
 

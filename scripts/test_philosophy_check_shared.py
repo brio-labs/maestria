@@ -12,16 +12,6 @@ from philosophy_check_testbase import PhilosophyCheckFixture
 
 class SharedHelpersTests(PhilosophyCheckFixture):
 
-    def test_workspace_version_reads_workspace_package(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            self.configure_root(root)
-            (root / "Cargo.toml").write_text(
-                '[workspace.package]\nversion = "0.6.1"\n\n[workspace]\nmembers = []\n',
-                encoding="utf-8",
-            )
-            self.assertEqual(shared.workspace_version(), "0.6.1")
-
     def test_production_lib_paths_discovers_external_workspace_members_and_excludes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
