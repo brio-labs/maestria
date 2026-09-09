@@ -12,7 +12,7 @@ maestria-memory = { workspace = true }
 maestria-ports = { workspace = true }
 maestria-validation = { workspace = true }
 maestria-sqlite-support = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
 tracing = { workspace = true }
 tokio-util = { workspace = true, features = ["rt"] }
 url = { workspace = true }

@@ -22,7 +22,7 @@ maestria-index-selection = { workspace = true }
 maestria-code-intel = { workspace = true }
 maestria-retrieval = { workspace = true }
 
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "time"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 clap = { workspace = true }

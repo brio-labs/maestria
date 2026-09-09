@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 maestria-domain = { workspace = true }
 maestria-governance = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 maestria-harness = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
