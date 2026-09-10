@@ -1,0 +1,3 @@
+verify immutable bytes against the owning artifact before scoring
+bounded reads detect oversized or racing files before provider transmission
+source: crates/ecosystem/maestria-retrieval/src/adapters/source_snapshot.rs

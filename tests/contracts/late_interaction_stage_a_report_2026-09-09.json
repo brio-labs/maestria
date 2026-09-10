@@ -1,0 +1,3062 @@
+{
+  "schema_version": 1,
+  "measurement_kind": "late-interaction-stage-a",
+  "evaluation_date": "live",
+  "evaluation_id": "late-interaction-stage-a-live-1788993024496",
+  "stage": "Reranker",
+  "data_fidelity": "real",
+  "corpus": {
+    "id": "late-interaction-task-corpus-v1",
+    "revision": "contract-fixture-v1",
+    "judgment_set": "late-interaction-judgments-v1",
+    "source_hash": "sha256:bcbf13e3ed8d0795939d9a19f186a026d807e87ac4abe808aadd4239e7e1808d",
+    "judgment_hash": "sha256:b6ca35865397ee299af4f28d07a24f5cbfb97e405141baf7402c44b9a9665fbe"
+  },
+  "fingerprints": {
+    "corpus_snapshot": "1",
+    "index_generation": "2",
+    "identity_digest": "sha256:be33d521884bf65fb7c586c9a63838a89ee4f840e47ce00e975b22b79647fc0d",
+    "profile_digest": "sha256:f898bbbb9a8092f7334cd4e012921368683f10ed9565a5d00e554a7aa431786c",
+    "scorer_fingerprint": "maxsim-query-token-max-then-sum-v1",
+    "source_hash": "sha256:bcbf13e3ed8d0795939d9a19f186a026d807e87ac4abe808aadd4239e7e1808d",
+    "judgment_hash": "sha256:b6ca35865397ee299af4f28d07a24f5cbfb97e405141baf7402c44b9a9665fbe"
+  },
+  "observations": [
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "fallback-provider-failure",
+      "query_class": "FactualLocal",
+      "route": "LexicalExact",
+      "candidate_input_hash": "sha256:77c9ad91c2e76ba99612ab2fe8ad0d1106d0d437f9e14ace88f42f7b8d27f695",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 1000000
+        },
+        "recall_at_20": {
+          "Measured": 1000000
+        },
+        "recall_at_50": {
+          "Measured": 1000000
+        },
+        "recall_at_100": {
+          "Measured": 1000000
+        },
+        "ndcg_at_10": {
+          "Measured": 1000000
+        },
+        "ndcg_at_20": {
+          "Measured": 1000000
+        },
+        "mrr_at_10": {
+          "Measured": 1000000
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 9
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 9
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 77037568
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "fallback-provider-failure",
+      "query_class": "FactualLocal",
+      "route": "EligibleHybrid",
+      "candidate_input_hash": "sha256:84299ff3d7cc8fb4ce5ce643c69c90e761a023ed69807090672abff10a8f9c47",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 1000000
+        },
+        "recall_at_20": {
+          "Measured": 1000000
+        },
+        "recall_at_50": {
+          "Measured": 1000000
+        },
+        "recall_at_100": {
+          "Measured": 1000000
+        },
+        "ndcg_at_10": {
+          "Measured": 1000000
+        },
+        "ndcg_at_20": {
+          "Measured": 1000000
+        },
+        "mrr_at_10": {
+          "Measured": 1000000
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 7
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 7
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 77996032
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "fallback-provider-failure",
+      "query_class": "FactualLocal",
+      "route": "EligibleBoundedBaseline",
+      "candidate_input_hash": "sha256:e9659d3739afb7d2b2317a7c276eff32f460eb3bb22e6787455b645f842e9339",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 1000000
+        },
+        "recall_at_20": {
+          "Measured": 1000000
+        },
+        "recall_at_50": {
+          "Measured": 1000000
+        },
+        "recall_at_100": {
+          "Measured": 1000000
+        },
+        "ndcg_at_10": {
+          "Measured": 1000000
+        },
+        "ndcg_at_20": {
+          "Measured": 1000000
+        },
+        "mrr_at_10": {
+          "Measured": 1000000
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 6
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 6
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 78901248
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "fallback-provider-failure",
+      "query_class": "FactualLocal",
+      "route": "LateInteractionReranker",
+      "candidate_input_hash": "sha256:c438318cdc4c07f09e0ac0f9e5bc7dbbc035211142683c9d1d0a9316942427a1",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 1000000
+        },
+        "recall_at_20": {
+          "Measured": 1000000
+        },
+        "recall_at_50": {
+          "Measured": 1000000
+        },
+        "recall_at_100": {
+          "Measured": 1000000
+        },
+        "ndcg_at_10": {
+          "Measured": 1000000
+        },
+        "ndcg_at_20": {
+          "Measured": 1000000
+        },
+        "mrr_at_10": {
+          "Measured": 1000000
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 8
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 8
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "daemon search does not expose isolated scorer timing"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 79872000
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "fallback-cancellation",
+      "query_class": "FactualLocal",
+      "route": "LexicalExact",
+      "candidate_input_hash": "sha256:29f9d39adaa4b22b7e0fd6f1ae69478b258ae1920ed81936147fe70a5b59cfd0",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 14
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 14
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 80834560
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "fallback-cancellation",
+      "query_class": "FactualLocal",
+      "route": "EligibleHybrid",
+      "candidate_input_hash": "sha256:3ba9582a4f5b94bcb993272a15a31f229a1a3be1d3af0bd4d5552fe30e52f585",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 14
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 14
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 80834560
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "fallback-cancellation",
+      "query_class": "FactualLocal",
+      "route": "EligibleBoundedBaseline",
+      "candidate_input_hash": "sha256:aa860a1610e3b5509a0c318bd86fab700d19c7b590ba21d6b578c2b863cb2290",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 12
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 12
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 80834560
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "fallback-cancellation",
+      "query_class": "FactualLocal",
+      "route": "LateInteractionReranker",
+      "candidate_input_hash": "sha256:400dd56e758c41c9e6bf465482f1af78932c5979b0a14b43cb097618ca3d29d6",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 13
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 13
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "daemon search does not expose isolated scorer timing"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 80867328
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "snapshot-owning-artifact",
+      "query_class": "SemanticDiscovery",
+      "route": "LexicalExact",
+      "candidate_input_hash": "sha256:50c0b95a604e0c155bc8d918e127aab97ad1c3a22fab6b84f3da355aface2458",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 1000000
+        },
+        "recall_at_20": {
+          "Measured": 1000000
+        },
+        "recall_at_50": {
+          "Measured": 1000000
+        },
+        "recall_at_100": {
+          "Measured": 1000000
+        },
+        "ndcg_at_10": {
+          "Measured": 1000000
+        },
+        "ndcg_at_20": {
+          "Measured": 1000000
+        },
+        "mrr_at_10": {
+          "Measured": 1000000
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 11
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 11
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 80867328
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "snapshot-owning-artifact",
+      "query_class": "SemanticDiscovery",
+      "route": "EligibleHybrid",
+      "candidate_input_hash": "sha256:c392064932983d9b53d0e88afc5642d9d9dfe1d261a4a6febc73cf6a359644b9",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 1000000
+        },
+        "recall_at_20": {
+          "Measured": 1000000
+        },
+        "recall_at_50": {
+          "Measured": 1000000
+        },
+        "recall_at_100": {
+          "Measured": 1000000
+        },
+        "ndcg_at_10": {
+          "Measured": 1000000
+        },
+        "ndcg_at_20": {
+          "Measured": 1000000
+        },
+        "mrr_at_10": {
+          "Measured": 1000000
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 17
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 17
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 80867328
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "snapshot-owning-artifact",
+      "query_class": "SemanticDiscovery",
+      "route": "EligibleBoundedBaseline",
+      "candidate_input_hash": "sha256:e69f55d22d975fbe3f72f19e03c6457ce47cd13219a84b7e81cf960a37d375b4",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 1000000
+        },
+        "recall_at_20": {
+          "Measured": 1000000
+        },
+        "recall_at_50": {
+          "Measured": 1000000
+        },
+        "recall_at_100": {
+          "Measured": 1000000
+        },
+        "ndcg_at_10": {
+          "Measured": 1000000
+        },
+        "ndcg_at_20": {
+          "Measured": 1000000
+        },
+        "mrr_at_10": {
+          "Measured": 1000000
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 15
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 15
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 80867328
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "snapshot-owning-artifact",
+      "query_class": "SemanticDiscovery",
+      "route": "LateInteractionReranker",
+      "candidate_input_hash": "sha256:4e9b128346be656899df4348e369341066d868317f25bdb31f245e707c71875f",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 1000000
+        },
+        "recall_at_20": {
+          "Measured": 1000000
+        },
+        "recall_at_50": {
+          "Measured": 1000000
+        },
+        "recall_at_100": {
+          "Measured": 1000000
+        },
+        "ndcg_at_10": {
+          "Measured": 1000000
+        },
+        "ndcg_at_20": {
+          "Measured": 1000000
+        },
+        "mrr_at_10": {
+          "Measured": 1000000
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 14
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 14
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "daemon search does not expose isolated scorer timing"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 80904192
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "snapshot-bounded-read",
+      "query_class": "SemanticDiscovery",
+      "route": "LexicalExact",
+      "candidate_input_hash": "sha256:a925d9fb83d25a5f524e811d9283d0a3531eadea3f5401b9990219e4ff63913a",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 15
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 15
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 80904192
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "snapshot-bounded-read",
+      "query_class": "SemanticDiscovery",
+      "route": "EligibleHybrid",
+      "candidate_input_hash": "sha256:886277b45180e55055ae6384503526cee5cf49437e3a4043b80b6ab244cd4c8a",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 15
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 15
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 80904192
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "snapshot-bounded-read",
+      "query_class": "SemanticDiscovery",
+      "route": "EligibleBoundedBaseline",
+      "candidate_input_hash": "sha256:c61cc06b096cb783fa59c7ed24c7f88518d2c18ae4827fb3625e862cb4ee97fd",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 18
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 18
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 80904192
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "snapshot-bounded-read",
+      "query_class": "SemanticDiscovery",
+      "route": "LateInteractionReranker",
+      "candidate_input_hash": "sha256:e84f63b302be0cdb7826e844a3c7dcee4615346c15b85a5e9f1e5b2b90364264",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 18
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 18
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "daemon search does not expose isolated scorer timing"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 80916480
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "rollback-no-partial-build",
+      "query_class": "CompositionalConstraints",
+      "route": "LexicalExact",
+      "candidate_input_hash": "sha256:69c36461f3aee7c63f16ad91837938f0cc7e086dfade26cc894320d3a62f414f",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 1000000
+        },
+        "recall_at_20": {
+          "Measured": 1000000
+        },
+        "recall_at_50": {
+          "Measured": 1000000
+        },
+        "recall_at_100": {
+          "Measured": 1000000
+        },
+        "ndcg_at_10": {
+          "Measured": 1000000
+        },
+        "ndcg_at_20": {
+          "Measured": 1000000
+        },
+        "mrr_at_10": {
+          "Measured": 1000000
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 18
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 18
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 80916480
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "rollback-no-partial-build",
+      "query_class": "CompositionalConstraints",
+      "route": "EligibleHybrid",
+      "candidate_input_hash": "sha256:e83cadefd541c5e8062f257c190218b0ee770dc6c189626514f8e91dc8943acb",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 1000000
+        },
+        "recall_at_20": {
+          "Measured": 1000000
+        },
+        "recall_at_50": {
+          "Measured": 1000000
+        },
+        "recall_at_100": {
+          "Measured": 1000000
+        },
+        "ndcg_at_10": {
+          "Measured": 1000000
+        },
+        "ndcg_at_20": {
+          "Measured": 1000000
+        },
+        "mrr_at_10": {
+          "Measured": 1000000
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 12
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 12
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 81911808
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "rollback-no-partial-build",
+      "query_class": "CompositionalConstraints",
+      "route": "EligibleBoundedBaseline",
+      "candidate_input_hash": "sha256:c5706cca5f1bc987201a339afc8d10cf2f03ac27d469f5fdde290b9efadb6fb5",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 1000000
+        },
+        "recall_at_20": {
+          "Measured": 1000000
+        },
+        "recall_at_50": {
+          "Measured": 1000000
+        },
+        "recall_at_100": {
+          "Measured": 1000000
+        },
+        "ndcg_at_10": {
+          "Measured": 1000000
+        },
+        "ndcg_at_20": {
+          "Measured": 1000000
+        },
+        "mrr_at_10": {
+          "Measured": 1000000
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 12
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 12
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 81911808
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "rollback-no-partial-build",
+      "query_class": "CompositionalConstraints",
+      "route": "LateInteractionReranker",
+      "candidate_input_hash": "sha256:f7685ec810b04dfe53d0bde0d3f5be43d666c7b4c017894a209b0fcfec13a6f1",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 1000000
+        },
+        "recall_at_20": {
+          "Measured": 1000000
+        },
+        "recall_at_50": {
+          "Measured": 1000000
+        },
+        "recall_at_100": {
+          "Measured": 1000000
+        },
+        "ndcg_at_10": {
+          "Measured": 1000000
+        },
+        "ndcg_at_20": {
+          "Measured": 1000000
+        },
+        "mrr_at_10": {
+          "Measured": 1000000
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 16
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 16
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "daemon search does not expose isolated scorer timing"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 81928192
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "rollback-active-retained",
+      "query_class": "CompositionalConstraints",
+      "route": "LexicalExact",
+      "candidate_input_hash": "sha256:7a93799c63e7157d37f04baad55cfe4f776457a5a9ea43e8efe074ddcd55fcc0",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 16
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 16
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 81928192
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "rollback-active-retained",
+      "query_class": "CompositionalConstraints",
+      "route": "EligibleHybrid",
+      "candidate_input_hash": "sha256:bff80167e111d39395dfa310763b54b8d8afa068831d0354beee94b9da574159",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 19
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 19
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 81928192
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "rollback-active-retained",
+      "query_class": "CompositionalConstraints",
+      "route": "EligibleBoundedBaseline",
+      "candidate_input_hash": "sha256:69151e3812b79b0d0e8e53780d77454053a7a63458dfc9ef8020fa3ccecb41bd",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 6
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 6
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 82890752
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "rollback-active-retained",
+      "query_class": "CompositionalConstraints",
+      "route": "LateInteractionReranker",
+      "candidate_input_hash": "sha256:f02ddd722f5b1b3b92a10204f6f574f3d94e84a84d1f71a349937d71de4710cf",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 7
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 7
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "daemon search does not expose isolated scorer timing"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 83877888
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "authorization-before-read",
+      "query_class": "RepositoryCode",
+      "route": "LexicalExact",
+      "candidate_input_hash": "sha256:0d6fe6ae55f75a0dbc736aa5e08d69c322bf7eee6514b3fc85e2f4f4e14ccfdd",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 1000000
+        },
+        "recall_at_20": {
+          "Measured": 1000000
+        },
+        "recall_at_50": {
+          "Measured": 1000000
+        },
+        "recall_at_100": {
+          "Measured": 1000000
+        },
+        "ndcg_at_10": {
+          "Measured": 1000000
+        },
+        "ndcg_at_20": {
+          "Measured": 1000000
+        },
+        "mrr_at_10": {
+          "Measured": 1000000
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 7
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 7
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 83877888
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "authorization-before-read",
+      "query_class": "RepositoryCode",
+      "route": "EligibleHybrid",
+      "candidate_input_hash": "sha256:d8fb341354d79a702e31a29d6ba6e775e62c6d8cb366a4977624f3412bee32fe",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 1000000
+        },
+        "recall_at_20": {
+          "Measured": 1000000
+        },
+        "recall_at_50": {
+          "Measured": 1000000
+        },
+        "recall_at_100": {
+          "Measured": 1000000
+        },
+        "ndcg_at_10": {
+          "Measured": 1000000
+        },
+        "ndcg_at_20": {
+          "Measured": 1000000
+        },
+        "mrr_at_10": {
+          "Measured": 1000000
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 7
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 7
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 83877888
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "authorization-before-read",
+      "query_class": "RepositoryCode",
+      "route": "EligibleBoundedBaseline",
+      "candidate_input_hash": "sha256:e0387462a351abcc01a5b8795000f1e584069ed34d0ef5bfe1bb0a11962942fb",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 1000000
+        },
+        "recall_at_20": {
+          "Measured": 1000000
+        },
+        "recall_at_50": {
+          "Measured": 1000000
+        },
+        "recall_at_100": {
+          "Measured": 1000000
+        },
+        "ndcg_at_10": {
+          "Measured": 1000000
+        },
+        "ndcg_at_20": {
+          "Measured": 1000000
+        },
+        "mrr_at_10": {
+          "Measured": 1000000
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 5
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 5
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 83877888
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "authorization-before-read",
+      "query_class": "RepositoryCode",
+      "route": "LateInteractionReranker",
+      "candidate_input_hash": "sha256:9806e6a7918f49d5ca830597fa3526146da928e0110d5750cbb5a2e3e2571c93",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 1000000
+        },
+        "recall_at_20": {
+          "Measured": 1000000
+        },
+        "recall_at_50": {
+          "Measured": 1000000
+        },
+        "recall_at_100": {
+          "Measured": 1000000
+        },
+        "ndcg_at_10": {
+          "Measured": 1000000
+        },
+        "ndcg_at_20": {
+          "Measured": 1000000
+        },
+        "mrr_at_10": {
+          "Measured": 1000000
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 6
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 6
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "daemon search does not expose isolated scorer timing"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 83894272
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "authorization-protected-symbol",
+      "query_class": "RepositoryCode",
+      "route": "LexicalExact",
+      "candidate_input_hash": "sha256:b547d7157a9f363fab351a566231b8824c812f0405b300ea11f9c8c1d3f50ea8",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 17
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 17
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 83894272
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "authorization-protected-symbol",
+      "query_class": "RepositoryCode",
+      "route": "EligibleHybrid",
+      "candidate_input_hash": "sha256:68cfca178938c819b93273821c210b192d6980756bafae3a1fe2d9f970963fbe",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 11
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 11
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 83894272
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "authorization-protected-symbol",
+      "query_class": "RepositoryCode",
+      "route": "EligibleBoundedBaseline",
+      "candidate_input_hash": "sha256:5ebb9368e7a13ed198f28b11e144564d094965e5cf580cfd7cf5ec8f64555d9b",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 12
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 12
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 83894272
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "authorization-protected-symbol",
+      "query_class": "RepositoryCode",
+      "route": "LateInteractionReranker",
+      "candidate_input_hash": "sha256:f519325706e773d9a512fdc18cb8e30d313bca9967049f5b70cbc1bbbec533e2",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 15
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 15
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "daemon search does not expose isolated scorer timing"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 83910656
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "exact-protected",
+      "query_class": "ExactLookup",
+      "route": "LexicalExact",
+      "candidate_input_hash": "sha256:367cdfac2994238d4e6447591ad643ca24709e02624f6c0079c9f76239dd8d75",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 7
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 7
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 83910656
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "exact-protected",
+      "query_class": "ExactLookup",
+      "route": "EligibleHybrid",
+      "candidate_input_hash": "sha256:60901cc8f257841d3da6e7767e251b2d4bae004119c9fdbc5b50dbb95d0056cf",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 8
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 8
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 83910656
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "exact-protected",
+      "query_class": "ExactLookup",
+      "route": "EligibleBoundedBaseline",
+      "candidate_input_hash": "sha256:f7bbacc6d3920a2acb31be56d82ca5537493424b425c9fee9cc10f76b569a1ea",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 7
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 7
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 83910656
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "exact-protected",
+      "query_class": "ExactLookup",
+      "route": "LateInteractionReranker",
+      "candidate_input_hash": "sha256:466c83be1f594033144326456c8fb5377e22b5dee69f1b8cde38ef8a29cd141f",
+      "quality": {
+        "recall_at_5": {
+          "Measured": 0
+        },
+        "recall_at_20": {
+          "Measured": 0
+        },
+        "recall_at_50": {
+          "Measured": 0
+        },
+        "recall_at_100": {
+          "Measured": 0
+        },
+        "ndcg_at_10": {
+          "Measured": 0
+        },
+        "ndcg_at_20": {
+          "Measured": 0
+        },
+        "mrr_at_10": {
+          "Measured": 0
+        },
+        "exact_span_recall": {
+          "Measured": 0
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 9
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 9
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "daemon search does not expose isolated scorer timing"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 83910656
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "visual-protected",
+      "query_class": "VisualDocument",
+      "route": "LexicalExact",
+      "candidate_input_hash": "sha256:36955eccd4cbe36e7d06630e13ab96a33ec75350d3189e3685f7461b5ae607a7",
+      "quality": {
+        "recall_at_5": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "recall_at_20": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "recall_at_50": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "recall_at_100": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "ndcg_at_10": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "ndcg_at_20": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "mrr_at_10": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "exact_span_recall": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 13
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 13
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 83910656
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "visual-protected",
+      "query_class": "VisualDocument",
+      "route": "EligibleHybrid",
+      "candidate_input_hash": "sha256:bdf11b283fc53c6fbfda151872e9c417ec7f87543da30a13d1f0118f4ad97d2f",
+      "quality": {
+        "recall_at_5": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "recall_at_20": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "recall_at_50": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "recall_at_100": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "ndcg_at_10": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "ndcg_at_20": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "mrr_at_10": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "exact_span_recall": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 11
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 11
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 83910656
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "visual-protected",
+      "query_class": "VisualDocument",
+      "route": "EligibleBoundedBaseline",
+      "candidate_input_hash": "sha256:d40d430ee77cce46fc17460987e982bf358ed33ea288600e120f839ea6a09710",
+      "quality": {
+        "recall_at_5": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "recall_at_20": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "recall_at_50": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "recall_at_100": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "ndcg_at_10": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "ndcg_at_20": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "mrr_at_10": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "exact_span_recall": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 11
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 11
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "scorer is not used by baseline route"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 83910656
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    },
+    {
+      "corpus_id": "late-interaction-task-corpus-v1",
+      "corpus_revision": "contract-fixture-v1",
+      "case_id": "visual-protected",
+      "query_class": "VisualDocument",
+      "route": "LateInteractionReranker",
+      "candidate_input_hash": "sha256:12dc717146eebc49f362aebf7b9eaac311ee598fe9dffb6743a8fba52646fb6e",
+      "quality": {
+        "recall_at_5": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "recall_at_20": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "recall_at_50": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "recall_at_100": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "ndcg_at_10": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "ndcg_at_20": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "mrr_at_10": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "exact_span_recall": {
+          "NotApplicable": {
+            "reason": "case has no judged spans"
+          }
+        },
+        "constraint_satisfaction": {
+          "Measured": 1000000
+        }
+      },
+      "resources": {
+        "end_to_end_p50_ms": {
+          "Measured": 10
+        },
+        "end_to_end_p95_ms": {
+          "Measured": 10
+        },
+        "scorer_p95_ms": {
+          "NotApplicable": {
+            "reason": "daemon search does not expose isolated scorer timing"
+          }
+        },
+        "peak_memory_bytes": {
+          "Measured": 83910656
+        },
+        "model_storage_bytes": {
+          "Measured": 347069828
+        },
+        "index_storage_bytes": {
+          "Measured": 12412
+        },
+        "energy_millijoules": {
+          "NotApplicable": {
+            "reason": "energy counter is unavailable without a privileged host counter"
+          }
+        }
+      },
+      "safety": {
+        "acl_leaks": 0,
+        "secret_exposure": 0,
+        "quarantine_escape": 0,
+        "prompt_injection_fail_open": 0,
+        "protected_provider_calls": 0
+      },
+      "measurement_status": {
+        "Measured": null
+      }
+    }
+  ],
+  "decisions": {
+    "CompositionalConstraints": "RetainBaseline",
+    "ExactLookup": "RetainBaseline",
+    "FactualLocal": "RetainBaseline",
+    "RepositoryCode": "RetainBaseline",
+    "SemanticDiscovery": "RetainBaseline",
+    "VisualDocument": "RetainBaseline"
+  },
+  "promotion": {
+    "authorized": false,
+    "reason": "no measured material quality win without regression"
+  }
+}

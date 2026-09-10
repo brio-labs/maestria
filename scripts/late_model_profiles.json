@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "mlateon_int8_cpu_v1": {
+      "provider": "mlateon-onnx",
+      "model": "lightonai/LateOn-multilingual",
+      "repository": "lightonai/mLateOn",
+      "revision": "local-export-sha256:02260bc68c4d942a3a65b1b0624c11e69b71eeb0be1a0c280ee834b39d3d5b27",
+      "model_root": ".maestria/models/mlateon",
+      "artifacts": [
+        {"path": "model_int8.onnx", "sha256": "02260bc68c4d942a3a65b1b0624c11e69b71eeb0be1a0c280ee834b39d3d5b27"},
+        {"path": "onnx_config.json", "sha256": "6cecf7fa55afdb85f0958d868cf8b91465ec71dc370a8f1e9801b5cf7e2925fd"},
+        {"path": "tokenizer.json", "sha256": "33b6ce1724e107a3298219a322b4c963fcfcb9c8661bd1f30189bdd0d36c4669"}
+      ],
+      "artifact_hash": null,
+      "vocabulary_hash": null,
+      "vocabulary_size": null,
+      "output_dimensions": 128,
+      "weight_quantization": "onnx_int8",
+      "representation_compression": "none",
+      "normalization": "L2PerTokenV1",
+      "similarity": "Cosine",
+      "aggregation": "QueryTokenMaxThenSum",
+      "preprocessing_version": "mlateon-prefix-mask-l2-trunc128-512-v1",
+      "query_prefix": {"id": 256000, "text": "[Q] "},
+      "document_prefix": {"id": 256001, "text": "[D] "},
+      "query_max_vectors": 128,
+      "document_max_vectors": 512,
+      "native_query_token_limit": 8192,
+      "native_document_token_limit": 8192,
+      "pad_token_id": 4,
+      "mask_token_id": 4,
+      "truncate_direction": "right_after_prefix",
+      "retain_special_tokens": true,
+      "drop_masked_positions": true,
+      "query_expansion": false,
+      "lowercase": false,
+      "punctuation_pruning": false,
+      "runtime": {
+        "provider": "CPUExecutionProvider",
+        "intra_op_threads": 2,
+        "inference_workers": 1,
+        "python": null,
+        "onnxruntime": null,
+        "tokenizers": null,
+        "numpy": null
+      },
+      "limits": {
+        "search_ms": 250,
+        "candidate_input": 100,
+        "candidate_scored": 20,
+        "candidate_output": 20,
+        "query_utf8_bytes": 8192,
+        "document_utf8_bytes": 65536,
+        "snapshot_bytes_per_source": 8388608,
+        "snapshot_bytes_total": 33554432,
+        "representation_working_bytes": 33554432,
+        "provider_request_bytes": 131072,
+        "provider_response_bytes": 2097152,
+        "max_dimensions": 4096,
+        "max_contributions": 16,
+        "combined_memory_bytes": 2147483648,
+        "model_storage_bytes": 2147483648,
+        "index_build_seconds": 220,
+        "index_rebuild_seconds": 440,
+        "index_incremental_seconds": 2,
+        "energy_millijoules": 10000000
+      },
+      "fingerprint_algorithm": "late-interaction-profile-v1"
+    }
+  }
+}
