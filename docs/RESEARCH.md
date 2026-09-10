@@ -479,6 +479,35 @@ was built or promoted. The negative result is therefore: late interaction
 does not qualify for Stage A serving on this frozen run, and Stage B has no
 independent need authorization.
 
+## 4.5. Product-exit evidence checkpoint (dated 2026-09-10)
+
+The current ledger does not certify a product-complete retrieval surface.
+The machine-readable statuses are recorded in
+[`tests/contracts/benchmark_evidence_v1.json`](../tests/contracts/benchmark_evidence_v1.json).
+`v1.2` and `v1.3` contain complete real lane evaluations, but their pass
+statuses are scoped to those reports: learned sparse remains unpromoted, and
+the dense promotion is limited to `DomainTerminology`. Earlier baseline,
+repository, and visual entries retain explicit warnings rather than inferring
+missing telemetry or provider quality.
+
+| Surface | Evidence state | Current decision | Remaining gate |
+| --- | --- | --- | --- |
+| Deterministic baseline | `v0.4` mixed/warning | Retain exact/lexical baseline | Live resource and serving-boundary security evidence |
+| Dense hybrid | `v1.3` real/pass | Promote `DomainTerminology` only | No blanket promotion beyond the measured class |
+| Repository/code | `v0.7`, `v0.9`–`v1.1` real/warning | Keep specialized routes shadowed | Resource and serving-boundary security evidence plus class comparison |
+| Visual documents | `v0.8` real/warning | Keep provider-dependent/research-only | Real visual-provider quality, resource, and security evidence |
+| Learned sparse | `v1.2` real/pass | Retain lexical/hybrid per class | No class passed the promotion gate |
+| Late interaction | §4.4 real/non-promoting | Disabled/shadow-only | No Stage A quality win; Stage B `NotAuthorized` |
+| Graph, temporal, counterevidence, fusion | No product report | Not implemented/promoted | Separate frozen evaluations; no implementation by roadmap order alone |
+
+The next evidence task is a bounded product-exit report for the currently
+supported exact, lexical, dense-hybrid, repository, and visual surfaces. It
+must preserve the existing per-class routes and report quality, p50/p95/p99
+latency, memory, disk, privacy, security, freshness, update/rollback, and
+energy availability without converting unavailable counters into passes. Until
+that report is complete, Phase 6 remains open and no additional experimental
+lane is justified by the existence of an issue or adapter.
+
 ## 3. Promotion Criteria
 
 A candidate is promoted from this research document to an active architectural component only when:
