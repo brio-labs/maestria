@@ -500,13 +500,34 @@ missing telemetry or provider quality.
 | Late interaction | §4.4 real/non-promoting | Disabled/shadow-only | No Stage A quality win; Stage B `NotAuthorized` |
 | Graph, temporal, counterevidence, fusion | No product report | Not implemented/promoted | Separate frozen evaluations; no implementation by roadmap order alone |
 
-The next evidence task is a bounded product-exit report for the currently
+The required evidence task is a bounded product-exit report for the currently
 supported exact, lexical, dense-hybrid, repository, and visual surfaces. It
 must preserve the existing per-class routes and report quality, p50/p95/p99
 latency, memory, disk, privacy, security, freshness, update/rollback, and
-energy availability without converting unavailable counters into passes. Until
-that report is complete, Phase 6 remains open and no additional experimental
-lane is justified by the existence of an issue or adapter.
+energy availability without converting unavailable counters into passes. The
+2026-09-10 run is an evidence snapshot, not completion of that gate; Phase 6
+remains open and no additional experimental lane is justified by the existence
+of an issue or adapter.
+
+### 4.5.1. Bounded supported-route run (2026-09-10)
+
+The frozen route suites were rerun against merge commit
+`60b88a498b09b106b8a79fa0b2f63786ee4b9cd7`. The reports were written to
+`target/benchmark-reports` and passed the evidence-ledger validator.
+
+| Run | Observed result | Exit impact |
+| --- | --- | --- |
+| Exact/lexical baseline | 24 retrieval contract tests passed; the `golden-v3` fixture remains a deterministic contract, not live provider telemetry | Baseline quality is covered, but live resource and serving-boundary security evidence remain unavailable |
+| Dense hybrid | The existing v1.3 report still promotes `DomainTerminology` only; the dense/sparse contract suite passed without changing that decision | No broader class promotion |
+| Rust repository | 20 observations: `CodeSpecialized` was correct on 4/10 cases with 9 exact-span hits (p50/p95 14/333 ms); `PhaseC` was correct on 2/10 with 32 exact-span hits (p50/p95 110/539 ms) | Specialized quality is mixed and platform resource/security counters remain unavailable; keep shadowed |
+| Python repository | 20 observations: both routes were correct on 9/10 cases; `CodeSpecialized` had 12 exact-span hits (p95 17 ms) versus `PhaseC` 27 (p95 11 ms) | No quality win; platform resource/security counters remain unavailable |
+| Web repository | 20 observations: both routes were correct on 9/10 cases; `CodeSpecialized` had 8 exact-span hits (p95 10 ms) versus `PhaseC` 30 (p95 12 ms) | No quality win; platform resource/security counters remain unavailable |
+| Repository build | Five-run p50/p95 build latency was 106/117 ms for 50 files and 254/287 ms for 200 files | Build latency is measured; memory, disk, energy, and serving-boundary security are not |
+| Visual fallback | Eight visual benchmark tests passed; the provider-unavailable report covered 12 cases with no provider measurements | Visual quality, resource, and security evidence remain unavailable |
+
+The run confirms that the product-exit gate remains open. Zero violation flags
+in repository fixture observations do not convert an unavailable serving-boundary
+counter into a security pass. No route was promoted or changed by this run.
 
 ## 3. Promotion Criteria
 
