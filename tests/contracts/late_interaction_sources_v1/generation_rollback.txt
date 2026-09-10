@@ -1,0 +1,3 @@
+building generations never serve partial rows
+lifecycle transitions retain the previous active generation until evaluation and activation succeed
+source: crates/kernel/maestria-domain/src/generations.rs

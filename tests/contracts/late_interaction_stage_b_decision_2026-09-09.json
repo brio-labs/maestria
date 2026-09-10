@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "measurement_kind": "late-interaction-stage-b",
+  "evaluation_date": "live",
+  "evaluation_id": "late-interaction-stage-a-live-1788993024496-stage-b",
+  "stage": "CandidateIndex",
+  "stage_a_report_hash": "sha256:b4ac725b8add12fcc5023cedc48566b3124af233408ec2bd74a00bb39137377e",
+  "stage_a_quality_win": false,
+  "indexed_need": {
+    "Unavailable": {
+      "reason": "no independent indexed-retrieval need measurement was collected"
+    }
+  },
+  "decision": {
+    "NotAuthorized": {
+      "reason": "Stage A has no measured winning class"
+    }
+  },
+  "promotion": {
+    "authorized": false,
+    "index_implemented": false
+  }
+}

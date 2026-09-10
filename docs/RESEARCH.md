@@ -440,6 +440,45 @@ deferred rejection. Sparse activation additionally requires a matching
 fingerprinted `sparse_text_v1` generation and a passing benchmark; otherwise
 the app keeps the lexical/hybrid route.
 
+## 4.4. Late-interaction Stage A/B decision (dated 2026-09-09)
+
+The frozen daemon-backed Stage A evaluation ran with the local CPU mLateOn
+profile, the pinned `scripts/requirements-sparse.txt` runtime, and the
+loopback-only sidecar. The measured identity was:
+
+- corpus source hash:
+  `sha256:bcbf13e3ed8d0795939d9a19f186a026d807e87ac4abe808aadd4239e7e1808d`
+- judgment hash:
+  `sha256:b6ca35865397ee299af4f28d07a24f5cbfb97e405141baf7402c44b9a9665fbe`
+- mLateOn profile digest:
+  `sha256:f898bbbb9a8092f7334cd4e012921368683f10ed9565a5d00e554a7aa431786c`
+- resolved multivector identity:
+  `sha256:be33d521884bf65fb7c586c9a63838a89ee4f840e47ce00e975b22b79647fc0d`
+
+Stage A collected real lexical, bounded-baseline, hybrid, and late-reranker
+observations for every frozen case. `FactualLocal`, `SemanticDiscovery`,
+`CompositionalConstraints`, `RepositoryCode`, and `VisualDocument` all
+retained the baseline decision. The report's `promotion.authorized` value is
+`false`; no Stage A promotion candidate was written and no query class was
+installed through `late-interaction set`.
+The exact live report bytes are archived at
+[`tests/contracts/late_interaction_stage_a_report_2026-09-09.json`](../tests/contracts/late_interaction_stage_a_report_2026-09-09.json)
+with file SHA-256
+`sha256:54a8dd02b42840612803b41eb5a821918ae7f7dfd1ef46cf439cf43c3c3e746e`.
+
+Stage B remains explicitly not authorized. Its archived decision is
+[`tests/contracts/late_interaction_stage_b_decision_2026-09-09.json`](../tests/contracts/late_interaction_stage_b_decision_2026-09-09.json)
+with file SHA-256
+`sha256:d18c93fddb0ae7feb8ced14eaf56e45a1043ce8c0d5585ab0fc32ed9febbe8b8`.
+The record carries the canonical Stage A report identity
+`sha256:b4ac725b8add12fcc5023cedc48566b3124af233408ec2bd74a00bb39137377e`,
+records `stage_a_quality_win=false`, records indexed-retrieval need as
+`Unavailable` because no independent indexed-need measurement was collected,
+and returns `NotAuthorized`. `index_implemented=false`; no multivector index
+was built or promoted. The negative result is therefore: late interaction
+does not qualify for Stage A serving on this frozen run, and Stage B has no
+independent need authorization.
+
 ## 3. Promotion Criteria
 
 A candidate is promoted from this research document to an active architectural component only when:

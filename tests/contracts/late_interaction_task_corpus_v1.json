@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "corpus_id": "late-interaction-task-corpus-v1",
+  "revision": "contract-fixture-v1",
+  "judgment_set": "late-interaction-judgments-v1",
+  "source_hash": "sha256:bcbf13e3ed8d0795939d9a19f186a026d807e87ac4abe808aadd4239e7e1808d",
+  "judgment_hash": "sha256:b6ca35865397ee299af4f28d07a24f5cbfb97e405141baf7402c44b9a9665fbe",
+  "source_paths": [
+    "tests/contracts/late_interaction_sources_v1/governed_rerank_fallback.txt",
+    "tests/contracts/late_interaction_sources_v1/source_snapshot_ownership.txt",
+    "tests/contracts/late_interaction_sources_v1/generation_rollback.txt",
+    "tests/contracts/late_interaction_sources_v1/request_authorization.txt"
+  ],
+  "cases": [
+    {
+      "case_id": "fallback-provider-failure",
+      "query": "preserve capped evidence when the provider fails",
+      "query_class": "FactualLocal",
+      "tags": ["fallback", "provider-unavailable"],
+      "relevant_evidence_ids": [1],
+      "source_file": "governed_rerank_fallback.txt",
+      "judgments": [{"source": "governed_rerank_fallback.txt", "grade": 2, "start": 0, "end": 82}],
+      "latency_budget_ms": 250
+    },
+    {
+      "case_id": "fallback-cancellation",
+      "query": "retain original order after cancellation during scoring",
+      "query_class": "FactualLocal",
+      "tags": ["cancellation", "fallback"],
+      "relevant_evidence_ids": [1],
+      "source_file": "governed_rerank_fallback.txt",
+      "judgments": [{"source": "governed_rerank_fallback.txt", "grade": 2, "start": 83, "end": 168}],
+      "latency_budget_ms": 250
+    },
+    {
+      "case_id": "snapshot-owning-artifact",
+      "query": "verify immutable bytes and the owning artifact before scoring",
+      "query_class": "SemanticDiscovery",
+      "tags": ["snapshot", "ownership", "integrity"],
+      "relevant_evidence_ids": [2],
+      "source_file": "source_snapshot_ownership.txt",
+      "judgments": [{"source": "source_snapshot_ownership.txt", "grade": 2, "start": 0, "end": 91}],
+      "latency_budget_ms": 250
+    },
+    {
+      "case_id": "snapshot-bounded-read",
+      "query": "reject oversized source snapshots before provider transmission",
+      "query_class": "SemanticDiscovery",
+      "tags": ["snapshot", "size-bound"],
+      "relevant_evidence_ids": [2],
+      "source_file": "source_snapshot_ownership.txt",
+      "judgments": [{"source": "source_snapshot_ownership.txt", "grade": 2, "start": 92, "end": 179}],
+      "latency_budget_ms": 250
+    },
+    {
+      "case_id": "rollback-no-partial-build",
+      "query": "rollback to the previous active generation without serving a partial build",
+      "query_class": "CompositionalConstraints",
+      "tags": ["rollback", "generation", "freshness"],
+      "relevant_evidence_ids": [3],
+      "source_file": "generation_rollback.txt",
+      "judgments": [{"source": "generation_rollback.txt", "grade": 2, "start": 0, "end": 86}],
+      "latency_budget_ms": 250
+    },
+    {
+      "case_id": "rollback-active-retained",
+      "query": "retain the prior active route while a new generation is evaluated",
+      "query_class": "CompositionalConstraints",
+      "tags": ["rollback", "lifecycle"],
+      "relevant_evidence_ids": [3],
+      "source_file": "generation_rollback.txt",
+      "judgments": [{"source": "generation_rollback.txt", "grade": 2, "start": 87, "end": 168}],
+      "latency_budget_ms": 250
+    },
+    {
+      "case_id": "authorization-before-read",
+      "query": "apply request scope before reading source text",
+      "query_class": "RepositoryCode",
+      "tags": ["authorization", "source-filter", "privacy"],
+      "relevant_evidence_ids": [4],
+      "source_file": "request_authorization.txt",
+      "judgments": [{"source": "request_authorization.txt", "grade": 2, "start": 0, "end": 91}],
+      "latency_budget_ms": 250
+    },
+    {
+      "case_id": "authorization-protected-symbol",
+      "query": "do not call the late provider for an exact symbol lane",
+      "query_class": "RepositoryCode",
+      "tags": ["protected", "symbol", "no-provider-call"],
+      "relevant_evidence_ids": [4],
+      "source_file": "request_authorization.txt",
+      "judgments": [{"source": "request_authorization.txt", "grade": 2, "start": 92, "end": 190}],
+      "latency_budget_ms": 250
+    },
+    {
+      "case_id": "exact-protected",
+      "query": "id:SearchCallControl",
+      "query_class": "ExactLookup",
+      "tags": ["protected", "exact"],
+      "relevant_evidence_ids": [4],
+      "source_file": "request_authorization.txt",
+      "judgments": [{"source": "request_authorization.txt", "grade": 2, "start": 92, "end": 190}],
+      "latency_budget_ms": 250
+    },
+    {
+      "case_id": "visual-protected",
+      "query": "show the visual figure",
+      "query_class": "VisualDocument",
+      "tags": ["protected", "visual"],
+      "relevant_evidence_ids": [],
+      "source_file": "request_authorization.txt",
+      "judgments": [],
+      "latency_budget_ms": 250
+    }
+  ]
+}
