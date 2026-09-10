@@ -195,8 +195,9 @@ client boundary is newline-delimited JSON on
 `<instance>/system/daemon.sock`; the token is stored in
 `<instance>/system/daemon.token`.
 The owner-only instance-token operations include `status`, `retrieval_status`, `search`,
-`evidence`, `task`, `index_candidates`, `index_selection_get`, `index_selection_save`,
-`index_run`, `repository_index_candidates`, `repository_index_children`,
+`evidence`, `task`, `retire_retrieval_events`, `index_candidates`,
+`index_selection_get`, `index_selection_save`, `index_run`,
+`repository_index_candidates`, `repository_index_children`,
 `repository_index_files`, `repository_index_progress_get`, `repository_index_run`,
 `repository_index_selection_get`, `repository_index_selection_save`,
 `repository_index_status`, `model_agent_propose`, `model_agent_status`,

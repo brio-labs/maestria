@@ -57,9 +57,9 @@ A provider receives a federated request only through a consumer binding:
     "limit": 10
   }
 }
-Instance-token operations are `status`, `retrieval_status`, `search`, `evidence`, `task`,
-`model_agent_propose`, `model_agent_status`, `model_agent_resolve`,
-`realm_grant_create`, `realm_grant_list`, `realm_grant_revoke`,
+Instance-token operations are `status`, `retrieval_status`, `search`, `evidence`,
+`task`, `retire_retrieval_events`, `model_agent_propose`, `model_agent_status`,
+`model_agent_resolve`, `realm_grant_create`, `realm_grant_list`, `realm_grant_revoke`,
 `install_federation_binding`, and the notebook/draft operations listed below.
 A federation credential authorizes only `federation_search` and
 `federation_evidence`; it cannot call ordinary local operations, status,
