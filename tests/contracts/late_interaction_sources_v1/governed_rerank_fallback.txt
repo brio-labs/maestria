@@ -1,0 +1,4 @@
+original candidate vector and ranks are retained when bounded scoring fails
+provider failure, timeout, cancellation, and identity drift are fallback outcomes
+no partial score may become observable
+source: crates/ecosystem/maestria-retrieval/src/bounded_reranker.rs

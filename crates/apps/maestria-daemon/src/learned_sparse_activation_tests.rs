@@ -413,6 +413,7 @@ fn register_sparse_generation(
             corpus_snapshot: identity.corpus_snapshot,
             fingerprint: fixture_index_fingerprint(identity),
             sparse_namespace: Some(identity.namespace.clone()),
+            representation_fingerprint: None,
         }),
     )?;
     advance_generation(state, store, identity.generation_id)?;

@@ -12,8 +12,8 @@ mod manifest_encoding;
 use crate::manifest_scope;
 
 use manifest_codec::{
-    ManifestFields, parse_embedding_config, parse_manifest_fields, parse_ocr_config,
-    parse_visual_config, retention_policy_name,
+    ManifestFields, parse_embedding_config, parse_late_interaction_config, parse_manifest_fields,
+    parse_ocr_config, parse_visual_config, retention_policy_name,
 };
 use manifest_codec_sparse::parse_sparse_config;
 use manifest_scope::{lexical_normalize, path_matches_pattern};
@@ -101,6 +101,24 @@ pub struct VisualConfig {
     pub retention_policy: RetentionPolicy,
 }
 
+/// Opt-in late-interaction Stage A configuration.
+///
+/// `Active` remains runtime-gated by a validated promotion record; manifest
+/// presence alone never activates the provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LateInteractionMode {
+    Disabled,
+    Shadow,
+    Active,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LateInteractionConfig {
+    pub endpoint: String,
+    pub profile_path: PathBuf,
+    pub mode: LateInteractionMode,
+}
+
 /// Learned-sparse sidecar profile.
 ///
 /// Unlike the embedding/visual profiles, a remote provider or retained
@@ -130,6 +148,7 @@ pub struct InstanceManifest {
     pub embeddings: Option<EmbeddingConfig>,
     pub ocr: Option<OcrConfig>,
     pub visual: Option<VisualConfig>,
+    pub late_interaction: Option<LateInteractionConfig>,
     pub sparse: Option<SparseProfileConfig>,
 }
 
@@ -147,6 +166,7 @@ impl InstanceManifest {
             embeddings: None,
             ocr: None,
             visual: None,
+            late_interaction: None,
             sparse: None,
         }
     }
@@ -173,6 +193,7 @@ impl InstanceManifest {
         let embeddings = parse_embedding_config(&fields)?;
         let ocr = parse_ocr_config(&fields)?;
         let visual = parse_visual_config(&fields)?;
+        let late_interaction = parse_late_interaction_config(&fields)?;
         let sparse = parse_sparse_config(&fields)?;
         let ManifestFields {
             schema_version,
@@ -232,6 +253,7 @@ impl InstanceManifest {
             embeddings,
             ocr,
             visual,
+            late_interaction,
             sparse,
         })
     }

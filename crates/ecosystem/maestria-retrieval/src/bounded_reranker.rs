@@ -103,6 +103,7 @@ fn skipped_trace(ranked: &RankedCandidate) -> SearchTraceRerankCandidate {
         position: RerankPosition::SkippedCap,
         relevance_score: None,
         constraint_scores: Vec::new(),
+        late_interaction: None,
     }
 }
 
@@ -157,6 +158,7 @@ fn finish_candidates(
             position,
             relevance_score: promoted.then_some(item.components.relevance),
             constraint_scores,
+            late_interaction: None,
         });
     }
     trace.sort_by(|left, right| {
@@ -193,6 +195,7 @@ impl CandidateReranker for BoundedReranker {
             plan,
             candidates,
             max_latency_ms,
+            ..
         } = request;
         let mut remaining = candidates.into_iter();
         let input_candidates = remaining.by_ref().take(self.limits.input_cap).collect();

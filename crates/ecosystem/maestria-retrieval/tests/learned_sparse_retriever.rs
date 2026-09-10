@@ -265,6 +265,7 @@ fn fixture_registry(
         id: identity.generation_id,
         name: identity.representation.clone(),
         corpus_snapshot: identity.corpus_snapshot,
+        representation_fingerprint: None,
         sparse_namespace: Some(identity.namespace.clone()),
         fingerprint: IndexFingerprint {
             provider: maestria_domain::ProviderName::new(sparse.provider.clone()),

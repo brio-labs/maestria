@@ -33,7 +33,8 @@ pub use error::{CoreError, CoreResult};
 pub use ingestion::build_artifact_detected_input;
 pub use instance::{InitInstanceInput, InitInstancePlan, InstanceLayout, InstanceService};
 pub use manifest::{
-    EmbeddingConfig, InstanceManifest, OcrConfig, SparseProfileConfig, VisualConfig,
+    EmbeddingConfig, InstanceManifest, LateInteractionConfig, LateInteractionMode, OcrConfig,
+    SparseProfileConfig, VisualConfig,
 };
 pub use manifest_scope::{lexical_normalize, path_matches_pattern};
 pub use metrics::{format_duration, rate_per_second};

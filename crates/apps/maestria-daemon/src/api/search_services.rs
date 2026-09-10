@@ -1,18 +1,17 @@
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
-use maestria_domain::{
-    EvidenceCandidate, EvidenceSpan, RetrievalLaneScore, RetrievalRawRank, RetrievalScoreKind,
-    RetrievalScoreScale, SearchOutcome,
-};
-use maestria_storage_sqlite::SqliteStore;
-
 use super::super::protocol::{
     CoverageResponse, RetrievalLaneStatus, RetrievalPromotionRecordWire, RetrievalPromotionRecords,
     RetrievalStatusResponse, SearchEvidenceResponse, SearchRawRankResponse, SearchResponse,
     SearchScoreResponse, SearchScoreScaleResponse,
 };
 use super::super::server::ApiContext;
+use anyhow::{Result, anyhow};
+use maestria_domain::{
+    EvidenceCandidate, EvidenceSpan, RetrievalLaneScore, RetrievalRawRank, RetrievalScoreKind,
+    RetrievalScoreScale, SearchOutcome,
+};
+use maestria_storage_sqlite::{SqliteStore, StoredLateInteractionReport};
 
 pub(super) async fn search_with_retry(
     context: &ApiContext,
@@ -73,6 +72,67 @@ async fn prepare_read_only_search_runtime(
     .await
     .map_err(|error| anyhow!("prepare search runtime task failed: {error}"))?
 }
+fn late_report_wire(record: &StoredLateInteractionReport) -> RetrievalPromotionRecordWire {
+    RetrievalPromotionRecordWire {
+        evaluation_id: record.evaluation_id.clone(),
+        corpus_id: record.corpus_id.clone(),
+        evaluation_date: record.evaluation_date.clone(),
+        report_hash: record.report_hash.clone(),
+        created_at: record.created_at.clone(),
+    }
+}
+
+fn late_mode_label(manifest: &maestria_core::InstanceManifest) -> String {
+    match manifest.late_interaction.as_ref().map(|config| config.mode) {
+        Some(maestria_core::LateInteractionMode::Shadow) => "Shadow",
+        Some(maestria_core::LateInteractionMode::Active) => "Active",
+        Some(maestria_core::LateInteractionMode::Disabled) | None => "Disabled",
+    }
+    .to_string()
+}
+
+fn late_report_identity(
+    report: Option<&StoredLateInteractionReport>,
+) -> (Option<String>, Option<String>, Option<String>) {
+    (
+        report.map(|value| value.evaluation_id.clone()),
+        report.map(|value| value.evaluation_date.clone()),
+        report.map(|value| value.report_hash.clone()),
+    )
+}
+fn hybrid_lane_status(
+    hybrid: &maestria_retrieval::HybridExecutionPolicy,
+) -> (String, Vec<String>, Option<String>, Option<String>) {
+    match hybrid {
+        maestria_retrieval::HybridExecutionPolicy::Shadow => {
+            ("Shadow".to_string(), Vec::new(), None, None)
+        }
+        maestria_retrieval::HybridExecutionPolicy::Active(record) => (
+            "Active".to_string(),
+            record
+                .served_classes()
+                .iter()
+                .map(|class| format!("{class:?}"))
+                .collect(),
+            Some(record.evaluation_id().to_string()),
+            Some(record.evaluation_date().to_string()),
+        ),
+    }
+}
+
+type LateReportSet = (
+    Option<StoredLateInteractionReport>,
+    Option<StoredLateInteractionReport>,
+    Option<StoredLateInteractionReport>,
+);
+
+fn load_late_reports(store: &SqliteStore) -> Result<LateReportSet> {
+    Ok((
+        store.load_latest_late_interaction_report("stage-a")?,
+        store.load_latest_late_interaction_report("stage-b")?,
+        store.load_latest_late_interaction_promotion_record()?,
+    ))
+}
 
 /// Assemble the retrieval status read: lane execution states, the promotion
 /// records backing them, and instance model configuration.
@@ -97,6 +157,7 @@ pub(super) async fn retrieval_status(context: &ApiContext) -> Result<RetrievalSt
     let learned_sparse = crate::runtime_construction::learned_sparse_policy(&store, &manifest);
     let sparse_record = store.load_latest_promotion_record()?;
     let hybrid_record = store.load_latest_hybrid_promotion_record()?;
+    let (late_stage_a, late_stage_b, late_promotion) = load_late_reports(&store)?;
     let fingerprint = match context
         .runtime
         .as_ref()
@@ -114,21 +175,13 @@ pub(super) async fn retrieval_status(context: &ApiContext) -> Result<RetrievalSt
         .map_err(|error| anyhow!("invalid fallback model fingerprint: {error}"))?,
     };
     let (hybrid_state, hybrid_served_classes, hybrid_evaluation_id, hybrid_evaluation_date) =
-        match &hybrid {
-            maestria_retrieval::HybridExecutionPolicy::Shadow => {
-                ("Shadow".to_string(), Vec::new(), None, None)
-            }
-            maestria_retrieval::HybridExecutionPolicy::Active(record) => (
-                "Active".to_string(),
-                record
-                    .served_classes()
-                    .iter()
-                    .map(|class| format!("{class:?}"))
-                    .collect(),
-                Some(record.evaluation_id().to_string()),
-                Some(record.evaluation_date().to_string()),
-            ),
-        };
+        hybrid_lane_status(&hybrid);
+    let late_interaction_state = late_mode_label(&manifest);
+    let (
+        late_interaction_evaluation_id,
+        late_interaction_evaluation_date,
+        late_interaction_report_hash,
+    ) = late_report_identity(late_stage_a.as_ref());
     let lanes = RetrievalLaneStatus {
         hybrid_state,
         hybrid_served_classes,
@@ -137,6 +190,10 @@ pub(super) async fn retrieval_status(context: &ApiContext) -> Result<RetrievalSt
         hybrid_report_hash: hybrid_record
             .as_ref()
             .map(|record| record.report_hash.clone()),
+        late_interaction_state,
+        late_interaction_evaluation_id,
+        late_interaction_evaluation_date,
+        late_interaction_report_hash,
         learned_sparse_state: format!("{learned_sparse:?}"),
         learned_sparse_model: manifest
             .sparse
@@ -179,6 +236,9 @@ pub(super) async fn retrieval_status(context: &ApiContext) -> Result<RetrievalSt
                     report_hash: record.report_hash.clone(),
                     created_at: record.created_at.clone(),
                 }),
+            late_interaction_stage_a: late_stage_a.as_ref().map(late_report_wire),
+            late_interaction_stage_b: late_stage_b.as_ref().map(late_report_wire),
+            late_interaction_promotion: late_promotion.as_ref().map(late_report_wire),
         },
     })
 }

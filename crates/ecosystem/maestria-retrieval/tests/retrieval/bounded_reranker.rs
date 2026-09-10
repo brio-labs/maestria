@@ -1,10 +1,11 @@
 use maestria_domain::{EvidenceCandidate, EvidenceCandidateDto, RerankPosition};
+use maestria_governance::RetrievalSecurityPolicy;
 use maestria_retrieval::bounded_reranker::BoundedReranker;
 use maestria_retrieval::traits::{CandidateReranker, RerankScorer};
 use maestria_retrieval::types::{
     RankedCandidate, RerankLimits, RerankRequest, RerankScoreComponents, RerankScorerInput,
 };
-use maestria_retrieval::{RetrievalError, RetrievalResult};
+use maestria_retrieval::{RetrievalError, RetrievalResult, SearchCancellation};
 use std::sync::Arc;
 
 use crate::common::{candidate_fixture, dummy_plan};
@@ -73,6 +74,11 @@ fn test_bounded_reranker_limits_and_trace() -> RetrievalResult<()> {
     let reranker = BoundedReranker::new(scorer, limits);
 
     let plan = dummy_plan()?;
+    let authorization = Arc::new(
+        RetrievalSecurityPolicy::default()
+            .authorization_context(plan.scope())
+            .map_err(|error| RetrievalError::Internal(error.to_string()))?,
+    );
     let candidates = vec![
         create_test_candidate(1, 0)?,
         create_test_candidate(2, 1)?,
@@ -86,6 +92,9 @@ fn test_bounded_reranker_limits_and_trace() -> RetrievalResult<()> {
         plan: std::sync::Arc::new(plan),
         candidates,
         max_latency_ms: 100,
+        authorization,
+        source_filter: None,
+        cancellation: Arc::new(SearchCancellation::new()),
     };
 
     let result = reranker.rerank(request)?;
@@ -159,6 +168,11 @@ fn test_bounded_reranker_fallback() -> RetrievalResult<()> {
     let reranker = BoundedReranker::new(scorer, limits);
 
     let plan = dummy_plan()?;
+    let authorization = Arc::new(
+        RetrievalSecurityPolicy::default()
+            .authorization_context(plan.scope())
+            .map_err(|error| RetrievalError::Internal(error.to_string()))?,
+    );
     let candidates = vec![
         create_test_candidate(1, 0)?,
         create_test_candidate(999, 1)?, // Timeout
@@ -169,6 +183,9 @@ fn test_bounded_reranker_fallback() -> RetrievalResult<()> {
         plan: std::sync::Arc::new(plan),
         candidates,
         max_latency_ms: 100,
+        authorization,
+        source_filter: None,
+        cancellation: Arc::new(SearchCancellation::new()),
     };
 
     let result = reranker.rerank(request)?;
@@ -204,6 +221,11 @@ fn test_bounded_reranker_cancellation() -> RetrievalResult<()> {
     let reranker = BoundedReranker::new(scorer, limits);
 
     let plan = dummy_plan()?;
+    let authorization = Arc::new(
+        RetrievalSecurityPolicy::default()
+            .authorization_context(plan.scope())
+            .map_err(|error| RetrievalError::Internal(error.to_string()))?,
+    );
     let candidates = vec![
         create_test_candidate(1, 0)?,
         create_test_candidate(998, 1)?, // Cancelled
@@ -213,6 +235,9 @@ fn test_bounded_reranker_cancellation() -> RetrievalResult<()> {
         plan: std::sync::Arc::new(plan),
         candidates,
         max_latency_ms: 100,
+        authorization,
+        source_filter: None,
+        cancellation: Arc::new(SearchCancellation::new()),
     };
 
     let result = reranker.rerank(request);

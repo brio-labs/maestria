@@ -2949,6 +2949,7 @@ dependencies = [
  "maestria-graph-sqlite",
  "maestria-harness",
  "maestria-index-selection",
+ "maestria-late-local",
  "maestria-ocr-local",
  "maestria-parsers",
  "maestria-ports",
@@ -3041,6 +3042,18 @@ dependencies = [
  "maestria-governance",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "maestria-late-local"
+version = "0.0.0"
+dependencies = [
+ "maestria-adapter-http",
+ "maestria-domain",
+ "maestria-ports",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]

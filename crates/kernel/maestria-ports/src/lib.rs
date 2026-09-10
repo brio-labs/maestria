@@ -25,17 +25,28 @@
 //! - `learned_sparse_contract_tests`: learned sparse contract test modules.
 //! - `ocr_contract_tests`: OCR provider contract test module.
 //! - `visual_contract_tests`: visual embedding provider contract test module.
+//! - `multivector`: provider-neutral late-interaction multivector contracts.
 
 mod version;
 pub use version::PORTS_VERSION;
 
 pub mod execution;
 pub mod learned_sparse;
+pub mod multivector;
 pub use learned_sparse::{
     DEFAULT_MAX_CONTRIBUTIONS, DEFAULT_MAX_SPARSE_TERMS, LearnedSparseIndex,
     LearnedSparseProjectionLifecycle, LearnedSparseProvider, SPARSE_REPRESENTATION_V1,
     SparseDocument, SparseFingerprint, SparseIdentity, SparseInputKind, SparseSearchHit,
     SparseSearchQuery, SparseTermContribution, SparseTermWeight, SparseVector,
+};
+pub use multivector::{
+    BoundedProviderTransport, DEFAULT_MAX_QUERY_VECTORS, LATE_INTERACTION_SCORE_DENOMINATOR,
+    LATE_INTERACTION_SCORE_SCALE_V1, LateInteractionContribution, LateInteractionProvider,
+    LateInteractionScorer, LateInteractionScoringResult, MULTIVECTOR_TEXT_V1,
+    MultiVectorCompression, MultiVectorDocument, MultiVectorDocumentRequest,
+    MultiVectorFingerprint, MultiVectorIdentity, MultiVectorInputKind, MultiVectorQuery,
+    MultiVectorQueryRequest, MultiVectorSimilarity, MultiVectorSourceIdentity, MultiVectorToken,
+    MultiVectorTokenId, MultiVectorTokenPolicy, ProviderCallControl, contribution_order,
 };
 pub mod learned_sparse_observations;
 pub use learned_sparse_observations::{

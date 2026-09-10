@@ -5,11 +5,21 @@ impl KernelState {
         &mut self,
         input: StartIndexGenerationInput,
     ) -> Result<KernelOutput, DomainError> {
+        if input.name.as_str() == "multivector_text_v1"
+            && input.representation_fingerprint.is_none()
+        {
+            return Err(DomainError::SearchIncompatible {
+                error: crate::search::SearchCompatibilityError::InvalidScoreProvenance(
+                    "multivector generations require representation_fingerprint",
+                ),
+            });
+        }
         let event = DomainEvent::IndexGenerationStarted {
             id: input.id,
             name: input.name.clone(),
             corpus_snapshot: input.corpus_snapshot,
             fingerprint: input.fingerprint.clone(),
+            representation_fingerprint: input.representation_fingerprint.clone(),
             sparse_namespace: input.sparse_namespace.clone(),
         };
 
@@ -18,6 +28,7 @@ impl KernelState {
             input.name,
             input.corpus_snapshot,
             input.fingerprint,
+            input.representation_fingerprint,
             input.sparse_namespace,
         )?;
         let envelope = self.emit_event(event);
@@ -36,12 +47,21 @@ impl KernelState {
         name: crate::generations::RepresentationName,
         corpus_snapshot: crate::ids::CorpusSnapshotId,
         fingerprint: crate::generations::IndexFingerprint,
+        representation_fingerprint: Option<crate::search::ContentHash>,
         sparse_namespace: Option<crate::SparseNamespace>,
     ) -> Result<(), DomainError> {
+        if name.as_str() == "multivector_text_v1" && representation_fingerprint.is_none() {
+            return Err(DomainError::SearchIncompatible {
+                error: crate::search::SearchCompatibilityError::InvalidScoreProvenance(
+                    "multivector generations require representation_fingerprint",
+                ),
+            });
+        }
         let generation = crate::generations::IndexGeneration {
             id,
             name,
             corpus_snapshot,
+            representation_fingerprint,
             sparse_namespace,
             fingerprint,
             lifecycle: crate::generations::IndexLifecycle::Building,

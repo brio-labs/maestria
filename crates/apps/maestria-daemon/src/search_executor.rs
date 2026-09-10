@@ -24,10 +24,10 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 use maestria_code_intel::RepositoryCodeIndex;
-use maestria_core::{InstanceLayout, InstanceManifest};
+use maestria_core::{InstanceLayout, InstanceManifest, LateInteractionMode};
 use maestria_domain::{
-    CorpusSnapshotId, DomainEventEnvelope, IndexGenerationId, KernelState,
-    RetrievalModelFingerprint,
+    CorpusSnapshotId, DomainEventEnvelope, IndexGenerationId, KernelState, RepresentationName,
+    RetrievalModelFingerprint, TrustZone,
 };
 use maestria_ports::{
     ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EmbeddingProvider, EventFilter,
@@ -35,7 +35,8 @@ use maestria_ports::{
 };
 use maestria_retrieval::adapters::VisualGenerationCapability;
 use maestria_retrieval::{
-    CandidateReranker, CandidateRetriever, RepositoryExecutionPolicy, SearchPlannerContext,
+    CandidateReranker, CandidateRetriever, LateInteractionReranker, LateInteractionRerankerParts,
+    MaxSimLateInteractionScorer, RepositoryExecutionPolicy, RerankLimits, SearchPlannerContext,
     VisualExecutionPolicy,
 };
 use maestria_storage_sqlite::SqliteStore;
@@ -69,6 +70,13 @@ pub struct SearchRuntime {
     pub(crate) persist_learned_sparse_observations: bool,
     pub(crate) embedding_provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>>,
     pub(crate) reranker: Option<Arc<dyn CandidateReranker>>,
+    /// Constructed for the explicit shadow experiment but never installed in
+    /// the serving engine; promotion is required before result replacement.
+    pub(crate) late_interaction_shadow_reranker: Option<Arc<dyn CandidateReranker>>,
+    /// Installed for active configuration; its per-class allow-list is
+    /// refreshed from the validated promotion record before each search.
+    pub(crate) late_interaction_active_reranker: Option<Arc<dyn CandidateReranker>>,
+    pub(crate) late_interaction_active_controller: Option<Arc<LateInteractionReranker>>,
     pub(crate) retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
     pub(crate) primary_generation: IndexGenerationId,
     pub(crate) dense_generation: Option<IndexGenerationId>,
@@ -113,6 +121,9 @@ impl SearchRuntime {
             persist_learned_sparse_observations: true,
             embedding_provider,
             reranker: None,
+            late_interaction_shadow_reranker: None,
+            late_interaction_active_reranker: None,
+            late_interaction_active_controller: None,
             visual_embedding_provider: None,
             visual_generation: None,
             retrieval_policy,
@@ -129,6 +140,85 @@ impl SearchRuntime {
             fingerprint,
             engine_cache: Arc::new(RwLock::new(None)),
         })
+    }
+
+    fn attach_late_interaction(
+        runtime: &mut Self,
+        state: &KernelState,
+        manifest: &InstanceManifest,
+        federation_read_only: bool,
+    ) -> Result<()> {
+        let Some(config) = manifest.late_interaction.as_ref() else {
+            return Ok(());
+        };
+        if federation_read_only || matches!(config.mode, LateInteractionMode::Disabled) {
+            return Ok(());
+        }
+        let Some(generation) = state
+            .index_generations
+            .get_active(&RepresentationName::new("multivector_text_v1"))
+        else {
+            tracing::warn!(
+                "late interaction generation is unavailable; preserving baseline serving"
+            );
+            return Ok(());
+        };
+        let provider = match crate::providers::build_late_interaction_provider_for_generation(
+            manifest,
+            generation,
+            manifest.realm_id.clone(),
+            TrustZone::Verified,
+        ) {
+            Ok(Some(provider)) => provider,
+            Ok(None) => return Ok(()),
+            Err(error) => {
+                tracing::warn!(
+                    "late interaction provider is unavailable; preserving baseline serving: {error:#}"
+                );
+                return Ok(());
+            }
+        };
+        let Some(identity) = provider.identity() else {
+            tracing::warn!(
+                "late interaction provider has no identity; preserving baseline serving"
+            );
+            return Ok(());
+        };
+        let reranker = match LateInteractionReranker::new(
+            LateInteractionRerankerParts {
+                artifacts: runtime.artifacts.clone(),
+                evidence: runtime.evidence.clone(),
+                blobs: runtime.blobs.clone(),
+                provider,
+                scorer: Arc::new(MaxSimLateInteractionScorer::new()),
+                identity,
+            },
+            RerankLimits {
+                input_cap: 100,
+                score_cap: 20,
+                output_cap: 20,
+            },
+        ) {
+            Ok(reranker) => Arc::new(reranker),
+            Err(error) => {
+                tracing::warn!(
+                    "late interaction reranker is unavailable; preserving baseline serving: {error}"
+                );
+                return Ok(());
+            }
+        };
+        match config.mode {
+            LateInteractionMode::Shadow => {
+                runtime.late_interaction_shadow_reranker = Some(reranker);
+            }
+            LateInteractionMode::Active => {
+                runtime.late_interaction_active_controller = Some(reranker.clone());
+                runtime.late_interaction_active_reranker = Some(reranker);
+                runtime.refresh_late_interaction_activation()?;
+            }
+            LateInteractionMode::Disabled => {}
+        }
+        Ok(())
     }
 
     pub(crate) fn assemble(
@@ -212,11 +302,9 @@ impl SearchRuntime {
             corpus_snapshot,
             scope_id: maestria_domain::DEFAULT_INSTANCE_SCOPE_ID,
         };
-        Ok(Arc::new(Self::from_parts(
-            parts,
-            embedding_provider,
-            retrieval_policy,
-        )?))
+        let mut runtime = Self::from_parts(parts, embedding_provider, retrieval_policy)?;
+        Self::attach_late_interaction(&mut runtime, state, manifest, federation_read_only)?;
+        Ok(Arc::new(runtime))
     }
 
     pub fn append_events(

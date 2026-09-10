@@ -239,6 +239,47 @@ fn mix_trace_rerank(hash: &mut u64, rerank: &SearchTraceRerank) {
             mix_hash(hash, constraint.name.as_bytes());
             mix_hash(hash, &u64::from(constraint.score).to_le_bytes());
         }
+        if let Some(late) = &candidate.late_interaction {
+            mix_late_provenance(hash, late);
+        }
+    }
+}
+
+fn mix_late_provenance(hash: &mut u64, provenance: &crate::LateInteractionProvenance) {
+    mix_hash(hash, b"late_interaction_provenance_v1");
+    mix_hash(hash, &provenance.generation_id.value().to_le_bytes());
+    mix_hash(hash, &provenance.corpus_snapshot.value().to_le_bytes());
+    mix_hash(hash, provenance.namespace.as_bytes());
+    mix_hash(hash, provenance.source_snapshot_hash.as_str().as_bytes());
+    mix_hash(
+        hash,
+        provenance.source_representation_hash.as_str().as_bytes(),
+    );
+    mix_hash(hash, provenance.query_hash.as_str().as_bytes());
+    mix_debug(hash, &provenance.aggregation);
+    mix_debug(hash, &provenance.score);
+    mix_hash(hash, &u64::from(provenance.query_token_count).to_le_bytes());
+    mix_hash(
+        hash,
+        &u64::from(provenance.document_token_count).to_le_bytes(),
+    );
+    mix_debug(hash, &provenance.query_truncated);
+    mix_debug(hash, &provenance.document_truncated);
+    mix_hash(
+        hash,
+        &u64::from(provenance.omitted_contribution_count).to_le_bytes(),
+    );
+    mix_hash(
+        hash,
+        &provenance.omitted_contribution_sum_micros.to_le_bytes(),
+    );
+    for contribution in &provenance.contributions {
+        mix_hash(hash, &u64::from(contribution.query_position).to_le_bytes());
+        mix_hash(
+            hash,
+            &u64::from(contribution.document_position).to_le_bytes(),
+        );
+        mix_hash(hash, &contribution.similarity_micros.to_le_bytes());
     }
 }
 

@@ -14,7 +14,7 @@ use anyhow::{Context, Result, anyhow};
 use clap::Parser as ClapParser;
 use cli_types::{
     ApprovalCommands, Cli, CodeSearchCommands, Commands, EvidenceCommands, IndexCommands,
-    MemoryCommands, PromotionCommands, SearchCommands, TaskCommands,
+    LateInteractionCommands, MemoryCommands, PromotionCommands, SearchCommands, TaskCommands,
 };
 use maestria_core::InstanceLayout;
 use maestria_daemon::{ClientOperation, ClientResponse, DaemonClient};
@@ -162,6 +162,7 @@ async fn dispatch(command: Commands) -> Result<()> {
         Commands::Approval { command } => dispatch_approval(command).await?,
         Commands::Realm { command } => commands::realm::run(command).await?,
         Commands::Promotion { command } => dispatch_promotion(command)?,
+        Commands::LateInteraction { command } => dispatch_late_interaction(command)?,
     }
     Ok(())
 }
@@ -175,6 +176,9 @@ fn dispatch_promotion(command: PromotionCommands) -> Result<()> {
         PromotionCommands::Remove { instance_dir } => commands::promotion::run_remove(instance_dir),
         PromotionCommands::Show { instance_dir } => commands::promotion::run_show(instance_dir),
     }
+}
+fn dispatch_late_interaction(command: LateInteractionCommands) -> Result<()> {
+    commands::late_interaction::run(command)
 }
 
 /// Batch-level policy flags for the index command.

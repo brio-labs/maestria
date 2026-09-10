@@ -250,6 +250,66 @@ impl EvidenceSpan {
     pub fn range(&self) -> ContentRange {
         self.range
     }
+
+    /// Returns the stable length-prefixed form used when hashing a source span.
+    pub fn canonical_bytes(&self) -> Vec<u8> {
+        fn append(output: &mut Vec<u8>, part: &[u8]) {
+            output.extend_from_slice(&(part.len() as u64).to_be_bytes());
+            output.extend_from_slice(part);
+        }
+
+        let mut output = Vec::new();
+        match self.node_id {
+            Some(node_id) => {
+                append(&mut output, b"node");
+                append(&mut output, node_id.value().to_string().as_bytes());
+            }
+            None => append(&mut output, b"no-node"),
+        }
+        match &self.location {
+            SourceLocation::File {
+                path,
+                start_line,
+                end_line,
+            } => {
+                append(&mut output, b"file");
+                append(&mut output, path.as_bytes());
+                append(&mut output, start_line.to_string().as_bytes());
+                append(&mut output, end_line.to_string().as_bytes());
+            }
+            SourceLocation::Page {
+                page_start,
+                page_end,
+            } => {
+                append(&mut output, b"page");
+                append(&mut output, page_start.to_string().as_bytes());
+                append(&mut output, page_end.to_string().as_bytes());
+            }
+            SourceLocation::Region {
+                page,
+                x,
+                y,
+                width,
+                height,
+            } => {
+                append(&mut output, b"region");
+                for value in [page, x, y, width, height] {
+                    append(&mut output, value.to_string().as_bytes());
+                }
+            }
+            SourceLocation::Symbol {
+                path,
+                qualified_name,
+            } => {
+                append(&mut output, b"symbol");
+                append(&mut output, path.as_bytes());
+                append(&mut output, qualified_name.as_bytes());
+            }
+        }
+        append(&mut output, self.range.start().to_string().as_bytes());
+        append(&mut output, self.range.end().to_string().as_bytes());
+        output
+    }
 }
 
 #[derive(Deserialize)]

@@ -100,12 +100,14 @@ impl KernelState {
                 name,
                 fingerprint,
                 corpus_snapshot,
+                representation_fingerprint,
                 sparse_namespace,
             } => self.apply_index_generation_started(
                 *id,
                 name.clone(),
                 *corpus_snapshot,
                 fingerprint.clone(),
+                representation_fingerprint.clone(),
                 sparse_namespace.clone(),
             ),
             DomainEvent::IndexGenerationTransitioned {

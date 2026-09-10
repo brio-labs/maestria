@@ -4,7 +4,7 @@ pub(super) mod common;
 mod visual;
 pub(super) use common::{
     parse_retention_policy, retention_policy_name, string_or_empty, validate_embedding_endpoint,
-    validate_ocr_endpoint,
+    validate_late_interaction_endpoint, validate_ocr_endpoint,
 };
 use std::path::PathBuf;
 pub(super) use visual::parse_visual_config;
@@ -57,6 +57,54 @@ pub(super) struct ManifestFields {
     pub(crate) sparse_term_cap: Option<u32>,
     pub(crate) sparse_remote_provider: Option<bool>,
     pub(crate) sparse_retention_policy: Option<String>,
+    pub(crate) late_interaction_endpoint: Option<String>,
+    pub(crate) late_interaction_profile_path: Option<String>,
+    pub(crate) late_interaction_mode: Option<String>,
+}
+pub(super) fn parse_late_interaction_config(
+    fields: &ManifestFields,
+) -> CoreResult<Option<super::LateInteractionConfig>> {
+    match (
+        &fields.late_interaction_endpoint,
+        &fields.late_interaction_profile_path,
+        &fields.late_interaction_mode,
+    ) {
+        (None, None, None) => Ok(None),
+        (Some(endpoint), Some(profile_path), Some(mode)) => {
+            validate_late_interaction_endpoint(endpoint)?;
+            let profile_path = PathBuf::from(profile_path);
+            if profile_path.is_absolute()
+                || profile_path
+                    .components()
+                    .any(|component| component == std::path::Component::ParentDir)
+            {
+                return Err(CoreError::InvalidManifest {
+                    key: "late_interaction_profile_path".to_string(),
+                    reason: "must be a relative path without parent traversal".to_string(),
+                });
+            }
+            let mode = match mode.as_str() {
+                "disabled" => super::LateInteractionMode::Disabled,
+                "shadow" => super::LateInteractionMode::Shadow,
+                "active" => super::LateInteractionMode::Active,
+                _ => {
+                    return Err(CoreError::InvalidManifest {
+                        key: "late_interaction_mode".to_string(),
+                        reason: "must be disabled, shadow, or active".to_string(),
+                    });
+                }
+            };
+            Ok(Some(super::LateInteractionConfig {
+                endpoint: endpoint.clone(),
+                profile_path,
+                mode,
+            }))
+        }
+        _ => Err(CoreError::InvalidManifest {
+            key: "late_interaction_config".to_string(),
+            reason: "must define endpoint, profile_path, and mode together".to_string(),
+        }),
+    }
 }
 
 pub(super) fn parse_ocr_config(fields: &ManifestFields) -> CoreResult<Option<super::OcrConfig>> {
@@ -314,6 +362,9 @@ fn empty_manifest_fields() -> ManifestFields {
         sparse_term_cap: None,
         sparse_remote_provider: None,
         sparse_retention_policy: None,
+        late_interaction_endpoint: None,
+        late_interaction_profile_path: None,
+        late_interaction_mode: None,
     }
 }
 
@@ -378,6 +429,13 @@ fn parse_manifest_field(fields: &mut ManifestFields, key: &str, value: &str) -> 
             fields.sparse_preprocessing_version = Some(value.to_string());
         }
         "sparse_model" => fields.sparse_model = Some(value.to_string()),
+        "late_interaction_endpoint" => {
+            fields.late_interaction_endpoint = Some(value.to_string());
+        }
+        "late_interaction_profile_path" => {
+            fields.late_interaction_profile_path = Some(value.to_string());
+        }
+        "late_interaction_mode" => fields.late_interaction_mode = Some(value.to_string()),
         "sparse_vocabulary_size" => fields.sparse_vocabulary_size = Some(parse_value(value, key)?),
         "sparse_term_cap" => fields.sparse_term_cap = Some(parse_value(value, key)?),
         "sparse_remote_provider" => {

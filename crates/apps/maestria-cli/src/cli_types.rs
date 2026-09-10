@@ -3,8 +3,11 @@ use std::path::PathBuf;
 use clap::{Parser as ClapParser, Subcommand, ValueEnum};
 use maestria_domain::TaskPriority;
 
+#[path = "cli_types/late_interaction.rs"]
+mod late_interaction;
 #[path = "cli_types/parsers.rs"]
 mod parsers;
+pub use late_interaction::LateInteractionCommands;
 
 #[derive(ClapParser)]
 #[command(author, version, about, long_about = None)]
@@ -140,6 +143,11 @@ pub enum Commands {
     Promotion {
         #[command(subcommand)]
         command: PromotionCommands,
+    },
+    /// Late-interaction report and rollback management
+    LateInteraction {
+        #[command(subcommand)]
+        command: LateInteractionCommands,
     },
 }
 

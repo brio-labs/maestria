@@ -46,6 +46,7 @@ pub(super) fn reorder_visual_candidates(
                     name: "visual_cosine".to_string(),
                     score: *score,
                 }],
+                late_interaction: None,
             };
         } else {
             trace[slot] = SearchTraceRerankCandidate {
@@ -54,6 +55,7 @@ pub(super) fn reorder_visual_candidates(
                 position: RerankPosition::SkippedCap,
                 relevance_score: None,
                 constraint_scores: Vec::new(),
+                late_interaction: None,
             };
         }
     }

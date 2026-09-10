@@ -18,6 +18,7 @@ use maestria_ports::{
 };
 
 use super::*;
+use crate::SearchCancellation;
 use crate::types::{RankedCandidate, RerankLimits, RerankRequest};
 
 fn fixture_scores(
@@ -134,6 +135,7 @@ fn capability()
         id: generation,
         name: maestria_domain::RepresentationName::new("visual_page_v1"),
         corpus_snapshot: snapshot,
+        representation_fingerprint: None,
         sparse_namespace: None,
         fingerprint: identity.fingerprint.clone(),
         lifecycle: IndexLifecycle::Building,
@@ -214,10 +216,15 @@ fn candidate(
     })?)
 }
 
-#[test]
-fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
--> Result<(), Box<dyn std::error::Error>> {
-    let (capability, identity) = capability()?;
+type VisualEvidenceFixture = (
+    Arc<InMemoryArtifactRepository>,
+    Arc<InMemoryEvidenceRepository>,
+    Arc<InMemoryBlobStore>,
+    EvidenceId,
+    EvidenceId,
+);
+
+fn visual_evidence_fixture() -> Result<VisualEvidenceFixture, Box<dyn std::error::Error>> {
     let artifact_repo = Arc::new(InMemoryArtifactRepository::new());
     artifact_repo.put(artifact(ArtifactId::new(1))?)?;
     let evidence_repo = Arc::new(InMemoryEvidenceRepository::new());
@@ -226,15 +233,13 @@ fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
     let blob_two = blob_store.put(vec![1])?;
     let first_id = EvidenceId::new(101);
     let second_id = EvidenceId::new(102);
+    let hash = maestria_domain::ContentHash::new(maestria_domain::content_hash(&[1]))?;
     evidence_repo.put(Evidence {
         id: first_id,
         artifact_id: ArtifactId::new(1),
         claim_id: None,
         kind: EvidenceKind::PdfRegion {
-            snapshot: maestria_domain::SnapshotRef::new(
-                blob_one,
-                maestria_domain::ContentHash::new(maestria_domain::content_hash(&[1]))?,
-            ),
+            snapshot: maestria_domain::SnapshotRef::new(blob_one, hash.clone()),
             page: 1,
             x: 1,
             y: 2,
@@ -250,10 +255,7 @@ fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
         artifact_id: ArtifactId::new(1),
         claim_id: None,
         kind: EvidenceKind::PdfRegion {
-            snapshot: maestria_domain::SnapshotRef::new(
-                blob_two,
-                maestria_domain::ContentHash::new(maestria_domain::content_hash(&[1]))?,
-            ),
+            snapshot: maestria_domain::SnapshotRef::new(blob_two, hash),
             page: 2,
             x: 20,
             y: 2,
@@ -264,6 +266,21 @@ fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
         observed_at: maestria_domain::LogicalTick::new(1),
         security: SecurityMetadata::default(),
     })?;
+    Ok((
+        artifact_repo,
+        evidence_repo,
+        blob_store,
+        first_id,
+        second_id,
+    ))
+}
+
+#[test]
+fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (capability, identity) = capability()?;
+    let (artifact_repo, evidence_repo, blob_store, first_id, second_id) =
+        visual_evidence_fixture()?;
     let reranker = VisualReranker::new(
         VisualRerankerParts {
             artifacts: artifact_repo,
@@ -281,8 +298,11 @@ fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
     )?;
     let first = candidate(first_id, 1, 1)?;
     let second = candidate(second_id, 2, 20)?;
+    let plan = plan()?;
+    let authorization =
+        Arc::new(RetrievalSecurityPolicy::default().authorization_context(plan.scope())?);
     let result = reranker.rerank(RerankRequest {
-        plan: std::sync::Arc::new(plan()?),
+        plan: Arc::new(plan),
         candidates: vec![
             RankedCandidate {
                 candidate: first,
@@ -294,6 +314,9 @@ fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
             },
         ],
         max_latency_ms: 100,
+        authorization,
+        source_filter: None,
+        cancellation: Arc::new(SearchCancellation::new()),
     })?;
     assert_eq!(result.candidates[0].candidate.evidence_id(), second_id);
     assert_eq!(result.candidates[1].candidate.evidence_id(), first_id);
@@ -334,6 +357,8 @@ fn visual_reranker_returns_traced_fallback_for_secret_queries()
         },
     )?;
     let secret_plan = plan()?.with_original_query("password=not-for-search".to_string())?;
+    let authorization =
+        Arc::new(RetrievalSecurityPolicy::default().authorization_context(secret_plan.scope())?);
     let evidence_id = EvidenceId::new(103);
     let result = reranker.rerank(RerankRequest {
         plan: std::sync::Arc::new(secret_plan),
@@ -342,6 +367,9 @@ fn visual_reranker_returns_traced_fallback_for_secret_queries()
             rank: 0,
         }],
         max_latency_ms: 100,
+        authorization,
+        source_filter: None,
+        cancellation: Arc::new(SearchCancellation::new()),
     })?;
     assert_eq!(result.candidates[0].candidate.evidence_id(), evidence_id);
     assert!(matches!(

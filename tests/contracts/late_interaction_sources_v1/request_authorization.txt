@@ -1,0 +1,3 @@
+request authorization and source filters are evaluated before reading source text
+protected exact and symbol lanes cannot call the late provider
+source: crates/ecosystem/maestria-retrieval/src/engine_evaluation.rs

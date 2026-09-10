@@ -1,0 +1,105 @@
+{
+  "aggregation": "QueryTokenMaxThenSum",
+  "artifact_file_hashes": {
+    "model_int8.onnx": "02260bc68c4d942a3a65b1b0624c11e69b71eeb0be1a0c280ee834b39d3d5b27",
+    "onnx_config.json": "6cecf7fa55afdb85f0958d868cf8b91465ec71dc370a8f1e9801b5cf7e2925fd",
+    "tokenizer.json": "33b6ce1724e107a3298219a322b4c963fcfcb9c8661bd1f30189bdd0d36c4669"
+  },
+  "artifact_hash": "sha256:f898bbbb9a8092f7334cd4e012921368683f10ed9565a5d00e554a7aa431786c",
+  "artifacts": [
+    {
+      "path": "model_int8.onnx",
+      "sha256": "02260bc68c4d942a3a65b1b0624c11e69b71eeb0be1a0c280ee834b39d3d5b27"
+    },
+    {
+      "path": "onnx_config.json",
+      "sha256": "6cecf7fa55afdb85f0958d868cf8b91465ec71dc370a8f1e9801b5cf7e2925fd"
+    },
+    {
+      "path": "tokenizer.json",
+      "sha256": "33b6ce1724e107a3298219a322b4c963fcfcb9c8661bd1f30189bdd0d36c4669"
+    }
+  ],
+  "cpu": "x86_64",
+  "document_max_vectors": 512,
+  "document_prefix": {
+    "id": 256001,
+    "text": "[D] "
+  },
+  "document_template_hash": "sha256:4bbf86e2214e35272a968bed7748054cf4f50863ddfb31d73f2fdf3ea0793a52",
+  "drop_masked_positions": true,
+  "fingerprint_algorithm": "late-interaction-profile-v1",
+  "limits": {
+    "candidate_input": 100,
+    "candidate_output": 20,
+    "candidate_scored": 20,
+    "combined_memory_bytes": 2147483648,
+    "document_utf8_bytes": 65536,
+    "energy_millijoules": 10000000,
+    "index_build_seconds": 220,
+    "index_incremental_seconds": 2,
+    "index_rebuild_seconds": 440,
+    "max_contributions": 16,
+    "max_dimensions": 4096,
+    "model_storage_bytes": 2147483648,
+    "provider_request_bytes": 131072,
+    "provider_response_bytes": 2097152,
+    "query_utf8_bytes": 8192,
+    "representation_working_bytes": 33554432,
+    "search_ms": 250,
+    "snapshot_bytes_per_source": 8388608,
+    "snapshot_bytes_total": 33554432
+  },
+  "lowercase": false,
+  "mask_token_id": 4,
+  "model": "lightonai/LateOn-multilingual",
+  "model_config": {
+    "embedding_dim": 128,
+    "mask_token_id": 4,
+    "model_class": "ModernBertModel",
+    "model_type": "ColBERT",
+    "native_document_token_limit": 8192,
+    "native_query_token_limit": 8192,
+    "pad_token_id": 4
+  },
+  "model_root": ".maestria/models/mlateon",
+  "native_document_token_limit": 8192,
+  "native_query_token_limit": 8192,
+  "normalization": "L2PerTokenV1",
+  "onnx_providers": [
+    "CPUExecutionProvider"
+  ],
+  "output_dimensions": 128,
+  "pad_token_id": 4,
+  "preprocessing_version": "mlateon-prefix-mask-l2-trunc128-512-v1",
+  "profile_name": "mlateon_int8_cpu_v1",
+  "profile_schema_version": 1,
+  "provider": "mlateon-onnx",
+  "punctuation_pruning": false,
+  "query_expansion": false,
+  "query_max_vectors": 128,
+  "query_prefix": {
+    "id": 256000,
+    "text": "[Q] "
+  },
+  "query_template_hash": "sha256:8505b46684ac957b43f209f0ce23cbf0ab629cf12f16774675587b959f2f960a",
+  "repository": "lightonai/mLateOn",
+  "representation_compression": "none",
+  "retain_special_tokens": true,
+  "revision": "local-export-sha256:02260bc68c4d942a3a65b1b0624c11e69b71eeb0be1a0c280ee834b39d3d5b27",
+  "runtime": {
+    "inference_workers": 1,
+    "intra_op_threads": 2,
+    "numpy": "2.2.6",
+    "onnxruntime": "1.22.1",
+    "provider": "CPUExecutionProvider",
+    "python": "3.12.13",
+    "tokenizers": "0.21.2"
+  },
+  "similarity": "Cosine",
+  "tokenizer_hash": "sha256:60c46743a0a33d6936841d393faf89f9729be2fedd8e75c4d5bfe4ba15fcd746",
+  "truncate_direction": "right_after_prefix",
+  "vocabulary_hash": "sha256:60c46743a0a33d6936841d393faf89f9729be2fedd8e75c4d5bfe4ba15fcd746",
+  "vocabulary_size": 256002,
+  "weight_quantization": "onnx_int8"
+}

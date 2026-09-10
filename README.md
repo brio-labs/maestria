@@ -478,6 +478,7 @@ Retire retrieval audit events strictly below a durable log sequence
 rows below the boundary stop being decoded at open, `status` reports
 `retrieval_events_retired_through`, and retired trace lookups answer
 explicitly. Requires a recorded `--reason`.
+The daemon operation is `retire_retrieval_events`.
 
 ```
 maestria retire-retrieval-events -i <dir> --before-sequence <n> --reason "<why>" [--yes]
@@ -658,6 +659,52 @@ maestria approval resolve [-i <dir>] <id> (--approve | --deny)
 Approval commands resolve governed requests; they do not bypass scope or
 validation. Using both `--approve` and `--deny` together is rejected.
 
+### `late-interaction`
+
+Inspect persisted late-interaction evaluation reports, install a validated
+Stage A promotion record, or remove one promotion record. These commands never
+enable late interaction by themselves; the instance manifest must explicitly
+select active mode, while default and shadow modes remain safe.
+
+```
+maestria late-interaction show [-i <dir>] [--stage stage-a|stage-b|promotion]
+maestria late-interaction set [-i <dir>] --record <path>
+maestria late-interaction rollback [-i <dir>] --evaluation-id <id>
+```
+
+`stage-a` is the real daemon-backed reranker evaluation, `stage-b` is the
+hash-bound indexed-retrieval gate, and `promotion` is a validated Stage A
+opt-in record. `set` requires a stored, hash-matching real Stage A report.
+Rollback removes only the selected promotion record and the next request
+returns the baseline route for that class.
+
+To run the live Stage A evaluation, use an experiment-local `uv` environment
+with the pinned sparse-runtime requirements; do not install these dependencies
+into system Python:
+
+```sh
+uv venv .venv-late-interaction
+uv pip install --python .venv-late-interaction/bin/python \
+  --requirement scripts/requirements-sparse.txt
+.venv-late-interaction/bin/python scripts/late_model_fingerprint.py \
+  --profile mlateon_int8_cpu_v1 \
+  --model-dir .maestria/models/mlateon \
+  --output target/benchmark-reports/late-profile.json
+.venv-late-interaction/bin/python scripts/late_interaction_server.py \
+  --model-dir .maestria/models/mlateon \
+  --profile target/benchmark-reports/late-profile.json \
+  --host 127.0.0.1 --port 8093 --threads 2
+```
+
+With the loopback sidecar running, execute the gated test with
+`MAESTRIA_LATE_INTERACTION_EVALUATION=1`,
+`MAESTRIA_LATE_INTERACTION_PYTHON=.venv-late-interaction/bin/python`, and
+the profile, endpoint, and report-directory variables documented in
+`crates/apps/maestria-daemon/tests/late_interaction_evaluation.rs`. A report
+or candidate promotion record is evidence only when this command uses the
+frozen corpus and model; `late-interaction set` remains an explicit operator
+step.
+
 ## Restart-safe policy-scoped workflow
 
 The instance manifest records approved read roots and sensitive-path exclusions.
@@ -721,7 +768,6 @@ Focused helpers remain available:
 
 ```bash
 bash scripts/strict-clippy.sh
-bash scripts/release-contract.sh
 ```
 
 ## Documentation map

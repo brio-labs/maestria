@@ -81,6 +81,7 @@ impl VisualReranker {
                 position: position.clone(),
                 relevance_score: None,
                 constraint_scores: Vec::new(),
+                late_interaction: None,
             })
             .collect()
     }
@@ -141,7 +142,13 @@ impl CandidateReranker for VisualReranker {
             plan,
             candidates,
             max_latency_ms,
+            authorization,
+            cancellation,
+            ..
         } = request;
+        if cancellation.is_cancelled() {
+            return Ok(self.fallback(candidates, "visual reranker request cancelled"));
+        }
         if plan.intent() != maestria_domain::SearchIntent::VisualDocument {
             return Ok(self.result_with_trace(
                 candidates.clone(),
@@ -184,6 +191,7 @@ impl CandidateReranker for VisualReranker {
                 &query_response.vector,
                 started,
                 deadline,
+                &authorization,
             ) {
                 Ok(score) => score,
                 Err(reason) => return Ok(self.fallback(candidates, reason)),

@@ -37,8 +37,8 @@ members = [
     "crates/ecosystem/maestria-ocr-local",
      "crates/ecosystem/maestria-embedding-openai",
      "crates/ecosystem/maestria-visual-local",
-     "crates/ecosystem/maestria-sparse-local",
-     "crates/test-support/maestria-test-support",
+    "crates/ecosystem/maestria-late-local",
+    "crates/test-support/maestria-test-support",
  ]
 
 [workspace.package]
@@ -113,6 +113,7 @@ maestria-ocr-local = { path = "crates/ecosystem/maestria-ocr-local" }
 maestria-embedding-openai = { path = "crates/ecosystem/maestria-embedding-openai" }
 maestria-visual-local = { path = "crates/ecosystem/maestria-visual-local" }
 maestria-sparse-local = { path = "crates/ecosystem/maestria-sparse-local" }
+maestria-late-local = { path = "crates/ecosystem/maestria-late-local" }
 maestria-harness = { path = "crates/harness/maestria-harness" }
 maestria-harness-cli = { path = "crates/harness/maestria-harness-cli" }
 maestria-test-support = { path = "crates/test-support/maestria-test-support" }

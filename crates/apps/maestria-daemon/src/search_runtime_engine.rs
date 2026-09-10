@@ -1,6 +1,8 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
+use maestria_domain::content_hash;
 use maestria_retrieval::adapters::{
     CardRetriever, CardRetrieverParts, CodeIntelRetriever, CodeIntelRetrieverParts,
     CodeIntelSecurityResolver, CodeIntelSecurityResolverParts, CurrentVersionFilter,
@@ -8,20 +10,48 @@ use maestria_retrieval::adapters::{
     HierarchyGraphExpander, HierarchyGraphExpanderParts, LexicalChunkRetriever,
     LexicalChunkRetrieverParts,
 };
-use maestria_retrieval::{CandidateRetriever, FixedKRrf, HybridExecutionPolicy, RetrievalEngine};
+use maestria_retrieval::{
+    CandidateRetriever, FixedKRrf, HybridExecutionPolicy, LateInteractionReranker, RetrievalEngine,
+};
 
 use super::{SearchRuntime, reconcile_active_versions};
 
+fn parse_active_late_interaction_evidence(
+    promotion_hash: &str,
+    promotion_json: &str,
+    stage_a_hash: &str,
+    stage_a_json: &str,
+) -> Option<(
+    maestria_retrieval::LateInteractionStageAPromotionRecord,
+    maestria_retrieval::LateInteractionStageAReport,
+)> {
+    if promotion_hash != content_hash(promotion_json.as_bytes())
+        || stage_a_hash != content_hash(stage_a_json.as_bytes())
+    {
+        tracing::warn!("late interaction promotion/report hash mismatch; serving baseline");
+        return None;
+    }
+    let record = serde_json::from_str(promotion_json).ok()?;
+    let report = serde_json::from_str(stage_a_json).ok()?;
+    Some((record, report))
+}
+
 impl SearchRuntime {
-    /// The production engine: the loaded hybrid policy (dense lane), the
-    /// loaded sparse policy, and the registered sparse lane.
+    /// The production engine: the loaded hybrid policy, sparse policy, and
+    /// the active late-interaction reranker when a validated class record is
+    /// present.
     pub(crate) fn retrieval_engine(&self) -> Result<RetrievalEngine> {
-        self.retrieval_engine_with_policies(
+        self.refresh_late_interaction_activation()?;
+        let mut engine = self.retrieval_engine_with_policies(
             self.hybrid_execution_policy.clone(),
             self.learned_sparse_execution_policy.clone(),
             self.sparse_retriever.clone(),
             true,
-        )
+        )?;
+        if let Some(reranker) = self.late_interaction_active_reranker.clone() {
+            engine = engine.with_late_interaction_reranker(reranker);
+        }
+        Ok(engine)
     }
 
     /// One shared assembly for every engine variant.
@@ -156,5 +186,80 @@ impl SearchRuntime {
             .with_hybrid_policy(hybrid_policy)
             .with_learned_sparse_execution_policy(sparse_policy)
             .with_repository_execution_policy(self.repository_execution_policy.clone()))
+    }
+
+    pub(crate) fn refresh_late_interaction_activation(&self) -> Result<()> {
+        let Some(controller) = self.late_interaction_active_controller.as_ref() else {
+            return Ok(());
+        };
+        let allowed = match self.load_active_late_interaction_classes(controller) {
+            Ok(allowed) => allowed,
+            Err(error) => {
+                tracing::warn!(
+                    "late interaction activation evidence is unavailable; serving baseline: {error:#}"
+                );
+                BTreeSet::new()
+            }
+        };
+        controller
+            .set_allowed_intents(Some(allowed))
+            .map_err(|error| anyhow!("refresh late interaction activation: {error}"))
+    }
+
+    fn load_active_late_interaction_classes(
+        &self,
+        controller: &LateInteractionReranker,
+    ) -> Result<BTreeSet<maestria_domain::SearchIntent>> {
+        let empty = BTreeSet::new();
+        let Some(promotion) = self
+            .event_log
+            .load_latest_late_interaction_promotion_record()?
+        else {
+            return Ok(empty);
+        };
+        let Some(stage_a) = self
+            .event_log
+            .load_latest_late_interaction_report("stage-a")?
+        else {
+            return Ok(empty);
+        };
+        let Some((record, report)) = parse_active_late_interaction_evidence(
+            &promotion.report_hash,
+            &promotion.report_json,
+            &stage_a.report_hash,
+            &stage_a.report_json,
+        ) else {
+            tracing::warn!("late interaction activation evidence is invalid; serving baseline");
+            return Ok(empty);
+        };
+        let profile_identity = match controller.identity().digest() {
+            Ok(identity) => identity,
+            Err(error) => {
+                tracing::warn!(
+                    "late interaction identity cannot be validated; serving baseline: {error}"
+                );
+                return Ok(empty);
+            }
+        };
+        if record.validate_against_report(&report).is_err()
+            || record.profile_identity != profile_identity.as_str()
+            || record.generation_id != controller.identity().generation_id.value().to_string()
+            || record.corpus_snapshot != controller.identity().corpus_snapshot.value().to_string()
+        {
+            tracing::warn!(
+                "late interaction promotion is not bound to the active identity; serving baseline"
+            );
+            return Ok(empty);
+        }
+        Ok(record.promoted_classes)
+    }
+    pub(crate) fn late_interaction_shadow_engine(&self) -> Result<RetrievalEngine> {
+        let reranker = self
+            .late_interaction_shadow_reranker
+            .clone()
+            .ok_or_else(|| anyhow!("late interaction shadow reranker is not configured"))?;
+        Ok(self
+            .retrieval_engine()?
+            .with_late_interaction_reranker(reranker))
     }
 }

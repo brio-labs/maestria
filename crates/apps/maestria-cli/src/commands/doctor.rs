@@ -21,9 +21,13 @@ pub fn run(instance_dir: PathBuf) -> Result<()> {
         "ok full_text_index {}",
         layout.full_text_index_dir.display()
     );
-    println!("ok parsers {}", parser.parser_count());
+    println!("parsers {}", parser.parser_count());
     println!("ocr {}", maestria_daemon::ocr_status(&manifest)?);
     println!("visual {}", maestria_daemon::visual_status(&manifest)?);
     println!("sparse {}", maestria_daemon::sparse_status(&manifest)?);
+    println!(
+        "late_interaction {}",
+        maestria_daemon::late_interaction_status(&manifest)?
+    );
     Ok(())
 }

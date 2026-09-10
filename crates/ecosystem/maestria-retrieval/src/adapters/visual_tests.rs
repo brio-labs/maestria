@@ -101,6 +101,22 @@ impl BlobStore for CountingBlobStore {
         self.gets.fetch_add(1, Ordering::Relaxed);
         Ok(vec![1])
     }
+
+    fn get_bounded(
+        &self,
+        _id: maestria_domain::BlobId,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, PortError> {
+        self.gets.fetch_add(1, Ordering::Relaxed);
+        let bytes = vec![1];
+        if bytes.len() > max_bytes {
+            return Err(PortError::invalid_input(
+                "bounded test blob read",
+                "blob exceeds limit",
+            ));
+        }
+        Ok(bytes)
+    }
 }
 
 /// Shared counting fixture construction for visual-lane tests (R26): the
@@ -129,6 +145,7 @@ fn visual_lane_is_named_and_generation_aware() -> Result<(), Box<dyn std::error:
         id: generation,
         name: RepresentationName::new("visual_page_v1"),
         corpus_snapshot,
+        representation_fingerprint: None,
         sparse_namespace: None,
         fingerprint: identity.fingerprint.clone(),
         lifecycle: IndexLifecycle::Building,
@@ -167,6 +184,7 @@ fn denied_visual_projection_reads_no_blob_and_posts_no_bytes()
     registry.register(IndexGeneration {
         id: generation,
         name: RepresentationName::new("visual_page_v1"),
+        representation_fingerprint: None,
         corpus_snapshot,
         sparse_namespace: None,
         fingerprint: identity.fingerprint.clone(),
@@ -216,6 +234,7 @@ fn setup_test_capability(
     registry.register(IndexGeneration {
         id: generation,
         name: RepresentationName::new("visual_page_v1"),
+        representation_fingerprint: None,
         corpus_snapshot,
         sparse_namespace: None,
         fingerprint: identity.fingerprint.clone(),
@@ -348,6 +367,7 @@ fn visual_batch_generation_fixture() -> Result<
     let mut registry = IndexGenerationRegistry::default();
     registry.register(IndexGeneration {
         id: generation,
+        representation_fingerprint: None,
         name: RepresentationName::new("visual_page_v1"),
         corpus_snapshot,
         sparse_namespace: None,

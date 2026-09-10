@@ -127,6 +127,7 @@ pub(crate) fn ensure_generation(
                 corpus_snapshot: snapshot,
                 fingerprint,
                 sparse_namespace,
+                representation_fingerprint: None,
             }),
         )?;
     }

@@ -5,7 +5,12 @@ on:
     paths:
       - ".github/workflows/benchmarks.yml"
       - "crates/kernel/maestria-domain/**"
+      - "crates/kernel/maestria-ports/**"
       - "crates/ecosystem/maestria-retrieval/**"
+      - "crates/ecosystem/maestria-late-local/**"
+      - "crates/apps/maestria-daemon/**"
+      - "scripts/late_*"
+      - "tests/contracts/late_interaction_*"
       - "scripts/benchmark_evidence.py"
       - "scripts/test_benchmark_evidence.py"
       - "tests/contracts/benchmark_evidence_v1.json"
@@ -50,6 +55,8 @@ jobs:
               - "crates/ecosystem/maestria-retrieval/**"
               - "crates/apps/maestria-daemon/**"
               - "crates/ecosystem/maestria-sparse-local/**"
+              - "crates/ecosystem/maestria-late-local/**"
+              - "crates/kernel/maestria-ports/**"
             evidence:
               - ".github/workflows/benchmarks.yml"
               - "scripts/benchmark_evidence.py"
@@ -109,6 +116,8 @@ jobs:
           cargo test -p maestria-retrieval --test repository_build_latency_tests -- --nocapture
           cargo test -p maestria-retrieval --test python_repository_benchmark_tests -- --nocapture
           cargo test -p maestria-retrieval --test web_repository_benchmark_tests -- --nocapture
+          cargo test -p maestria-retrieval --all-features late_interaction
+          cargo test -p maestria-daemon --test late_interaction_evaluation --all-features -- --nocapture
           cargo test -p maestria-retrieval --test visual_benchmark_tests -- --nocapture
           cargo test -p maestria-daemon --test learned_sparse_benchmark -- --nocapture
       - name: Validate benchmark evidence ledger and generated reports

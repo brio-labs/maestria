@@ -13,6 +13,7 @@ pub(super) struct EvaluationRequest<'a> {
     pub(super) execution_usage: &'a mut maestria_domain::SearchExecutionUsage,
     pub(super) authorization: &'a maestria_governance::RetrievalAuthorizationContext,
     pub(super) source_filter: Option<&'a crate::types::CandidateSourceFilter>,
+    pub(super) cancellation: &'a std::sync::Arc<crate::SearchCancellation>,
 }
 
 pub(super) fn evaluate_batches(
@@ -32,6 +33,7 @@ pub(super) fn evaluate_batches(
         execution_usage,
         authorization,
         source_filter,
+        cancellation,
     } = request;
     let original_query = plan.original_query();
     let lanes = engine_pipeline::trace_lanes(batches)?;
@@ -69,7 +71,18 @@ pub(super) fn evaluate_batches(
             .map(|(rank, candidate)| RankedCandidate { candidate, rank })
             .collect()
     };
-    let (ranked, rerank_trace) = apply_reranking(engine, plan, visual_enabled, started, ranked)?;
+    let (ranked, rerank_trace) = apply_reranking(
+        RerankingContext {
+            engine,
+            plan,
+            visual_enabled,
+            started,
+            authorization,
+            source_filter,
+            cancellation,
+        },
+        ranked,
+    )?;
     let initial_diversity = crate::diversity::select_candidates(&ranked, plan)?;
     let expansion_enabled = plan
         .stages()
@@ -163,22 +176,46 @@ fn prepare_fusion_batches(
         .collect();
     (fusion_batches, stale_code_only)
 }
-
-fn apply_reranking(
-    engine: &RetrievalEngine,
-    plan: &SearchPlan,
+struct RerankingContext<'a> {
+    engine: &'a RetrievalEngine,
+    plan: &'a SearchPlan,
     visual_enabled: bool,
     started: crate::MonotonicInstant,
+    authorization: &'a maestria_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&'a crate::types::CandidateSourceFilter>,
+    cancellation: &'a std::sync::Arc<crate::SearchCancellation>,
+}
+
+fn apply_reranking(
+    context: RerankingContext<'_>,
     ranked: Vec<RankedCandidate>,
 ) -> RetrievalResult<(
     Vec<RankedCandidate>,
     Option<maestria_domain::SearchTraceRerank>,
 )> {
+    let RerankingContext {
+        engine,
+        plan,
+        visual_enabled,
+        started,
+        authorization,
+        source_filter,
+        cancellation,
+    } = context;
+    let selected_reranker = if engine.visual_reranker && visual_enabled {
+        engine.reranker.as_ref()
+    } else {
+        engine.late_interaction_reranker.as_ref().or_else(|| {
+            (!engine.visual_reranker)
+                .then_some(engine.reranker.as_ref())
+                .flatten()
+        })
+    };
     if plan
         .stages()
         .contains(&maestria_domain::SearchStage::Reranking)
-        && (!engine.visual_reranker || visual_enabled)
-        && let Some(reranker) = &engine.reranker
+        && selected_reranker.is_some()
+        && let Some(reranker) = selected_reranker
     {
         let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
         let remaining_ms = u64::from(plan.budgets().max_latency_ms())
@@ -188,6 +225,9 @@ fn apply_reranking(
             plan: std::sync::Arc::new(plan.clone()),
             candidates: ranked,
             max_latency_ms: remaining_ms,
+            authorization: std::sync::Arc::new(authorization.clone()),
+            source_filter: source_filter.cloned(),
+            cancellation: std::sync::Arc::clone(cancellation),
         })?;
         return Ok((rerank_res.candidates, Some(rerank_res.trace)));
     }

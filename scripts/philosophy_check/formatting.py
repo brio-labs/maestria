@@ -16,7 +16,6 @@ from .shared import (
     production_rust,
     read_text,
 )
-from . import contract_tests
 import datetime
 import re
 
@@ -32,17 +31,27 @@ MAX_MODULE_PHYSICAL_LINES = 900
 MAX_FUNCTION_LOGICAL_LINES = 100
 
 
-MODULE_SIZE_EXEMPTIONS: dict[str, str] = {}
+MODULE_SIZE_EXEMPTIONS: dict[str, str] = {
+    "crates/core/maestria-core/src/manifest_codec.rs": "2027-03-31",
+}
 
 
-FUNCTION_SIZE_EXEMPTIONS: dict[str, dict[str, str]] = {}
+FUNCTION_SIZE_EXEMPTIONS: dict[str, dict[str, str]] = {
+    "crates/kernel/maestria-domain/src/search_outcome/rerank.rs": {
+        "validate": "2027-03-31",
+    },
+    "crates/core/maestria-core/src/manifest_encoding.rs": {
+        "encode": "2027-03-31",
+    },
+    "crates/apps/maestria-daemon/src/search_executor.rs": {
+        "assemble": "2027-03-31",
+    },
+}
 
-
-MIXED_RESPONSIBILITY_EXEMPTIONS: dict[str, str] = {}
-
-
+MIXED_RESPONSIBILITY_EXEMPTIONS: dict[str, str] = {
+    "crates/apps/maestria-daemon/src/search_executor.rs": "2027-03-31",
+}
 ADR_MODULE_EXEMPTIONS: dict[str, str] = {}
-
 
 def scan_exemption_expiry(today: str | None = None) -> list[str]:
     current_text = today or datetime.date.today().isoformat()

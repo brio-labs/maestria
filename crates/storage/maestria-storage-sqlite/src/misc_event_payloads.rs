@@ -84,12 +84,14 @@ impl StoredEventPayload {
                 name,
                 corpus_snapshot,
                 fingerprint,
+                representation_fingerprint,
                 sparse_namespace,
             } => Some(Self::IndexGenerationStarted {
                 id: id.value(),
                 name: StoredRepresentationName::from_domain(name),
                 corpus_snapshot: corpus_snapshot.value(),
                 fingerprint: StoredIndexFingerprint::from_domain(fingerprint),
+                representation_fingerprint: representation_fingerprint.clone(),
                 sparse_namespace: sparse_namespace.clone(),
             }),
             DomainEvent::IndexGenerationTransitioned {
@@ -204,6 +206,7 @@ impl StoredEventPayload {
                 name,
                 corpus_snapshot,
                 fingerprint,
+                representation_fingerprint,
                 sparse_namespace,
             } => Ok(DomainEvent::IndexGenerationStarted {
                 id: maestria_domain::IndexGenerationId::new(id),
@@ -212,6 +215,7 @@ impl StoredEventPayload {
                 fingerprint: fingerprint
                     .try_into_domain()
                     .map_err(FamilyDecodeError::Invalid)?,
+                representation_fingerprint,
                 sparse_namespace,
             }),
             Self::IndexGenerationTransitioned {

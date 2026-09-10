@@ -18,6 +18,7 @@ fn manifest_round_trips_ordered_roots_and_exclusions() -> Result<(), Box<dyn std
         embeddings: None,
         ocr: None,
         visual: None,
+        late_interaction: None,
         sparse: None,
     };
 
@@ -52,6 +53,7 @@ fn embedding_configuration_round_trips() -> Result<(), Box<dyn std::error::Error
         }),
         ocr: None,
         visual: None,
+        late_interaction: None,
         sparse: None,
     };
 
@@ -80,6 +82,7 @@ fn ocr_configuration_round_trips() -> Result<(), Box<dyn std::error::Error>> {
             preprocessing_version: "pdf-pdftoppm-v1".to_string(),
         }),
         visual: None,
+        late_interaction: None,
         sparse: None,
     };
     assert_eq!(InstanceManifest::decode(&manifest.encode())?, manifest);
@@ -110,6 +113,7 @@ fn visual_configuration_round_trips() -> Result<(), Box<dyn std::error::Error>> 
             remote_provider: false,
             retention_policy: RetentionPolicy::NoRetention,
         }),
+        late_interaction: None,
         sparse: None,
     };
 
@@ -127,6 +131,7 @@ fn sparse_configuration_round_trips() -> Result<(), Box<dyn std::error::Error>> 
         embeddings: None,
         ocr: None,
         visual: None,
+        late_interaction: None,
         sparse: Some(SparseProfileConfig {
             enabled: true,
             endpoint: "http://127.0.0.1:10002/v1/sparse".to_string(),
@@ -330,5 +335,40 @@ fn source_scope_rejects_relative_escape_above_root() -> Result<(), Box<dyn std::
     assert!(!manifest.allows_source(Path::new("../workspace/notes.md")));
     assert!(!manifest.allows_source(Path::new("workspace/../outside.md")));
     assert!(!manifest.allows_source(Path::new("../secret.md")));
+    Ok(())
+}
+
+#[test]
+fn late_interaction_configuration_round_trips_and_stays_opt_in()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut manifest =
+        InstanceManifest::default_for_root(PathBuf::from("/tmp/instance"), test_realm_id()?);
+    manifest.late_interaction = Some(LateInteractionConfig {
+        endpoint: "http://127.0.0.1:8093/v1/multivector".into(),
+        profile_path: PathBuf::from("target/benchmark-reports/late-profile.json"),
+        mode: LateInteractionMode::Shadow,
+    });
+    let decoded = InstanceManifest::decode(&manifest.encode())?;
+    assert_eq!(decoded, manifest);
+    assert!(matches!(
+        decoded.late_interaction,
+        Some(LateInteractionConfig {
+            mode: LateInteractionMode::Shadow,
+            ..
+        })
+    ));
+    Ok(())
+}
+
+#[test]
+fn late_interaction_manifest_rejects_profile_path_traversal()
+-> Result<(), Box<dyn std::error::Error>> {
+    let contents = "schema_version=2\nrealm_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nroot=/tmp/instance\nread_root=/tmp/instance\n\
+            excluded_pattern=.env\nlate_interaction_endpoint=http://127.0.0.1:8093/v1/multivector\n\
+            late_interaction_profile_path=../profile.json\nlate_interaction_mode=shadow\n";
+    assert!(matches!(
+        InstanceManifest::decode(contents),
+        Err(CoreError::InvalidManifest { .. })
+    ));
     Ok(())
 }

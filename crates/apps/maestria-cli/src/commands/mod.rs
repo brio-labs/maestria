@@ -8,6 +8,7 @@ pub mod index_batch;
 pub mod index_metrics;
 pub mod index_selection;
 pub mod init;
+pub mod late_interaction;
 pub mod maintenance;
 pub mod memory;
 pub mod observability;

@@ -1,4 +1,5 @@
 pub mod adapters;
+mod late_interaction_profile;
 
 #[doc(hidden)]
 pub mod benchmark_common;
@@ -7,10 +8,15 @@ pub mod benchmark_common;
 /// - `adapters`: module responsibility.
 /// - `benchmark_common`: shared benchmark report helpers.
 /// - `bounded_reranker`: module responsibility.
+/// - `cancellation`: bounded retrieval cancellation and call control.
 /// - `diversity`: module responsibility.
 /// - `engine`: module responsibility.
 /// - `fusion`: module responsibility.
 /// - `golden`: module responsibility.
+/// - `late_interaction_benchmark`: late-interaction Stage A/Stage B evidence.
+/// - `late_interaction_profile`: frozen profile identity validation.
+/// - `late_interaction_reranker`: bounded late-interaction reranking.
+/// - `late_interaction_scoring`: deterministic MaxSim scoring.
 /// - `learned_sparse_benchmark`: module responsibility.
 /// - `learned_sparse_corpus`: module responsibility.
 /// - `learned_sparse_policy`: module responsibility.
@@ -22,10 +28,14 @@ pub mod benchmark_common;
 /// - `visual_reranker`: module responsibility.
 /// - `monotonic`: monotonic time abstraction.
 pub mod bounded_reranker;
+mod cancellation;
 pub mod diversity;
 pub mod engine;
 pub mod fusion;
 pub mod golden;
+pub mod late_interaction_benchmark;
+pub mod late_interaction_reranker;
+pub mod late_interaction_scoring;
 pub mod learned_sparse_benchmark;
 pub mod learned_sparse_corpus;
 pub mod learned_sparse_policy;
@@ -35,6 +45,8 @@ pub mod rewrite;
 pub mod traits;
 pub mod types;
 pub mod visual_benchmark;
+pub use cancellation::{SearchCallControl, SearchCancellation, SearchCancellationGuard};
+pub use late_interaction_scoring::MaxSimLateInteractionScorer;
 pub mod visual_reranker;
 pub use monotonic::MonotonicInstant;
 
@@ -44,6 +56,23 @@ pub use engine::{
     LearnedSparseShadowStoreError, RetrievalEngine, SearchPlannerContext,
 };
 pub use fusion::{FixedKRrf, NormalizedBlend};
+pub use late_interaction_benchmark::{
+    IndexedRetrievalNeed, LateInteractionBenchmarkCase, LateInteractionBenchmarkCorpus,
+    LateInteractionBenchmarkError, LateInteractionBenchmarkExecutor,
+    LateInteractionBenchmarkJudgment, LateInteractionClassComparison, LateInteractionClassDecision,
+    LateInteractionObservation, LateInteractionQualityMetrics, LateInteractionResourceMetrics,
+    LateInteractionRoute, LateInteractionSafetyMetrics, LateInteractionStage,
+    LateInteractionStageAComparison, LateInteractionStageAFingerprints,
+    LateInteractionStageAPromotionRecord, LateInteractionStageAReport,
+    LateInteractionStageAReportCorpus, LateInteractionStageAReportPromotion,
+    LateInteractionStageBDecision, LateInteractionStageBPromotion, LateInteractionStageBReport,
+    decide_stage_b, run_late_interaction_stage_a,
+};
+pub use late_interaction_profile::{
+    LateInteractionProfileError, load_late_interaction_identity,
+    validate_late_interaction_generation,
+};
+pub use late_interaction_reranker::{LateInteractionReranker, LateInteractionRerankerParts};
 pub use learned_sparse_benchmark::{
     CheckStatus, LearnedSparseAcceptedSpan, LearnedSparseBenchmarkBudget,
     LearnedSparseBenchmarkCase, LearnedSparseBenchmarkComparison, LearnedSparseBenchmarkCorpus,

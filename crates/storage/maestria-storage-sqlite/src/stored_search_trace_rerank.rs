@@ -4,8 +4,8 @@
 //! `crate::payloads::stored_search_trace` so consumers keep a single import path.
 
 use maestria_domain::{
-    EvidenceId, RerankPosition, SearchTraceConstraintScore, SearchTraceRerank,
-    SearchTraceRerankCandidate,
+    EvidenceId, LateInteractionProvenance, RerankPosition, SearchTraceConstraintScore,
+    SearchTraceRerank, SearchTraceRerankCandidate,
 };
 use serde::{Deserialize, Serialize};
 
@@ -73,8 +73,9 @@ pub(crate) struct StoredSearchTraceRerankCandidate {
     position: StoredRerankPosition,
     relevance_score: Option<u32>,
     constraint_scores: Vec<StoredSearchTraceConstraintScore>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    late_interaction: Option<LateInteractionProvenance>,
 }
-
 impl StoredSearchTraceRerankCandidate {
     pub(crate) fn from_domain(value: &SearchTraceRerankCandidate) -> Self {
         Self {
@@ -87,6 +88,7 @@ impl StoredSearchTraceRerankCandidate {
                 .iter()
                 .map(StoredSearchTraceConstraintScore::from_domain)
                 .collect(),
+            late_interaction: value.late_interaction.clone(),
         }
     }
 
@@ -103,6 +105,7 @@ impl StoredSearchTraceRerankCandidate {
                 .into_iter()
                 .map(StoredSearchTraceConstraintScore::try_into_domain)
                 .collect::<Result<_, _>>()?,
+            late_interaction: self.late_interaction,
         })
     }
 }
@@ -152,9 +155,65 @@ impl StoredSearchTraceRerank {
 
 #[cfg(test)]
 mod tests {
-    use maestria_domain::RerankPosition;
+    use maestria_domain::{
+        ContentHash, CorpusSnapshotId, IndexGenerationId, LateInteractionAggregation,
+        LateInteractionProvenance, LateInteractionTokenContribution, RepresentationName,
+        RerankPosition, RetrievalLaneScore, RetrievalModelFingerprint, RetrievalRawRank,
+        RetrievalScoreFingerprint, RetrievalScoreKind, RetrievalScoreScale,
+    };
 
     use super::*;
+
+    fn hash(letter: char) -> Result<ContentHash, Box<dyn std::error::Error>> {
+        Ok(ContentHash::new(format!(
+            "sha256:{}",
+            letter.to_string().repeat(64)
+        ))?)
+    }
+
+    fn provenance() -> Result<LateInteractionProvenance, Box<dyn std::error::Error>> {
+        let identity = RetrievalModelFingerprint::new(format!("sha256:{}", "a".repeat(64)))?;
+        let mut components = std::collections::BTreeMap::new();
+        components.insert("aggregation".into(), "QueryTokenMaxThenSum".into());
+        components.insert("normalization".into(), "L2PerTokenV1".into());
+        components.insert("provider".into(), "mlateon-onnx".into());
+        components.insert("model".into(), "mlateon".into());
+        components.insert("representation".into(), "multivector_text_v1".into());
+        components.insert("generation_id".into(), "1".into());
+        components.insert("corpus_snapshot".into(), "1".into());
+        components.insert("identity_digest".into(), identity.as_str().into());
+        Ok(LateInteractionProvenance {
+            score: RetrievalLaneScore::new(
+                RetrievalScoreKind::LateInteraction,
+                -1_000_000,
+                RetrievalRawRank::ranked(8),
+                RetrievalScoreScale::fixed_point("late_interaction_maxsim_micros_v1", 1_000_000),
+                RepresentationName::new("multivector_text_v1"),
+                RetrievalScoreFingerprint {
+                    identity,
+                    components,
+                },
+            ),
+            generation_id: IndexGenerationId::new(1),
+            corpus_snapshot: CorpusSnapshotId::new(1),
+            namespace: "multivector_text_v1".into(),
+            source_snapshot_hash: hash('b')?,
+            source_representation_hash: hash('c')?,
+            query_hash: hash('d')?,
+            aggregation: LateInteractionAggregation::QueryTokenMaxThenSum,
+            query_token_count: 1,
+            document_token_count: 1,
+            query_truncated: false,
+            document_truncated: false,
+            contributions: vec![LateInteractionTokenContribution {
+                query_position: 0,
+                document_position: 0,
+                similarity_micros: -1_000_000,
+            }],
+            omitted_contribution_count: 0,
+            omitted_contribution_sum_micros: 0,
+        })
+    }
 
     #[test]
     fn rerank_position_variants_round_trip() -> Result<(), Box<dyn std::error::Error>> {
@@ -169,6 +228,22 @@ mod tests {
                 position
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn late_provenance_round_trips_through_stored_candidate()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let value = SearchTraceRerankCandidate {
+            candidate_id: maestria_domain::EvidenceId::new(1),
+            original_rank: 7,
+            position: RerankPosition::Reranked(0),
+            relevance_score: None,
+            constraint_scores: Vec::new(),
+            late_interaction: Some(provenance()?),
+        };
+        let stored = StoredSearchTraceRerankCandidate::from_domain(&value);
+        assert_eq!(stored.try_into_domain()?, value);
         Ok(())
     }
 }

@@ -65,3 +65,22 @@ pub(crate) fn validate_ocr_endpoint(endpoint: &str) -> CoreResult<()> {
     }
     Ok(())
 }
+
+pub(crate) fn validate_late_interaction_endpoint(endpoint: &str) -> CoreResult<()> {
+    let url = Url::parse(endpoint).map_err(|error| CoreError::InvalidManifest {
+        key: "late_interaction_endpoint".to_string(),
+        reason: format!("invalid URL: {error}"),
+    })?;
+    let valid = url.scheme() == "http"
+        && matches!(url.host_str(), Some("127.0.0.1" | "::1" | "[::1]"))
+        && url.path() == "/v1/multivector"
+        && url.query().is_none()
+        && url.fragment().is_none();
+    if !valid {
+        return Err(CoreError::InvalidManifest {
+            key: "late_interaction_endpoint".to_string(),
+            reason: "must be an http loopback /v1/multivector URL".to_string(),
+        });
+    }
+    Ok(())
+}

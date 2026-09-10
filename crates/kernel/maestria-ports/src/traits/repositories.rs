@@ -73,4 +73,11 @@ pub trait IdAllocator: Send + Sync {
 pub trait BlobStore: Send + Sync {
     fn put(&self, bytes: Vec<u8>) -> Result<maestria_domain::BlobId, PortError>;
     fn get(&self, id: maestria_domain::BlobId) -> Result<Vec<u8>, PortError>;
+    /// Reads at most `max_bytes`, rejecting an oversized or concurrently
+    /// growing object before returning any bytes.
+    fn get_bounded(
+        &self,
+        id: maestria_domain::BlobId,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, PortError>;
 }

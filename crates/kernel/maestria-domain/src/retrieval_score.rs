@@ -7,6 +7,15 @@ use crate::RepresentationName;
 
 /// Canonical retrieval score provenance schema.
 pub const RETRIEVAL_SCORE_SCHEMA_VERSION: u16 = 2;
+/// Aggregation semantics for token-level late-interaction scores.
+///
+/// This value is persisted in provenance and therefore lives in the domain
+/// rather than in a provider adapter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LateInteractionAggregation {
+    QueryTokenMaxThenSum,
+}
 
 /// The semantic meaning of a lane's raw score.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

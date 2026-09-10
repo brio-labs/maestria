@@ -171,12 +171,20 @@ pub struct RetrievalLaneStatus {
     pub repository_code_state: String,
     /// "Shadow" | "Active"
     pub visual_state: String,
+    /// "Disabled" | "Shadow" | "Active"
+    pub late_interaction_state: String,
+    pub late_interaction_evaluation_id: Option<String>,
+    pub late_interaction_evaluation_date: Option<String>,
+    pub late_interaction_report_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetrievalPromotionRecords {
     pub learned_sparse: Option<RetrievalPromotionRecordWire>,
     pub hybrid: Option<RetrievalPromotionRecordWire>,
+    pub late_interaction_stage_a: Option<RetrievalPromotionRecordWire>,
+    pub late_interaction_stage_b: Option<RetrievalPromotionRecordWire>,
+    pub late_interaction_promotion: Option<RetrievalPromotionRecordWire>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

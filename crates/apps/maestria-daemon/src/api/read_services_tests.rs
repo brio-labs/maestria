@@ -148,6 +148,7 @@ fn seed_lexical_generation(layout: &InstanceLayout) -> Result<()> {
                     document_template_hash: maestria_test_support::content_hash(3)?,
                     preprocessing_version: maestria_domain::PreprocessingVersion::new("v1"),
                 },
+                representation_fingerprint: None,
                 sparse_namespace: None,
             },
         ),
@@ -192,6 +193,29 @@ async fn retrieval_status_reflects_active_hybrid_record() -> Result<()> {
         "2026-08-09",
         "report-hash-sparse",
         "{}",
+    )?;
+    store.save_late_interaction_report(
+        "stage-a",
+        "corpus-1",
+        "late-stage-a-2026-08-09",
+        "2026-08-09",
+        "report-hash-late-a",
+        "{\"stage\":\"stage-a\"}",
+    )?;
+    store.save_late_interaction_report(
+        "stage-b",
+        "corpus-1",
+        "late-stage-b-2026-08-09",
+        "2026-09-09",
+        "report-hash-late-b",
+        "{\"stage\":\"stage-b\"}",
+    )?;
+    store.save_late_interaction_promotion_record(
+        "corpus-1",
+        "late-promotion-2026-08-09",
+        "2026-08-09",
+        "report-hash-late-promotion",
+        "{\"authorized\":false}",
     )?;
     drop(store);
 
@@ -262,6 +286,27 @@ async fn retrieval_status_shadows_without_records() -> Result<()> {
     assert_eq!(response.lanes.visual_state, "Shadow");
     assert!(response.promotion_records.learned_sparse.is_none());
     assert!(response.promotion_records.hybrid.is_none());
+    assert_eq!(response.lanes.late_interaction_state, "Disabled");
+    assert!(response.lanes.late_interaction_evaluation_id.is_none());
+    assert!(response.lanes.late_interaction_report_hash.is_none());
+    assert!(
+        response
+            .promotion_records
+            .late_interaction_stage_a
+            .is_none()
+    );
+    assert!(
+        response
+            .promotion_records
+            .late_interaction_stage_b
+            .is_none()
+    );
+    assert!(
+        response
+            .promotion_records
+            .late_interaction_promotion
+            .is_none()
+    );
     assert_eq!(
         response.lanes.dense_model.as_deref(),
         Some("test-embedding-model")

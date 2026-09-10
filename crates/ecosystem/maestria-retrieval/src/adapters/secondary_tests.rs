@@ -26,6 +26,21 @@ impl BlobStore for CountingBlobStore {
         self.gets.fetch_add(1, Ordering::Relaxed);
         Ok(self.bytes.clone())
     }
+
+    fn get_bounded(
+        &self,
+        _id: maestria_domain::BlobId,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, PortError> {
+        self.gets.fetch_add(1, Ordering::Relaxed);
+        if self.bytes.len() > max_bytes {
+            return Err(PortError::invalid_input(
+                "bounded test blob read",
+                "blob exceeds limit",
+            ));
+        }
+        Ok(self.bytes.clone())
+    }
 }
 
 struct CountingEvidenceRepository {

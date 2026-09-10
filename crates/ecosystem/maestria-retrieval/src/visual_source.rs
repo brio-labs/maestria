@@ -44,6 +44,7 @@ impl VisualReranker {
     pub(super) fn source_bytes(
         &self,
         evidence: &Evidence,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
     ) -> Result<(VisualSource, Vec<u8>), RetrievalError> {
         let Some(source) = Self::visual_source(evidence) else {
             return Err(RetrievalError::Internal(
@@ -60,13 +61,6 @@ impl VisualReranker {
                 "visual reranker artifact is missing".to_string(),
             ));
         };
-        // Precompute the authorization once instead of re-deriving the scope
-        // intersection per security check.
-        let authorization = self
-            .parts
-            .policy
-            .authorization_context(&maestria_domain::CorpusScope::Global)
-            .map_err(|error| RetrievalError::Internal(error.to_string()))?;
         if artifact.index_status != IndexStatus::Indexed
             || authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
             || authorization.evaluate(&evidence.security) != RetrievalDecision::Allowed

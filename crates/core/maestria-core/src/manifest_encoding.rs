@@ -18,79 +18,115 @@ impl InstanceManifest {
                 .map(|pattern| format!("excluded_pattern={pattern}")),
         );
         if let Some(embeddings) = &self.embeddings {
-            lines.push(format!("embedding_enabled={}", embeddings.enabled));
-            lines.push(format!("embedding_endpoint={}", embeddings.endpoint));
-            lines.push(format!("embedding_provider={}", embeddings.provider));
-            lines.push(format!("embedding_revision={}", embeddings.revision));
-            lines.push(format!(
-                "embedding_artifact_hash={}",
-                embeddings.artifact_hash
-            ));
-            lines.push(format!(
-                "embedding_preprocessing_version={}",
-                embeddings.preprocessing_version
-            ));
-            lines.push(format!(
-                "embedding_remote_provider={}",
-                embeddings.remote_provider
-            ));
-            lines.push(format!(
-                "embedding_retention_policy={}",
-                retention_policy_name(&embeddings.retention_policy)
-            ));
-            lines.push(format!("embedding_model={}", embeddings.model));
-            lines.push(format!("embedding_dimensions={}", embeddings.dimensions));
+            append_embedding(&mut lines, embeddings);
         }
         if let Some(ocr) = &self.ocr {
-            lines.push(format!("ocr_enabled={}", ocr.enabled));
-            lines.push(format!("ocr_endpoint={}", ocr.endpoint));
-            lines.push(format!("ocr_provider={}", ocr.provider));
-            lines.push(format!("ocr_revision={}", ocr.revision));
-            lines.push(format!("ocr_artifact_hash={}", ocr.artifact_hash));
-            lines.push(format!(
-                "ocr_preprocessing_version={}",
-                ocr.preprocessing_version
-            ));
-            lines.push(format!("ocr_model={}", ocr.model));
+            append_ocr(&mut lines, ocr);
         }
         if let Some(visual) = &self.visual {
-            lines.push(format!("visual_enabled={}", visual.enabled));
-            lines.push(format!("visual_endpoint={}", visual.endpoint));
-            lines.push(format!("visual_provider={}", visual.provider));
-            lines.push(format!("visual_revision={}", visual.revision));
-            lines.push(format!("visual_artifact_hash={}", visual.artifact_hash));
-            lines.push(format!(
-                "visual_preprocessing_version={}",
-                visual.preprocessing_version
-            ));
-            lines.push(format!("visual_remote_provider={}", visual.remote_provider));
-            lines.push(format!(
-                "visual_retention_policy={}",
-                retention_policy_name(&visual.retention_policy)
-            ));
-            lines.push(format!("visual_model={}", visual.model));
-            lines.push(format!("visual_dimensions={}", visual.dimensions));
+            append_visual(&mut lines, visual);
+        }
+        if let Some(late_interaction) = &self.late_interaction {
+            append_late_interaction(&mut lines, late_interaction);
         }
         if let Some(sparse) = &self.sparse {
-            lines.push(format!("sparse_enabled={}", sparse.enabled));
-            lines.push(format!("sparse_endpoint={}", sparse.endpoint));
-            lines.push(format!("sparse_provider={}", sparse.provider));
-            lines.push(format!("sparse_revision={}", sparse.revision));
-            lines.push(format!("sparse_artifact_hash={}", sparse.artifact_hash));
-            lines.push(format!(
-                "sparse_preprocessing_version={}",
-                sparse.preprocessing_version
-            ));
-            lines.push(format!("sparse_remote_provider={}", sparse.remote_provider));
-            lines.push(format!(
-                "sparse_retention_policy={}",
-                retention_policy_name(&sparse.retention_policy)
-            ));
-            lines.push(format!("sparse_model={}", sparse.model));
-            lines.push(format!("sparse_vocabulary_size={}", sparse.vocabulary_size));
-            lines.push(format!("sparse_term_cap={}", sparse.term_cap));
+            append_sparse(&mut lines, sparse);
         }
         lines.push(String::new());
         lines.join("\n")
     }
+}
+
+fn append_embedding(lines: &mut Vec<String>, config: &EmbeddingConfig) {
+    lines.extend([
+        format!("embedding_enabled={}", config.enabled),
+        format!("embedding_endpoint={}", config.endpoint),
+        format!("embedding_provider={}", config.provider),
+        format!("embedding_revision={}", config.revision),
+        format!("embedding_artifact_hash={}", config.artifact_hash),
+        format!(
+            "embedding_preprocessing_version={}",
+            config.preprocessing_version
+        ),
+        format!("embedding_remote_provider={}", config.remote_provider),
+        format!(
+            "embedding_retention_policy={}",
+            retention_policy_name(&config.retention_policy)
+        ),
+        format!("embedding_model={}", config.model),
+        format!("embedding_dimensions={}", config.dimensions),
+    ]);
+}
+
+fn append_ocr(lines: &mut Vec<String>, config: &OcrConfig) {
+    lines.extend([
+        format!("ocr_enabled={}", config.enabled),
+        format!("ocr_endpoint={}", config.endpoint),
+        format!("ocr_provider={}", config.provider),
+        format!("ocr_revision={}", config.revision),
+        format!("ocr_artifact_hash={}", config.artifact_hash),
+        format!("ocr_preprocessing_version={}", config.preprocessing_version),
+        format!("ocr_model={}", config.model),
+    ]);
+}
+
+fn append_visual(lines: &mut Vec<String>, config: &VisualConfig) {
+    lines.extend([
+        format!("visual_enabled={}", config.enabled),
+        format!("visual_endpoint={}", config.endpoint),
+        format!("visual_provider={}", config.provider),
+        format!("visual_revision={}", config.revision),
+        format!("visual_artifact_hash={}", config.artifact_hash),
+        format!(
+            "visual_preprocessing_version={}",
+            config.preprocessing_version
+        ),
+        format!("visual_remote_provider={}", config.remote_provider),
+        format!(
+            "visual_retention_policy={}",
+            retention_policy_name(&config.retention_policy)
+        ),
+        format!("visual_model={}", config.model),
+        format!("visual_dimensions={}", config.dimensions),
+    ]);
+}
+
+fn append_late_interaction(lines: &mut Vec<String>, config: &LateInteractionConfig) {
+    lines.extend([
+        format!("late_interaction_endpoint={}", config.endpoint),
+        format!(
+            "late_interaction_profile_path={}",
+            config.profile_path.display()
+        ),
+        format!(
+            "late_interaction_mode={}",
+            match config.mode {
+                LateInteractionMode::Disabled => "disabled",
+                LateInteractionMode::Shadow => "shadow",
+                LateInteractionMode::Active => "active",
+            }
+        ),
+    ]);
+}
+
+fn append_sparse(lines: &mut Vec<String>, config: &SparseProfileConfig) {
+    lines.extend([
+        format!("sparse_enabled={}", config.enabled),
+        format!("sparse_endpoint={}", config.endpoint),
+        format!("sparse_provider={}", config.provider),
+        format!("sparse_revision={}", config.revision),
+        format!("sparse_artifact_hash={}", config.artifact_hash),
+        format!(
+            "sparse_preprocessing_version={}",
+            config.preprocessing_version
+        ),
+        format!("sparse_remote_provider={}", config.remote_provider),
+        format!(
+            "sparse_retention_policy={}",
+            retention_policy_name(&config.retention_policy)
+        ),
+        format!("sparse_model={}", config.model),
+        format!("sparse_vocabulary_size={}", config.vocabulary_size),
+        format!("sparse_term_cap={}", config.term_cap),
+    ]);
 }

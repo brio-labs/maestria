@@ -188,6 +188,7 @@ pub(crate) fn sample_trace_rerank(fingerprint: RetrievalModelFingerprint) -> Sea
                 name: "freshness".to_owned(),
                 score: 80,
             }],
+            late_interaction: None,
         }],
     }
 }

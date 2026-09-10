@@ -87,4 +87,36 @@ impl SearchIntent {
             Self::FactualLocal
         }
     }
+
+    /// All classifier outputs in stable enum order for benchmark matrices.
+    pub const fn all() -> [Self; 11] {
+        [
+            Self::ExactLookup,
+            Self::FactualLocal,
+            Self::SemanticDiscovery,
+            Self::CompositionalConstraints,
+            Self::MultiHop,
+            Self::CorpusSynthesis,
+            Self::RepositoryCode,
+            Self::VisualDocument,
+            Self::TemporalMemory,
+            Self::CurrentWeb,
+            Self::ContradictionAudit,
+        ]
+    }
+
+    /// Only these intents may opt into the text/code late reranker.
+    pub const fn is_late_interaction_eligible(self) -> bool {
+        matches!(
+            self,
+            Self::FactualLocal
+                | Self::SemanticDiscovery
+                | Self::CompositionalConstraints
+                | Self::RepositoryCode
+        )
+    }
+
+    pub const fn is_protected(self) -> bool {
+        !self.is_late_interaction_eligible()
+    }
 }

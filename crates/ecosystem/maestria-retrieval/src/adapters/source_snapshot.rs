@@ -110,6 +110,53 @@ impl SourceSnapshotVerifier {
             | EvidenceKind::Validation { .. } => Ok(()),
         }
     }
+    /// Verifies a source snapshot without ever allocating beyond `max_bytes`.
+    ///
+    /// The bound is applied to the blob read before hashing or UTF-8
+    /// validation; a snapshot larger than the bound fails closed.
+    pub fn verify_bounded(
+        &self,
+        evidence: &Evidence,
+        artifact: &maestria_domain::Artifact,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, RetrievalError> {
+        if max_bytes == 0 {
+            return Err(RetrievalError::Internal(
+                "source snapshot bound must be positive".to_string(),
+            ));
+        }
+        if evidence.artifact_id != artifact.id {
+            return Err(RetrievalError::Internal(
+                "evidence does not belong to owning artifact".to_string(),
+            ));
+        }
+        let (snapshot, range) = match &evidence.kind {
+            EvidenceKind::FileSpan {
+                snapshot, range, ..
+            } => (snapshot, Some(range)),
+            EvidenceKind::WebSnapshot { snapshot, .. } => (snapshot, None),
+            _ => {
+                return Err(RetrievalError::Internal(
+                    "evidence does not have a bounded text snapshot".to_string(),
+                ));
+            }
+        };
+        if artifact.content_hash.as_ref() != Some(snapshot.content_hash()) {
+            return Err(RetrievalError::Internal(
+                "source snapshot hash does not match owning artifact".to_string(),
+            ));
+        }
+        let bytes = self
+            .blobs
+            .get_bounded(snapshot.blob_id(), max_bytes)
+            .map_err(super::common::port_error)?;
+        verify_text_snapshot(snapshot, &bytes, range, &evidence.excerpt).map_err(|error| {
+            RetrievalError::Internal(format!(
+                "bounded source snapshot verification failed: {error}"
+            ))
+        })?;
+        Ok(bytes)
+    }
 }
 
 #[cfg(test)]

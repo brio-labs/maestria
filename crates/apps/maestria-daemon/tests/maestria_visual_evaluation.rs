@@ -383,6 +383,7 @@ fn build_capability(
         id: generation,
         name: maestria_domain::RepresentationName::new("visual_page_v1"),
         corpus_snapshot,
+        representation_fingerprint: None,
         sparse_namespace: None,
         fingerprint: identity.fingerprint.clone(),
         lifecycle: IndexLifecycle::Building,

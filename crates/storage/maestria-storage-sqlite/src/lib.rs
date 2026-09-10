@@ -10,6 +10,7 @@
 /// - `events`: module responsibility.
 /// - `id_allocator`: module responsibility.
 /// - `journal`: durable effect-journal port implementation.
+/// - `late_interaction_io`: late-interaction Stage A/Stage B report persistence.
 /// - `learned_sparse_io`: learned-sparse shadow observation JSON import/export.
 /// - `payloads`: module responsibility.
 /// - `projection_cleanup`: stale projection row removal.
@@ -22,6 +23,7 @@ pub mod db_retry;
 mod events;
 mod id_allocator;
 mod journal;
+mod late_interaction_io;
 mod learned_sparse_io;
 mod learned_sparse_projection;
 mod payloads;
@@ -29,8 +31,9 @@ mod projection_cleanup;
 mod repositories;
 mod schema;
 mod schema_validation;
-
 mod sqlite_store;
+
+pub use late_interaction_io::StoredLateInteractionReport;
 pub use learned_sparse_projection::SqliteLearnedSparseIndex;
 pub use sqlite_store::SqliteStore;
 

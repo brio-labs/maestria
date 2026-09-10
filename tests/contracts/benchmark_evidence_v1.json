@@ -36,7 +36,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "101b678ed69295f98b0425627b0953832387d5d73517c887ab3449067da74db7"
+        "source_hash": "a2fda62a78a939780bf6e6ce6f53c493f2e9f1b5dad1af8d97834e95890c7396"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -92,7 +92,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "101b678ed69295f98b0425627b0953832387d5d73517c887ab3449067da74db7"
+        "source_hash": "a2fda62a78a939780bf6e6ce6f53c493f2e9f1b5dad1af8d97834e95890c7396"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -499,20 +499,24 @@
       "benchmark": "v1.2 \u2014 Learned-Sparse Four-Profile Evaluation"
     },
     {
-      "data_fidelity": "real",
+      "data_fidelity": "staged",
       "corpus": {
-        "id": "maestria-learned-sparse-real-tasks-v1",
-        "snapshot": "learned-sparse-task-corpus-v2",
-        "judgment_set": "maestria-learned-sparse-real-judgments-v2",
+        "id": "late-interaction-task-corpus-v1",
+        "snapshot": "late-interaction-task-corpus-v1@contract-fixture-v1",
+        "judgment_set": "late-interaction-judgments-v1",
         "source_paths": [
-          "tests/contracts/learned_sparse_task_corpus_v2.json"
+          "tests/contracts/late_interaction_task_corpus_v1.json",
+          "tests/contracts/late_interaction_sources_v1/governed_rerank_fallback.txt",
+          "tests/contracts/late_interaction_sources_v1/source_snapshot_ownership.txt",
+          "tests/contracts/late_interaction_sources_v1/generation_rollback.txt",
+          "tests/contracts/late_interaction_sources_v1/request_authorization.txt"
         ],
-        "source_hash": "4d7442df6c28c48808733a71a651a5720afb0dbf8946ab3ec913b564178634bb"
+        "source_hash": "948028768abdad17e860b0259792560f3b6cf9ab05268638ae0fe059ed9f2ed2"
       },
       "fingerprints": {
-        "corpus_snapshot": "learned-sparse-task-corpus-v2",
-        "index_generation": "sparse-text-v1-3",
-        "model_fingerprint": "sparse:splade-onnx:prithivida/Splade_PP_en_v1:762be6a7206e2f299182705972a65e5c46e62be2:sha256:fa685bd09ee084ceb5543d6a43708045e7c7048c71f9beb1ffb4327c692d5911:splade-templates-trunc512-v1"
+        "corpus_snapshot": "late-interaction-task-corpus-v1@contract-fixture-v1",
+        "index_generation": "multivector-text-v1-stage-a-contract",
+        "model_fingerprint": "local-export-sha256:02260bc68c4d942a3a65b1b0624c11e69b71eeb0be1a0c280ee834b39d3d5b27"
       },
       "environment": {
         "os": "linux",
@@ -521,26 +525,39 @@
       },
       "results": {
         "quality": {
-          "status": "pass",
-          "reason": "hybrid (dense) route wins DomainTerminology under judgment set v2"
+          "status": "pending",
+          "reason": "Stage A executor and live provider evaluation are not yet available"
         },
         "resource": {
-          "status": "pass",
-          "reason": "lifecycle budgets re-justified for encode lanes; latency within budget"
+          "status": "pending",
+          "reason": "No live latency, memory, storage, or energy observation is claimed"
         },
         "security": {
-          "status": "pass",
-          "reason": "safety fixtures pass on all routes after the security-case guard fix"
+          "status": "warning",
+          "reason": "Safety remains guarded by the baseline route; staged fixture is not a serving-boundary measurement"
         }
       },
-      "degradations": [],
-      "reports": [
+      "degradations": [
         {
-          "kind": "learned-sparse",
-          "path": "tests/contracts/learned_sparse_report_v2.json"
+          "area": "measurement",
+          "description": "This checked-in entry is a staged contract fixture only; it contains no live Stage A quality or resource conclusion."
+        },
+        {
+          "area": "promotion",
+          "description": "Late interaction is not promoted and Stage B indexed retrieval is explicitly not authorized."
         }
       ],
-      "benchmark": "v1.3 \u2014 Dense-Lane Promotion (re-justified judgment set v2)"
+      "reports": [
+        {
+          "kind": "late-interaction-stage-a",
+          "path": "tests/contracts/late_interaction_stage_a_staged.json"
+        },
+        {
+          "kind": "late-interaction-stage-b",
+          "path": "tests/contracts/late_interaction_stage_b_not_authorized.json"
+        }
+      ],
+      "benchmark": "v1.4 — Late-Interaction Stage A Contract Fixture"
     }
   ]
 }

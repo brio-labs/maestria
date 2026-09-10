@@ -16,6 +16,7 @@ impl RetrievalEngine {
             retrievers,
             fusion: None,
             reranker: None,
+            late_interaction_reranker: None,
             visual_reranker: false,
             expander: None,
             evaluator,
@@ -88,6 +89,17 @@ impl RetrievalEngine {
 
     pub fn with_reranker(mut self, reranker: Arc<dyn CandidateReranker>) -> Self {
         self.reranker = Some(reranker);
+        self.capabilities = self
+            .capabilities
+            .clone()
+            .with_stage(maestria_domain::SearchStage::Reranking);
+        self
+    }
+
+    /// Installs the opt-in text/code Stage A reranker. It remains inactive
+    /// for protected and ineligible intents inside the reranker itself.
+    pub fn with_late_interaction_reranker(mut self, reranker: Arc<dyn CandidateReranker>) -> Self {
+        self.late_interaction_reranker = Some(reranker);
         self.capabilities = self
             .capabilities
             .clone()

@@ -20,6 +20,7 @@ maestria-web-evidence = { workspace = true }
 maestria-embedding-openai = { workspace = true }
 maestria-ocr-local = { workspace = true }
 maestria-sparse-local = { workspace = true }
+maestria-late-local = { workspace = true }
 maestria-parsers = { workspace = true }
 maestria-index-selection = { workspace = true }
 maestria-harness = { workspace = true }

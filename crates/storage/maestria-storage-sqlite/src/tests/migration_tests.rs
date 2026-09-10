@@ -67,6 +67,7 @@ fn migrations_are_idempotent() -> Result<(), Box<dyn std::error::Error>> {
         "evidence",
         "realm_read_grants",
         "learned_sparse_promotion_records",
+        "late_interaction_reports",
     ] {
         let count: i64 = connection.query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",

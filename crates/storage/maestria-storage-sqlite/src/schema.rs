@@ -9,11 +9,13 @@ use crate::sqlite_store::to_port_error;
 
 /// Current storage schema version supported by this adapter.
 ///
+/// Version 17 adds durable late-interaction Stage A/Stage B reports.
+/// Version 16 removes the redundant domain-event sequence column.
 /// Version 15 adds the durable learned-sparse promotion records table.
 /// Version 14 adds the rebuildable provider realm-read-grant projection.
 /// Version 13 is migrated forward exactly once; newer or older layouts are
 /// rejected rather than guessed.
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 16;
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 17;
 
 /// Captures the pre-migration state of the database.
 struct SchemaState {
@@ -75,6 +77,19 @@ const HYBRID_PROMOTION_RECORDS_DDL: &str = r#"CREATE TABLE IF NOT EXISTS hybrid_
      );
      CREATE INDEX IF NOT EXISTS idx_hybrid_promotion_records_order
          ON hybrid_promotion_records(created_at DESC);"#;
+
+const LATE_INTERACTION_REPORTS_DDL: &str = r#"CREATE TABLE IF NOT EXISTS late_interaction_reports (
+         stage TEXT NOT NULL CHECK(stage IN ('stage-a', 'stage-b', 'promotion')),
+         evaluation_id TEXT NOT NULL,
+         corpus_id TEXT NOT NULL,
+         evaluation_date TEXT NOT NULL,
+         report_hash TEXT NOT NULL,
+         report_json TEXT NOT NULL,
+         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+         PRIMARY KEY (stage, evaluation_id)
+     );
+     CREATE INDEX IF NOT EXISTS idx_late_interaction_reports_order
+         ON late_interaction_reports(stage, created_at DESC);"#;
 
 /// SQL that bootstraps every table for a fresh database (all `IF NOT EXISTS`).
 ///
@@ -208,6 +223,7 @@ static BASE_SCHEMA_SQL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|
          ON learned_sparse_shadow_observations(id);
 {sparse_promotion}
      {hybrid_promotion}
+     {late_interaction_reports}
      CREATE TABLE IF NOT EXISTS learned_sparse_projections (
          identity_json TEXT NOT NULL PRIMARY KEY,
          generation_id INTEGER NOT NULL,
@@ -246,6 +262,7 @@ static BASE_SCHEMA_SQL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|
         realm_read_grants = REALM_READ_GRANTS_DDL,
         sparse_promotion = LEARNED_SPARSE_PROMOTION_RECORDS_DDL,
         hybrid_promotion = HYBRID_PROMOTION_RECORDS_DDL,
+        late_interaction_reports = LATE_INTERACTION_REPORTS_DDL,
     )
 });
 
@@ -390,6 +407,12 @@ fn migrate_v13_to_v14(connection: &Connection) -> Result<(), PortError> {
         .map_err(to_port_error)
 }
 
+fn migrate_v16_to_v17(connection: &Connection) -> Result<(), PortError> {
+    connection
+        .execute_batch(LATE_INTERACTION_REPORTS_DDL)
+        .map_err(to_port_error)
+}
+
 /// Brings a database to [`CURRENT_SCHEMA_VERSION`].
 ///
 /// Fresh databases (no recorded version) are created from
@@ -407,16 +430,20 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     // events yet, and migrations are exactly the moments where column/payload
     // drift can be introduced. Steady-state opens keep the cheap structural
     // validators below.
-    let schema_changed = matches!(state.version, None | Some(13) | Some(14) | Some(15));
+    let schema_changed = matches!(
+        state.version,
+        None | Some(13) | Some(14) | Some(15) | Some(16)
+    );
     if let Some(version) = state.version
         && version != 13
         && version != 14
         && version != 15
+        && version != 16
         && version != CURRENT_SCHEMA_VERSION
     {
         return Err(PortError::InternalContext {
             context: "unsupported sqlite schema version",
-            source: format!("{version}; expected 13, 14, 15, or {CURRENT_SCHEMA_VERSION}"),
+            source: format!("{version}; expected 13, 14, 15, 16, or {CURRENT_SCHEMA_VERSION}"),
         });
     }
 
@@ -430,6 +457,9 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     if state.version == Some(13) || state.version == Some(14) || state.version == Some(15) {
         migrate_v15_to_v16(&transaction)?;
     }
+    if state.version == Some(16) {
+        migrate_v16_to_v17(&transaction)?;
+    }
     seed_id_counters(&transaction)?;
 
     validate_domain_events_schema(&transaction)?;
@@ -442,6 +472,7 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
         || state.version == Some(13)
         || state.version == Some(14)
         || state.version == Some(15)
+        || state.version == Some(16)
     {
         transaction
             .execute(

@@ -51,6 +51,7 @@ pub struct RetrievalEngine {
     retrievers: Vec<Arc<dyn CandidateRetriever>>,
     fusion: Option<Arc<dyn RankFusion>>,
     reranker: Option<Arc<dyn CandidateReranker>>,
+    late_interaction_reranker: Option<Arc<dyn CandidateReranker>>,
     visual_reranker: bool,
     expander: Option<Arc<dyn ContextExpander>>,
     evaluator: Arc<dyn RetrievalEvaluator>,
@@ -135,6 +136,7 @@ impl RetrievalEngine {
         authorization: maestria_governance::RetrievalAuthorizationContext,
         source_filter: Option<CandidateSourceFilter>,
     ) -> RetrievalResult<SearchOutcome> {
+        let cancellation = Arc::new(crate::SearchCancellation::new());
         let shadow_task = learned_sparse_shadow::spawn_learned_sparse_shadow(
             self.learned_sparse_shadow_retrievers(plan),
             plan.clone(),
@@ -165,6 +167,7 @@ impl RetrievalEngine {
                     execution_usage: &mut execution_usage,
                     authorization: &authorization,
                     source_filter: source_filter.as_ref(),
+                    cancellation: &cancellation,
                 })?;
             let mut state = engine_adaptive::AdaptiveSearchState {
                 batches,
@@ -176,15 +179,17 @@ impl RetrievalEngine {
                 rerank_trace,
                 diversity_trace,
             };
-            let explicit_stop_reason = engine_adaptive::iterate_until_stop(
-                self,
-                plan,
-                &query,
-                &authorization,
-                source_filter.as_ref(),
-                &mut state,
-                started,
-            )?;
+            let explicit_stop_reason =
+                engine_adaptive::iterate_until_stop(engine_adaptive::AdaptiveIterationRequest {
+                    engine: self,
+                    plan,
+                    query: &query,
+                    authorization: &authorization,
+                    source_filter: source_filter.as_ref(),
+                    cancellation: &cancellation,
+                    state: &mut state,
+                    started,
+                })?;
             let expansion_enabled = plan
                 .stages()
                 .contains(&maestria_domain::SearchStage::Filtering);

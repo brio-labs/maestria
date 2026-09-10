@@ -186,13 +186,15 @@ pub enum HybridExecutionPolicy {
     Active(HybridPromotionRecord),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct RerankRequest {
     pub plan: std::sync::Arc<SearchPlan>,
     pub candidates: Vec<RankedCandidate>,
     pub max_latency_ms: u32,
+    pub authorization: std::sync::Arc<maestria_governance::RetrievalAuthorizationContext>,
+    pub source_filter: Option<CandidateSourceFilter>,
+    pub cancellation: std::sync::Arc<crate::SearchCancellation>,
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RerankResult {
     pub candidates: Vec<RankedCandidate>,

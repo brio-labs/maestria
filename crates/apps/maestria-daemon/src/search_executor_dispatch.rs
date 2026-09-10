@@ -43,6 +43,19 @@ impl SearchRuntime {
         })
     }
 
+    fn execute_late_interaction_shadow_blocking(
+        &self,
+        query: String,
+        limit: usize,
+    ) -> Result<(SearchPlan, SearchOutcome)> {
+        let engine = self.late_interaction_shadow_engine()?;
+        let plan = engine
+            .plan(query, limit, &self.planner_context())
+            .map_err(anyhow::Error::new)?;
+        let outcome = engine.search(&plan).map_err(anyhow::Error::new)?;
+        Ok((plan, outcome))
+    }
+
     fn execute_pre_authorized_blocking(
         &self,
         query: String,
@@ -84,6 +97,27 @@ impl SearchRuntime {
         tokio::task::spawn_blocking(move || runtime.execute_search_blocking(query, limit))
             .await
             .map_err(|error| anyhow!("search worker failed: {error}"))?
+    }
+
+    /// Executes the explicitly constructed late-interaction shadow engine.
+    ///
+    /// This path is evaluation-only: it never replaces the cached serving
+    /// engine and requires a validated shadow reranker.
+    ///
+    /// # Cancellation
+    /// Cancelling the returned future does not abort the blocking search worker; the spawned
+    /// blocking task continues until completion.
+    pub async fn execute_late_interaction_shadow(
+        &self,
+        query: String,
+        limit: usize,
+    ) -> Result<(SearchPlan, SearchOutcome)> {
+        let runtime = Arc::new(self.clone());
+        tokio::task::spawn_blocking(move || {
+            runtime.execute_late_interaction_shadow_blocking(query, limit)
+        })
+        .await
+        .map_err(|error| anyhow!("late interaction shadow worker failed: {error}"))?
     }
 
     /// Arc-optimized path: avoids an extra struct clone when the caller already holds an `Arc`.

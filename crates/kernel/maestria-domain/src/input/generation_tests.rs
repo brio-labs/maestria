@@ -39,6 +39,7 @@ fn start(state: &mut KernelState, id: u64, name: &RepresentationName) -> Result<
         corpus_snapshot: CorpusSnapshotId::new(1),
         fingerprint: fingerprint()?,
         sparse_namespace: None,
+        representation_fingerprint: None,
     })?;
     assert!(matches!(
         output.effects.as_slice(),

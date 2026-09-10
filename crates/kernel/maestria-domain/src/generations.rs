@@ -138,12 +138,15 @@ pub struct IndexGeneration {
     pub id: IndexGenerationId,
     pub name: RepresentationName,
     pub corpus_snapshot: crate::ids::CorpusSnapshotId,
+    /// The representation fingerprint is required for multivector text
+    /// generations and optional for historical unrelated generations.
+    #[serde(default)]
+    pub representation_fingerprint: Option<ContentHash>,
     #[serde(default)]
     pub sparse_namespace: Option<crate::SparseNamespace>,
     pub fingerprint: IndexFingerprint,
     pub lifecycle: IndexLifecycle,
 }
-
 impl IndexGeneration {
     pub fn is_serveable(&self) -> bool {
         self.lifecycle == IndexLifecycle::Active
@@ -159,6 +162,30 @@ impl IndexGeneration {
         }
         self.lifecycle = next;
         Ok(())
+    }
+
+    /// Validates the additional complete representation binding used by the
+    /// multivector generation without changing historic unrelated records.
+    pub fn validate_representation_fingerprint(
+        &self,
+        expected: &ContentHash,
+    ) -> Result<(), crate::search::SearchCompatibilityError> {
+        if self.name.as_str() != "multivector_text_v1" {
+            return Ok(());
+        }
+        match &self.representation_fingerprint {
+            Some(found) if found == expected => Ok(()),
+            Some(_) => Err(
+                crate::search::SearchCompatibilityError::InvalidScoreProvenance(
+                    "multivector generation representation fingerprint mismatches identity",
+                ),
+            ),
+            None => Err(
+                crate::search::SearchCompatibilityError::InvalidScoreProvenance(
+                    "multivector generation representation fingerprint is missing",
+                ),
+            ),
+        }
     }
 }
 

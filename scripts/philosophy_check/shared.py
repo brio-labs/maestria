@@ -40,7 +40,7 @@ KERNEL_ROOTS = (
 SCAN_EXTS = {".rs", ".toml", ".py", ".yml", ".yaml", ".md"}
 
 
-SKIP_DIRS = {".git", "target", "node_modules", "dist", ".direnv", ".venv"}
+SKIP_DIRS = {".git", "target", "node_modules", "dist", ".direnv", ".venv", ".venv-late-interaction"}
 
 
 # Files exempted from the doctrine scan (e.g. vendored or legacy artifacts).

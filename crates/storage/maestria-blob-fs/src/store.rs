@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File},
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -258,6 +258,52 @@ impl BlobStore for FsBlobStore {
         })?;
         let actual_digest = sha256_digest(&bytes);
         let actual_hex = maestria_domain::hex_digest(&actual_digest);
+        if actual_hex != digest_hex {
+            return Err(PortError::InternalContext {
+                context: "blob integrity check failed",
+                source: format!("expected digest {digest_hex}, actual digest {actual_hex}"),
+            });
+        }
+        Ok(bytes)
+    }
+
+    fn get_bounded(&self, id: BlobId, max_bytes: usize) -> Result<Vec<u8>, PortError> {
+        let read_limit = max_bytes.checked_add(1).ok_or_else(|| {
+            PortError::invalid_input("bounded blob read", "maximum byte limit overflows")
+        })?;
+        let digest_hex = self.digest_for_id(id)?;
+        let path = self.object_path(&digest_hex);
+        let metadata = fs::metadata(&path).map_err(|error| match error.kind() {
+            io::ErrorKind::NotFound => PortError::NotFound,
+            _ => io_error("stat blob object", &path, error),
+        })?;
+        if metadata.len() > max_bytes as u64 {
+            return Err(PortError::invalid_input(
+                "bounded blob read",
+                format!("blob {} exceeds {max_bytes} bytes", id.value()),
+            ));
+        }
+        let file = File::open(&path).map_err(|error| match error.kind() {
+            io::ErrorKind::NotFound => PortError::NotFound,
+            _ => io_error("open blob object", &path, error),
+        })?;
+        let capacity = usize::try_from(metadata.len()).map_err(|_| {
+            PortError::invalid_input("bounded blob read", "blob size exceeds platform capacity")
+        })?;
+        let mut bytes = Vec::with_capacity(capacity);
+        file.take(read_limit as u64)
+            .read_to_end(&mut bytes)
+            .map_err(|error| io_error("read bounded blob object", &path, error))?;
+        if bytes.len() > max_bytes {
+            return Err(PortError::invalid_input(
+                "bounded blob read",
+                format!(
+                    "blob {} grew beyond {max_bytes} bytes while reading",
+                    id.value()
+                ),
+            ));
+        }
+        let actual_hex = maestria_domain::hex_digest(&sha256_digest(&bytes));
         if actual_hex != digest_hex {
             return Err(PortError::InternalContext {
                 context: "blob integrity check failed",

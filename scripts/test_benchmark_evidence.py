@@ -213,5 +213,66 @@ class BenchmarkEvidenceManifestTests(unittest.TestCase):
         self.assertTrue(any("protected classes cannot be promoted" in error for error in errors))
 
 
+
+    def test_late_stage_a_fixture_accepts_measurement_enum_shape(self) -> None:
+        report = ROOT / "tests" / "contracts" / "late_interaction_stage_a_staged.json"
+        self.assertEqual(
+            EVIDENCE.errors_for_report(report, "late-interaction-stage-a"),
+            [],
+        )
+
+    def test_late_stage_b_accepts_rust_enum_shape(self) -> None:
+        report = {
+            "measurement_kind": "late-interaction-stage-b",
+            "evaluation_date": "2026-09-09",
+            "evaluation_id": "stage-b-live",
+            "stage": "CandidateIndex",
+            "stage_a_report_hash": "sha256:" + "a" * 64,
+            "stage_a_quality_win": False,
+            "decision": {"NotAuthorized": {"reason": "no quality win"}},
+            "indexed_need": {
+                "Unavailable": {"reason": "indexed need was not measured"}
+            },
+            "promotion": {"authorized": False, "index_implemented": False},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "stage-b.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            errors = EVIDENCE.errors_for_report(path, "late-interaction-stage-b")
+        self.assertEqual(errors, [])
+    def test_late_promotion_record_requires_authorized_nonempty_classes(self) -> None:
+        record = {
+            "schema_version": 1,
+            "evaluation_id": "stage-a-live",
+            "evaluation_date": "2026-09-09",
+            "corpus_id": "corpus-v1",
+            "corpus_revision": "revision-v1",
+            "stage_a_report_hash": "sha256:" + "a" * 64,
+            "profile_identity": "sha256:" + "b" * 64,
+            "generation_id": "generation-1",
+            "corpus_snapshot": "snapshot-1",
+            "rollback_generation_id": "generation-0",
+            "promoted_classes": ["FactualLocal"],
+            "authorized": True,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "promotion.json"
+            path.write_text(json.dumps(record), encoding="utf-8")
+            self.assertEqual(
+                EVIDENCE.errors_for_report(
+                    path,
+                    "late-interaction-stage-a-promotion",
+                ),
+                [],
+            )
+            record["authorized"] = False
+            path.write_text(json.dumps(record), encoding="utf-8")
+            errors = EVIDENCE.errors_for_report(
+                path,
+                "late-interaction-stage-a-promotion",
+            )
+        self.assertTrue(any("must be authorized" in error for error in errors))
+
+
 if __name__ == "__main__":
     unittest.main()

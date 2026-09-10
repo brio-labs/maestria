@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "measurement_kind": "late-interaction-stage-b",
+  "evaluation_date": "2026-09-09",
+  "evaluation_id": "late-interaction-stage-b-contract-fixture-v1",
+  "stage": "CandidateIndex",
+  "stage_a_report_hash": "sha256:9c318040ef235c0c722793f495a32866568fc17bec3f0992e21da7a884156cf4",
+  "stage_a_quality_win": false,
+  "decision": "NotAuthorized",
+  "indexed_need": {
+    "status": "Unavailable",
+    "reason": "Stage A live evaluation has not run; no indexed-retrieval need may be inferred",
+    "case_ids": []
+  },
+  "reason": "Stage B requires both a measured Stage A quality win and a measured indexed-retrieval need",
+  "promotion": {
+    "authorized": false,
+    "index_implemented": false
+  }
+}

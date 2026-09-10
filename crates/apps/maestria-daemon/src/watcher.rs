@@ -350,6 +350,7 @@ fn test_manifest(root: PathBuf) -> Result<InstanceManifest, Box<dyn std::error::
         embeddings: None,
         ocr: None,
         visual: None,
+        late_interaction: None,
         sparse: None,
     })
 }

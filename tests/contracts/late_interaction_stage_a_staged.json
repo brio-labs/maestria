@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "measurement_kind": "late-interaction-stage-a",
+  "evaluation_date": "2026-09-09",
+  "evaluation_id": "late-interaction-stage-a-contract-fixture-v1",
+  "stage": "Reranker",
+  "data_fidelity": "staged",
+  "corpus": {
+    "id": "late-interaction-task-corpus-v1",
+    "revision": "contract-fixture-v1",
+    "judgment_set": "late-interaction-judgments-v1",
+    "source_hash": "sha256:bcbf13e3ed8d0795939d9a19f186a026d807e87ac4abe808aadd4239e7e1808d",
+    "judgment_hash": "sha256:b6ca35865397ee299af4f28d07a24f5cbfb97e405141baf7402c44b9a9665fbe"
+  },
+  "fingerprints": {
+    "corpus_snapshot": "late-interaction-task-corpus-v1@contract-fixture-v1",
+    "index_generation": "multivector-text-v1-stage-a-contract",
+    "identity_digest": "staged-not-measured",
+    "profile_digest": "staged-not-measured",
+    "scorer_fingerprint": "maxsim-query-token-max-then-sum-v1",
+    "source_hash": "sha256:bcbf13e3ed8d0795939d9a19f186a026d807e87ac4abe808aadd4239e7e1808d",
+    "judgment_hash": "sha256:b6ca35865397ee299af4f28d07a24f5cbfb97e405141baf7402c44b9a9665fbe"
+  },
+  "observations": [
+    {
+      "case_id": "fallback-provider-failure",
+      "query_class": "FactualLocal",
+      "route": "EligibleBoundedBaseline",
+      "quality": {"status": "Unavailable", "reason": "live Stage A executor has not run"},
+      "resources": {"status": "Unavailable", "reason": "live Stage A executor has not run"},
+      "safety": {"status": "Unavailable", "reason": "live Stage A executor has not run"},
+      "measurement_status": {"Unavailable": {"reason": "staged contract fixture; not a live measurement"}}
+    },
+    {
+      "case_id": "fallback-provider-failure",
+      "query_class": "FactualLocal",
+      "route": "LateInteractionReranker",
+      "quality": {"status": "Unavailable", "reason": "live Stage A executor has not run"},
+      "resources": {"status": "Unavailable", "reason": "live Stage A executor has not run"},
+      "safety": {"status": "Unavailable", "reason": "live Stage A executor has not run"},
+      "measurement_status": {"Unavailable": {"reason": "staged contract fixture; not a live measurement"}}
+    }
+  ],
+  "decisions": {
+    "ExactLookup": "RetainBaseline",
+    "FactualLocal": "RetainBaseline",
+    "SemanticDiscovery": "RetainBaseline",
+    "CompositionalConstraints": "RetainBaseline",
+    "MultiHop": "RetainBaseline",
+    "CorpusSynthesis": "RetainBaseline",
+    "RepositoryCode": "RetainBaseline",
+    "VisualDocument": "RetainBaseline",
+    "TemporalMemory": "RetainBaseline",
+    "CurrentWeb": "RetainBaseline",
+    "ContradictionAudit": "RetainBaseline"
+  },
+  "promotion": {
+    "authorized": false,
+    "reason": "staged contract fixture; no live quality or resource conclusion"
+  }
+}

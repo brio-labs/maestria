@@ -21,15 +21,30 @@ pub(super) struct AdaptiveSearchState {
     pub(super) diversity_trace: SearchTraceDiversity,
 }
 
+pub(super) struct AdaptiveIterationRequest<'a> {
+    pub(super) engine: &'a RetrievalEngine,
+    pub(super) plan: &'a SearchPlan,
+    pub(super) query: &'a SearchQuery,
+    pub(super) authorization: &'a maestria_governance::RetrievalAuthorizationContext,
+    pub(super) source_filter: Option<&'a CandidateSourceFilter>,
+    pub(super) cancellation: &'a std::sync::Arc<crate::SearchCancellation>,
+    pub(super) state: &'a mut AdaptiveSearchState,
+    pub(super) started: crate::MonotonicInstant,
+}
+
 pub(super) fn iterate_until_stop(
-    engine: &RetrievalEngine,
-    plan: &SearchPlan,
-    query: &SearchQuery,
-    authorization: &maestria_governance::RetrievalAuthorizationContext,
-    source_filter: Option<&CandidateSourceFilter>,
-    state: &mut AdaptiveSearchState,
-    started: crate::MonotonicInstant,
+    request: AdaptiveIterationRequest<'_>,
 ) -> RetrievalResult<Option<SearchStopReason>> {
+    let AdaptiveIterationRequest {
+        engine,
+        plan,
+        query,
+        authorization,
+        source_filter,
+        cancellation,
+        state,
+        started,
+    } = request;
     use std::collections::BTreeSet;
 
     let mut attempted_slots = BTreeSet::new();
@@ -64,6 +79,7 @@ pub(super) fn iterate_until_stop(
             plan,
             query,
             authorization,
+            cancellation,
             source_filter,
             state,
             slot,
@@ -98,6 +114,7 @@ struct MissingSlotRequest<'a> {
     query: &'a SearchQuery,
     authorization: &'a maestria_governance::RetrievalAuthorizationContext,
     source_filter: Option<&'a CandidateSourceFilter>,
+    cancellation: &'a std::sync::Arc<crate::SearchCancellation>,
     state: &'a mut AdaptiveSearchState,
     slot: String,
     started: crate::MonotonicInstant,
@@ -109,6 +126,7 @@ fn retrieve_missing_slot(request: MissingSlotRequest<'_>) -> RetrievalResult<boo
         plan,
         query,
         authorization,
+        cancellation,
         source_filter,
         state,
         slot,
@@ -170,6 +188,7 @@ fn retrieve_missing_slot(request: MissingSlotRequest<'_>) -> RetrievalResult<boo
             plan,
             query,
             batches: &state.batches,
+            cancellation,
             started,
             execution_usage: &mut state.execution_usage,
             authorization,

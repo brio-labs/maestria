@@ -57,4 +57,16 @@ impl crate::BlobStore for InMemoryBlobStore {
         let guard = lock_map(&self.blobs, "blob store lock poisoned")?;
         guard.get(&id).cloned().ok_or(PortError::NotFound)
     }
+
+    fn get_bounded(&self, id: BlobId, max_bytes: usize) -> Result<Vec<u8>, PortError> {
+        let guard = lock_map(&self.blobs, "blob store lock poisoned")?;
+        let bytes = guard.get(&id).ok_or(PortError::NotFound)?;
+        if bytes.len() > max_bytes {
+            return Err(PortError::invalid_input(
+                "bounded blob read",
+                format!("blob {} exceeds {max_bytes} bytes", id.value()),
+            ));
+        }
+        Ok(bytes.clone())
+    }
 }

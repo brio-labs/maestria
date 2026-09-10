@@ -88,6 +88,20 @@ impl PortError {
     pub fn is_conflict(&self) -> bool {
         matches!(self, Self::Conflict { .. })
     }
+
+    /// Returns whether the bounded provider rejected a typed identity binding.
+    ///
+    /// Classification uses the non-sensitive context label only; source
+    /// details remain opaque to callers that publish fallback traces.
+    pub fn is_identity(&self) -> bool {
+        let context = match self {
+            Self::InvalidInputContext { context, .. }
+            | Self::DownstreamContext { context, .. }
+            | Self::InternalContext { context, .. } => *context,
+            Self::NotFound | Self::Conflict { .. } | Self::Downstream { .. } => return false,
+        };
+        context.contains("identity")
+    }
 }
 
 impl std::error::Error for PortError {}

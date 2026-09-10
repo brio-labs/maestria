@@ -3,7 +3,7 @@ mod event_tests;
 mod id_allocator_tests;
 mod index_event_tests;
 mod index_generation_tests;
-mod learned_sparse_observation_tests;
+mod late_interaction_io_tests;
 mod learned_sparse_projection_tests;
 mod learned_sparse_promotion_tests;
 mod migration_tests;

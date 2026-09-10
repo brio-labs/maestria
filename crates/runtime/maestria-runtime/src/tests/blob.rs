@@ -32,6 +32,10 @@ impl BlobStore for RecordingBlobStore {
     fn get(&self, _id: BlobId) -> Result<Vec<u8>, PortError> {
         Err(PortError::NotFound)
     }
+
+    fn get_bounded(&self, _id: BlobId, _max_bytes: usize) -> Result<Vec<u8>, PortError> {
+        Err(PortError::NotFound)
+    }
 }
 
 #[tokio::test]

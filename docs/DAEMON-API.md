@@ -237,6 +237,15 @@ the code rather than parse the human-readable string.
 This boundary keeps transport DTOs separate from domain entities while
 preserving stable identifiers, search trace identity, source-selection digests,
 evidence provenance, and validation-relevant task state.
+## Retrieval event retirement
+
+`ClientOperation::RetireRetrievalEvents` records a governed append-only
+retirement boundary below a supplied sequence. It never deletes rows; later
+status reads report the boundary and trace lookups below it fail explicitly.
+The operation requires a non-empty operator reason and the instance
+authorization required by the daemon.
+The operation tag is `retire_retrieval_events`.
+
 ## Retrieval status
 
 `retrieval_status` (`ClientOperation::RetrievalStatus`, Studio `GET /api/retrieval`) is a
@@ -251,13 +260,8 @@ construction today and always report `Shadow`. Any derivation or storage error
 fails the whole read; no partial status is fabricated.
 
 ```json
-{"type": "retrieval_status"}
-```
-
-Response (`RetrievalStatusResponse`) shape:
-
-```json
 {
+  "type": "retrieval_status",
   "index_generation": 3,
   "corpus_snapshot": 42,
   "fingerprint": "maestria-core:deterministic-v1",
@@ -272,7 +276,11 @@ Response (`RetrievalStatusResponse`) shape:
     "dense_enabled": false,
     "dense_model": null,
     "repository_code_state": "Shadow",
-    "visual_state": "Shadow"
+    "visual_state": "Shadow",
+    "late_interaction_state": "Disabled",
+    "late_interaction_evaluation_id": null,
+    "late_interaction_evaluation_date": null,
+    "late_interaction_report_hash": null
   },
   "promotion_records": {
     "learned_sparse": null,
@@ -282,16 +290,24 @@ Response (`RetrievalStatusResponse`) shape:
       "evaluation_date": "...",
       "report_hash": "...",
       "created_at": "..."
-    }
+    },
+    "late_interaction_stage_a": null,
+    "late_interaction_stage_b": null,
+    "late_interaction_promotion": null
   }
 }
 ```
 
 `hybrid_state` is `Shadow` | `Active`; `learned_sparse_state` is `Disabled` |
-`Shadow` | `Active`; `dense_enabled` reflects the resolved dense generation and
-`dense_model` the enabled manifest embedding model; promotion records are the
-latest stored `RetrievalPromotionRecordWire` rows (`learned_sparse` / `hybrid`)
-when present. See `crates/apps/maestria-daemon/src/api/search_services.rs:85`
+`Shadow` | `Active`; `late_interaction_state` is `Disabled` | `Shadow` |
+`Active`. Active late-interaction serving is limited to the query classes in
+the validated Stage A promotion record; missing, malformed, stale, or
+identity-mismatched records authorize no late classes and preserve baseline
+serving. `dense_enabled` reflects the resolved dense generation and
+`dense_model` the enabled manifest embedding model. Promotion records are the
+latest stored `RetrievalPromotionRecordWire` rows for the learned-sparse,
+hybrid, and late-interaction Stage A, Stage B, or promotion stages when
+present. See `crates/apps/maestria-daemon/src/api/search_services.rs:146`
 (`retrieval_status`) and `crates/apps/maestria-studio/src/http/retrieval.rs`.
 
 

@@ -148,6 +148,7 @@ pub use crate::search::{
     ArtifactVersion, ConflictSet, ContentHash, CorpusScope, DiversityPlacement,
     DiversitySkipReason, EvidenceCandidate, EvidenceCandidateDto, EvidenceCoverage,
     EvidenceCoverageDto, EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus,
+    LateInteractionAggregation, LateInteractionProvenance, LateInteractionTokenContribution,
     LearnedSparseContribution, LearnedSparseReason, Modality, ModalitySet,
     RETRIEVAL_SCORE_SCHEMA_VERSION, RerankPosition, RetrievalLaneScore, RetrievalModelFingerprint,
     RetrievalRawRank, RetrievalReason, RetrievalScoreFingerprint, RetrievalScoreKind,

@@ -40,6 +40,7 @@ impl VisualReranker {
         query_vector: &[f32],
         started: crate::MonotonicInstant,
         deadline: Duration,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
     ) -> Result<u32, String> {
         let evidence = self
             .parts
@@ -48,7 +49,7 @@ impl VisualReranker {
             .map_err(|error| RetrievalError::Internal(error.to_string()).to_string())?
             .ok_or_else(|| "visual reranker evidence is missing".to_string())?;
         let (source, bytes) = self
-            .source_bytes(&evidence)
+            .source_bytes(&evidence, authorization)
             .map_err(|error| error.to_string())?;
         let remaining = deadline
             .checked_sub(started.elapsed())
