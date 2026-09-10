@@ -57,12 +57,13 @@ Explore additional retrieval paradigms only where measured quality/cost/security
 
 **Current checkpoint (2026-09-10):** Phase 6 remains open. The learned-sparse
 and late-interaction evaluations are complete non-promoting decisions; the
-measured dense result promotes only `DomainTerminology`. The repository and
-visual entries retain explicit warning/provider-unavailable states, so the
-roadmap does not yet have product-exit evidence for the full supported search
-surface. The next gate is a bounded product-exit report for the current
-exact, lexical, dense-hybrid, repository, and visual routes. No additional
-research lane is implemented solely because its issue is next in numeric order.
+measured dense result promotes only `DomainTerminology`. The bounded
+supported-route run completed, but repository routes still have unavailable
+platform resource/security counters and visual retrieval still has no provider
+measurements. The run produced no new quality promotion, so the next gate is
+closing those evidence gaps for the current exact, lexical, dense-hybrid,
+repository, and visual routes. No additional research lane is implemented
+solely because its issue is next in numeric order.
 
 ## Version-to-Phase Mapping
 
