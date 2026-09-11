@@ -336,6 +336,9 @@ uv pip install --python .venv-visual/bin/python \
   -r scripts/requirements-visual.txt
 ```
 
+The pinned quantized model requires `onnxruntime==1.30.0`; ONNX Runtime
+`1.22.1` cannot execute its `ConvInteger` operator.
+
 Download the pinned SigLIP artifacts from `Xenova/siglip-base-patch16-224` at
 revision `4649052661e53c7000355844105f8a1792088239`, then start the sidecar
 with the quantized ONNX artifacts:
@@ -344,9 +347,9 @@ with the quantized ONNX artifacts:
 .venv-visual/bin/python scripts/siglip_visual_server.py \
   --host 127.0.0.1 --port 10001 \
   --model siglip-base-patch16-224-int8 \
-  --vision-model .maestria/models/siglip/onnx/vision_model_int8.onnx \
-  --text-model .maestria/models/siglip/onnx/text_model_int8.onnx \
-  --tokenizer .maestria/models/siglip/tokenizer.json
+  --vision-model .maestria/models/siglip-base-patch16-224/onnx/vision_model_int8.onnx \
+  --text-model .maestria/models/siglip-base-patch16-224/onnx/text_model_int8.onnx \
+  --tokenizer .maestria/models/siglip-base-patch16-224/tokenizer.json
 ```
 
 Compute the artifact fingerprint before enabling the profile:
@@ -354,7 +357,7 @@ Compute the artifact fingerprint before enabling the profile:
 ```bash
 python3 scripts/visual_model_fingerprint.py \
   --profile siglip_cpu \
-  --model-dir .maestria/models/siglip
+  --model-dir .maestria/models/siglip-base-patch16-224
 ```
 
 Manifest keys (set `visual_artifact_hash` to the fingerprint output):
@@ -479,23 +482,24 @@ was built or promoted. The negative result is therefore: late interaction
 does not qualify for Stage A serving on this frozen run, and Stage B has no
 independent need authorization.
 
-## 4.5. Product-exit evidence checkpoint (dated 2026-09-10)
+## 4.5. Product-exit evidence checkpoint (dated 2026-09-11)
 
 The current ledger does not certify a product-complete retrieval surface.
 The machine-readable statuses are recorded in
 [`tests/contracts/benchmark_evidence_v1.json`](../tests/contracts/benchmark_evidence_v1.json).
 `v1.2` and `v1.3` contain complete real lane evaluations, but their pass
 statuses are scoped to those reports: learned sparse remains unpromoted, and
-the dense promotion is limited to `DomainTerminology`. Earlier baseline,
-repository, and visual entries retain explicit warnings rather than inferring
-missing telemetry or provider quality.
+the dense promotion is limited to `DomainTerminology`. Earlier baseline and
+repository entries retain explicit warnings; the real visual provider now runs,
+but its latency and resource gates fail. Missing telemetry or provider quality
+is never inferred.
 
 | Surface | Evidence state | Current decision | Remaining gate |
 | --- | --- | --- | --- |
 | Deterministic baseline | `v0.4` mixed/warning | Retain exact/lexical baseline | Live resource and serving-boundary security evidence |
 | Dense hybrid | `v1.3` real/pass | Promote `DomainTerminology` only | No blanket promotion beyond the measured class |
-| Repository/code | `v0.7`, `v0.9`–`v1.1` real/warning | Keep specialized routes shadowed | Resource and serving-boundary security evidence plus class comparison |
-| Visual documents | `v0.8` real/warning | Keep provider-dependent/research-only | Real visual-provider quality, resource, and security evidence |
+| Repository/code | `v0.7`, `v0.9`–`v1.1` real/warning | Keep specialized routes shadowed | RAPL energy, serving-boundary security evidence, and class comparison |
+| Visual documents | `v0.8` real/warning | Keep provider-dependent/research-only | Real provider is measured, but latency, resource, and serving-boundary security gates remain open |
 | Learned sparse | `v1.2` real/pass | Retain lexical/hybrid per class | No class passed the promotion gate |
 | Late interaction | §4.4 real/non-promoting | Disabled/shadow-only | No Stage A quality win; Stage B `NotAuthorized` |
 | Graph, temporal, counterevidence, fusion | No product report | Not implemented/promoted | Separate frozen evaluations; no implementation by roadmap order alone |
@@ -505,36 +509,72 @@ supported exact, lexical, dense-hybrid, repository, and visual surfaces. It
 must preserve the existing per-class routes and report quality, p50/p95/p99
 latency, memory, disk, privacy, security, freshness, update/rollback, and
 energy availability without converting unavailable counters into passes. The
-2026-09-10 run is an evidence snapshot, not completion of that gate; Phase 6
+2026-09-11 run is an evidence snapshot, not completion of that gate; Phase 6
 remains open and no additional experimental lane is justified by the existence
 of an issue or adapter.
 
-### 4.5.1. Bounded supported-route run (2026-09-10)
+### 4.5.1. Bounded supported-route run (2026-09-11)
 
-The frozen route suites were rerun against merge commit
-`60b88a498b09b106b8a79fa0b2f63786ee4b9cd7`. The reports were written to
+The frozen route suites and boundary checks were rerun against the current
+checkout based on merge commit `63e3eb8d`. The reports were written to
 `target/benchmark-reports` and passed the evidence-ledger validator.
 
 | Run | Observed result | Exit impact |
 | --- | --- | --- |
 | Exact/lexical baseline | 24 retrieval contract tests passed; the `golden-v3` fixture remains a deterministic contract, not live provider telemetry | Baseline quality is covered, but live resource and serving-boundary security evidence remain unavailable |
 | Dense hybrid | The existing v1.3 report still promotes `DomainTerminology` only; the dense/sparse contract suite passed without changing that decision | No broader class promotion |
-| Rust repository | 20 observations: `CodeSpecialized` was correct on 4/10 cases with 9 exact-span hits (p50/p95 14/333 ms); `PhaseC` was correct on 2/10 with 32 exact-span hits (p50/p95 110/539 ms) | Specialized quality is mixed and platform resource/security counters remain unavailable; keep shadowed |
-| Python repository | 20 observations: both routes were correct on 9/10 cases; `CodeSpecialized` had 12 exact-span hits (p95 17 ms) versus `PhaseC` 27 (p95 11 ms) | No quality win; platform resource/security counters remain unavailable |
-| Web repository | 20 observations: both routes were correct on 9/10 cases; `CodeSpecialized` had 8 exact-span hits (p95 10 ms) versus `PhaseC` 30 (p95 12 ms) | No quality win; platform resource/security counters remain unavailable |
+| Rust repository | 20 observations: `CodeSpecialized` was correct on 4/10 cases with 9 exact-span hits (p50/p95 14/333 ms); `PhaseC` was correct on 2/10 with 32 exact-span hits (p50/p95 110/539 ms) | Specialized quality is mixed; process RSS/index disk are measured, but RAPL energy and serving-boundary security counters remain unavailable; keep shadowed |
+| Python repository | 20 observations: both routes were correct on 9/10 cases; `CodeSpecialized` had 12 exact-span hits (p95 17 ms) versus `PhaseC` 27 (p95 11 ms) | No quality win; process RSS/index disk are measured, but RAPL energy and serving-boundary security counters remain unavailable |
+| Web repository | 20 observations: both routes were correct on 9/10 cases; `CodeSpecialized` had 8 exact-span hits (p95 10 ms) versus `PhaseC` 30 (p95 12 ms) | No quality win; process RSS/index disk are measured, but RAPL energy and serving-boundary security counters remain unavailable |
 | Repository build | Five-run p50/p95 build latency was 106/117 ms for 50 files and 254/287 ms for 200 files | Build latency is measured; memory, disk, energy, and serving-boundary security are not |
-| Visual fallback | Eight visual benchmark tests passed; the provider-unavailable report covered 12 cases with no provider measurements | Visual quality, resource, and security evidence remain unavailable |
+| Visual route | Initial unpinned real SigLIP/RapidOCR run covered 12 cases, with mean page-region recall 10000/10000 and mean nDCG@10 9884/10000; every measured visual case exceeded its 120 to 160 ms budget, so `winning_classes` was empty | Provider quality is measured, but latency, peak-memory, energy, and serving-boundary security evidence do not support promotion |
 
-The run confirms that the product-exit gate remains open. Zero violation flags
-in repository fixture observations do not convert an unavailable serving-boundary
-counter into a security pass. No route was promoted or changed by this run.
+The run confirms that the product-exit gate remains open. Targeted boundary
+checks passed for secret exclusion, prompt-injection quarantine, and bounded
+revocable federation access, but those checks are not route-level benchmark
+counters. No route was promoted or changed by this run.
+
+### 4.5.2. Thread-pinned visual provider follow-up (dated 2026-09-11)
+
+The SigLIP sidecar was re-evaluated after pinning ONNX Runtime to four
+intra-op threads, one inter-op thread, sequential execution, and full graph
+optimisation for both the text and vision sessions. The setting was selected
+from direct measurements of the pinned int8 models:
+
+| Session | Default p50/p95 | Four-thread p50/p95 |
+| --- | --- | --- |
+| Text | 175.5 / 208.4 ms | 47.6 / 59.2 ms |
+| Vision | 300.4 / 316.6 ms | 90.1 / 90.8 ms |
+
+The warmup-discarded 12-request HTTP text benchmark improved from p50/p95
+`142.24/175.13 ms` to `49.12/63.18 ms`. A real 12-observation
+SigLIP/RapidOCR rerun with the optimized sidecar preserved visual
+page-region recall at `10000/10000` mean and nDCG@10 at `9884.5/10000`
+mean. The final real rerun recorded visual-route latencies of Text `217 ms`
+(120 ms budget), Table `306 ms`, Chart `177 ms`, Figure `82 ms`, Formula
+`86 ms` (160 ms budgets), and ScannedPage `774 ms` (200 ms budget). The
+optimization is therefore a measurable inference and end-to-end latency
+improvement, but four of six visual cases still exceed their frozen latency
+budgets.
+
+The harness records `measurement_status=Unavailable` for every real
+observation because RAPL energy and serving-boundary privacy/security
+counters are not measured. The visual promotion gate requires
+`MeasurementStatus::Measured`, so `winning_classes` remains empty despite
+the quality and latency improvement. The thread configuration is retained as
+a bounded research optimization; the visual route remains
+provider-dependent/research-only and shadowed.
 
 ## 3. Promotion Criteria
 
 A candidate is promoted from this research document to an active architectural component only when:
 
-1. It conclusively beats every required existing baseline on a frozen, versioned Maestria evaluation corpus.
+1. For each proposed served query class, it beats that class's eligible existing baseline on a frozen, versioned Maestria evaluation corpus; protected exact and lexical paths remain unchanged.
 2. It satisfies all requirements of [OPERATIONS.md](./OPERATIONS.md), including reproducibility, generation lifecycle, cancellation, degradation, and rollback.
 3. The integration is abstracted behind provider-neutral contracts and remains replaceable.
 4. The dated report records corpus, judgment, model/index, environment, quality, resource, privacy, security, and energy evidence.
 5. Promotion is restricted to the query classes and exact route configuration that won; all other paths remain shadowed or use the conservative baseline.
+
+The numeric budgets in a frozen corpus are comparability gates, not universal
+product SLOs. Changing a budget requires a new corpus revision and a
+workload-backed rationale; a candidate cannot relax its own gate.

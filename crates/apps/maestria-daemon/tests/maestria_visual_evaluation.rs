@@ -36,7 +36,7 @@ use maestria_retrieval::golden::Metric;
 use maestria_retrieval::traits::CandidateRetriever;
 use maestria_retrieval::types::CandidateRequest;
 use maestria_retrieval::{
-    VisualBenchmarkCase, VisualBenchmarkComparison, VisualBenchmarkCorpus,
+    MeasurementStatus, VisualBenchmarkCase, VisualBenchmarkComparison, VisualBenchmarkCorpus,
     VisualBenchmarkObservation, VisualProviderStatus, VisualQueryClass, VisualRoute,
 };
 use maestria_visual_local::LocalHttpVisualProvider;
@@ -45,6 +45,7 @@ const CORPUS: &str = include_str!(
     "../../../ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-benchmark-v1.json"
 );
 const EVALUATION_ID: &str = "maestria-visual-siglip-2026-09-08";
+const VISUAL_INTRA_OP_THREADS: u8 = 4;
 
 struct SourceFixture {
     source_path: String,
@@ -688,6 +689,9 @@ fn observe_case(
         provider: &'static str,
         model: &'static str,
         route: String,
+        intra_op_threads: u8,
+        inter_op_threads: u8,
+        execution_mode: &'static str,
     }
     Ok(VisualBenchmarkObservation {
         corpus_id: context.corpus.corpus_id.clone(),
@@ -698,7 +702,14 @@ fn observe_case(
             provider: "siglip-onnx",
             model: "siglip-base-patch16-224",
             route: format!("{route:?}"),
+            intra_op_threads: VISUAL_INTRA_OP_THREADS,
+            inter_op_threads: 1,
+            execution_mode: "sequential",
         })?,
+        measurement_status: MeasurementStatus::Unavailable {
+            reason: "RAPL energy and serving-boundary privacy/security counters are not measured by this external-provider harness"
+                .to_string(),
+        },
         case_id: case.case_id.clone(),
         route,
         page_region_recall,
@@ -782,6 +793,7 @@ fn maestria_visual_real_evaluation() -> Result<(), Box<dyn std::error::Error>> {
     let report_path = Path::new(&report_root).join("visual-provider-real.json");
     #[derive(serde::Serialize)]
     struct Report<'a> {
+        measurement_kind: &'static str,
         evaluation_id: &'static str,
         corpus_id: &'a str,
         corpus_revision: &'a str,
@@ -790,6 +802,7 @@ fn maestria_visual_real_evaluation() -> Result<(), Box<dyn std::error::Error>> {
         winning_classes: &'a BTreeSet<VisualQueryClass>,
     }
     let report = Report {
+        measurement_kind: "real",
         evaluation_id: EVALUATION_ID,
         corpus_id: &corpus.corpus_id,
         corpus_revision: &corpus.corpus_revision,

@@ -2,6 +2,7 @@ use super::{
     VisualBenchmarkCase, VisualBenchmarkError, VisualBenchmarkObservation, VisualRoute,
     VisualRouteMetrics,
 };
+use crate::MeasurementStatus;
 use crate::golden::Metric;
 
 fn average(metrics: impl Iterator<Item = Metric>, count: usize) -> Metric {
@@ -114,6 +115,7 @@ pub(super) fn wins(
             })
             .is_some_and(|observation| {
                 observation.provider_status.is_available()
+                    && matches!(&observation.measurement_status, MeasurementStatus::Measured)
                     && observation.latency_ms <= case.latency_budget_ms
                     && observation.memory_bytes <= case.memory_budget_bytes
                     && observation.disk_bytes <= case.disk_budget_bytes

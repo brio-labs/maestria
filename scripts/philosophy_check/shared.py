@@ -762,6 +762,19 @@ def _find_function_bodies(text: str) -> list[tuple[str, str]]:
                     in_string = False
                 j += 1
                 continue
+            if c == "'":
+                lifetime_end = j + 1
+                if lifetime_end < len(text) and (
+                    text[lifetime_end].isalpha() or text[lifetime_end] == "_"
+                ):
+                    lifetime_end += 1
+                    while lifetime_end < len(text) and (
+                        text[lifetime_end].isalnum() or text[lifetime_end] == "_"
+                    ):
+                        lifetime_end += 1
+                    if lifetime_end >= len(text) or text[lifetime_end] != "'":
+                        j = lifetime_end
+                        continue
             if c in "\"'":
                 in_string = True
                 string_char = c

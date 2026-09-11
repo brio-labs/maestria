@@ -2,8 +2,8 @@ use std::{collections::BTreeSet, fs, path::Path};
 
 use maestria_retrieval::golden::Metric;
 use maestria_retrieval::{
-    VisualBenchmarkCase, VisualBenchmarkComparison, VisualBenchmarkCorpus, VisualBenchmarkError,
-    VisualBenchmarkObservation, VisualExecutionPolicy, VisualProviderStatus,
+    MeasurementStatus, VisualBenchmarkCase, VisualBenchmarkComparison, VisualBenchmarkCorpus,
+    VisualBenchmarkError, VisualBenchmarkObservation, VisualExecutionPolicy, VisualProviderStatus,
     VisualProviderUnavailableExecutor, VisualQueryClass, VisualRoute, VisualTextLayoutExecutor,
     run_visual_benchmark,
 };
@@ -60,6 +60,7 @@ struct ReportObservation<'a> {
     evaluation_date: &'a str,
     model_fingerprint: &'a str,
     provider_config: &'a serde_json::Value,
+    measurement_status: &'a MeasurementStatus,
     case_id: &'a str,
     route: VisualRoute,
     page_region_recall: Option<u32>,
@@ -93,6 +94,7 @@ fn report_observation(observation: &VisualBenchmarkObservation) -> ReportObserva
         energy_millijoules: measured.then_some(observation.energy_millijoules),
         privacy_violations: measured.then_some(observation.privacy_violations),
         security_violations: measured.then_some(observation.security_violations),
+        measurement_status: &observation.measurement_status,
         provider_status: &observation.provider_status,
     }
 }
@@ -115,6 +117,7 @@ fn observations(
                 "provider".to_string(),
                 serde_json::Value::String("test_profile".to_string()),
             )])),
+            measurement_status: MeasurementStatus::Measured,
             case_id: case.case_id,
             route,
             page_region_recall: profile.page_region_recall,
@@ -203,6 +206,28 @@ fn visual_budget_or_security_regressions_block_promotion() -> Result<(), Box<dyn
     }
     let comparison = VisualBenchmarkComparison::evaluate(&corpus, &measured)?;
     let promotion = comparison.promotion("visual-regressed".to_string())?;
+    assert!(
+        !promotion
+            .winning_classes()
+            .contains(&VisualQueryClass::Table)
+    );
+    Ok(())
+}
+
+#[test]
+fn unavailable_visual_resource_measurements_block_promotion()
+-> Result<(), Box<dyn std::error::Error>> {
+    let corpus = corpus()?;
+    let mut measured = observations(&corpus)?;
+    for observation in &mut measured {
+        if observation.route == VisualRoute::Visual && observation.case_id == "table-001" {
+            observation.measurement_status = MeasurementStatus::Unavailable {
+                reason: "energy and serving-boundary counters unavailable".into(),
+            };
+        }
+    }
+    let comparison = VisualBenchmarkComparison::evaluate(&corpus, &measured)?;
+    let promotion = comparison.promotion("visual-unmeasured".to_string())?;
     assert!(
         !promotion
             .winning_classes()

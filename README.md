@@ -718,12 +718,6 @@ python3 scripts/doc-consistency-check.py
 python3 -m unittest discover -s scripts -p 'test_*.py'
 ```
 
-Focused helpers remain available:
-
-```bash
-bash scripts/strict-clippy.sh
-bash scripts/release-contract.sh
-```
 
 ## Documentation map
 

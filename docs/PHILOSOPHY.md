@@ -48,7 +48,7 @@ This document is enforceable. CI and review block violations.
 41. Search plans and outcomes are typed, budgeted boundary values; retrieval cannot run as an unbounded prompt-building loop.
 42. Search traces identify the query, corpus snapshot, index generation, retrieval-model fingerprint, stages, budgets, filters, and stop reason.
 43. Every retrieval lane applies scope, ACL, trust, sensitivity, quarantine, and prompt-injection checks before scoring or exposing candidates.
-44. Retrieval changes require a versioned evaluation corpus and judgment set with quality, latency, memory, privacy, security, and energy measurements.
+44. Retrieval changes require a versioned evaluation corpus and judgment set with quality, latency, memory, privacy, security, and energy measurements; unavailable measurements cannot authorize promotion.
 45. Normative architecture and roadmap documents remain model- and backend-agnostic; dated implementation candidates belong in research notes or ADRs.
 46. Maestria preserves external observations and provenance; it does not claim that domain state makes external facts true.
 47. Model-generated search plans and rewrites are untrusted proposals; only validated capabilities, scope, security, freshness, snapshot, and budget checks may authorize execution.

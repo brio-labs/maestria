@@ -256,6 +256,35 @@ def errors_for_report(
         observations = report.get("observations")
         if not isinstance(observations, list) or not observations:
             errors.append(f"{path}: observations must be non-empty")
+        else:
+            for index, observation in enumerate(observations):
+                prefix = f"{path}: observations[{index}]"
+                if not isinstance(observation, dict):
+                    errors.append(f"{prefix} must be an object")
+                    continue
+                for key in ("case_id", "route", "measurement_status"):
+                    if key not in observation:
+                        errors.append(f"{prefix} missing {key}")
+                if observation.get("route") not in {"TextLayout", "Visual"}:
+                    errors.append(f"{prefix}.route is invalid")
+                for key in (
+                    "latency_ms",
+                    "memory_bytes",
+                    "disk_bytes",
+                    "energy_millijoules",
+                    "privacy_violations",
+                    "security_violations",
+                ):
+                    if not isinstance(observation.get(key), int) or observation[key] < 0:
+                        errors.append(f"{prefix}.{key} must be a non-negative integer")
+                status = observation.get("measurement_status")
+                if not (
+                    status == "Measured"
+                    or isinstance(status, dict)
+                    and isinstance(status.get("Unavailable"), dict)
+                    and str(status["Unavailable"].get("reason", "")).strip()
+                ):
+                    errors.append(f"{prefix}.measurement_status is invalid")
     elif kind == "learned-sparse":
         for key in (
             "measurement_kind",

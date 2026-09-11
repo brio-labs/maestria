@@ -18,6 +18,9 @@ VISUAL_PATH = "/v1/embeddings"
 VECTOR_DIMENSIONS = 768
 IMAGE_SIZE = 224
 TEXT_LENGTH = 64
+# Four intra-op threads with sequential execution were the fastest stable
+# setting in direct benchmarks for both pinned int8 text and vision models.
+INTRA_OP_THREADS = 4
 
 
 class VisualEngine(Protocol):
@@ -93,8 +96,21 @@ class SiglipOnnxEngine:
         from tokenizers import Tokenizer
 
         self._np = np
-        self._vision = ort.InferenceSession(vision_model, providers=["CPUExecutionProvider"])
-        self._text = ort.InferenceSession(text_model, providers=["CPUExecutionProvider"])
+        session_options = ort.SessionOptions()
+        session_options.intra_op_num_threads = INTRA_OP_THREADS
+        session_options.inter_op_num_threads = 1
+        session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        self._vision = ort.InferenceSession(
+            vision_model,
+            sess_options=session_options,
+            providers=["CPUExecutionProvider"],
+        )
+        self._text = ort.InferenceSession(
+            text_model,
+            sess_options=session_options,
+            providers=["CPUExecutionProvider"],
+        )
         self._tokenizer = Tokenizer.from_file(tokenizer_path)
         vocab = self._tokenizer.get_vocab()
         self._pad_id = vocab.get("<pad>", 0)

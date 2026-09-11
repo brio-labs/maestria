@@ -36,11 +36,9 @@ rustup component add --toolchain nightly-2026-06-15 rustfmt clippy rustc-codegen
 3. Make changes in one logical layer first (`maestria-domain` or `maestria-governance`).
 4. Run quality gates locally (minimum):
    ```bash
-   python3 scripts/version.py check
    cargo fmt --all -- --check
    bash scripts/strict-clippy.sh
    cargo test --workspace --all-targets --all-features
-   bash scripts/release-contract.sh
    cargo test --workspace --doc --all-features
    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
    cargo deny check all
