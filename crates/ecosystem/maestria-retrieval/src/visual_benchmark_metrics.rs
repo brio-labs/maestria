@@ -106,6 +106,22 @@ pub(super) fn wins(
                 .ndcg_at_10
                 .value()
                 .saturating_add(Metric::MATERIAL_QUALITY_DELTA.value());
+    // TextLayout is the approved fallback and intentionally reports Degraded;
+    // MeasurementStatus governs telemetry completeness for both routes.
+    let measurements_available = cases.iter().all(|case| {
+        [VisualRoute::TextLayout, VisualRoute::Visual]
+            .into_iter()
+            .all(|route| {
+                observations
+                    .iter()
+                    .find(|observation| {
+                        observation.case_id == case.case_id && observation.route == route
+                    })
+                    .is_some_and(|observation| {
+                        matches!(&observation.measurement_status, MeasurementStatus::Measured)
+                    })
+            })
+    });
     let citation_safe = visual.citation_alignment.value() >= text_layout.citation_alignment.value();
     let resource_safe = cases.iter().all(|case| {
         observations
@@ -124,5 +140,5 @@ pub(super) fn wins(
                     && observation.security_violations == 0
             })
     });
-    quality_gain && citation_safe && resource_safe
+    measurements_available && quality_gain && citation_safe && resource_safe
 }

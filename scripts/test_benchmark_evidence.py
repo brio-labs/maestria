@@ -45,6 +45,70 @@ class BenchmarkEvidenceManifestTests(unittest.TestCase):
             errors = EVIDENCE.errors_for_report(path, "repository")
         self.assertTrue(any("measurement_status" in error for error in errors))
 
+    def test_visual_provider_report_binds_to_manifest_corpus(self) -> None:
+        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        entry = next(
+            benchmark
+            for benchmark in manifest["benchmarks"]
+            if benchmark["benchmark"].startswith("v0.8")
+        )
+        report = json.loads(
+            (ROOT / "tests" / "contracts" / "visual_provider_report_v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        report["corpus_revision"] = "wrong-revision"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "visual.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            errors = EVIDENCE.errors_for_report(path, "visual-provider", entry)
+        self.assertTrue(any("corpus_revision is not bound to its manifest" in error for error in errors))
+
+    def test_visual_provider_report_rejects_unavailable_winner(self) -> None:
+        report = json.loads(
+            (ROOT / "tests" / "contracts" / "visual_provider_report_v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        report["winning_classes"] = ["Figure"]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "visual.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            errors = EVIDENCE.errors_for_report(path, "visual-provider")
+        self.assertTrue(any("unavailable measurements cannot authorize" in error for error in errors))
+
+    def test_visual_provider_report_rejects_malformed_measurement_and_provider(self) -> None:
+        report = json.loads(
+            (ROOT / "tests" / "contracts" / "visual_provider_report_v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        report["observations"][0]["latency_ms"] = True
+        report["observations"][0]["measurement_status"] = {"Unavailable": {"reason": True}}
+        report["observations"][1]["provider_status"] = {"Unavailable": {"reason": "provider down"}}
+        report["observations"][0]["provider_config"]["provider"] = "siglip-onnx"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "visual.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            errors = EVIDENCE.errors_for_report(path, "visual-provider")
+        self.assertTrue(any("latency_ms must be a non-negative integer" in error for error in errors))
+        self.assertTrue(any("measurement_status is invalid" in error for error in errors))
+        self.assertTrue(any("visual provider_status is not Available" in error for error in errors))
+        self.assertTrue(any("provider_config is invalid" in error for error in errors))
+
+    def test_visual_fallback_report_requires_measurement_status(self) -> None:
+        report = {
+            "measurement_kind": "real_visual_provider_unavailable",
+            "evaluation_date": "2026-07-20",
+            "provider_status": "unavailable",
+            "observations": [{"case_id": "case-1", "route": "Visual"}],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "visual-unavailable.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            errors = EVIDENCE.errors_for_report(path, "visual")
+        self.assertTrue(any("measurement_status" in error for error in errors))
+
     def test_build_latency_report_contract_rejects_bad_percentiles(self) -> None:
         report = {
             "measurement_kind": "repository_build_latency",

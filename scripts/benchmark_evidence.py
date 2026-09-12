@@ -27,6 +27,57 @@ REQUIRED_RESULT_KEYS = ("quality", "resource", "security")
 REQUIRED_ENVIRONMENT_KEYS = ("os", "rust_toolchain", "cpu_arch")
 
 
+def is_non_negative_int(value: Any) -> bool:
+    return type(value) is int and value >= 0
+
+
+def is_valid_measurement_status(value: Any) -> bool:
+    if value == "Measured":
+        return True
+    if not isinstance(value, dict):
+        return False
+    unavailable = value.get("Unavailable")
+    if not isinstance(unavailable, dict):
+        return False
+    reason = unavailable.get("reason")
+    return isinstance(reason, str) and bool(reason.strip())
+
+
+def is_valid_provider_status(value: Any) -> bool:
+    if value == "Available":
+        return True
+    if not isinstance(value, dict) or len(value) != 1:
+        return False
+    state, details = next(iter(value.items()))
+    if state not in {"Degraded", "Unavailable"} or not isinstance(details, dict):
+        return False
+    reason = details.get("reason")
+    return isinstance(reason, str) and bool(reason.strip())
+
+
+def is_valid_visual_provider_config(route: Any, value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    expected = {
+        "TextLayout": {
+            "model": "page-text-layout-v1+rapidocr-onnxruntime-1.4.4",
+            "provider": "text-layout+rapidocr-onnxruntime",
+        },
+        "Visual": {
+            "execution_mode": "sequential",
+            "inter_op_threads": 1,
+            "intra_op_threads": 4,
+            "model": "siglip-base-patch16-224",
+            "onnxruntime": "1.30.0",
+            "provider": "siglip-onnx",
+        },
+    }.get(route)
+    return expected is not None and all(
+        value.get(key) == expected_value
+        for key, expected_value in expected.items()
+    )
+
+
 def errors_for_manifest(path: Path) -> list[str]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -197,17 +248,11 @@ def errors_for_report(
                     "disk_bytes",
                     "energy_milliwatt_seconds",
                 ):
-                    if not isinstance(observation.get(key), int) or observation[key] < 0:
+                    if not is_non_negative_int(observation.get(key)):
                         errors.append(f"{prefix}.{key} must be a non-negative integer")
                 if not isinstance(observation.get("outcome_correct"), bool):
                     errors.append(f"{prefix}.outcome_correct must be boolean")
-                status = observation.get("measurement_status")
-                if not (
-                    status == "Measured"
-                    or isinstance(status, dict)
-                    and isinstance(status.get("Unavailable"), dict)
-                    and str(status["Unavailable"].get("reason", "")).strip()
-                ):
+                if not is_valid_measurement_status(observation.get("measurement_status")):
                     errors.append(f"{prefix}.measurement_status is invalid")
     elif kind == "build-latency":
         for key in ("corpus_id", "repository_revision", "index_generation", "model_fingerprint"):
@@ -233,26 +278,19 @@ def errors_for_report(
                     errors.append(f"{prefix} must be an object")
                     continue
                 for key in ("files", "symbols", "runs", "p50_ms", "p95_ms"):
-                    if not isinstance(size.get(key), int) or size[key] < 0:
+                    if not is_non_negative_int(size.get(key)):
                         errors.append(f"{prefix}.{key} must be a non-negative integer")
                 if not isinstance(size.get("measurements_ms"), list) or not size[
                     "measurements_ms"
                 ]:
                     errors.append(f"{prefix}.measurements_ms must be non-empty")
                 elif any(
-                    not isinstance(value, int) or value < 0
-                    for value in size["measurements_ms"]
+                    not is_non_negative_int(value) for value in size["measurements_ms"]
                 ):
                     errors.append(f"{prefix}.measurements_ms must be non-negative integers")
     elif kind == "visual":
         if report.get("provider_status") != "unavailable":
             errors.append(f"{path}: visual report must state provider_status=unavailable")
-        if not isinstance(report.get("observations"), list) or not report["observations"]:
-            errors.append(f"{path}: observations must be non-empty")
-    elif kind == "visual-provider":
-        for key in ("measurement_kind", "evaluation_date", "corpus_id", "corpus_revision"):
-            if not str(report.get(key, "")).strip():
-                errors.append(f"{path}: missing {key}")
         observations = report.get("observations")
         if not isinstance(observations, list) or not observations:
             errors.append(f"{path}: observations must be non-empty")
@@ -262,11 +300,67 @@ def errors_for_report(
                 if not isinstance(observation, dict):
                     errors.append(f"{prefix} must be an object")
                     continue
-                for key in ("case_id", "route", "measurement_status"):
+                for key in ("case_id", "route", "measurement_status", "provider_status"):
                     if key not in observation:
                         errors.append(f"{prefix} missing {key}")
                 if observation.get("route") not in {"TextLayout", "Visual"}:
                     errors.append(f"{prefix}.route is invalid")
+                if not is_valid_provider_status(observation.get("provider_status")):
+                    errors.append(f"{prefix}.provider_status is invalid")
+                if not is_valid_measurement_status(observation.get("measurement_status")):
+                    errors.append(f"{prefix}.measurement_status is invalid")
+    elif kind == "visual-provider":
+        for key in ("measurement_kind", "evaluation_date", "corpus_id", "corpus_revision"):
+            if not str(report.get(key, "")).strip():
+                errors.append(f"{path}: missing {key}")
+        if manifest_entry is not None:
+            corpus = manifest_entry.get("corpus", {})
+            for key, expected in (
+                ("corpus_id", corpus.get("id")),
+                ("corpus_revision", corpus.get("revision")),
+            ):
+                if report.get(key) != expected:
+                    errors.append(f"{path}: {key} is not bound to its manifest")
+        observations = report.get("observations")
+        if not isinstance(observations, list) or not observations:
+            errors.append(f"{path}: observations must be non-empty")
+        else:
+            for index, observation in enumerate(observations):
+                prefix = f"{path}: observations[{index}]"
+                if not isinstance(observation, dict):
+                    errors.append(f"{prefix} must be an object")
+                    continue
+                for key in (
+                    "case_id",
+                    "route",
+                    "measurement_status",
+                    "corpus_id",
+                    "corpus_revision",
+                    "model_fingerprint",
+                    "provider_config",
+                    "provider_status",
+                ):
+                    if key not in observation:
+                        errors.append(f"{prefix} missing {key}")
+                if observation.get("route") not in {"TextLayout", "Visual"}:
+                    errors.append(f"{prefix}.route is invalid")
+                provider_status = observation.get("provider_status")
+                if not is_valid_provider_status(provider_status):
+                    errors.append(f"{prefix}.provider_status is invalid")
+                elif observation.get("route") == "Visual" and provider_status != "Available":
+                    errors.append(f"{prefix}.visual provider_status is not Available")
+                if observation.get("corpus_id") != report.get("corpus_id"):
+                    errors.append(f"{prefix}.corpus_id is not bound to report")
+                if observation.get("corpus_revision") != report.get("corpus_revision"):
+                    errors.append(f"{prefix}.corpus_revision is not bound to report")
+                if not isinstance(observation.get("model_fingerprint"), str) or not str(
+                    observation.get("model_fingerprint")
+                ).strip():
+                    errors.append(f"{prefix}.model_fingerprint is invalid")
+                if not is_valid_visual_provider_config(
+                    observation.get("route"), observation.get("provider_config")
+                ):
+                    errors.append(f"{prefix}.provider_config is invalid")
                 for key in (
                     "latency_ms",
                     "memory_bytes",
@@ -275,16 +369,33 @@ def errors_for_report(
                     "privacy_violations",
                     "security_violations",
                 ):
-                    if not isinstance(observation.get(key), int) or observation[key] < 0:
+                    if not is_non_negative_int(observation.get(key)):
                         errors.append(f"{prefix}.{key} must be a non-negative integer")
-                status = observation.get("measurement_status")
-                if not (
-                    status == "Measured"
-                    or isinstance(status, dict)
-                    and isinstance(status.get("Unavailable"), dict)
-                    and str(status["Unavailable"].get("reason", "")).strip()
-                ):
+                if not is_valid_measurement_status(observation.get("measurement_status")):
                     errors.append(f"{prefix}.measurement_status is invalid")
+        winning_classes = report.get("winning_classes")
+        if not isinstance(winning_classes, list):
+            errors.append(f"{path}: winning_classes must be a list")
+        else:
+            allowed_classes = {"Text", "Table", "Chart", "Figure", "Formula", "ScannedPage"}
+            valid_classes = all(
+                isinstance(class_name, str) and class_name in allowed_classes
+                for class_name in winning_classes
+            )
+            if not valid_classes:
+                errors.append(f"{path}: winning_classes contains an invalid class")
+            elif len(set(winning_classes)) != len(winning_classes):
+                errors.append(f"{path}: winning_classes must not contain duplicates")
+            if winning_classes and observations and any(
+                not (
+                    isinstance(observation, dict)
+                    and observation.get("measurement_status") == "Measured"
+                )
+                for observation in observations
+            ):
+                errors.append(
+                    f"{path}: unavailable measurements cannot authorize winning_classes"
+                )
     elif kind == "learned-sparse":
         for key in (
             "measurement_kind",
@@ -333,13 +444,7 @@ def errors_for_report(
                     value = observation.get(container)
                     if isinstance(value, dict) and not value:
                         errors.append(f"{prefix}.{container} must be non-empty")
-                status = observation.get("measurement_status")
-                if not (
-                    status == "Measured"
-                    or isinstance(status, dict)
-                    and isinstance(status.get("Unavailable"), dict)
-                    and str(status["Unavailable"].get("reason", "")).strip()
-                ):
+                if not is_valid_measurement_status(observation.get("measurement_status")):
                     errors.append(f"{prefix}.measurement_status is invalid")
         decisions = report.get("decisions")
         if not isinstance(decisions, dict) or not decisions:

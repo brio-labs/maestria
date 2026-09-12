@@ -237,6 +237,28 @@ fn unavailable_visual_resource_measurements_block_promotion()
 }
 
 #[test]
+fn unavailable_text_layout_measurements_block_promotion() -> Result<(), Box<dyn std::error::Error>>
+{
+    let corpus = corpus()?;
+    let mut measured = observations(&corpus)?;
+    for observation in &mut measured {
+        if observation.route == VisualRoute::TextLayout && observation.case_id == "table-001" {
+            observation.measurement_status = MeasurementStatus::Unavailable {
+                reason: "baseline energy and serving-boundary counters unavailable".into(),
+            };
+        }
+    }
+    let comparison = VisualBenchmarkComparison::evaluate(&corpus, &measured)?;
+    let promotion = comparison.promotion("visual-baseline-unmeasured".to_string())?;
+    assert!(
+        !promotion
+            .winning_classes()
+            .contains(&VisualQueryClass::Table)
+    );
+    Ok(())
+}
+
+#[test]
 fn visual_execution_policy_is_shadowed_until_class_promotion()
 -> Result<(), Box<dyn std::error::Error>> {
     let corpus = corpus()?;

@@ -652,6 +652,63 @@ fn score_ranked(case: &VisualBenchmarkCase, ranked: &[SourceFixture]) -> (Metric
     )
 }
 
+fn provider_metadata(route: VisualRoute) -> (&'static str, serde_json::Value) {
+    match route {
+        VisualRoute::TextLayout => (
+            "text-layout-v1+rapidocr-onnxruntime@1.4.4",
+            serde_json::Value::Object(serde_json::Map::from_iter([
+                (
+                    "model".to_string(),
+                    serde_json::Value::String(
+                        "page-text-layout-v1+rapidocr-onnxruntime-1.4.4".to_string(),
+                    ),
+                ),
+                (
+                    "provider".to_string(),
+                    serde_json::Value::String("text-layout+rapidocr-onnxruntime".to_string()),
+                ),
+                (
+                    "route".to_string(),
+                    serde_json::Value::String("TextLayout".to_string()),
+                ),
+            ])),
+        ),
+        VisualRoute::Visual => (
+            "siglip-base-patch16-224@4649052",
+            serde_json::Value::Object(serde_json::Map::from_iter([
+                (
+                    "execution_mode".to_string(),
+                    serde_json::Value::String("sequential".to_string()),
+                ),
+                (
+                    "inter_op_threads".to_string(),
+                    serde_json::Value::from(1_u8),
+                ),
+                (
+                    "intra_op_threads".to_string(),
+                    serde_json::Value::from(VISUAL_INTRA_OP_THREADS),
+                ),
+                (
+                    "model".to_string(),
+                    serde_json::Value::String("siglip-base-patch16-224".to_string()),
+                ),
+                (
+                    "onnxruntime".to_string(),
+                    serde_json::Value::String("1.30.0".to_string()),
+                ),
+                (
+                    "provider".to_string(),
+                    serde_json::Value::String("siglip-onnx".to_string()),
+                ),
+                (
+                    "route".to_string(),
+                    serde_json::Value::String("Visual".to_string()),
+                ),
+            ])),
+        ),
+    }
+}
+
 /// Runs one case on one route through the real retrieval path and measures
 /// the outcome.
 fn observe_case(
@@ -684,28 +741,13 @@ fn observe_case(
     let latency = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     let end_rss = current_rss_bytes();
     let (page_region_recall, ndcg_at_10, citation_alignment) = score_ranked(case, &ranked);
-    #[derive(serde::Serialize)]
-    struct ProviderConfigInfo {
-        provider: &'static str,
-        model: &'static str,
-        route: String,
-        intra_op_threads: u8,
-        inter_op_threads: u8,
-        execution_mode: &'static str,
-    }
+    let (model_fingerprint, provider_config) = provider_metadata(route);
     Ok(VisualBenchmarkObservation {
         corpus_id: context.corpus.corpus_id.clone(),
         corpus_revision: context.corpus.corpus_revision.clone(),
         evaluation_date: context.corpus.evaluation_date.clone(),
-        model_fingerprint: "siglip-base-patch16-224@4649052".to_string(),
-        provider_config: serde_json::to_value(ProviderConfigInfo {
-            provider: "siglip-onnx",
-            model: "siglip-base-patch16-224",
-            route: format!("{route:?}"),
-            intra_op_threads: VISUAL_INTRA_OP_THREADS,
-            inter_op_threads: 1,
-            execution_mode: "sequential",
-        })?,
+        model_fingerprint: model_fingerprint.to_string(),
+        provider_config,
         measurement_status: MeasurementStatus::Unavailable {
             reason: "RAPL energy and serving-boundary privacy/security counters are not measured by this external-provider harness"
                 .to_string(),

@@ -49,11 +49,14 @@ impl EnergySample {
         if self.range_uj == 0 {
             return 0;
         }
-        later
-            .counter_uj
-            .wrapping_sub(self.counter_uj)
-            .rem_euclid(self.range_uj)
-            .saturating_div(1_000)
+        let delta_uj = if later.counter_uj >= self.counter_uj {
+            later.counter_uj - self.counter_uj
+        } else {
+            self.range_uj
+                .saturating_sub(self.counter_uj)
+                .saturating_add(later.counter_uj)
+        };
+        delta_uj.saturating_div(1_000)
     }
 }
 
@@ -376,4 +379,22 @@ pub fn run_repository_benchmark<E: RepositoryBenchmarkExecutor>(
         }
     }
     Ok(observations)
+}
+#[cfg(test)]
+mod tests {
+    use super::EnergySample;
+
+    #[test]
+    fn energy_delta_uses_rapl_range_for_wraparound() {
+        let before = EnergySample {
+            counter_uj: 1_950_000,
+            range_uj: 2_000_000,
+        };
+        let after = EnergySample {
+            counter_uj: 50_000,
+            range_uj: 2_000_000,
+        };
+
+        assert_eq!(before.delta_milliwatt_seconds(after), 100);
+    }
 }
