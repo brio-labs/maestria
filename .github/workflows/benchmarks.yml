@@ -6,9 +6,15 @@ on:
       - ".github/workflows/benchmarks.yml"
       - "crates/kernel/maestria-domain/**"
       - "crates/ecosystem/maestria-retrieval/**"
+      - "crates/apps/maestria-daemon/**"
       - "scripts/benchmark_evidence.py"
       - "scripts/test_benchmark_evidence.py"
+      - "scripts/requirements-visual.txt"
+      - "scripts/siglip_visual_server.py"
+      - "scripts/rapidocr_server.py"
+      - "scripts/requirements-rapidocr.txt"
       - "tests/contracts/benchmark_evidence_v1.json"
+      - "tests/contracts/visual_provider_report_v1.json"
 
 concurrency:
   group: benchmarks-${{ github.event.pull_request.number || github.ref }}
@@ -50,11 +56,18 @@ jobs:
               - "crates/ecosystem/maestria-retrieval/**"
               - "crates/apps/maestria-daemon/**"
               - "crates/ecosystem/maestria-sparse-local/**"
+              - "scripts/benchmark_evidence.py"
+              - "scripts/requirements-visual.txt"
+              - "scripts/siglip_visual_server.py"
+              - "scripts/rapidocr_server.py"
+              - "scripts/requirements-rapidocr.txt"
+              - "tests/contracts/visual_provider_report_v1.json"
             evidence:
               - ".github/workflows/benchmarks.yml"
               - "scripts/benchmark_evidence.py"
               - "scripts/test_benchmark_evidence.py"
               - "tests/contracts/benchmark_evidence_v1.json"
+              - "tests/contracts/visual_provider_report_v1.json"
   evidence-validate:
     needs: [changes]
     if: needs.changes.outputs.evidence == 'true'

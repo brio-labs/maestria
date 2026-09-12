@@ -55,15 +55,19 @@ Explore additional retrieval paradigms only where measured quality/cost/security
 
 
 
-**Current checkpoint (2026-09-10):** Phase 6 remains open. The learned-sparse
+**Current checkpoint (2026-09-11):** Phase 6 remains open. The learned-sparse
 and late-interaction evaluations are complete non-promoting decisions; the
-measured dense result promotes only `DomainTerminology`. The bounded
-supported-route run completed, but repository routes still have unavailable
-platform resource/security counters and visual retrieval still has no provider
-measurements. The run produced no new quality promotion, so the next gate is
-closing those evidence gaps for the current exact, lexical, dense-hybrid,
-repository, and visual routes. No additional research lane is implemented
-solely because its issue is next in numeric order.
+measured dense result promotes only `DomainTerminology`.
+The bounded supported-route run completed: repository process-RSS and
+persisted-index disk measurements now emit real values, while RAPL energy and
+serving-boundary security counters remain unavailable. The real visual
+provider now has a measured four-thread ONNX optimization that materially
+reduces inference latency, but the optimized end-to-end run still exceeds
+four of six frozen visual latency budgets and leaves resource measurement
+status unavailable. The next gate is closing those evidence gaps for the
+current exact, lexical, dense-hybrid, repository, and visual routes. No
+additional research lane is implemented solely because its issue is next in
+numeric order.
 
 ## Version-to-Phase Mapping
 
@@ -84,7 +88,7 @@ current status.
 | Evidence coverage observability | 3 | Stable |
 | Repository/Cargo code indexing | 4 | Shadowed |
 | Code symbol/path/regex/context search | 4 | Shadowed |
-| Visual document region retrieval | 5 | Research-only |
+| Visual document region retrieval | 5 | Research-only (thread-pinned latency optimization retained; promotion blocked) |
 | Dense (embedding) retrieval | 2 | Provider-dependent |
 | Web evidence with governed adapter | 3 | Provider-dependent |
 | Advanced dense / learned-sparse reranking | 2 | Research-only |

@@ -36,7 +36,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "98adfb01aa68e0b03a17c4e3125546fc47fe83d6293c2424806f3542b400adc9"
+        "source_hash": "2636d029d450559c7b663a22891018a1d0ad193b64014aad897e66981ad69df9"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -92,7 +92,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "98adfb01aa68e0b03a17c4e3125546fc47fe83d6293c2424806f3542b400adc9"
+        "source_hash": "2636d029d450559c7b663a22891018a1d0ad193b64014aad897e66981ad69df9"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -146,7 +146,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
         ],
-        "source_hash": "8d411ebcc6b11b8f46f04c5b0912c32b818cbfe63ddab5dfd4fcfdd7529a29ed"
+        "source_hash": "467e8bd4f798c98e58729b4302035fa8bf8daf4b7f506fa8db228faa7932cfd1"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
@@ -165,17 +165,17 @@
         },
         "resource": {
           "status": "warning",
-          "reason": "code-intel adapter reports platform counters as unavailable; repository build latency is measured by repository_build_latency_tests into repository-build-latency.json"
+          "reason": "process RSS deltas and persisted JSON index footprints are measured; RAPL energy and serving-boundary counters remain unavailable; repository build latency is measured by repository_build_latency_tests into repository-build-latency.json"
         },
         "security": {
           "status": "warning",
-          "reason": "code-intel adapter does not measure serving-boundary security counters"
+          "reason": "targeted serving-boundary security cases pass, but the code-intel adapter does not attach route-level security counters"
         }
       },
       "degradations": [
         {
           "area": "resource",
-          "description": "Memory, disk, and energy counters are unavailable in the code-intel adapter and are not inferred."
+          "description": "Process RSS deltas and serialized persisted-index bytes are emitted; RAPL energy and serving-boundary privacy/security counters remain unavailable and are not inferred."
         },
         {
           "area": "resource",
@@ -202,10 +202,19 @@
       "data_fidelity": "real",
       "corpus": {
         "id": "visual-retrieval-benchmark-v1",
+        "revision": "visual-fixture-r2",
         "snapshot": "sha256:4f3ce6b10bcebfbf4442acdf2715f1ea3a1aad549096f25f4f6ccc8e721253e0",
         "judgment_set": "visual-retrieval-benchmark-v1",
         "source_paths": [
           "docs/ARCHITECTURE.md",
+          "crates/ecosystem/maestria-retrieval/src/visual_benchmark_metrics.rs",
+          "crates/ecosystem/maestria-retrieval/src/visual_benchmark_runner.rs",
+          "crates/ecosystem/maestria-retrieval/src/visual_benchmark_schema.rs",
+          "crates/apps/maestria-daemon/tests/maestria_visual_evaluation.rs",
+          "scripts/siglip_visual_server.py",
+          "scripts/requirements-visual.txt",
+          "scripts/rapidocr_server.py",
+          "scripts/requirements-rapidocr.txt",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/text-page.svg",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/table-page.svg",
@@ -214,7 +223,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/formula-page.svg",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/scanned-page.svg"
         ],
-        "source_hash": "ebfd7340511ed755c445e5feeffb00175bb0e13f5f3518bfded9f157882f5cc3"
+        "source_hash": "5aaf3244f7630a8f31bd1ee4e0713975344d0451db6d595b183ef6a6a9cd44c1"
       },
       "fingerprints": {
         "corpus_snapshot": "visual-retrieval-benchmark-v1@visual-fixture-r2",
@@ -229,25 +238,29 @@
       "results": {
         "quality": {
           "status": "warning",
-          "reason": "text/layout baseline is measured; visual provider is unavailable"
+          "reason": "real visual-provider observations preserve quality and show a measured latency improvement; no class satisfies the complete quality, latency, resource, and measurement gates"
         },
         "resource": {
           "status": "warning",
-          "reason": "visual provider counters are unavailable"
+          "reason": "four-thread inference lowers provider latency, but four of six optimized visual cases still exceed frozen budgets and peak-memory, energy, and measurement telemetry is incomplete"
         },
         "security": {
           "status": "warning",
-          "reason": "visual provider is unavailable; security counters are not measured"
+          "reason": "fixture security checks record zero violations; serving-boundary security counters are not independently measured"
         }
       },
       "degradations": [
         {
           "area": "visual-provider",
-          "description": "The provider-unavailable report is explicit; no visual embedding or visual promotion is fabricated."
+          "description": "A real SigLIP/RapidOCR run with the measured four-thread profile improves inference latency while preserving visual quality, but four of six visual cases still exceed the 120 to 200 ms case budgets; no visual class is promoted."
+        },
+        {
+          "area": "resource",
+          "description": "The optimized visual report marks measurement_status as Unavailable because RAPL energy and serving-boundary privacy/security counters are not measured; unavailable values are not treated as passes."
         },
         {
           "area": "ocr",
-          "description": "Scanned-page cases remain an explicit OCR degradation until a real OCR-capable provider is benchmarked."
+          "description": "Scanned-page cases remain an explicit OCR degradation until the real OCR route meets the frozen quality and resource gates."
         }
       ],
       "reports": [
@@ -272,7 +285,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
         ],
-        "source_hash": "8d411ebcc6b11b8f46f04c5b0912c32b818cbfe63ddab5dfd4fcfdd7529a29ed"
+        "source_hash": "467e8bd4f798c98e58729b4302035fa8bf8daf4b7f506fa8db228faa7932cfd1"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
@@ -291,17 +304,17 @@
         },
         "resource": {
           "status": "warning",
-          "reason": "code-intel adapter reports platform counters as unavailable"
+          "reason": "process RSS deltas and persisted JSON index footprints are measured; RAPL energy and serving-boundary counters remain unavailable"
         },
         "security": {
           "status": "warning",
-          "reason": "code-intel adapter does not measure serving-boundary security counters"
+          "reason": "targeted serving-boundary security cases pass, but the code-intel adapter does not attach route-level security counters"
         }
       },
       "degradations": [
         {
           "area": "resource",
-          "description": "Memory, disk, and energy counters are unavailable in the code-intel adapter and are not inferred."
+          "description": "Process RSS deltas and serialized persisted-index bytes are emitted; RAPL energy and serving-boundary privacy/security counters remain unavailable and are not inferred."
         },
         {
           "area": "promotion",
@@ -353,17 +366,17 @@
         },
         "resource": {
           "status": "warning",
-          "reason": "code-intel adapter reports platform counters as unavailable"
+          "reason": "process RSS deltas and persisted JSON index footprints are measured; RAPL energy and serving-boundary counters remain unavailable"
         },
         "security": {
           "status": "warning",
-          "reason": "code-intel adapter does not measure serving-boundary security counters"
+          "reason": "targeted serving-boundary security cases pass, but the code-intel adapter does not attach route-level security counters"
         }
       },
       "degradations": [
         {
           "area": "resource",
-          "description": "Memory, disk, and energy counters are unavailable in the code-intel adapter and are not inferred."
+          "description": "Process RSS deltas and serialized persisted-index bytes are emitted; RAPL energy and serving-boundary privacy/security counters remain unavailable and are not inferred."
         },
         {
           "area": "freshness",
@@ -416,17 +429,17 @@
         },
         "resource": {
           "status": "warning",
-          "reason": "code-intel adapter reports platform counters as unavailable"
+          "reason": "process RSS deltas and persisted JSON index footprints are measured; RAPL energy and serving-boundary counters remain unavailable"
         },
         "security": {
           "status": "warning",
-          "reason": "code-intel adapter does not measure serving-boundary security counters"
+          "reason": "targeted serving-boundary security cases pass, but the code-intel adapter does not attach route-level security counters"
         }
       },
       "degradations": [
         {
           "area": "resource",
-          "description": "Memory, disk, and energy counters are unavailable in the code-intel adapter and are not inferred."
+          "description": "Process RSS deltas and serialized persisted-index bytes are emitted; RAPL energy and serving-boundary privacy/security counters remain unavailable and are not inferred."
         },
         {
           "area": "evidence",

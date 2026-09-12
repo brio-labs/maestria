@@ -285,13 +285,15 @@ fn real_repository_executor_runs_frozen_cases_against_a_code_index()
             !obs.model_fingerprint.is_empty(),
             "model_fingerprint must be set"
         );
-        assert_eq!(
-            obs.measurement_status,
-            maestria_retrieval::MeasurementStatus::Unavailable {
-                reason: "platform counters not available in code-intel adapter".into(),
-            }
+        assert!(matches!(
+            &obs.measurement_status,
+            maestria_retrieval::MeasurementStatus::Unavailable { reason }
+                if reason.contains("serving-boundary privacy/security")
+        ));
+        assert!(
+            obs.disk_bytes > 0,
+            "persisted JSON index footprint must be measured"
         );
-        assert_eq!(obs.disk_bytes, 0, "disk_bytes default is zero (unmeasured)");
         assert_eq!(
             obs.citation_alignment,
             maestria_retrieval::golden::Metric::ZERO

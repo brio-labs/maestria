@@ -7,6 +7,111 @@ use crate::MonotonicInstant;
 use maestria_code_intel::MarkerQueryKind;
 use std::str::FromStr;
 
+const RAPL_ENERGY_PATH: &str = "/sys/class/powercap/intel-rapl:0/energy_uj";
+const RAPL_MAX_PATH: &str = "/sys/class/powercap/intel-rapl:0/max_energy_range_uj";
+
+fn current_rss_bytes() -> Option<u64> {
+    let status = match std::fs::read_to_string("/proc/self/status") {
+        Ok(status) => status,
+        Err(_) => return None,
+    };
+    let kilobytes = status.lines().find_map(|line| {
+        let value = line.strip_prefix("VmRSS:")?;
+        let value = value.trim().strip_suffix(" kB")?;
+        value.trim().parse::<u64>().ok()
+    })?;
+    Some(kilobytes.saturating_mul(1024))
+}
+
+fn read_counter(path: &str) -> Option<u64> {
+    let contents = match std::fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(_) => return None,
+    };
+    contents.trim().parse().ok()
+}
+
+#[derive(Debug, Clone, Copy)]
+struct EnergySample {
+    counter_uj: u64,
+    range_uj: u64,
+}
+
+impl EnergySample {
+    fn capture() -> Option<Self> {
+        Some(Self {
+            counter_uj: read_counter(RAPL_ENERGY_PATH)?,
+            range_uj: read_counter(RAPL_MAX_PATH)?,
+        })
+    }
+
+    fn delta_milliwatt_seconds(self, later: Self) -> u64 {
+        if self.range_uj == 0 {
+            return 0;
+        }
+        let delta_uj = if later.counter_uj >= self.counter_uj {
+            later.counter_uj - self.counter_uj
+        } else {
+            self.range_uj
+                .saturating_sub(self.counter_uj)
+                .saturating_add(later.counter_uj)
+        };
+        delta_uj.saturating_div(1_000)
+    }
+}
+
+fn persisted_index_bytes(index: &RepositoryCodeIndex) -> Option<u64> {
+    let bytes = match serde_json::to_vec_pretty(index) {
+        Ok(bytes) => bytes,
+        Err(_) => return None,
+    };
+    Some(bytes.len() as u64)
+}
+
+struct ResourceMeasurements {
+    memory_bytes: u64,
+    disk_bytes: u64,
+    energy_milliwatt_seconds: u64,
+    measurement_status: crate::repository_benchmark::MeasurementStatus,
+}
+
+fn measure_resources(
+    rss_before: Option<u64>,
+    rss_after: Option<u64>,
+    energy_before: Option<EnergySample>,
+    energy_after: Option<EnergySample>,
+    index_disk_bytes: Option<u64>,
+) -> ResourceMeasurements {
+    let memory_bytes = match (rss_before, rss_after) {
+        (Some(before), Some(after)) => after.saturating_sub(before),
+        _ => 0,
+    };
+    let energy_milliwatt_seconds = match (energy_before, energy_after) {
+        (Some(before), Some(after)) => before.delta_milliwatt_seconds(after),
+        _ => 0,
+    };
+    let disk_bytes = index_disk_bytes.iter().copied().sum();
+    let mut unavailable_reasons =
+        vec!["serving-boundary privacy/security counters are not measured in code-intel adapter"];
+    if rss_before.is_none() || rss_after.is_none() {
+        unavailable_reasons.push("/proc/self/status VmRSS is unreadable");
+    }
+    if index_disk_bytes.is_none() {
+        unavailable_reasons.push("persisted index serialization size is unavailable");
+    }
+    if energy_before.is_none() || energy_after.is_none() {
+        unavailable_reasons.push("RAPL energy counters are unreadable");
+    }
+    ResourceMeasurements {
+        memory_bytes,
+        disk_bytes,
+        energy_milliwatt_seconds,
+        measurement_status: crate::repository_benchmark::MeasurementStatus::Unavailable {
+            reason: unavailable_reasons.join("; "),
+        },
+    }
+}
+
 fn route_config() -> serde_json::Value {
     serde_json::Value::Object(serde_json::Map::from_iter([
         (
@@ -60,9 +165,10 @@ where
 
 /// Executes frozen repository cases against a real persisted code index.
 ///
-/// This adapter measures query and freshness behavior directly. Platform
-/// resource and security counters remain explicitly unavailable; the
-/// comparison layer must not promote a route using those fields.
+/// This adapter measures query, freshness, process RSS, and the exact persisted
+/// JSON index footprint. Serving-boundary privacy/security counters remain
+/// unavailable; the comparison layer must not promote a route using those
+/// fields.
 pub struct RepositoryCodeIndexExecutor<'a> {
     index: &'a RepositoryCodeIndex,
     corpus_id: String,
@@ -71,6 +177,7 @@ pub struct RepositoryCodeIndexExecutor<'a> {
     index_generation: String,
     model_fingerprint: String,
     route_config: serde_json::Value,
+    index_disk_bytes: Option<u64>,
 }
 
 impl<'a> RepositoryCodeIndexExecutor<'a> {
@@ -88,6 +195,7 @@ impl<'a> RepositoryCodeIndexExecutor<'a> {
             index_generation: maestria_code_intel::REPOSITORY_CODE_PARSER_GENERATION.to_string(),
             model_fingerprint: "repository-code-index-v3".into(),
             route_config: route_config(),
+            index_disk_bytes: persisted_index_bytes(index),
         }
     }
 
@@ -143,6 +251,8 @@ impl RepositoryBenchmarkExecutor for RepositoryCodeIndexExecutor<'_> {
         route: RepositoryRoute,
     ) -> Result<RepositoryBenchmarkObservation, RepositoryBenchmarkError> {
         let started = MonotonicInstant::now();
+        let rss_before = current_rss_bytes();
+        let energy_before = EnergySample::capture();
         let (exact_span_hits, abstained, stale_index, freshness_error) = match case.expected {
             RepositoryExpectedOutcome::Abstain => (0, true, false, false),
             RepositoryExpectedOutcome::Stale => match self.index.freshness() {
@@ -206,6 +316,13 @@ impl RepositoryBenchmarkExecutor for RepositoryCodeIndexExecutor<'_> {
             RepositoryExpectedOutcome::Stale => stale_index,
             RepositoryExpectedOutcome::Abstain => abstained,
         };
+        let resources = measure_resources(
+            rss_before,
+            current_rss_bytes(),
+            energy_before,
+            EnergySample::capture(),
+            self.index_disk_bytes,
+        );
         let evidence_chain_length = 0;
         let evidence_chain_measured = false;
         Ok(RepositoryBenchmarkObservation {
@@ -224,15 +341,13 @@ impl RepositoryBenchmarkExecutor for RepositoryCodeIndexExecutor<'_> {
             freshness_error,
             abstained,
             outcome_correct,
-            memory_bytes: 0,
-            disk_bytes: 0,
+            memory_bytes: resources.memory_bytes,
+            disk_bytes: resources.disk_bytes,
             privacy_violation: false,
             security_violation: false,
-            energy_milliwatt_seconds: 0,
+            energy_milliwatt_seconds: resources.energy_milliwatt_seconds,
             citation_alignment: crate::golden::Metric::ZERO,
-            measurement_status: crate::repository_benchmark::MeasurementStatus::Unavailable {
-                reason: "platform counters not available in code-intel adapter".into(),
-            },
+            measurement_status: resources.measurement_status,
         })
     }
 }
@@ -264,4 +379,22 @@ pub fn run_repository_benchmark<E: RepositoryBenchmarkExecutor>(
         }
     }
     Ok(observations)
+}
+#[cfg(test)]
+mod tests {
+    use super::EnergySample;
+
+    #[test]
+    fn energy_delta_uses_rapl_range_for_wraparound() {
+        let before = EnergySample {
+            counter_uj: 1_950_000,
+            range_uj: 2_000_000,
+        };
+        let after = EnergySample {
+            counter_uj: 50_000,
+            range_uj: 2_000_000,
+        };
+
+        assert_eq!(before.delta_milliwatt_seconds(after), 100);
+    }
 }

@@ -9,11 +9,16 @@
       "corpus_id": "visual-retrieval-benchmark-v1",
       "corpus_revision": "visual-fixture-r2",
       "evaluation_date": "2026-07-20",
-      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "model_fingerprint": "text-layout-v1+rapidocr-onnxruntime@1.4.4",
       "provider_config": {
-        "model": "siglip-base-patch16-224",
-        "provider": "siglip-onnx",
+        "model": "page-text-layout-v1+rapidocr-onnxruntime-1.4.4",
+        "provider": "text-layout+rapidocr-onnxruntime",
         "route": "TextLayout"
+      },
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "RAPL energy and serving-boundary privacy/security counters are not measured by this external-provider harness"
+        }
       },
       "case_id": "text-001",
       "route": "TextLayout",
@@ -38,17 +43,26 @@
       "evaluation_date": "2026-07-20",
       "model_fingerprint": "siglip-base-patch16-224@4649052",
       "provider_config": {
+        "execution_mode": "sequential",
+        "inter_op_threads": 1,
+        "intra_op_threads": 4,
         "model": "siglip-base-patch16-224",
+        "onnxruntime": "1.30.0",
         "provider": "siglip-onnx",
         "route": "Visual"
+      },
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "RAPL energy and serving-boundary privacy/security counters are not measured by this external-provider harness"
+        }
       },
       "case_id": "text-001",
       "route": "Visual",
       "page_region_recall": 10000,
       "ndcg_at_10": 10000,
       "citation_alignment": 0,
-      "latency_ms": 111,
-      "memory_bytes": 0,
+      "latency_ms": 217,
+      "memory_bytes": 65536,
       "disk_bytes": 36864,
       "energy_millijoules": 0,
       "privacy_violations": 0,
@@ -59,11 +73,16 @@
       "corpus_id": "visual-retrieval-benchmark-v1",
       "corpus_revision": "visual-fixture-r2",
       "evaluation_date": "2026-07-20",
-      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "model_fingerprint": "text-layout-v1+rapidocr-onnxruntime@1.4.4",
       "provider_config": {
-        "model": "siglip-base-patch16-224",
-        "provider": "siglip-onnx",
+        "model": "page-text-layout-v1+rapidocr-onnxruntime-1.4.4",
+        "provider": "text-layout+rapidocr-onnxruntime",
         "route": "TextLayout"
+      },
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "RAPL energy and serving-boundary privacy/security counters are not measured by this external-provider harness"
+        }
       },
       "case_id": "table-001",
       "route": "TextLayout",
@@ -88,17 +107,26 @@
       "evaluation_date": "2026-07-20",
       "model_fingerprint": "siglip-base-patch16-224@4649052",
       "provider_config": {
+        "execution_mode": "sequential",
+        "inter_op_threads": 1,
+        "intra_op_threads": 4,
         "model": "siglip-base-patch16-224",
+        "onnxruntime": "1.30.0",
         "provider": "siglip-onnx",
         "route": "Visual"
+      },
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "RAPL energy and serving-boundary privacy/security counters are not measured by this external-provider harness"
+        }
       },
       "case_id": "table-001",
       "route": "Visual",
       "page_region_recall": 10000,
       "ndcg_at_10": 10000,
       "citation_alignment": 10000,
-      "latency_ms": 132,
-      "memory_bytes": 16384,
+      "latency_ms": 306,
+      "memory_bytes": 0,
       "disk_bytes": 36864,
       "energy_millijoules": 0,
       "privacy_violations": 0,
@@ -109,11 +137,16 @@
       "corpus_id": "visual-retrieval-benchmark-v1",
       "corpus_revision": "visual-fixture-r2",
       "evaluation_date": "2026-07-20",
-      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "model_fingerprint": "text-layout-v1+rapidocr-onnxruntime@1.4.4",
       "provider_config": {
-        "model": "siglip-base-patch16-224",
-        "provider": "siglip-onnx",
+        "model": "page-text-layout-v1+rapidocr-onnxruntime-1.4.4",
+        "provider": "text-layout+rapidocr-onnxruntime",
         "route": "TextLayout"
+      },
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "RAPL energy and serving-boundary privacy/security counters are not measured by this external-provider harness"
+        }
       },
       "case_id": "chart-001",
       "route": "TextLayout",
@@ -138,17 +171,26 @@
       "evaluation_date": "2026-07-20",
       "model_fingerprint": "siglip-base-patch16-224@4649052",
       "provider_config": {
+        "execution_mode": "sequential",
+        "inter_op_threads": 1,
+        "intra_op_threads": 4,
         "model": "siglip-base-patch16-224",
+        "onnxruntime": "1.30.0",
         "provider": "siglip-onnx",
         "route": "Visual"
+      },
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "RAPL energy and serving-boundary privacy/security counters are not measured by this external-provider harness"
+        }
       },
       "case_id": "chart-001",
       "route": "Visual",
       "page_region_recall": 10000,
       "ndcg_at_10": 10000,
       "citation_alignment": 10000,
-      "latency_ms": 176,
-      "memory_bytes": 0,
+      "latency_ms": 177,
+      "memory_bytes": 12288,
       "disk_bytes": 36864,
       "energy_millijoules": 0,
       "privacy_violations": 0,
@@ -159,11 +201,16 @@
       "corpus_id": "visual-retrieval-benchmark-v1",
       "corpus_revision": "visual-fixture-r2",
       "evaluation_date": "2026-07-20",
-      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "model_fingerprint": "text-layout-v1+rapidocr-onnxruntime@1.4.4",
       "provider_config": {
-        "model": "siglip-base-patch16-224",
-        "provider": "siglip-onnx",
+        "model": "page-text-layout-v1+rapidocr-onnxruntime-1.4.4",
+        "provider": "text-layout+rapidocr-onnxruntime",
         "route": "TextLayout"
+      },
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "RAPL energy and serving-boundary privacy/security counters are not measured by this external-provider harness"
+        }
       },
       "case_id": "figure-001",
       "route": "TextLayout",
@@ -188,16 +235,25 @@
       "evaluation_date": "2026-07-20",
       "model_fingerprint": "siglip-base-patch16-224@4649052",
       "provider_config": {
+        "execution_mode": "sequential",
+        "inter_op_threads": 1,
+        "intra_op_threads": 4,
         "model": "siglip-base-patch16-224",
+        "onnxruntime": "1.30.0",
         "provider": "siglip-onnx",
         "route": "Visual"
+      },
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "RAPL energy and serving-boundary privacy/security counters are not measured by this external-provider harness"
+        }
       },
       "case_id": "figure-001",
       "route": "Visual",
       "page_region_recall": 10000,
       "ndcg_at_10": 10000,
       "citation_alignment": 0,
-      "latency_ms": 137,
+      "latency_ms": 82,
       "memory_bytes": 0,
       "disk_bytes": 36864,
       "energy_millijoules": 0,
@@ -209,11 +265,16 @@
       "corpus_id": "visual-retrieval-benchmark-v1",
       "corpus_revision": "visual-fixture-r2",
       "evaluation_date": "2026-07-20",
-      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "model_fingerprint": "text-layout-v1+rapidocr-onnxruntime@1.4.4",
       "provider_config": {
-        "model": "siglip-base-patch16-224",
-        "provider": "siglip-onnx",
+        "model": "page-text-layout-v1+rapidocr-onnxruntime-1.4.4",
+        "provider": "text-layout+rapidocr-onnxruntime",
         "route": "TextLayout"
+      },
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "RAPL energy and serving-boundary privacy/security counters are not measured by this external-provider harness"
+        }
       },
       "case_id": "formula-001",
       "route": "TextLayout",
@@ -238,16 +299,25 @@
       "evaluation_date": "2026-07-20",
       "model_fingerprint": "siglip-base-patch16-224@4649052",
       "provider_config": {
+        "execution_mode": "sequential",
+        "inter_op_threads": 1,
+        "intra_op_threads": 4,
         "model": "siglip-base-patch16-224",
+        "onnxruntime": "1.30.0",
         "provider": "siglip-onnx",
         "route": "Visual"
+      },
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "RAPL energy and serving-boundary privacy/security counters are not measured by this external-provider harness"
+        }
       },
       "case_id": "formula-001",
       "route": "Visual",
       "page_region_recall": 10000,
       "ndcg_at_10": 10000,
       "citation_alignment": 0,
-      "latency_ms": 118,
+      "latency_ms": 86,
       "memory_bytes": 0,
       "disk_bytes": 36864,
       "energy_millijoules": 0,
@@ -259,19 +329,24 @@
       "corpus_id": "visual-retrieval-benchmark-v1",
       "corpus_revision": "visual-fixture-r2",
       "evaluation_date": "2026-07-20",
-      "model_fingerprint": "siglip-base-patch16-224@4649052",
+      "model_fingerprint": "text-layout-v1+rapidocr-onnxruntime@1.4.4",
       "provider_config": {
-        "model": "siglip-base-patch16-224",
-        "provider": "siglip-onnx",
+        "model": "page-text-layout-v1+rapidocr-onnxruntime-1.4.4",
+        "provider": "text-layout+rapidocr-onnxruntime",
         "route": "TextLayout"
+      },
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "RAPL energy and serving-boundary privacy/security counters are not measured by this external-provider harness"
+        }
       },
       "case_id": "scan-001",
       "route": "TextLayout",
       "page_region_recall": 10000,
       "ndcg_at_10": 3869,
       "citation_alignment": 0,
-      "latency_ms": 5575,
-      "memory_bytes": 356352,
+      "latency_ms": 24633,
+      "memory_bytes": 397312,
       "disk_bytes": 36864,
       "energy_millijoules": 0,
       "privacy_violations": 0,
@@ -288,16 +363,25 @@
       "evaluation_date": "2026-07-20",
       "model_fingerprint": "siglip-base-patch16-224@4649052",
       "provider_config": {
+        "execution_mode": "sequential",
+        "inter_op_threads": 1,
+        "intra_op_threads": 4,
         "model": "siglip-base-patch16-224",
+        "onnxruntime": "1.30.0",
         "provider": "siglip-onnx",
         "route": "Visual"
+      },
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "RAPL energy and serving-boundary privacy/security counters are not measured by this external-provider harness"
+        }
       },
       "case_id": "scan-001",
       "route": "Visual",
       "page_region_recall": 10000,
       "ndcg_at_10": 9307,
       "citation_alignment": 0,
-      "latency_ms": 207,
+      "latency_ms": 774,
       "memory_bytes": 0,
       "disk_bytes": 36864,
       "energy_millijoules": 0,
@@ -306,10 +390,5 @@
       "provider_status": "Available"
     }
   ],
-  "winning_classes": [
-    "Text",
-    "Table",
-    "Figure",
-    "Formula"
-  ]
+  "winning_classes": []
 }

@@ -4,6 +4,7 @@
 //! observations; evaluation and promotion decision logic lives in the
 //! parent module and in `runner`.
 
+use crate::MeasurementStatus;
 use crate::golden::Metric;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -151,6 +152,9 @@ pub struct VisualBenchmarkObservation {
     /// Serialised provider‑configuration snapshot at measurement time.
     #[serde(default)]
     pub provider_config: serde_json::Value,
+    /// Status for platform and serving-boundary measurements in this observation.
+    #[serde(default)]
+    pub measurement_status: MeasurementStatus,
     pub case_id: String,
     pub route: VisualRoute,
     pub page_region_recall: Metric,

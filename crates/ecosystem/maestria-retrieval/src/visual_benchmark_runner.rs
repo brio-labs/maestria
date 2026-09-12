@@ -2,6 +2,7 @@ use super::{
     VisualBenchmarkCase, VisualBenchmarkCorpus, VisualBenchmarkError, VisualBenchmarkObservation,
     VisualRoute,
 };
+use crate::MeasurementStatus;
 use crate::golden::Metric;
 
 fn provider_config(provider: &str, detail: &str) -> serde_json::Value {
@@ -108,6 +109,9 @@ impl VisualBenchmarkExecutor for VisualProviderUnavailableExecutor {
             evaluation_date: self.evaluation_date.clone(),
             model_fingerprint: self.model_fingerprint.clone(),
             provider_config: self.provider_config.clone(),
+            measurement_status: MeasurementStatus::Unavailable {
+                reason: self.reason.clone(),
+            },
             case_id: case.case_id,
             route,
             page_region_recall: zero,
@@ -204,6 +208,11 @@ impl VisualBenchmarkExecutor for VisualTextLayoutExecutor {
                     evaluation_date: self.evaluation_date.clone(),
                     model_fingerprint: self.model_fingerprint.clone(),
                     provider_config: self.provider_config.clone(),
+                    measurement_status: MeasurementStatus::Unavailable {
+                        reason:
+                            "deterministic text/layout executor does not collect platform counters"
+                                .into(),
+                    },
                     case_id: case.case_id,
                     route,
                     page_region_recall: recall,
@@ -224,6 +233,10 @@ impl VisualBenchmarkExecutor for VisualTextLayoutExecutor {
                 evaluation_date: self.evaluation_date.clone(),
                 model_fingerprint: "visual-unavailable".into(),
                 provider_config: provider_config("none", "unavailable"),
+                measurement_status: MeasurementStatus::Unavailable {
+                    reason: "no visual embedding provider configured, only text/layout available"
+                        .into(),
+                },
                 case_id: case.case_id,
                 route,
                 page_region_recall: zero,
