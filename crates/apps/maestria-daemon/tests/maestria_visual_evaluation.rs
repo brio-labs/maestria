@@ -32,6 +32,7 @@ use maestria_retrieval::adapters::{
     VisualGenerationCapability, VisualPageRegionRetriever, VisualPageRegionRetrieverParts,
     VisualProjectionRebuildParts, rebuild_visual_projection,
 };
+use maestria_retrieval::benchmark_common::{EnergySample, current_rss_bytes};
 use maestria_retrieval::golden::Metric;
 use maestria_retrieval::traits::CandidateRetriever;
 use maestria_retrieval::types::CandidateRequest;
@@ -172,19 +173,6 @@ fn clone_fixture(fixture: &SourceFixture) -> SourceFixture {
         png: fixture.png.clone(),
         judged_region: fixture.judged_region,
     }
-}
-
-fn current_rss_bytes() -> u64 {
-    std::fs::read_to_string("/proc/self/status")
-        .ok()
-        .and_then(|status| {
-            status
-                .lines()
-                .find_map(|line| line.strip_prefix("VmRSS:"))
-                .and_then(|value| value.trim().strip_suffix(" kB"))
-                .and_then(|value| value.trim().parse::<u64>().ok())
-        })
-        .map_or(0, |kilobytes| kilobytes.saturating_mul(1024))
 }
 
 /// Builds the artifact/chunk/evidence/blob fixture state for every corpus
@@ -709,6 +697,38 @@ fn provider_metadata(route: VisualRoute) -> (&'static str, serde_json::Value) {
     }
 }
 
+fn visual_resource_measurements(
+    rss_before: Option<u64>,
+    rss_after: Option<u64>,
+    energy_before: Option<EnergySample>,
+    energy_after: Option<EnergySample>,
+) -> (u64, u64, MeasurementStatus) {
+    let memory_bytes = match (rss_before, rss_after) {
+        (Some(before), Some(after)) => after.saturating_sub(before),
+        _ => 0,
+    };
+    let energy_millijoules = match (energy_before, energy_after) {
+        (Some(before), Some(after)) => before.delta_millijoules(after),
+        _ => 0,
+    };
+    let mut unavailable_reasons = vec![
+        "serving-boundary privacy/security counters are not measured in this external-provider harness",
+    ];
+    if rss_before.is_none() || rss_after.is_none() {
+        unavailable_reasons.push("/proc/self/status VmRSS is unreadable");
+    }
+    if energy_before.is_none() || energy_after.is_none() {
+        unavailable_reasons.push("RAPL energy counters are unreadable");
+    }
+    (
+        memory_bytes,
+        energy_millijoules,
+        MeasurementStatus::Unavailable {
+            reason: unavailable_reasons.join("; "),
+        },
+    )
+}
+
 /// Runs one case on one route through the real retrieval path and measures
 /// the outcome.
 fn observe_case(
@@ -716,7 +736,8 @@ fn observe_case(
     route: VisualRoute,
     context: &ObserveContext<'_>,
 ) -> Result<VisualBenchmarkObservation, Box<dyn std::error::Error>> {
-    let start_rss = current_rss_bytes();
+    let rss_before = current_rss_bytes();
+    let energy_before = EnergySample::capture();
     let started = maestria_retrieval::MonotonicInstant::now();
     let mut privacy_violations = 0usize;
     let mut security_violations = 0usize;
@@ -739,7 +760,10 @@ fn observe_case(
         }
     };
     let latency = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-    let end_rss = current_rss_bytes();
+    let rss_after = current_rss_bytes();
+    let energy_after = EnergySample::capture();
+    let (memory_bytes, energy_millijoules, measurement_status) =
+        visual_resource_measurements(rss_before, rss_after, energy_before, energy_after);
     let (page_region_recall, ndcg_at_10, citation_alignment) = score_ranked(case, &ranked);
     let (model_fingerprint, provider_config) = provider_metadata(route);
     Ok(VisualBenchmarkObservation {
@@ -748,19 +772,16 @@ fn observe_case(
         evaluation_date: context.corpus.evaluation_date.clone(),
         model_fingerprint: model_fingerprint.to_string(),
         provider_config,
-        measurement_status: MeasurementStatus::Unavailable {
-            reason: "RAPL energy and serving-boundary privacy/security counters are not measured by this external-provider harness"
-                .to_string(),
-        },
+        measurement_status,
         case_id: case.case_id.clone(),
         route,
         page_region_recall,
         ndcg_at_10,
         citation_alignment,
         latency_ms: latency,
-        memory_bytes: end_rss.saturating_sub(start_rss),
+        memory_bytes,
         disk_bytes: 36_864,
-        energy_millijoules: 0,
+        energy_millijoules,
         privacy_violations: privacy_violations as u32,
         security_violations: security_violations as u32,
         provider_status: match route {
@@ -770,6 +791,19 @@ fn observe_case(
             VisualRoute::Visual => VisualProviderStatus::Available,
         },
     })
+}
+#[test]
+fn visual_resource_measurements_preserve_unavailable_counters() {
+    let (memory_bytes, energy_millijoules, status) =
+        visual_resource_measurements(None, None, None, None);
+    assert_eq!(memory_bytes, 0);
+    assert_eq!(energy_millijoules, 0);
+    assert!(matches!(
+        status,
+        MeasurementStatus::Unavailable { reason }
+            if reason.contains("RAPL energy counters are unreadable")
+                && reason.contains("serving-boundary privacy/security counters")
+    ));
 }
 
 #[test]

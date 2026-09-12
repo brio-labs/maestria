@@ -4,61 +4,9 @@ use super::{
     RepositoryRoute,
 };
 use crate::MonotonicInstant;
+use crate::benchmark_common::{EnergySample, current_rss_bytes};
 use maestria_code_intel::MarkerQueryKind;
 use std::str::FromStr;
-
-const RAPL_ENERGY_PATH: &str = "/sys/class/powercap/intel-rapl:0/energy_uj";
-const RAPL_MAX_PATH: &str = "/sys/class/powercap/intel-rapl:0/max_energy_range_uj";
-
-fn current_rss_bytes() -> Option<u64> {
-    let status = match std::fs::read_to_string("/proc/self/status") {
-        Ok(status) => status,
-        Err(_) => return None,
-    };
-    let kilobytes = status.lines().find_map(|line| {
-        let value = line.strip_prefix("VmRSS:")?;
-        let value = value.trim().strip_suffix(" kB")?;
-        value.trim().parse::<u64>().ok()
-    })?;
-    Some(kilobytes.saturating_mul(1024))
-}
-
-fn read_counter(path: &str) -> Option<u64> {
-    let contents = match std::fs::read_to_string(path) {
-        Ok(contents) => contents,
-        Err(_) => return None,
-    };
-    contents.trim().parse().ok()
-}
-
-#[derive(Debug, Clone, Copy)]
-struct EnergySample {
-    counter_uj: u64,
-    range_uj: u64,
-}
-
-impl EnergySample {
-    fn capture() -> Option<Self> {
-        Some(Self {
-            counter_uj: read_counter(RAPL_ENERGY_PATH)?,
-            range_uj: read_counter(RAPL_MAX_PATH)?,
-        })
-    }
-
-    fn delta_milliwatt_seconds(self, later: Self) -> u64 {
-        if self.range_uj == 0 {
-            return 0;
-        }
-        let delta_uj = if later.counter_uj >= self.counter_uj {
-            later.counter_uj - self.counter_uj
-        } else {
-            self.range_uj
-                .saturating_sub(self.counter_uj)
-                .saturating_add(later.counter_uj)
-        };
-        delta_uj.saturating_div(1_000)
-    }
-}
 
 fn persisted_index_bytes(index: &RepositoryCodeIndex) -> Option<u64> {
     let bytes = match serde_json::to_vec_pretty(index) {
@@ -87,7 +35,7 @@ fn measure_resources(
         _ => 0,
     };
     let energy_milliwatt_seconds = match (energy_before, energy_after) {
-        (Some(before), Some(after)) => before.delta_milliwatt_seconds(after),
+        (Some(before), Some(after)) => before.delta_millijoules(after),
         _ => 0,
     };
     let disk_bytes = index_disk_bytes.iter().copied().sum();
@@ -380,21 +328,24 @@ pub fn run_repository_benchmark<E: RepositoryBenchmarkExecutor>(
     }
     Ok(observations)
 }
+
 #[cfg(test)]
 mod tests {
-    use super::EnergySample;
+    use super::measure_resources;
+    use crate::repository_benchmark::MeasurementStatus;
 
     #[test]
-    fn energy_delta_uses_rapl_range_for_wraparound() {
-        let before = EnergySample {
-            counter_uj: 1_950_000,
-            range_uj: 2_000_000,
-        };
-        let after = EnergySample {
-            counter_uj: 50_000,
-            range_uj: 2_000_000,
-        };
+    fn unavailable_resources_keep_the_measurement_status_explicit() {
+        let resources = measure_resources(None, None, None, None, None);
 
-        assert_eq!(before.delta_milliwatt_seconds(after), 100);
+        assert_eq!(resources.memory_bytes, 0);
+        assert_eq!(resources.disk_bytes, 0);
+        assert_eq!(resources.energy_milliwatt_seconds, 0);
+        assert!(matches!(
+            resources.measurement_status,
+            MeasurementStatus::Unavailable { reason }
+                if reason.contains("RAPL energy counters are unreadable")
+                    && reason.contains("serving-boundary privacy/security counters")
+        ));
     }
 }
