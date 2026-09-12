@@ -144,9 +144,10 @@
         "judgment_set": "rust-repository-benchmark-v1",
         "source_paths": [
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
-          "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
+          "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs",
+          "crates/ecosystem/maestria-retrieval/src/benchmark_common.rs"
         ],
-        "source_hash": "467e8bd4f798c98e58729b4302035fa8bf8daf4b7f506fa8db228faa7932cfd1"
+        "source_hash": "7b5d85566c2609675199b9c59c6890ef94c1cee152127b87a56fbd28370df869"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
@@ -211,6 +212,7 @@
           "crates/ecosystem/maestria-retrieval/src/visual_benchmark_runner.rs",
           "crates/ecosystem/maestria-retrieval/src/visual_benchmark_schema.rs",
           "crates/apps/maestria-daemon/tests/maestria_visual_evaluation.rs",
+          "crates/ecosystem/maestria-retrieval/src/benchmark_common.rs",
           "scripts/siglip_visual_server.py",
           "scripts/requirements-visual.txt",
           "scripts/rapidocr_server.py",
@@ -223,7 +225,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/formula-page.svg",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/scanned-page.svg"
         ],
-        "source_hash": "5aaf3244f7630a8f31bd1ee4e0713975344d0451db6d595b183ef6a6a9cd44c1"
+        "source_hash": "9add674bdfa356e45ba6046d78f18d123bdabf5b35573f71c6c4fffe8536d8ac"
       },
       "fingerprints": {
         "corpus_snapshot": "visual-retrieval-benchmark-v1@visual-fixture-r2",
@@ -283,9 +285,10 @@
         "judgment_set": "rust-repository-benchmark-v1",
         "source_paths": [
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
-          "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
+          "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs",
+          "crates/ecosystem/maestria-retrieval/src/benchmark_common.rs"
         ],
-        "source_hash": "467e8bd4f798c98e58729b4302035fa8bf8daf4b7f506fa8db228faa7932cfd1"
+        "source_hash": "7b5d85566c2609675199b9c59c6890ef94c1cee152127b87a56fbd28370df869"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
