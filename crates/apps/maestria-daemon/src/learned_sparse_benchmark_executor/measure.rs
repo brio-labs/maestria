@@ -5,7 +5,7 @@ use maestria_retrieval::{
 };
 
 use super::LearnedSparseBenchmarkExecutor;
-use super::energy::EnergySample;
+use super::energy::{self, EnergySample};
 
 impl LearnedSparseBenchmarkExecutor {
     pub(super) fn unavailable_operation(
@@ -23,7 +23,7 @@ impl LearnedSparseBenchmarkExecutor {
             cost_micros: Measurement::unavailable(format!(
                 "{operation} on the {route:?} projection: {reason}"
             )),
-            energy_millijoules: EnergySample::delta_uj_pair(
+            energy_millijoules: energy::delta_millijoules_pair(
                 EnergySample::capture(),
                 EnergySample::capture(),
             ),
@@ -54,7 +54,7 @@ impl LearnedSparseBenchmarkExecutor {
                     },
                 ),
                 cost_micros: Measurement::measured(elapsed_us),
-                energy_millijoules: EnergySample::delta_uj_pair(energy_before, energy_after),
+                energy_millijoules: energy::delta_millijoules_pair(energy_before, energy_after),
             },
             Err(error) => {
                 let reason = format!("{operation} on the {route:?} projection failed: {error}");
@@ -62,7 +62,7 @@ impl LearnedSparseBenchmarkExecutor {
                     elapsed_ms: Measurement::unavailable(reason.clone()),
                     throughput_items_per_second: Measurement::unavailable(reason.clone()),
                     cost_micros: Measurement::unavailable(reason.clone()),
-                    energy_millijoules: EnergySample::delta_uj_pair(energy_before, energy_after),
+                    energy_millijoules: energy::delta_millijoules_pair(energy_before, energy_after),
                 }
             }
         }
