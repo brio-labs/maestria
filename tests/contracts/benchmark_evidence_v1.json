@@ -146,7 +146,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
         ],
-        "source_hash": "f9017918766752780d3e6e492f49b8fbc8676b2ce9027720d7eaf4ecf2b9e7ba"
+        "source_hash": "467e8bd4f798c98e58729b4302035fa8bf8daf4b7f506fa8db228faa7932cfd1"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
@@ -202,14 +202,19 @@
       "data_fidelity": "real",
       "corpus": {
         "id": "visual-retrieval-benchmark-v1",
+        "revision": "visual-fixture-r2",
         "snapshot": "sha256:4f3ce6b10bcebfbf4442acdf2715f1ea3a1aad549096f25f4f6ccc8e721253e0",
         "judgment_set": "visual-retrieval-benchmark-v1",
         "source_paths": [
           "docs/ARCHITECTURE.md",
           "crates/ecosystem/maestria-retrieval/src/visual_benchmark_metrics.rs",
+          "crates/ecosystem/maestria-retrieval/src/visual_benchmark_runner.rs",
           "crates/ecosystem/maestria-retrieval/src/visual_benchmark_schema.rs",
           "crates/apps/maestria-daemon/tests/maestria_visual_evaluation.rs",
           "scripts/siglip_visual_server.py",
+          "scripts/requirements-visual.txt",
+          "scripts/rapidocr_server.py",
+          "scripts/requirements-rapidocr.txt",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/text-page.svg",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/table-page.svg",
@@ -218,7 +223,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/formula-page.svg",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/scanned-page.svg"
         ],
-        "source_hash": "3b494cef55a7775d9265eeb9aa92ac5a984b60a1706d665e5b5ff70dc4db30a3"
+        "source_hash": "5aaf3244f7630a8f31bd1ee4e0713975344d0451db6d595b183ef6a6a9cd44c1"
       },
       "fingerprints": {
         "corpus_snapshot": "visual-retrieval-benchmark-v1@visual-fixture-r2",
@@ -280,7 +285,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
         ],
-        "source_hash": "f9017918766752780d3e6e492f49b8fbc8676b2ce9027720d7eaf4ecf2b9e7ba"
+        "source_hash": "467e8bd4f798c98e58729b4302035fa8bf8daf4b7f506fa8db228faa7932cfd1"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
