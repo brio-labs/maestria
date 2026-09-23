@@ -1,7 +1,8 @@
-# Pre-baked CI toolchain image for the Maestria Studio Dioxus workspace.
+# Pre-baked CI toolchain image for the Maestria Studio and launcher workspace.
 #
 # Contents (all pinned to match the rest of CI):
 #   - Ubuntu 24.04 (same base as the hosted runner image)
+#   - GTK3/WebKitGTK 4.1 development libraries and native launcher test tools
 #   - Node 24.11.1 with corepack (pnpm 9.15.9 pre-seeded, offline)
 #   - rustup nightly-2026-06-15 (rustfmt, clippy, rustc-codegen-cranelift,
 #     wasm32-unknown-unknown) at RUSTUP_HOME=/usr/local/rustup
@@ -16,8 +17,9 @@
 # Determinism gate: the last layer regenerates the committed web/dist (fast
 # bundle mode) inside this image and fails the build if the output is not
 # byte-identical to the committed bundle. It also pre-seeds the cargo registry
-# for the whole workspace (cargo fetch --locked) so CI jobs boot without
-# downloads. Keep tool versions aligned with what the rest of CI pins.
+# for the whole workspace (cargo fetch --locked) and launcher frontend
+# dependencies so CI jobs boot without downloads. Keep tool versions aligned
+# with what the rest of CI pins.
 
 FROM ubuntu:24.04
 
@@ -31,9 +33,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     DX_HOME=/opt/dx-data \
     COREPACK_HOME=/usr/local/share/corepack \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git curl ca-certificates xz-utils python3 build-essential clang mold \
+        libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config \
+        libxdo-dev xdg-utils libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+        webkit2gtk-driver xvfb dbus-x11 xdotool jwm x11-utils python3-gi gir1.2-gtk-3.0 at-spi2-core gir1.2-atspi-2.0 \
     && git config --system --add safe.directory '*' \
     && rm -rf /var/lib/apt/lists/*
 
@@ -41,6 +45,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -fsSL https://nodejs.org/dist/v24.11.1/node-v24.11.1-linux-x64.tar.xz \
         | tar -xJ -C /usr/local --strip-components=1 \
     && node --version \
+    && corepack enable \
     && corepack prepare pnpm@9.15.9 --activate
 
 # Rust toolchain pinned by rust-toolchain.toml (nightly-2026-06-15).
@@ -70,6 +75,10 @@ RUN corepack pnpm@9.15.9 dlx playwright@1.54.1 install --with-deps chromium
 # Determinism gate + tool/registry pre-seed (see header comment).
 COPY . /src
 RUN cd /src \
+    && cd launcher \
+    && corepack pnpm@9.15.9 install --frozen-lockfile \
+    && corepack pnpm@9.15.9 build \
+    && cd /src \
     && cargo fetch --locked \
     && cd web \
     && corepack pnpm@9.15.9 install --frozen-lockfile \
@@ -97,6 +106,6 @@ RUN cd /src \
     && echo '=== generated wasm path tokens ===' \
     && (strings dist/assets/*.wasm | grep -E '^/(home|usr|opt|src|root|rust|workspace|cargo|sysroot)' | sort -u | head -80 || true) \
     && diff -r --brief /tmp/committed-dist dist \
-    && rm -rf /src/web/node_modules /src/target /src/web/dist /tmp/committed-dist \
+    && rm -rf /src/launcher/node_modules /src/launcher/dist /src/web/node_modules /src/target /src/web/dist /tmp/committed-dist \
     && ls /opt/dx-data/tools
 

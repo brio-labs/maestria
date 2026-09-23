@@ -8,6 +8,8 @@ on:
       - '.github/workflows/build-ci-image.yml'
       - '.dockerignore'
       - 'web/**'
+      - 'launcher/**'
+      - 'vendor/**'
       - 'scripts/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
