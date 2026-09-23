@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Maestria Launcher
+Comment=Keyboard-first desktop launcher for Maestria
+Exec=maestria-launcher --activate
+Icon=maestria-launcher
+Terminal=false
+Categories=Utility;

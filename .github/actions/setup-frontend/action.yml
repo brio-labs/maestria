@@ -1,30 +1,42 @@
-name: 'Setup and build Brioche Desktop frontend'
-description: 'Install Node.js/pnpm and build the Tauri frontend assets'
+name: 'Setup and build Maestria launcher frontend'
+description: 'Install the pinned Node.js/pnpm toolchain and build launcher/dist for Tauri code generation'
+inputs:
+  native-test:
+    description: 'Install the pinned external tauri-driver used by native launcher checks'
+    required: false
+    default: 'false'
 
 runs:
   using: composite
   steps:
-    - name: Cache pnpm store
+    - name: Cache launcher pnpm store
       uses: actions/cache@v6.0.0
       with:
         path: |
           ~/.local/share/pnpm/store
           ~/.cache/pnpm
-        key: pnpm-store-${{ runner.os }}-${{ hashFiles('crates/apps/brioche-desktop/frontend/pnpm-lock.yaml') }}
+        key: pnpm-launcher-${{ runner.os }}-${{ hashFiles('launcher/pnpm-lock.yaml') }}
         restore-keys: |
-          pnpm-store-${{ runner.os }}-
+          pnpm-launcher-${{ runner.os }}-
 
     - uses: actions/setup-node@v4
       with:
-        node-version: '22'
+        node-version: '24.11.1'
 
     - uses: pnpm/action-setup@v4
       with:
-        version: 9
+        version: 9.15.9
 
-    - name: Build desktop frontend
+    - name: Install launcher frontend dependencies
       shell: bash
-      working-directory: crates/apps/brioche-desktop/frontend
-      run: |
-        pnpm install --frozen-lockfile
-        pnpm build
+      working-directory: launcher
+      run: pnpm install --frozen-lockfile
+
+    - name: Build launcher frontend
+      shell: bash
+      working-directory: launcher
+      run: pnpm build
+    - name: Install pinned tauri-driver
+      if: inputs.native-test == 'true'
+      shell: bash
+      run: cargo install tauri-driver --version 2.0.6 --locked

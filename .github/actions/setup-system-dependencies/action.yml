@@ -1,10 +1,16 @@
-name: 'Install Brioche system dependencies'
-description: 'Install apt packages required to compile the workspace on Ubuntu'
+name: 'Install Maestria Linux system dependencies'
+description: 'Install GTK3/WebKitGTK 4.1 and native-test packages required by the workspace on Ubuntu'
+
+inputs:
+  native-test:
+    description: 'Install the additional display and WebKitWebDriver packages used by native launcher checks'
+    required: false
+    default: 'false'
 
 runs:
   using: composite
   steps:
-    - name: Install apt packages
+    - name: Install GTK3/WebKitGTK build packages
       shell: bash
       run: |
         sudo apt-get update
@@ -12,5 +18,18 @@ runs:
           libglib2.0-dev \
           libgtk-3-dev \
           libwebkit2gtk-4.1-dev \
+          pkg-config \
+          libxdo-dev \
+          xdg-utils \
+          libssl-dev \
           libayatana-appindicator3-dev \
           librsvg2-dev
+    - name: Install native launcher test packages
+      if: inputs.native-test == 'true'
+      shell: bash
+      run: |
+        sudo apt-get install -y --no-install-recommends \
+          webkit2gtk-driver \
+          xvfb \
+          dbus-x11 \
+          xdotool jwm x11-utils python3-gi gir1.2-gtk-3.0 at-spi2-core gir1.2-atspi-2.0

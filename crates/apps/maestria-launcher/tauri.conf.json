@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "io.github.briolabs.Maestria.Launcher",
+  "mainBinaryName": "maestria-launcher",
+  "version": "0.0.0",
+  "identifier": "io.github.briolabs.Maestria.Launcher",
+  "build": {
+    "frontendDist": "../../../launcher/dist",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeDevCommand": "corepack pnpm@9.15.9 dev",
+    "beforeBuildCommand": "corepack pnpm@9.15.9 build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-src 'none'",
+      "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost http://127.0.0.1:1420 ws://127.0.0.1:1420; object-src 'none'; frame-src 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "appimage"],
+    "icon": ["icons/icon.png"],
+    "category": "Utility",
+    "shortDescription": "Keyboard-first desktop launcher for Maestria",
+    "longDescription": "Maestria Launcher provides fast, keyboard-first access to applications, commands and safe calculations from a resident desktop window.",
+    "publisher": "Brio Labs",
+    "linux": {
+      "deb": {
+        "desktopTemplate": "linux/desktop.template",
+        "depends": ["libxdo3", "xdg-utils"],
+        "section": "utils",
+        "priority": "optional"
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    }
+  }
+}
