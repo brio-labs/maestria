@@ -20,6 +20,7 @@ mod x11;
 use self::state::{OperationGuard, ShortcutInner, ShortcutStateInner};
 use self::status::{emit_status, lock_state, set_status, unconfigured_status, unsupported_status};
 
+// Keep the original desktop/portal identity to retain existing shortcut grants and settings.
 const APP_ID: &str = "io.github.briolabs.Maestria.Launcher";
 const SHORTCUT_ID: &str = "activate-launcher";
 const DEFAULT_SHORTCUT: &str = "Control+Space";

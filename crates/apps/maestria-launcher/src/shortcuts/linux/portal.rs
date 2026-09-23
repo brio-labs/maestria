@@ -342,7 +342,7 @@ async fn bind_shortcut(
 ) -> Result<String, ashpd::Error> {
     let shortcut = ashpd::desktop::global_shortcuts::NewShortcut::new(
         super::SHORTCUT_ID,
-        "Activate Maestria Launcher",
+        "Activate Sillage Launcher",
     )
     .preferred_trigger(Some(trigger));
     let request = active

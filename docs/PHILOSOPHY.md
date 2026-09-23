@@ -1,10 +1,10 @@
-# Maestria Philosophy
+# Sillage Philosophy
 
 This document is enforceable. CI and review block violations.
 
 ## Product priority
 
-Maestria prioritizes responsiveness, keyboard-first explicit actions,
+Sillage prioritizes responsiveness, keyboard-first explicit actions,
 local-first search, and capability-scoped extensions. A focused native Linux
 launcher ships; daemon-backed launcher file search and the extension platform
 remain planned. Current CLI, daemon, Studio, and retrieval surfaces remain
@@ -64,7 +64,7 @@ not already CI-enforced guarantees.
 43. Every retrieval lane applies scope, ACL, trust, sensitivity, quarantine, and prompt-injection checks before scoring or exposing candidates.
 44. Retrieval changes require a versioned evaluation corpus and judgment set with quality, latency, memory, privacy, security, and energy measurements; unavailable measurements cannot authorize promotion.
 45. Normative architecture and roadmap documents remain model- and backend-agnostic; dated implementation candidates belong in research notes or ADRs.
-46. Maestria preserves external observations and provenance; it does not claim that domain state makes external facts true.
+46. Sillage preserves external observations and provenance; it does not claim that domain state makes external facts true.
 47. Model-generated search plans and rewrites are untrusted proposals; only validated capabilities, scope, security, freshness, snapshot, and budget checks may authorize execution.
 48. Local or remote client surfaces authenticate per instance and enforce the instance's read/write scope before dispatch; transport handlers cannot bypass domain, governance, or evidence services.
 49. Repository and code-intelligence records preserve repository, commit/worktree identity, source path/range, and parser generation; stale projections are explicit and deterministic symbol indexes must not fabricate cross-file relations.

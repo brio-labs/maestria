@@ -1,8 +1,8 @@
-# Maestria Architecture
+# Sillage Architecture
 
 ## 1. Purpose and Scope
 
-Maestria's target product is an open-source, Linux-first keyboard launcher and
+Sillage's target product is an open-source, Linux-first keyboard launcher and
 extension platform with local semantic search. The current build includes a
 focused native Linux launcher and a governed runtime for maintaining auditable
 domain state from source observations, evidence, claims, memory, decisions,
@@ -30,13 +30,13 @@ requirements in [`docs/SPECS.md`](SPECS.md) or the design principles in
 
 Specific storage engines, search indexes, models, parsers, GUI libraries, JavaScript
 engines, and harness implementations are replaceable until benchmarked against
-Maestria's versioned evaluation sets.
+Sillage's versioned evaluation sets.
 
 ---
 
 ## 2. System Identity
 
-Maestria's product center is a resident keyboard launcher that makes explicit
+Sillage's product center is a resident keyboard launcher that makes explicit
 local actions fast: application and command discovery, safe calculations,
 file search, open/copy actions, and capability-scoped extensions. Local
 semantic search enriches deterministic results when its configured provider
@@ -61,7 +61,7 @@ The domain kernel owns **authoritative state integrity**, not external factual t
 
 A source produces an observation. Evidence preserves that observation. A claim represents a normalized but potentially uncertain proposition. Memory promotes useful claims under policy. Decisions select actions based on evidence and policy. Validation assesses whether support is sufficient.
 
-Maestria may record that a source says something, that evidence is fresh, or that a task passed a validation procedure. It cannot make an external claim true.
+Sillage may record that a source says something, that evidence is fresh, or that a task passed a validation procedure. It cannot make an external claim true.
 
 ### 2.1 Domain State and External Truth
 
@@ -219,8 +219,8 @@ section does not describe ACP or compiled Rust adapter traits.
 
 ### Package and SDK boundary
 
-Extensions use a Maestria-specific TypeScript SDK. They ship as bundled
-JavaScript with a versioned manifest. Maestria does not promise Raycast,
+Extensions use a Sillage-specific TypeScript SDK. They ship as bundled
+JavaScript with a versioned manifest. Sillage does not promise Raycast,
 Node.js, native-addon, arbitrary-DOM, or React compatibility.
 
 The manifest declares extension identity and version, SDK API version,
@@ -562,7 +562,7 @@ Retrieval providers remain behind adapters. Search plans, outcomes, and traces a
 8. The trace records plans, rewrites, stages, scores, filters, expansions, budgets, and stop reasons.
 9. A search trace explains retrieval behavior but is not authoritative domain state.
 
-Search implementations are replaceable until evaluated on Maestria’s versioned query set. No model name, public leaderboard, architecture diagram, or backend selection proves that retrieval works for Maestria.
+Search implementations are replaceable until evaluated on Sillage’s versioned query set. No model name, public leaderboard, architecture diagram, or backend selection proves that retrieval works for Sillage.
 
 ---
 
@@ -764,7 +764,7 @@ The system records:
 
 Given the same initial state and ordered `DomainInput` stream, domain replay must produce the same events and final state. Runtime timestamps and external outputs are replay inputs, not hidden reducer behavior.
 
-Every material retrieval change must be evaluated against a versioned Maestria-specific query set. Evaluation covers retrieval quality, evidence coverage, citation alignment, abstention, conflict handling, security boundaries, latency, resource use, and migration behavior.
+Every material retrieval change must be evaluated against a versioned Sillage-specific query set. Evaluation covers retrieval quality, evidence coverage, citation alignment, abstention, conflict handling, security boundaries, latency, resource use, and migration behavior.
 
 External benchmarks may supplement this evaluation, but cannot replace it.
 
@@ -776,7 +776,7 @@ External benchmarks may supplement this evaluation, but cannot replace it.
 2. **Single mutation path** — Domain state changes only through validated reducer inputs.
 3. **Effect separation** — Effects describe work; runtime executes work.
 4. **Policy separation** — Governance authorizes and constrains; adapters execute.
-5. **Truth boundary** — Maestria preserves and evaluates observations; it does not make external claims true.
+5. **Truth boundary** — Sillage preserves and evaluates observations; it does not make external claims true.
 6. **Evidence lineage** — Derived retrieval units and generated summaries retain exact source lineage.
 7. **Immutable evidence** — Source snapshots and evidence spans are immutable; annotations are versioned.
 8. **Freshness visibility** — Stale, missing, quarantined, and conflicting sources remain explicit.
@@ -786,4 +786,4 @@ External benchmarks may supplement this evaluation, but cannot replace it.
 12. **Projection replaceability** — Indexes and storage projections may be replaced without changing domain meaning.
 13. **Validation gating** — Required evidence and validation must pass before verified completion.
 14. **DTO isolation** — Provider, storage, API, harness, and domain types do not substitute for one another.
-15. **Benchmark requirement** — No implementation is a permanent default until it is benchmarked against Maestria’s requirements.
+15. **Benchmark requirement** — No implementation is a permanent default until it is benchmarked against Sillage’s requirements.

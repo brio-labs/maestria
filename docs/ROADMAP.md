@@ -1,6 +1,6 @@
-# Maestria Product Roadmap
+# Sillage Product Roadmap
 
-This document is the single canonical product roadmap for Maestria. M1 has
+This document is the single canonical product roadmap for Sillage. M1 has
 a working native launcher slice but is not complete; M2–M4 remain planned.
 Each milestone has explicit exit criteria. Historical retrieval reports do
 not satisfy product-milestone evidence, and backend capabilities alone do
@@ -30,7 +30,7 @@ fallback when a compositor cannot grant a global shortcut.
 
 **Status:** Planned
 
-**Scope:** Deliver the Maestria-specific TypeScript SDK, versioned manifest
+**Scope:** Deliver the Sillage-specific TypeScript SDK, versioned manifest
 validation, development loading and local-bundle installation, host-rendered
 declarative list/detail/form UI, capability grants, an authenticated broker,
 isolated workers, disable/revoke behavior, validated atomic updates,

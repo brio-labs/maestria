@@ -29,7 +29,7 @@ const COMMANDS: [CommandDefinition; 4] = [
     },
     CommandDefinition {
         id: HOST_QUIT,
-        title: "Quit Maestria",
+        title: "Quit Sillage",
         subtitle: "Exit the resident launcher",
         keywords: &["quit", "exit", "close"],
         action_id: "quit",

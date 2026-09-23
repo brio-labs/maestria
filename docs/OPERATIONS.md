@@ -1,6 +1,6 @@
 # Operations Architecture
 
-This document defines the durable contract for Maestria's runtime operations, state management, and recovery procedures.
+This document defines the durable contract for Sillage's runtime operations, state management, and recovery procedures.
 
 ## 1. Bounded Runtime Lifecycle
 
@@ -84,7 +84,7 @@ forgotten.
 
 ## 6. Versioning Posture
 
-Maestria is in continuous development with no external release promise.
+Sillage is in continuous development with no external release promise.
 
 - The workspace version is pinned at `0.0.0`; `main` is always the current
   build.

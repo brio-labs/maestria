@@ -1,8 +1,8 @@
-# Contributing to Maestria
+# Contributing to Sillage
 
 > **⚠️ STOP.** Before writing code, read [`docs/PHILOSOPHY.md`](docs/PHILOSOPHY.md).
 
-Maestria inherits its enforcement posture from Brioche: behavior gates are part of the
+Sillage inherits its enforcement posture from Brioche: behavior gates are part of the
 implementation flow, not a post-check.
 
 ## Prerequisites

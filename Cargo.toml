@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Maestria Linux-first launcher and extension platform with local semantic search"
+description = "Sillage Linux-first launcher and extension platform with local semantic search"
 publish = false
 
 [workspace]

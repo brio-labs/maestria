@@ -3,7 +3,7 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(author, version, about = "Maestria daemon process")]
+#[command(author, version, about = "Sillage daemon process")]
 struct Cli {
     #[arg(short, long, default_value = ".maestria-dev")]
     instance_dir: PathBuf,

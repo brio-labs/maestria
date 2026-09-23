@@ -1,4 +1,4 @@
-# Maestria Initial Specification Ledger
+# Sillage Initial Specification Ledger
 
 This ledger names the invariants that bootstrap code and future crates must preserve.
 

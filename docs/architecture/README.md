@@ -1,4 +1,4 @@
-# Maestria Architecture Books
+# Sillage Architecture Books
 
 This directory tracks the long-form architecture notes by subsystem.
 

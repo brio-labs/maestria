@@ -1,4 +1,4 @@
-# Pre-baked CI toolchain image for the Maestria Studio and launcher workspace.
+# Pre-baked CI toolchain image for the Sillage Studio and launcher workspace.
 #
 # Contents (all pinned to match the rest of CI):
 #   - Ubuntu 24.04 (same base as the hosted runner image)

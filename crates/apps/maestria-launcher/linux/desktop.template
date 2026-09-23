@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=Maestria Launcher
-Comment=Keyboard-first desktop launcher for Maestria
+Name=Sillage Launcher
+Comment=Keyboard-first desktop launcher for Sillage
 Exec=maestria-launcher --activate
 Icon=maestria-launcher
 Terminal=false

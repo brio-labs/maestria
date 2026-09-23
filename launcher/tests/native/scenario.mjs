@@ -7,7 +7,7 @@ const execute = promisify(execFile);
 
 export async function visibleWindow(environment) {
   try {
-    const { stdout } = await execute('xdotool', ['search', '--onlyvisible', '--name', '^Maestria Launcher$'], { env: environment });
+    const { stdout } = await execute('xdotool', ['search', '--onlyvisible', '--name', '^Sillage Launcher$'], { env: environment });
     return stdout.trim();
   } catch (error) {
     if (error.code === 1) return '';

@@ -23,8 +23,8 @@
     "targets": ["deb", "appimage"],
     "icon": ["icons/icon.png"],
     "category": "Utility",
-    "shortDescription": "Keyboard-first desktop launcher for Maestria",
-    "longDescription": "Maestria Launcher provides fast, keyboard-first access to applications, commands and safe calculations from a resident desktop window.",
+    "shortDescription": "Keyboard-first desktop launcher for Sillage",
+    "longDescription": "Sillage Launcher provides fast, keyboard-first access to applications, commands and safe calculations from a resident desktop window.",
     "publisher": "Brio Labs",
     "linux": {
       "deb": {

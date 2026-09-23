@@ -1,15 +1,15 @@
 # Security Architecture
 
-This document defines the security boundaries and invariants for Maestria. It complements, and does not replace:
+This document defines the security boundaries and invariants for Sillage. It complements, and does not replace:
 
 - [docs/SPECS.md](SPECS.md) — system contracts and behavior
 - [docs/PHILOSOPHY.md](PHILOSOPHY.md) — architectural principles and invariant ownership
 
-Security controls are implemented through replaceable adapters and policies. No model, database, search backend, parser, provider, or algorithm is a permanent default until it has been benchmarked against Maestria’s security, correctness, and operational requirements.
+Security controls are implemented through replaceable adapters and policies. No model, database, search backend, parser, provider, or algorithm is a permanent default until it has been benchmarked against Sillage’s security, correctness, and operational requirements.
 
 ## 1. Security Objectives
 
-Maestria must:
+Sillage must:
 
 1. enforce scope and authorization before data is retrieved, ranked, or exposed;
 2. preserve provenance, source versions, and evidence boundaries;
@@ -19,7 +19,7 @@ Maestria must:
 6. provide an auditable explanation of security-relevant decisions;
 7. keep domain state transitions deterministic and policy-controlled.
 
-Maestria owns internal state integrity and provenance. It does not make an external source, claim, or model-generated assertion factually true.
+Sillage owns internal state integrity and provenance. It does not make an external source, claim, or model-generated assertion factually true.
 
 ## 2. Security Invariants
 
@@ -332,7 +332,7 @@ disposition
 review status
 ```
 
-Implementations are replaceable until benchmarked against Maestria-specific injection and poisoning test sets. Detection alone is not a complete defense; capability isolation and policy enforcement remain mandatory.
+Implementations are replaceable until benchmarked against Sillage-specific injection and poisoning test sets. Detection alone is not a complete defense; capability isolation and policy enforcement remain mandatory.
 
 ## 7. Secrets and Sensitive Data
 
@@ -547,7 +547,7 @@ fail-closed behavior
 audit completeness without secret leakage
 ```
 
-Retrieval and security changes must be evaluated against versioned Maestria-specific sets, including:
+Retrieval and security changes must be evaluated against versioned Sillage-specific sets, including:
 
 ```text
 ACL leakage attempts
@@ -559,4 +559,4 @@ stale and contradictory sources
 provider failure and malformed-output cases
 ```
 
-Public benchmarks or a provider’s stated capabilities are not proof that the implementation is secure for Maestria.
+Public benchmarks or a provider’s stated capabilities are not proof that the implementation is secure for Sillage.

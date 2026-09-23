@@ -12,7 +12,7 @@ if "--read" in sys.argv:
     print(json.dumps(Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).wait_for_text()), flush=True)
     raise SystemExit(0)
 
-window = Gtk.Window(title="Maestria clipboard acceptance")
+window = Gtk.Window(title="Sillage clipboard acceptance")
 entry = Gtk.Entry()
 window.add(entry)
 window.show_all()

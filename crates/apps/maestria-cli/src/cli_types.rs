@@ -15,7 +15,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Create a local Maestria instance layout
+    /// Create a local Sillage instance layout
     Init {
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,

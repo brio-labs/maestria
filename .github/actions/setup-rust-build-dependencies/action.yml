@@ -1,5 +1,5 @@
 name: 'Install Rust and Linux build dependencies'
-description: 'Install the linker and GTK3/WebKitGTK build toolchain required by Maestria'
+description: 'Install the linker and GTK3/WebKitGTK build toolchain required by Sillage'
 
 inputs:
   native-test:

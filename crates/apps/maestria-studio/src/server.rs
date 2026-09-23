@@ -27,7 +27,7 @@ impl StudioServer {
     pub async fn start(instance_root: PathBuf, agent_config: Option<PathBuf>) -> Result<Self> {
         let layout = InstanceLayout::for_root(instance_root.clone());
         let client =
-            DaemonClient::from_instance(&layout).context("connect Studio to Maestria daemon")?;
+            DaemonClient::from_instance(&layout).context("connect Studio to Sillage daemon")?;
         let system_dir = instance_root.join("system");
         let config_path = match agent_config {
             Some(path) => path,

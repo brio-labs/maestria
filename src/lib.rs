@@ -1,4 +1,4 @@
-//! Initial Maestria crate.
+//! Initial Sillage crate.
 
 //! Generated during bootstrap. Keep this crate intentionally minimal.
 //!

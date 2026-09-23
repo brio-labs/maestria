@@ -1,4 +1,4 @@
-name: 'Install Maestria Linux system dependencies'
+name: 'Install Sillage Linux system dependencies'
 description: 'Install GTK3/WebKitGTK 4.1 and native-test packages required by the workspace on Ubuntu'
 
 inputs:

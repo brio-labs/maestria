@@ -287,7 +287,7 @@ export function App() {
   const panelActions = selected?.actions ?? [];
 
   return (
-    <main className="launcher-window" aria-label="Maestria Launcher"
+    <main className="launcher-window" aria-label="Sillage Launcher"
       onCompositionStartCapture={() => { composingRef.current = true; }}
       onCompositionEndCapture={() => { composingRef.current = false; }}>
       <section className={`launcher-shell${state.preferences?.reduceMotion ? ' reduce-motion' : ''}`}>
@@ -331,7 +331,7 @@ export function App() {
             <>
               {state.preferences?.shortcutSetup === 'unconfigured' && !state.preferences.readOnly ? (
                 <section className="shortcut-offer" aria-label="Shortcut setup">
-                  <p>Open Maestria from anywhere with a keyboard shortcut.</p>
+                  <p>Open Sillage from anywhere with a keyboard shortcut.</p>
                   <div className="shortcut-actions">
                     <button type="button" className="primary-button"
                       disabled={preferenceActionInFlight || state.preferences.shortcutStatus.control === 'unavailable'}
@@ -381,7 +381,7 @@ export function App() {
         <footer className="launcher-footer">
           <div className="footer-brand">
             <img src={markAsset} alt="" aria-hidden="true" />
-            <span>Maestria</span>
+            <span>Sillage</span>
           </div>
           <div className="footer-actions">
             {state.view === 'root' ? (

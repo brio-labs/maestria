@@ -1,6 +1,6 @@
-# Maestria
+# Sillage
 
-Maestria is an open-source, Linux-first keyboard launcher and extension platform with local semantic search.
+Sillage is an open-source, Linux-first keyboard launcher and extension platform with local semantic search.
 
 That is the target product direction. The current build provides a CLI, daemon,
 browser-hosted Studio, retrieval infrastructure, and a separate native Linux
@@ -33,7 +33,7 @@ supported advanced existing capabilities.
 
 ## Install
 
-Maestria targets Rust stable 1.95+. Build from source:
+Sillage targets Rust stable 1.95+. Build from source:
 
 ```bash
 git clone https://github.com/brio-labs/maestria.git
@@ -44,7 +44,7 @@ cargo build --release -p maestria-cli
 ./target/release/maestria-cli --help
 ```
 
-Maestria has no releases: the workspace version is pinned at `0.0.0` and
+Sillage has no releases: the workspace version is pinned at `0.0.0` and
 `main` is always the current build. Build the CLI and daemon from source.
 
 ### Native Linux launcher
@@ -86,6 +86,12 @@ this is a **user-controlled example**, not a shipped or enabled default.
 Tiling compositors can enlarge the window; configure a user-owned floating
 and size rule if desired. File selection uses a native chooser and does not
 index the selected directory.
+
+The existing `maestria-launcher` executable, Debian package ID
+`io-github-briolabs-maestria-launcher`, and
+`io.github.briolabs.Maestria.Launcher` desktop/portal identity remain stable
+under the Sillage name. Existing preferences, shortcut grants, and compositor
+bindings continue to work without migrating or resetting user data.
 
 In a launcher-only X11 run with 500 frozen desktop entries and 200 samples per
 class, native activation receipt to renderer-ready p95 was 30.715 ms and query
@@ -189,7 +195,7 @@ max_output_bytes = 65536
 If the file is absent and `omp` is on `PATH`, Studio discovers the exact
 in-memory profile `omp --no-tools --no-session acp`. If neither is available,
 the notebook, search, citation, and draft UI remains usable while Ask reports
-`agent_unconfigured`. Maestria is an ACP client: it does not ship, install,
+`agent_unconfigured`. Sillage is an ACP client: it does not ship, install,
 update, authenticate, or implement an agent harness or model provider.
 
 The URL carries an ephemeral bearer session fragment. Studio moves it into
@@ -330,7 +336,7 @@ optional higher-quality visual-embedding profile. Neither model is required
 for normal text/layout retrieval.
 
 When enabled, both sidecars listen on loopback only, perform CPU inference,
-and retain no inputs; Maestria never downloads or executes model code and
+and retain no inputs; Sillage never downloads or executes model code and
 `maestria doctor` reports whether the configured rasterizer or visual
 capability is available. Pinned sidecar profiles — revisions, artifact
 hashes, endpoints, and manifest key blocks — are dated implementation
@@ -371,7 +377,7 @@ Every command accepts `-i, --instance-dir <PATH>` (default `.maestria-dev`).
 
 ### `init`
 
-Create a local Maestria instance layout and manifest.
+Create a local Sillage instance layout and manifest.
 
 ```
 maestria init [-i <dir>] [--read-root <path>...]
@@ -564,7 +570,7 @@ maestria retire-retrieval-events -i <dir> --before-sequence <n> --reason "<why>"
 
 ### `start`
 
-Start the Maestria daemon for the given instance.
+Start the Sillage daemon for the given instance.
 
 ```
 maestria start [-i <dir>]

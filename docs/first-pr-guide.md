@@ -1,6 +1,6 @@
-# First PR Guide (Maestria)
+# First PR Guide (Sillage)
 
-Welcome to Maestria.
+Welcome to Sillage.
 The repository is opinionated: keep the domain pure, keep side effects explicit, keep policies explicit.
 
 ## 1) Before you open a PR
@@ -54,4 +54,4 @@ This repository enforces format in workflow.
 Philosophy checks, format, lints, tests, and dependency hygiene are part of architecture,
 not optional ceremony.
 
-Maestria is intended to stay deterministic and composable. The strict gates are non-negotiable.
+Sillage is intended to stay deterministic and composable. The strict gates are non-negotiable.
