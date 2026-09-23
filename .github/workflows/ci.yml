@@ -292,6 +292,7 @@ jobs:
       - uses: ./.github/actions/setup-frontend
         with:
           native-test: 'true'
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Build bundled native launcher
         run: pnpm --dir launcher tauri build --no-bundle
       - name: Check launcher state transitions

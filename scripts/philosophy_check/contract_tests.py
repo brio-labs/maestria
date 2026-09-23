@@ -436,7 +436,7 @@ POLICY_DOC_MARKERS = {
         "43. Every retrieval lane",
         "44. Retrieval changes",
         "45. Normative architecture",
-        "46. Maestria preserves",
+        "preserves external observations and provenance",
         "47. Model-generated search plans",
         "55. Learned-sparse retrieval",
         "56. Domain types own",
