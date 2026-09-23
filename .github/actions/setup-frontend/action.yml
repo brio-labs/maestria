@@ -1,4 +1,4 @@
-name: 'Setup and build Maestria launcher frontend'
+name: 'Setup and build Sillage launcher frontend'
 description: 'Install the pinned Node.js/pnpm toolchain and build launcher/dist for Tauri code generation'
 inputs:
   native-test:
@@ -40,3 +40,5 @@ runs:
       if: inputs.native-test == 'true'
       shell: bash
       run: cargo install tauri-driver --version 2.0.6 --locked
+      env:
+        RUSTC_WRAPPER: ''

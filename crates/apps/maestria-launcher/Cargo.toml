@@ -22,7 +22,6 @@ serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["sync", "time", "macros"] }
 toml.workspace = true
-thiserror.workspace = true
 raw-window-handle = "0.6"
 
 [target.'cfg(target_os = "linux")'.dependencies]
