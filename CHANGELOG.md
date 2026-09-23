@@ -12,7 +12,13 @@ surface (CLI, daemon API, studio, and web) that scopes repository code
 intelligence to a reviewed set of directories.
 
 ### Added
-
+- Linux-first resident Maestria Launcher (Tauri 2, React 19, GTK3/WebKitGTK 4.1):
+  isolated application catalog, host commands, calculator, native selected-file
+  open/copy actions, keyboard-first Preferences, X11 shortcut setup, Wayland
+  portal and compositor-owned activation fallback, explicit `--activate`/`--quit`,
+  Debian/AppImage packaging, and opt-in content-free renderer-ready timing.
+  The launcher neither starts the daemon nor indexes files; daemon-backed
+  launcher file search and extension commands remain pending.
 - Graceful shutdown drain: with `drain_effects_on_shutdown`, the runtime
   keeps servicing domain inputs while in-flight effects finish, so an
   effect completing after cancellation still delivers (and persists) its
@@ -133,6 +139,12 @@ intelligence to a reviewed set of directories.
 
 ### Fixed
 
+- Launcher boundary fixes: stale searches retain Preferences scope; replaced
+  catalog results cannot dispatch actions; file open/copy checks the accepted
+  generation through native dispatch; invalid saved shortcuts retain their file
+  with a warning; reset clears the binding before persisting defaults; worker
+  startup errors abort launch; and stale timing requests cannot erase newer
+  measurements. Copy feedback no longer hides catalog failures.
 - Instance write-lock liveness records the holder's process start ticks:
   after a crash with pid reuse, a stale lock was treated as held by a live
   process, wedging the instance (tests hit this as flaky approval/memory

@@ -2,6 +2,20 @@
 
 This document is enforceable. CI and review block violations.
 
+## Product priority
+
+Maestria prioritizes responsiveness, keyboard-first explicit actions,
+local-first search, and capability-scoped extensions. A focused native Linux
+launcher ships; daemon-backed launcher file search and the extension platform
+remain planned. Current CLI, daemon, Studio, and retrieval surfaces remain
+supported backend and advanced capabilities.
+
+Retrieval-specific rules apply when retrieval capabilities are changed or
+served. They do not require every research lane to ship or become a product
+default. Planned extension controls in the architecture and security contracts
+are review requirements pending implementation and adversarial verification,
+not already CI-enforced guarantees.
+
 ## Rules
 
 1. Domain code must be deterministic: no time, network, filesystem, process calls, random sampling, or hidden global state.

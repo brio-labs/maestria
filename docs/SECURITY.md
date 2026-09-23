@@ -96,6 +96,50 @@ the daemon's token-and-scope check is the authority. ADR-0010 records
 this topology decision; new browser capabilities extend the typed socket
 API, never the daemon's transport.
 
+### 3.1 Planned Extension Threat Model
+
+The extension platform is planned and its isolation guarantees are target
+requirements pending implementation and adversarial verification. No
+installable extension contract exists today, and the current Studio/ACP host
+must not be treated as sandboxed extension execution.
+
+Extension packages, development directories, bundled JavaScript, indexed text,
+model output, and extension output are untrusted. The future extension manager
+validates package identity and version, SDK API compatibility, entrypoints,
+command IDs, permissions, archive boundaries, and symlink behavior before
+execution. Malformed packages, duplicate IDs, undeclared entrypoints, archive
+traversal, and symlink escapes are rejected.
+
+The worker is a separate trust boundary from the launcher renderer, daemon,
+and broker. It receives no ambient home-directory, daemon-socket, credential,
+or network access. An OS-enforced Linux isolation boundary is verified before
+third-party code starts; execution is refused if it is unavailable. A
+subprocess alone or a JavaScript permission flag is not a sandbox.
+
+The broker is a future trusted client of the existing authenticated daemon
+socket, not a new daemon network listener. It mediates typed host requests and
+checks the active extension grant on every request. Scoped file search,
+user-selected reads, granted-origin HTTP, extension-local storage,
+notifications, and explicit open/copy effects require the corresponding
+capability. Shell/process execution, background daemons, global keystroke
+observation, clipboard history, and unrestricted filesystem access are not
+part of the initial platform.
+
+Installation and updates require explicit grants. Added permissions require
+new consent; validation or approval failure retains the previous working
+version. Disable, revoke, and uninstall remove commands immediately and
+cancel active work. Uninstall removes executable code and grants and offers an
+explicit delete-or-retain choice for extension-local data, defaulting to
+delete.
+
+Worker CPU/time, memory, output, request queues, and view sizes are bounded.
+Hung or crashed workers are terminated and yield extension-local errors
+without blocking launch/search or entering an automatic restart loop.
+Side-effectful requests are never automatically retried. Workers cannot
+modify policy, promote evidence, grant capabilities, or obtain unrestricted
+instance bearer tokens. Development code uses the same boundary and
+permission model as installed code.
+
 ## 4. Scope and Authorization
 
 Scope is explicit on every operation that can read, write, execute, retrieve, fetch, or promote data.

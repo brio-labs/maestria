@@ -1,105 +1,172 @@
-# Implementation Roadmap
+# Maestria Product Roadmap
 
-This document serves as the single canonical implementation roadmap for the Maestria search architecture.
+This document is the single canonical product roadmap for Maestria. M1 has
+a working native launcher slice but is not complete; M2–M4 remain planned.
+Each milestone has explicit exit criteria. Historical retrieval reports do
+not satisfy product-milestone evidence, and backend capabilities alone do
+not count as launcher integrations.
 
-The roadmap is phased. Advancing to a subsequent phase requires meeting all observable exit criteria of the current phase.
+## Milestone 1: Desktop Launcher
 
-## Phase 1: Deterministic Baseline
-Establish a robust, entirely deterministic foundation for exact and structure-aware search.
-*   **Goals:** Exact identifiers, lexical candidates, source spans, provenance, and reproducible traces.
-*   **Exit Criteria:**
-    *   A versioned Maestria evaluation corpus reports exact-match precision/recall and latency against an approved baseline.
-    *   Search results map to immutable source versions and spans, with no scope or ACL leakage.
-    *   Index mutations are journaled and projections can be rebuilt from authoritative state.
+**Status:** In progress — native shell, catalog, commands, calculator, selected-file actions,
+X11 shortcut and Wayland portal/fallback are implemented; daemon-backed file search is pending.
 
-## Phase 2: Hybrid Search and Reranking
-Introduce additional candidate lanes only when they improve the deterministic baseline for a measured query class.
-*   **Goals:** Fuse independently testable lexical and semantic candidates, then apply bounded reranking and evidence diversity.
-*   **Exit Criteria:**
-    *   Versioned evaluation reports show a statistically meaningful quality improvement for the target query set within declared latency, memory, privacy, security, and energy budgets.
-    *   Reranking, fusion, and model/index fingerprints are recorded in reproducible traces.
-    *   Pluggable adapters allow swapping candidate implementations without core-system changes.
+**Scope:** Build the resident Linux surface with a user-configurable global
+shortcut and an explicit compositor-configured fallback; discover and launch
+applications from XDG desktop entries; provide a host command registry, safe
+arithmetic calculations, keyboard and focus behavior, open/copy actions, and
+baseline latency instrumentation. The launcher uses the existing daemon for
+file-search work but remains interactive when no daemon or model is available.
 
-## Phase 3: Adaptive Planning
-Implement dynamic query routing and bounded multi-stage retrieval.
-*   **Goals:** Select deterministic, lexical, semantic, graph, temporal, code, or visual lanes by typed intent and available budget.
-*   **Exit Criteria:**
-    *   Routing and decomposition are evaluated against a versioned judgment set and never bypass scope, ACL, trust, sensitivity, quarantine, or prompt-injection filters before scoring or exposure.
-    *   Every plan has explicit budgets, stopping conditions, evidence coverage, and abstention behavior.
-    *   Implementation of the observation/candidate/promotion lifecycle detailed in [MEMORY.md](./MEMORY.md).
+**Dependencies:** None. This milestone establishes the command and explicit
+action contract consumed by later milestones.
 
-## Phase 4: Code Intelligence
-Deep structural and contextual understanding of codebases.
-*   **Goals:** Cross-file dependency resolution, type-aware search, and semantic similarity of code blocks.
-*   **Exit Criteria:**
-    *   A versioned Rust repository benchmark reports symbol, relation, and exact-span recall for supported language features across frozen query classes.
-    *   Live freshness checks detect changed worktree sources without returning stale evidence as current.
-    *   Code retrieval preserves ACL, provenance, and deterministic trace requirements.
-    *   Specialized routing is shadowed by default and activates only for query classes with a measured evidence-quality, freshness, and latency win; unsupported or unsafe questions abstain.
-    *   The phase uses the shared Rule 44 evaluation contract: quality, latency, memory, privacy, security, and energy are measured on the versioned corpus.
+**Exit criteria:** The product can be invoked, find an application, launch it,
+reopen, calculate `2 + 2`, copy `4`, and dismiss without a daemon or model.
+Wayland and X11 integration are verified separately, including the documented
+fallback when a compositor cannot grant a global shortcut.
 
-## Phase 5: Visual Documents
-Expand search capabilities to include visual assets and structured document regions.
-*   **Goals:** Retrieve pages, tables, charts, figures, and visual regions with source coordinates.
-*   **Exit Criteria:**
-    *   A versioned visual-document benchmark reports region recall, citation alignment, and table/figure coverage.
-    *   Visual candidates retain immutable page/region provenance and pass the same scope, trust, and quarantine gates as text.
-    *   The phase uses the shared Rule 44 evaluation contract: quality, latency, memory, privacy, security, and energy are measured on the versioned corpus.
+## Milestone 2: Extension Platform
 
-## Phase 6: Advanced Research
-Explore additional retrieval paradigms only where measured quality/cost/security frontiers justify them.
-*   **Goals:** Evaluate experimental architectures without turning candidates into permanent defaults.
-*   **Exit Criteria:**
-    *   Candidates listed in [RESEARCH.md](./RESEARCH.md) are evaluated against quality, latency, memory, privacy, security, and energy budgets.
-    *   Promotion records include reproducible corpus/index fingerprints, rollback compatibility, and a dated decision.
+**Status:** Planned
 
+**Scope:** Deliver the Maestria-specific TypeScript SDK, versioned manifest
+validation, development loading and local-bundle installation, host-rendered
+declarative list/detail/form UI, capability grants, an authenticated broker,
+isolated workers, disable/revoke behavior, validated atomic updates,
+uninstall and extension-local data handling, resource bounds, cancellation,
+crash handling, and author-facing examples. The initial platform excludes
+Raycast, Node.js, native-addon, arbitrary-DOM, and React compatibility.
 
+**Dependencies:** Depends on M1's command/action contract. SDK design and
+broker/isolation work may proceed alongside M1. This milestone is mandatory,
+not an optional post-launch ecosystem phase.
 
-**Current checkpoint (2026-09-11):** Phase 6 remains open. The learned-sparse
-and late-interaction evaluations are complete non-promoting decisions; the
-measured dense result promotes only `DomainTerminology`.
-The bounded supported-route run completed: repository process-RSS and
-persisted-index disk measurements now emit real values, while RAPL energy and
-serving-boundary security counters remain unavailable. The real visual
-provider now has a measured four-thread ONNX optimization that materially
-reduces inference latency, but the optimized end-to-end run still exceeds
-four of six frozen visual latency budgets and leaves resource measurement
-status unavailable. The next gate is closing those evidence gaps for the
-current exact, lexical, dense-hybrid, repository, and visual routes. No
-additional research lane is implemented solely because its issue is next in
-numeric order.
+**Exit criteria:** An extension built using only the published SDK installs from
+a local bundle, displays a searchable list/detail/form, and runs a permitted
+action. Denied network/file access, cancellation, worker crash, and a
+permission-expanding update behave as specified, with the previous working
+version retained when validation or consent fails.
 
-## Version-to-Phase Mapping
+## Milestone 3: Semantic File Search
 
-The following table maps roadmap phases to each capability surface with its
-current status.
+**Status:** Planned
 
-| Capability | Phase | Status |
-|---|---|---|
-| Local file indexing | 1 | Stable |
-| Lexical (BM25) search | 1 | Stable |
-| Evidence opening | 1 | Stable |
-| Daemon projection | 1 | Stable |
-| Task lifecycle & validation | 1 | Stable |
-| Approval resolution | 1 | Stable |
-| Memory candidates & promotion | 1 | Stable |
-| Search observability (explain/trace/compare) | 3 | Stable |
-| Index generations observability | 3 | Stable |
-| Evidence coverage observability | 3 | Stable |
-| Repository/Cargo code indexing | 4 | Shadowed |
-| Code symbol/path/regex/context search | 4 | Shadowed |
-| Visual document region retrieval | 5 | Research-only (thread-pinned latency optimization retained; promotion blocked) |
-| Dense (embedding) retrieval | 2 | Provider-dependent |
-| Web evidence with governed adapter | 3 | Provider-dependent |
-| Advanced dense / learned-sparse reranking | 2 | Research-only |
-| Late-interaction / graph / temporal retrieval | 6 | Research-only |
-| Multimodal promotion | 6 | Research-only |
+**Scope:** Add approved read roots, live indexing and status, file-name/path and
+lexical results, optional local dense enrichment, freshness handling, and
+worker-level cancellation behind the M1 action contract. Reuse the daemon's
+warm retrieval runtime, source hashes, authorization, and projection
+generations; retain the last usable index during rebuilds and revalidate
+availability and authorization before opening a result.
 
+**Dependencies:** Depends on M1. It can progress independently of M2 behind
+the same action contract.
 
-## Phase Advancement
+**Exit criteria:** Exact path lookup works without a model; a held-out
+paraphrase retrieves its relevant document with the configured provider; edits
+and deletes become visible; out-of-scope documents never appear; and a stalled
+provider leaves deterministic search responsive.
 
-Phases advance when their exit criteria are met and demonstrated by the
-checked-in benchmark contracts under `tests/contracts/` and the CI jobs that
-run them. There is no release ladder: `main` is always the current build, the
-workspace version stays at `0.0.0` until the project ships, and lint-exemption
-expiries are calendar dates enforced by `philosophy-check`.
+## Milestone 4: First Product Release
+
+**Status:** Planned
+
+**Scope:** Package the Linux product, complete permission and onboarding flows,
+publish extension-author install/run instructions, and provide recovery
+behavior plus complete latency, resource, and isolation evidence. The release
+must keep current CLI daemon lifecycle behavior explicit while making desktop
+startup an opt-in onboarding choice.
+
+**Dependencies:** Depends on M1, M2, and M3.
+
+**Exit criteria:** A fresh Linux user can install, invoke, launch, search,
+install/use/remove an extension, and recover from a worker crash without CLI
+repair. Publish the tested compositor matrix and benchmark environment;
+unsupported global shortcuts use the explicit binding fallback.
+
+## Existing reusable foundations
+
+These capabilities exist in the current developer build and remain supported
+backend or advanced surfaces. They are not wired into native launcher file search:
+
+| Capability | Current status |
+|---|---|
+| CLI and authenticated per-instance daemon | Exists; lifecycle remains explicit |
+| Approved read-root manifests and local indexing | Exists |
+| Lexical search, evidence opening, and rebuildable projections | Exists |
+| Warm retrieval runtime and typed retrieval/security boundaries | Exists |
+| Dense semantic retrieval | Provider-dependent |
+| Browser-hosted Studio and external ACP integration | Exists as a secondary surface; not an extension platform |
+| Notebook, task, validation, approval, and memory workflows | Existing advanced capabilities |
+| Repository/code and visual retrieval | Existing provider/freshness-degraded or research-only surfaces |
+
+The resident Linux launcher, application catalog, host commands, calculations,
+and platform shortcut integration exist. Daemon-backed file search, extension
+lifecycle, TypeScript SDK, broker, isolated workers, and sandbox remain planned.
+Retrieval benchmarks are not evidence that launcher file search shipped.
+
+## Initial performance acceptance targets
+
+These are **product acceptance budgets, not Raycast comparisons**. The launcher
+slice has the limited X11 measurements below; the combined product, file search,
+physical presentation, and background-indexing targets remain unverified:
+
+- On a recorded Linux x86_64, SSD, at least 16 GiB RAM reference system, warm
+  shortcut-to-interactive-window p95 is ≤100 ms; keystroke-to-app/command
+  results p95 is ≤50 ms; warm filename/lexical first results p95 is ≤100 ms.
+- For 10,000 eligible text files capped at 100 MiB total text and 500 desktop
+  entries, optional local semantic first results p95 are ≤500 ms, and an exact
+  file-path query ranks the matching authorized path first.
+- Resident launcher plus daemon plus broker idle RSS is ≤200 MiB, excluding
+  separately reported model-provider memory and active workers. Idle CPU
+  averages ≤1% of one logical core over 60 seconds with no indexing.
+- Measure cold startup separately, with a ≤1 second window-interactive target;
+  model loading and index rebuild must not block it.
+- Capture at least 200 warm interactions per latency class, with p50/p95/p99,
+  hardware/session/provider/index identity, and a repeat while background
+  indexing is active. Also report full-process-tree memory,
+  indexing-throughput/disk-footprint, and energy where available; unavailable
+  counters stay unavailable.
+- Assess semantic quality using at least 50 held-out paraphrase queries with
+  relevance judgments on the frozen corpus. Require recall@10 improvement over
+  lexical search, no exact-path regression, and zero unauthorized exposure.
+  Existing retrieval promotion requirements continue to apply; target budgets
+  do not silently activate shadow routes.
+
+### Launcher-only X11 measurement (2026-09-23)
+
+On an Intel Core Ultra 7 258V, private Xvfb/JWM display, WebKit DPR 1,
+Noto Sans, release build, and 500 frozen desktop entries, 200 warm activations
+and 200 app queries produced:
+
+| Observation | p50 / p95 / p99 |
+| --- | --- |
+| Native activation receipt to renderer-ready acknowledgment | 24.721 / 30.715 / 33.207 ms |
+| Injected X11 shortcut dispatch to observed acknowledgment | 63.462 / 80.717 / 87.888 ms |
+| Renderer query input to results-ready acknowledgment | 10 / 19 / 22 ms |
+| Native query receipt to results-ready acknowledgment | 10.198 / 19.046 / 21.804 ms |
+
+The renderer acknowledges after React commits and requests an animation frame;
+this does **not** prove physical pixel presentation. Injected X11 keys include
+tool and monitoring overhead and do **not** measure human physical-key latency.
+A cold WebDriver-session-to-visible-interactive upper bound was **1,051.115 ms**:
+it includes automation overhead, misses the ≤1 s bound as measured, and
+neither proves nor disproves the application's standalone cold-start target.
+Hidden idle CPU over 60.087 s was 0.1165% of one core. Launcher-only RSS was
+180.434 MiB native plus 372.109 MiB WebKit subprocesses, totaling 552.543 MiB
+in summed process RSS. The launcher alone exceeds 200 MiB on that measure;
+shared-page accounting and the planned daemon/broker make this **not** a
+certification of the combined-product memory budget. Raw local measurements
+and caveats are in `target/launcher-evidence/launcher-measurements.json`.
+
+## Non-blocking research and future scope
+
+Advanced sparse, late-interaction, graph, temporal, counterevidence, fusion,
+visual, and other retrieval research; AI agents; clipboard history; snippets;
+cloud sync; a marketplace; and operating systems beyond the Linux target do
+not block these four milestones. Their dated measurements remain research
+evidence and must not be relabeled as launcher evidence.
+
+The product roadmap advances only when its own milestone exit criteria are
+shown. Existing retrieval reports, implementation status, provider adapters,
+and issue order do not advance a product milestone or activate a shadow route.

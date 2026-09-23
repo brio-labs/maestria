@@ -36,7 +36,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "2636d029d450559c7b663a22891018a1d0ad193b64014aad897e66981ad69df9"
+        "source_hash": "1a8bb2f5d0acd0f5d84cbd4ec4752cc4740ba5e000366903f09ce94ca237cb09"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -51,15 +51,15 @@
       "results": {
         "quality": {
           "status": "warning",
-          "reason": "golden gate is measured; source-index report is generated in CI"
+          "reason": "Retained golden observations are historical evidence; README.md, docs/ARCHITECTURE.md, and docs/PHILOSOPHY.md changed, so fresh evaluation is required before any new promotion."
         },
         "resource": {
           "status": "warning",
-          "reason": "platform counters are reported only when available"
+          "reason": "Retained resource status is historical evidence; README.md, docs/ARCHITECTURE.md, and docs/PHILOSOPHY.md changed, so fresh resource measurement is required before any new promotion."
         },
         "security": {
           "status": "warning",
-          "reason": "security counters are unavailable for this deterministic fixture"
+          "reason": "Retained security status is historical evidence; README.md, docs/ARCHITECTURE.md, and docs/PHILOSOPHY.md changed, so fresh security evaluation is required before any new promotion."
         }
       },
       "degradations": [
@@ -70,6 +70,10 @@
         {
           "area": "observations",
           "description": "Golden observations are deterministic contract fixtures, not measured performance for a live provider or index."
+        },
+        {
+          "area": "source-change",
+          "description": "The product-reset documentation changed README.md, docs/ARCHITECTURE.md, and docs/PHILOSOPHY.md source inputs; retained reports are historical evidence and require fresh evaluation before any new promotion."
         }
       ],
       "reports": [
@@ -92,7 +96,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "2636d029d450559c7b663a22891018a1d0ad193b64014aad897e66981ad69df9"
+        "source_hash": "1a8bb2f5d0acd0f5d84cbd4ec4752cc4740ba5e000366903f09ce94ca237cb09"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -107,15 +111,15 @@
       "results": {
         "quality": {
           "status": "warning",
-          "reason": "comparison is retained against the deterministic baseline; no route is promoted without a measured win"
+          "reason": "The retained hybrid comparison is historical evidence; README.md, docs/ARCHITECTURE.md, and docs/PHILOSOPHY.md changed, so fresh evaluation is required before any new promotion."
         },
         "resource": {
           "status": "warning",
-          "reason": "memory, disk, and energy counters are explicit when unavailable"
+          "reason": "Retained hybrid resource status is historical evidence; README.md, docs/ARCHITECTURE.md, and docs/PHILOSOPHY.md changed, so fresh resource measurement is required before any new promotion."
         },
         "security": {
           "status": "warning",
-          "reason": "security counters are unavailable for the staged hybrid fixture"
+          "reason": "Retained hybrid security status is historical evidence; README.md, docs/ARCHITECTURE.md, and docs/PHILOSOPHY.md changed, so fresh security evaluation is required before any new promotion."
         }
       },
       "degradations": [
@@ -126,6 +130,10 @@
         {
           "area": "comparison",
           "description": "The checked-in golden fixture does not contain a v0.5 hybrid profile; hybrid quality and resource comparison remains pending."
+        },
+        {
+          "area": "source-change",
+          "description": "The product-reset documentation changed README.md, docs/ARCHITECTURE.md, and docs/PHILOSOPHY.md source inputs; retained reports are historical evidence and require fresh evaluation before any new promotion."
         }
       ],
       "reports": [
@@ -225,7 +233,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/formula-page.svg",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/scanned-page.svg"
         ],
-        "source_hash": "9add674bdfa356e45ba6046d78f18d123bdabf5b35573f71c6c4fffe8536d8ac"
+        "source_hash": "f144ebc008a0d4e83dd7cdad2a23cdac7086f7f4ccf562b2c4dbddabb3a93786"
       },
       "fingerprints": {
         "corpus_snapshot": "visual-retrieval-benchmark-v1@visual-fixture-r2",
@@ -240,15 +248,15 @@
       "results": {
         "quality": {
           "status": "warning",
-          "reason": "real visual-provider observations preserve quality and show a measured latency improvement; no class satisfies the complete quality, latency, resource, and measurement gates"
+          "reason": "Retained visual-provider observations are historical evidence; docs/ARCHITECTURE.md changed, so fresh quality evaluation is required before any new promotion."
         },
         "resource": {
           "status": "warning",
-          "reason": "four-thread inference lowers provider latency, but four of six optimized visual cases still exceed frozen budgets and peak-memory, energy, and measurement telemetry is incomplete"
+          "reason": "Retained visual resource status is historical evidence; docs/ARCHITECTURE.md changed, so fresh resource measurement is required before any new promotion."
         },
         "security": {
           "status": "warning",
-          "reason": "fixture security checks record zero violations; serving-boundary security counters are not independently measured"
+          "reason": "Retained visual security status is historical evidence; docs/ARCHITECTURE.md changed, so fresh security evaluation is required before any new promotion."
         }
       },
       "degradations": [
@@ -263,6 +271,10 @@
         {
           "area": "ocr",
           "description": "Scanned-page cases remain an explicit OCR degradation until the real OCR route meets the frozen quality and resource gates."
+        },
+        {
+          "area": "source-change",
+          "description": "The product-reset documentation changed docs/ARCHITECTURE.md as a benchmark source input; the retained report is historical evidence and requires fresh evaluation before any new promotion."
         }
       ],
       "reports": [

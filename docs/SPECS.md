@@ -11,7 +11,7 @@ Durable architecture is split by responsibility:
 - [MEMORY.md](MEMORY.md): source-backed memory lifecycle;
 - [SECURITY.md](SECURITY.md): scope, trust, taint, secrets, and prompt-injection boundaries;
 - [OPERATIONS.md](OPERATIONS.md): runtime lifecycle, recovery, and projection rebuilds;
-- [ROADMAP.md](ROADMAP.md): the single canonical implementation roadmap;
+- [ROADMAP.md](ROADMAP.md): the single canonical product roadmap;
 - [RESEARCH.md](RESEARCH.md): dated, non-normative evaluation candidates.
 
 `PHILOSOPHY.md` is the enforceable repository doctrine. This ledger defines the
@@ -48,6 +48,29 @@ invariants that implementation and verification must preserve.
 | `I-Search-TraceFingerprint` | Every search trace identifies the query, corpus snapshot, index generation, retrieval-model fingerprint, stages, filters, and stop reason. |
 | `I-Search-SecurityBeforeScore` | Scope, ACL, trust, sensitivity, quarantine, and prompt-injection checks run before candidate scoring or exposure. |
 | `I-Search-Evaluated` | Retrieval changes are evaluated against a versioned corpus and judgment set under quality, latency, memory, privacy, security, and energy budgets. |
+
+## Planned Product Contract
+
+This subsection defines the target product contract, not a claim that every
+launcher or extension capability ships. The native launcher has a working
+slice; target ownership, query behavior, and
+process boundaries are defined in
+[`ARCHITECTURE.md`](ARCHITECTURE.md#target-product-architecture) and the
+planned extension threat model is defined in
+[`SECURITY.md`](SECURITY.md#planned-extension-threat-model).
+
+The canonical product milestones and their exit criteria are in
+[`ROADMAP.md`](ROADMAP.md): Desktop Launcher, Extension Platform, Semantic
+File Search, and First Product Release. The launcher milestone is in progress;
+the remaining three are planned. Old retrieval reports do not satisfy their
+exit criteria.
+
+Notebook, task, validation, approval, and memory behavior remains part of the
+supporting existing subsystems described by this ledger. The extension
+package, SDK, broker, worker, and sandbox controls are target review
+requirements pending implementation and adversarial verification. This ledger
+does not claim mechanically enforced extension invariants, publish SDK
+exports, or alter the Rust domain contracts below.
 
 ## Bootstrap Books
 

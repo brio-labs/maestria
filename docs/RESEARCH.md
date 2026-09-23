@@ -8,7 +8,9 @@ This document tracks experimental candidates for the Maestria search architectur
 
 ## 1. Evaluation Framework
 
-Candidates are evaluated strictly against the Maestria internal corpora. A candidate is eligible for promotion to the [ROADMAP.md](./ROADMAP.md) only if it demonstrates superior performance across the following budgets:
+Candidates are evaluated strictly against the Maestria internal corpora. A
+candidate is eligible for evaluated subsystem activation only if it
+demonstrates superior performance across the following budgets:
 
 * **Quality:** Precision, recall, exact-span retrieval, evidence-chain coverage, and relevance scores on standardized benchmarks.
 * **Latency:** P50, P95, and P99 response times for typical query loads.
@@ -17,6 +19,9 @@ Candidates are evaluated strictly against the Maestria internal corpora. A candi
 * **Privacy:** Compliance with local-first processing requirements, data sovereignty, provider disclosure, and retention guarantees.
 * **Security:** No ACL leakage, prohibited-candidate exposure, prompt-injection authorization, secret disclosure, quarantine escape, poisoning success, or fail-open behavior.
 * **Energy:** Joules per query or indexing operation where the platform can measure them. Unavailable telemetry remains explicit and is never fabricated.
+
+The product roadmap records product milestones; it is not a queue of models or
+research candidates.
 
 Synthetic or deterministic contract fixtures may prove schemas, lifecycle rules, and regressions. They do not prove product quality and cannot authorize a production promotion.
 
@@ -482,9 +487,12 @@ was built or promoted. The negative result is therefore: late interaction
 does not qualify for Stage A serving on this frozen run, and Stage B has no
 independent need authorization.
 
-## 4.5. Product-exit evidence checkpoint (dated 2026-09-11)
+## 4.5. Historical product-exit evidence checkpoint (dated 2026-09-11)
 
 The current ledger does not certify a product-complete retrieval surface.
+This dated section is historical retrieval evidence and does not certify a
+current product milestone.
+
 The machine-readable statuses are recorded in
 [`tests/contracts/benchmark_evidence_v1.json`](../tests/contracts/benchmark_evidence_v1.json).
 `v1.2` and `v1.3` contain complete real lane evaluations, but their pass
@@ -508,10 +516,10 @@ The required evidence task is a bounded product-exit report for the currently
 supported exact, lexical, dense-hybrid, repository, and visual surfaces. It
 must preserve the existing per-class routes and report quality, p50/p95/p99
 latency, memory, disk, privacy, security, freshness, update/rollback, and
-energy availability without converting unavailable counters into passes. The
-2026-09-11 run is an evidence snapshot, not completion of that gate; Phase 6
-remains open and no additional experimental lane is justified by the existence
-of an issue or adapter.
+energy availability without converting unavailable counters into passes.
+The 2026-09-11 run is an evidence snapshot, not completion of that retrieval
+gate; the former retrieval Phase 6 remained open and no additional
+experimental lane was justified by the existence of an issue or adapter.
 
 ### 4.5.1. Bounded supported-route run (2026-09-11)
 
@@ -565,15 +573,39 @@ the quality and latency improvement. The thread configuration is retained as
 a bounded research optimization; the visual route remains
 provider-dependent/research-only and shadowed.
 
+## 4.6. Historical retrieval roadmap checkpoint (dated 2026-09-11)
+
+This record was migrated from the former implementation roadmap. It is
+historical retrieval evidence, not a current product milestone or gate.
+
+**Historical checkpoint (2026-09-11):** Retrieval Phase 6 remained open. The
+learned-sparse and late-interaction evaluations were complete non-promoting
+decisions; the measured dense result promoted only `DomainTerminology`.
+
+The bounded supported-route run completed: repository process-RSS and
+persisted-index disk measurements emitted real values, while RAPL energy and
+serving-boundary security counters remained unavailable. The real visual
+provider had a measured four-thread ONNX optimization that materially reduced
+inference latency, but the optimized end-to-end run still exceeded four of six
+frozen visual latency budgets and left resource measurement status unavailable.
+
+The next retrieval gate was closing those evidence gaps for the exact,
+lexical, dense-hybrid, repository, and visual routes. No additional research
+lane was implemented solely because its issue was next in numeric order.
+
 ## 3. Promotion Criteria
 
-A candidate is promoted from this research document to an active architectural component only when:
+A candidate is eligible for evaluated subsystem activation only when:
 
 1. For each proposed served query class, it beats that class's eligible existing baseline on a frozen, versioned Maestria evaluation corpus; protected exact and lexical paths remain unchanged.
 2. It satisfies all requirements of [OPERATIONS.md](./OPERATIONS.md), including reproducibility, generation lifecycle, cancellation, degradation, and rollback.
 3. The integration is abstracted behind provider-neutral contracts and remains replaceable.
 4. The dated report records corpus, judgment, model/index, environment, quality, resource, privacy, security, and energy evidence.
-5. Promotion is restricted to the query classes and exact route configuration that won; all other paths remain shadowed or use the conservative baseline.
+5. Activation is restricted to the query classes and exact route configuration that won; all other paths remain shadowed or use the conservative baseline.
+
+These criteria govern retrieval subsystem activation; they do not schedule
+product milestones. The product roadmap is not a queue of models or research
+candidates.
 
 The numeric budgets in a frozen corpus are comparability gates, not universal
 product SLOs. Changing a budget requires a new corpus revision and a

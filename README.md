@@ -1,9 +1,35 @@
 # Maestria
 
-Maestria is a local-first, source-grounded second-brain runtime for AI agents.
-It indexes your files, executes typed, query-adaptive searches, links evidence to
-memory and tasks, and runs a restart-safe daemon for continuous operation — all
-under explicit policy and validation gates.
+Maestria is an open-source, Linux-first keyboard launcher and extension platform with local semantic search.
+
+That is the target product direction. The current build provides a CLI, daemon,
+browser-hosted Studio, retrieval infrastructure, and a separate native Linux
+launcher. The extension SDK and daemon-backed launcher file search remain planned.
+
+## Product direction
+
+The primary loop is: invoke the launcher → type → select a result → execute an
+explicit action → dismiss. The native launcher discovers installed applications,
+exposes registered host commands, performs safe arithmetic calculations, and
+opens or copies only files selected in the native chooser. Future milestones add
+daemon-backed file-name, path, and content search, optional semantic enrichment,
+and extension commands. “Commands” means registered host or extension actions,
+not arbitrary shell evaluation of typed text.
+
+The current build and target product remain intentionally different surfaces:
+
+| Capability | Status |
+|---|---|
+| File indexing and lexical file search | Available in the explicit CLI/daemon workflow; not connected to launcher queries |
+| Dense semantic search | Provider-dependent in the CLI/daemon workflow |
+| Native resident launcher and application catalog | Available on Linux |
+| X11 global shortcut | Available after user setup in Preferences |
+| Wayland global shortcut | Portal where supported; otherwise bind `maestria-launcher --activate` in the compositor |
+| Extension lifecycle, SDK, isolated workers and capability broker | Planned |
+
+The existing CLI and daemon quick start below is for the current developer
+build, not launcher onboarding. Notebook, task, and memory workflows remain
+supported advanced existing capabilities.
 
 ## Install
 
@@ -21,8 +47,59 @@ cargo build --release -p maestria-cli
 Maestria has no releases: the workspace version is pinned at `0.0.0` and
 `main` is always the current build. Build the CLI and daemon from source.
 
+### Native Linux launcher
 
-## Quick start
+Building the launcher requires Node 24, pnpm 9.15.9, Rust stable 1.95+, GTK3,
+WebKitGTK 4.1/JavaScriptCoreGTK 4.1, and the Linux Tauri system dependencies.
+On Ubuntu 24.04, the build also produces a Debian package and AppImage:
+
+```bash
+corepack pnpm@9.15.9 --dir launcher install --frozen-lockfile
+corepack pnpm@9.15.9 --dir launcher tauri build
+./target/release/maestria-launcher
+```
+
+For a direct Cargo release build, first build `launcher/dist` and include
+`--features custom-protocol` with `cargo build --release -p maestria-launcher`.
+Without that feature, Tauri targets the Vite development URL instead of
+embedding the launcher frontend; the Tauri CLI command above enables it.
+
+The package artifacts are under `target/release/bundle/{deb,appimage}/`. A
+Debian installation provides `maestria-launcher` on `PATH` and a desktop entry
+whose `Exec` is `maestria-launcher --activate`. No daemon or model is started,
+and installation does not enable autostart. Use `maestria-launcher --activate`
+to show and focus the resident window and `maestria-launcher --quit` for an
+explicit shutdown. Closing or unfocusing the window hides it without ending
+the resident process.
+
+Set up the X11 shortcut in Preferences; the initial suggestion is
+`Control+Space`. On Wayland, the global-shortcuts portal needs a desktop entry
+with the matching `io.github.briolabs.Maestria.Launcher` identity and a
+resolvable `Exec`. The Debian package provides it; an AppImage user must
+integrate its desktop entry with a valid installed executable before portal
+setup. The compositor owns the actual key combination. If it cannot assign
+a portal shortcut, bind a user-chosen key to `maestria-launcher --activate`
+(or to the user's chosen AppImage executable with `--activate`). For a
+Hyprland configuration using its Lua API, a portal binding can use
+`hl.bind("CTRL + SUPER + F12", hl.dsp.global("io.github.briolabs.Maestria.Launcher:activate-launcher"))`;
+this is a **user-controlled example**, not a shipped or enabled default.
+Tiling compositors can enlarge the window; configure a user-owned floating
+and size rule if desired. File selection uses a native chooser and does not
+index the selected directory.
+
+In a launcher-only X11 run with 500 frozen desktop entries and 200 samples per
+class, native activation receipt to renderer-ready p95 was 30.715 ms and query
+input to results-ready p95 was 19 ms. These acknowledgments are not physical
+pixel presentation. A cold WebDriver-inclusive upper bound of 1,051.115 ms
+missed the ≤1 s measurement target; it does not isolate app startup. Summed
+launcher and WebKit RSS was 552.543 MiB, above 200 MiB without a daemon or
+broker. Neither result certifies the planned combined-product targets. The
+hardware, p50/p95/p99, idle CPU, and limitations are in [the roadmap](docs/ROADMAP.md).
+
+## Current developer build quick start
+
+The commands below exercise the current CLI and daemon; they are not
+launcher-onboarding commands.
 
 ```bash
 # 1) Initialize an instance with approved read roots
@@ -260,7 +337,7 @@ hashes, endpoints, and manifest key blocks — are dated implementation
 candidates documented in [`docs/RESEARCH.md`](./docs/RESEARCH.md); omit the
 `ocr_*` and `visual_*` manifest keys to keep the capabilities disabled.
 
-### Tasks, validation, approvals, and memory
+### Advanced existing workflows: tasks, validation, approvals, and memory
 
 Task completion is validation-gated:
 
@@ -424,9 +501,10 @@ maestria search code context <pattern> [--depth <n>] [--nodes <n>] [--direction 
 The code index is built from Cargo metadata and Rust source files. It is
 validated against the instance manifest read scope before indexing and
 queried with live freshness checks. Repository/code features are implemented
-but are marked as provider-dependent and freshness-degraded until a frozen
-benchmark proves a measured quality and resource win (see
-[`docs/ROADMAP.md`](./docs/ROADMAP.md) Phase 4).
+in the current build but remain provider-dependent and freshness-degraded;
+they are not first-product launcher functionality. See
+[`docs/ROADMAP.md`](./docs/ROADMAP.md) for the canonical product milestones
+and [`docs/RESEARCH.md`](./docs/RESEARCH.md) for dated retrieval evidence.
 
 
 ### `open-evidence`
@@ -699,7 +777,6 @@ where it left off without data loss or duplicate work.
 - Domain and governance are side-effect free.
 - All side effects are represented as typed intentions (effects).
 - Policy and mechanism are separated by trait boundaries.
-- Every change is validated through local checks and repository checks.
 - Evidence is typed and source-grounded; raw strings are not evidence.
 - Memory candidates point back to evidence. LLM output can propose; it cannot silently promote.
 
@@ -728,7 +805,7 @@ python3 -m unittest discover -s scripts -p 'test_*.py'
 - [`docs/MEMORY.md`](./docs/MEMORY.md) — source-backed memory lifecycle
 - [`docs/SECURITY.md`](./docs/SECURITY.md) — scope, trust, taint, and secrets
 - [`docs/OPERATIONS.md`](./docs/OPERATIONS.md) — runtime lifecycle and recovery
-- [`docs/ROADMAP.md`](./docs/ROADMAP.md) — canonical implementation roadmap
+- [`docs/ROADMAP.md`](./docs/ROADMAP.md) — canonical product roadmap
 - [`docs/BENCHMARKING.md`](./docs/BENCHMARKING.md) — measurement protocol for performance claims
 - [`docs/RESEARCH.md`](./docs/RESEARCH.md) — dated non-normative evaluation candidates
 - [`docs/architecture/`](./docs/architecture/) — architecture books

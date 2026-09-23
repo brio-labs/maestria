@@ -424,7 +424,7 @@ CANONICAL_DOC_SECTIONS = {
         "## 2. State and Recovery",
         "## 4. Data Evolution",
     ),
-    "docs/ROADMAP.md": ("## Phase 1:", "## Phase 6:"),
+    "docs/ROADMAP.md": ("## Milestone 1:", "## Milestone 4:"),
     "docs/RESEARCH.md": ("## 1. Evaluation Framework", "## 3. Promotion Criteria"),
 }
 

@@ -26,7 +26,8 @@ All tasks, queries, and background jobs operate within a bounded lifecycle:
 *   **Projection Rebuilds:** Read projections (e.g., search indexes, memory views) can be completely rebuilt from the immutable journal at any time.
 
 
-See [ROADMAP.md](./ROADMAP.md) for the implementation schedule of these operational capabilities.
+See [ROADMAP.md](./ROADMAP.md) for the product milestones and their required
+operational evidence.
 
 ### Resource bounds
 
@@ -83,16 +84,25 @@ forgotten.
 
 ## 6. Versioning Posture
 
-Maestria is in continuous development with no external consumers: there are
-no releases, no version ladder, and no milestone exit-evidence process.
+Maestria is in continuous development with no external release promise.
 
 - The workspace version is pinned at `0.0.0`; `main` is always the current
   build.
+- Each product milestone in [ROADMAP.md](./ROADMAP.md) requires its own
+  observable exit evidence. Historical retrieval reports do not satisfy a
+  product-milestone gate.
 - Measurement evidence (benchmark reports) is recorded in
-  `tests/contracts/benchmark_evidence_v1.json` and validated in CI, but it
-  gates nothing and is tied to no milestone.
+  `tests/contracts/benchmark_evidence_v1.json` and validated in CI. It
+  preserves historical retrieval measurements and does not certify completion
+  of the new product milestones.
 - Lint-exemption expiries in `scripts/philosophy_check` are calendar dates
   (`YYYY-MM-DD`), enforced by `philosophy-check` on every run.
+
+### Target desktop onboarding
+
+Desktop onboarding is planned. It may explicitly enable user-session startup
+and configure a launcher shortcut, but it does not silently change the current
+CLI daemon lifecycle: operators still start and stop the daemon explicitly.
 
 
 ## 7. Daemon-First Search Posture

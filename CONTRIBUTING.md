@@ -34,7 +34,9 @@ rustup component add --toolchain nightly-2026-06-15 rustfmt clippy rustc-codegen
    - `test/<short-description>`
    - `refactor/<short-description>`
    - `dev/<short-description>` for an integration objective
-3. Make changes in one logical layer first (`maestria-domain` or `maestria-governance`).
+3. Start each change in the layer that owns the behavior. Native UI and SDK
+   work must not create artificial domain logic; domain and governance changes
+   stay in their owning layers.
 4. Run quality gates locally (minimum):
    ```bash
    cargo fmt --all -- --check
@@ -52,13 +54,12 @@ rustup component add --toolchain nightly-2026-06-15 rustfmt clippy rustc-codegen
    ```
 5. Update docs (`README.md`, `docs/PHILOSOPHY.md`, or `docs/SPECS.md`) when behavior or invariants
    change.
-6. For release-driven work, populate the release milestone description with a
-   machine-readable `release_stage` report before dispatching the release workflow.
-   Milestones begin at `planned` while implementation issues remain open, then move through:
-   `implementation-complete → benchmark-complete → product-complete`.
-   Use `released` only after artifacts are published and `post_release_work`
-   is assigned (synthetic or staged follow-up items should use
-   `maintenance/release` grouping when the repository supports that grouping).
+6. Follow the canonical product-roadmap exit-evidence policy in
+   [`docs/ROADMAP.md`](./docs/ROADMAP.md) for product-milestone work. Map the
+   change to a milestone and record its required evidence. A milestone can be
+   `In progress` when a working slice is demonstrated, but becomes complete only
+   when every exit criterion is met. Historical retrieval reports do not satisfy
+   product exits.
 
 ## Quality standards
 
