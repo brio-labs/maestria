@@ -375,10 +375,10 @@ jobs:
       - name: Check branch name
         run: |
           BRANCH="${{ github.head_ref }}"
-          if ! [[ "$BRANCH" =~ ^((feat|fix)/[a-z0-9-]+-[a-z0-9-]+|(docs|test|refactor|chore)/[a-z0-9-]+)$ ]]; then
+          if ! [[ "$BRANCH" =~ ^((feat|fix)/[a-z0-9-]+-[a-z0-9-]+|(docs|test|refactor|chore|dev)/[a-z0-9-]+)$ ]]; then
             echo "❌ Branch '$BRANCH' does not match CONTRIBUTING convention:"
             echo "  feat/fix: feat/<area>-<short-description>"
-            echo "  other: <type>/<short-description>"
+            echo "  other: <type>/<short-description> (including dev/ integration branches)"
             exit 1
           fi
           echo "✓ Branch name '$BRANCH' OK"

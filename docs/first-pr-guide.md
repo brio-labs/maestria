@@ -16,6 +16,7 @@ The repository is opinionated: keep the domain pure, keep side effects explicit,
    - `chore/<short-description>`
    - `test/<short-description>`
    - `refactor/<short-description>`
+   - `dev/<short-description>` for an integration objective
 3. Keep behavior changes scoped to one subsystem first.
 4. Add tests for invariants and behavior changes where relevant.
 

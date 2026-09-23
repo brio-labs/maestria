@@ -33,6 +33,7 @@ rustup component add --toolchain nightly-2026-06-15 rustfmt clippy rustc-codegen
    - `chore/<short-description>`
    - `test/<short-description>`
    - `refactor/<short-description>`
+   - `dev/<short-description>` for an integration objective
 3. Make changes in one logical layer first (`maestria-domain` or `maestria-governance`).
 4. Run quality gates locally (minimum):
    ```bash
