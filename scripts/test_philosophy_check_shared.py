@@ -6,11 +6,57 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from philosophy_check import shared
+from philosophy_check import panic_and_lint, secrets, shared
 from philosophy_check_testbase import PhilosophyCheckFixture
 
 
 class SharedHelpersTests(PhilosophyCheckFixture):
+
+    def test_external_patches_keep_secret_scanning_and_first_party_doctrine(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            (root / "Cargo.toml").write_text(
+                '[workspace]\nmembers = ["member"]\n'
+                'exclude = ["vendor/dependency"]\n\n'
+                '[patch.crates-io]\n'
+                'dependency = { path = "vendor/dependency" }\n'
+                'member = { path = "member" }\n',
+                encoding="utf-8",
+            )
+            for name in ("member", "vendor/dependency", "vendor/neighbor"):
+                source = root / name / "src" / "lib.rs"
+                source.parent.mkdir(parents=True)
+                source.write_text("fn example() { Some(1).unwrap(); }\n", encoding="utf-8")
+            upstream = root / "vendor/dependency/src/lib.rs"
+            with upstream.open("a", encoding="utf-8") as stream:
+                stream.write(f'const TOKEN: &str = "ghp_{"0" * 36}";\n')
+
+            violations = panic_and_lint.scan_rust_forbidden_methods()
+            self.assertEqual(
+                {violation.split(" contains ", 1)[0] for violation in violations},
+                {"member/src/lib.rs", "vendor/neighbor/src/lib.rs"},
+            )
+            findings = secrets.scan_hardcoded_secrets()
+            self.assertEqual(len(findings), 1)
+            self.assertIn("vendor/dependency/src/lib.rs", findings[0])
+
+    def test_launcher_source_checks_generated_context_lint_exemptions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates/apps/maestria-launcher/src/lib.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "use std::collections::HashMap;\n"
+                "use std::time::Instant;\n"
+                "fn sample() { let _: HashMap<u8, u8> = Default::default(); "
+                "let _ = Instant::now(); }\n",
+                encoding="utf-8",
+            )
+            violations = panic_and_lint.scan_rust_forbidden_methods()
+            self.assertTrue(any("forbidden hash collection type" in item for item in violations))
+            self.assertTrue(any("forbidden wall-clock instant" in item for item in violations))
 
     def test_production_lib_paths_discovers_external_workspace_members_and_excludes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

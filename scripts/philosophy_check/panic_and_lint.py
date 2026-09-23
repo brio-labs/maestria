@@ -51,6 +51,14 @@ FORBIDDEN_RUST_METHODS = [
     ),
 ]
 
+# Tauri's generated Context triggers Clippy's disallowed-method/type lints at
+# the callsite. Its launcher-only lint exemption must not exempt handwritten
+# launcher source from the corresponding checks.
+LAUNCHER_DISALLOWED_SOURCE = (
+    (r"\b(?:HashMap|HashSet)\b", "a forbidden hash collection type"),
+    (r"\bInstant\s*::\s*now\s*\(", "a forbidden wall-clock instant"),
+)
+
 
 FORBIDDEN_UNBOUNDED_CHANNEL_PATTERNS = (
     r"\b(?:tokio::sync::)?mpsc::unbounded_channel\s*\(",
@@ -228,6 +236,11 @@ def scan_rust_forbidden_methods() -> list[str]:
         for pattern, description in FORBIDDEN_RUST_METHODS:
             if re.search(pattern, content):
                 violations.append(f"{source.relative_to(shared.ROOT)} contains {description}")
+        if source.is_relative_to(shared.ROOT / "crates/apps/maestria-launcher"):
+            syntax = _rust_syntax(content)
+            for pattern, description in LAUNCHER_DISALLOWED_SOURCE:
+                if re.search(pattern, syntax):
+                    violations.append(f"{source.relative_to(shared.ROOT)} contains {description}")
     return violations
 
 
