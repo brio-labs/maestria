@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { readFile, rm, writeFile } from 'node:fs/promises';
+import { once } from 'node:events';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -58,15 +59,22 @@ export async function catalogScenario(session, { application, environment, evide
   await session.waitUntil(async () => (await session.$('[id="result-app:maestria-test-added.desktop"]')).isExisting(), { timeout: 10000 });
   assert.equal(await retained.getAttribute('aria-selected'), 'true', 'Catalog refresh must retain selection by desktop ID');
   await reopen();
-  await input.setValue('2 + 2');
-  await session.waitUntil(async () => (await session.$('.calculator-value')).getText().then((text) => text === '4'), { timeout: 5000 });
+  // WebKitDriver types '+' as '=' on X11 unless Shift is held explicitly.
+  await input.setValue('2 ');
+  await session.keys(['Shift', '=', 'NULL']);
+  await input.addValue(' 2');
+  await session.waitUntil(async () => {
+    const value = await session.$('.calculator-value');
+    return await value.isExisting() && (await value.getText()) === '4';
+  }, { timeout: 5000 });
   await session.saveScreenshot(path.join(evidence, 'native-calculator.png'));
   await session.keys('Enter');
   await session.waitUntil(async () => (await session.$('body')).getText().then((text) => text.includes('Copied')), { timeout: 5000 });
   assert.notEqual(await visibleWindow(environment), '', 'Copy must leave the launcher visible');
   assert.equal(await paste(), '4', 'Calculation must paste through the real clipboard into another GTK entry');
   await reopen();
-  await input.setValue('2 +');
+  await input.setValue('2 ');
+  await session.keys(['Shift', '=', 'NULL']);
   await session.waitUntil(async () => (await session.$$('.calculator-value')).length === 0, { timeout: 5000 });
   await (await session.$('[role="alert"]')).waitForDisplayed({ timeout: 5000 });
   await session.saveScreenshot(path.join(evidence, 'native-calculation-error.png'));
@@ -82,7 +90,25 @@ export async function catalogScenario(session, { application, environment, evide
   assert.equal(await paste(), 'User Priority Fixture');
 
   await reopen();
-  await input.setValue('日本語');
+  const owner = spawn('/usr/bin/python3', [clipboardProgram, '--write', '日本語'], {
+    env: environment, stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  await new Promise((resolve, reject) => {
+    owner.once('error', reject);
+    owner.once('exit', code => reject(new Error(`Unicode clipboard owner exited before paste: ${code}`)));
+    owner.stdout.once('data', resolve);
+  });
+  try {
+    await input.click();
+    await session.keys(['Control', 'v', 'NULL']);
+    await session.waitUntil(async () => (await input.getValue()) === '日本語', { timeout: 5000 });
+  } finally {
+    if (owner.exitCode === null && owner.signalCode === null) {
+      const exited = once(owner, 'exit');
+      owner.kill();
+      await exited;
+    }
+  }
   await session.waitUntil(async () => (await session.$$('[role="option"]')).length === 1, { timeout: 5000 });
   assert.equal(await session.$('[role="option"]').getAttribute('title').then((title) => title.includes(fixtures.launchName)), true);
   await session.saveScreenshot(path.join(evidence, 'native-unicode-application.png'));

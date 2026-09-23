@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Observe the native clipboard by pasting into a separate real GTK entry."""
+"""Exercise native clipboard with a GTK selection owner and paste receiver."""
 import json
 import sys
 import gi
@@ -11,6 +11,14 @@ from gi.repository import Gdk, GLib, Gtk
 if "--read" in sys.argv:
     print(json.dumps(Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).wait_for_text()), flush=True)
     raise SystemExit(0)
+
+if "--write" in sys.argv:
+    clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+    clipboard.set_text(sys.argv[2], -1)
+    print("ready", flush=True)
+    Gtk.main()  # Keep the X11 selection owner alive until the launcher pastes.
+    raise SystemExit(0)
+
 
 window = Gtk.Window(title="Sillage clipboard acceptance")
 entry = Gtk.Entry()

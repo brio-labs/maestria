@@ -48,8 +48,16 @@ export async function boundaryScenario(session, { application, environment, evid
   const beforeDrag = (await execute('xdotool', ['getwindowgeometry', '--shell', firstWindow], { env: environment })).stdout;
   const beforeX = Number(beforeDrag.match(/^X=(\d+)$/m)?.[1]);
   const beforeY = Number(beforeDrag.match(/^Y=(\d+)$/m)?.[1]);
-  await execute('xdotool', ['mousemove', '--window', firstWindow, '350', '12', 'mousedown', '1',
-    'sleep', '0.1', 'mousemove_relative', '--sync', '40', '30', 'sleep', '0.1', 'mouseup', '1'], { env: environment });
+  // WebDriver dispatches the press to WebKit before the X11 cursor starts moving.
+  await session.performActions([{
+    type: 'pointer', id: 'native-drag', parameters: { pointerType: 'mouse' },
+    actions: [{ type: 'pointerMove', origin: 'viewport', x: 350, y: 12 }, { type: 'pointerDown', button: 0 }],
+  }]);
+  try {
+    await execute('xdotool', ['mousemove_relative', '--sync', '40', '30', 'sleep', '0.1'], { env: environment });
+  } finally {
+    await session.releaseActions();
+  }
   await session.waitUntil(async () => {
     const geometry = (await execute('xdotool', ['getwindowgeometry', '--shell', firstWindow], { env: environment })).stdout;
     return Number(geometry.match(/^X=(\d+)$/m)?.[1]) === beforeX + 40
