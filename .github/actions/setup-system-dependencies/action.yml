@@ -16,6 +16,7 @@ runs:
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
           libglib2.0-dev \
+          libfontconfig-dev \
           pkg-config \
           libssl-dev
     - name: Install native launcher X11 and accessibility packages
