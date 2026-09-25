@@ -3,7 +3,7 @@ description: 'Install the linker and GTK3/WebKitGTK build toolchain required by 
 
 inputs:
   native-test:
-    description: 'Install the additional display and WebKitWebDriver packages used by native launcher checks'
+    description: 'Install isolated X11, D-Bus, and AT-SPI packages used by native launcher checks'
     required: false
     default: 'false'
 

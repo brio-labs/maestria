@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::traits::{
     CandidateReranker, CandidateRetriever, ContextExpander, RankFusion, RetrievalEvaluator,
 };
-use crate::types::{CandidateSourceFilter, RetrievalError, RetrievalResult};
+use crate::types::{CandidateSourceFilter, RetrievalError, RetrievalResult, SearchCancellation};
 #[path = "engine_adaptive.rs"]
 mod engine_adaptive;
 #[path = "engine_capabilities.rs"]
@@ -36,9 +36,9 @@ pub use engine_pipeline::lane_budget;
 pub(crate) use engine_pipeline::partition_allowance;
 /// Reconciles an evaluator status with the diversity selector status.
 pub use engine_pipeline::reconcile_status;
-pub use planner::SearchPlannerContext;
 /// Builds a rewrite session for the plan's query with the plan budgets.
 pub use planner::rewrite_session;
+pub use planner::{INTERACTIVE_MAX_LATENCY_MS, INTERACTIVE_MAX_QUERY_BYTES, SearchPlannerContext};
 
 #[path = "engine_trace.rs"]
 mod engine_trace;
@@ -116,16 +116,52 @@ impl RetrievalEngine {
         authorization: maestria_governance::RetrievalAuthorizationContext,
         source_filter: Option<CandidateSourceFilter>,
     ) -> RetrievalResult<SearchOutcome> {
+        self.search_pre_authorized_with_cancellation(plan, authorization, source_filter, None)
+    }
+
+    /// Executes an interactive passage plan on the text lexical lane only.
+    ///
+    /// The supplied cancellation flag is checked before and after synchronous
+    /// lane work and by the lexical adapter's authorization prefilter.
+    pub fn search_interactive_pre_authorized_selected(
+        &self,
+        plan: &SearchPlan,
+        authorization: maestria_governance::RetrievalAuthorizationContext,
+        source_filter: CandidateSourceFilter,
+        cancellation: SearchCancellation,
+    ) -> RetrievalResult<SearchOutcome> {
+        self.search_pre_authorized_with_cancellation(
+            plan,
+            authorization,
+            Some(source_filter),
+            Some(cancellation),
+        )
+    }
+    /// Executes the interactive lexical route without an explicit artifact
+    /// allowlist. Daemon API callers with approved roots use the selected form.
+    pub fn search_interactive_pre_authorized(
+        &self,
+        plan: &SearchPlan,
+        authorization: maestria_governance::RetrievalAuthorizationContext,
+        cancellation: SearchCancellation,
+    ) -> RetrievalResult<SearchOutcome> {
+        self.search_pre_authorized_with_cancellation(plan, authorization, None, Some(cancellation))
+    }
+
+    fn search_pre_authorized_with_cancellation(
+        &self,
+        plan: &SearchPlan,
+        authorization: maestria_governance::RetrievalAuthorizationContext,
+        source_filter: Option<CandidateSourceFilter>,
+        cancellation: Option<SearchCancellation>,
+    ) -> RetrievalResult<SearchOutcome> {
+        check_search_cancellation(cancellation.as_ref())?;
         self.validate_plan(plan)?;
         if maestria_governance::contains_prompt_injection_risk(plan.original_query()) {
             return self.prompt_injection_outcome(plan, source_filter.as_ref());
         }
-        self.search_internal(
-            plan,
-            crate::MonotonicInstant::now(),
-            authorization,
-            source_filter,
-        )
+        let started = crate::MonotonicInstant::now();
+        self.search_internal(plan, started, authorization, source_filter, cancellation)
     }
 
     fn search_internal(
@@ -134,27 +170,53 @@ impl RetrievalEngine {
         started: crate::MonotonicInstant,
         authorization: maestria_governance::RetrievalAuthorizationContext,
         source_filter: Option<CandidateSourceFilter>,
+        cancellation: Option<SearchCancellation>,
     ) -> RetrievalResult<SearchOutcome> {
-        let shadow_task = learned_sparse_shadow::spawn_learned_sparse_shadow(
-            self.learned_sparse_shadow_retrievers(plan),
-            plan.clone(),
-            authorization.clone(),
-            source_filter.clone(),
-            self.learned_sparse_shadow_store.clone(),
-        );
-        let active_result: RetrievalResult<SearchOutcome> = {
-            let active_retrievers = self.active_retrievers(plan);
+        let interactive = cancellation.is_some();
+        let shadow_task = if interactive {
+            None
+        } else {
+            learned_sparse_shadow::spawn_learned_sparse_shadow(
+                self.learned_sparse_shadow_retrievers(plan),
+                plan.clone(),
+                authorization.clone(),
+                source_filter.clone(),
+                self.learned_sparse_shadow_store.clone(),
+            )
+        };
+        let active_result = (|| {
+            check_search_cancellation(cancellation.as_ref())?;
+            let active_retrievers = if interactive {
+                self.retrievers
+                    .iter()
+                    .filter(|retriever| {
+                        let descriptor = retriever.descriptor();
+                        descriptor.id == "lexical_chunks"
+                            && descriptor.modality.eq_ignore_ascii_case("text")
+                            && descriptor.generation == plan.index_generation()
+                    })
+                    .cloned()
+                    .collect()
+            } else {
+                self.active_retrievers(plan)
+            };
             if active_retrievers.is_empty() {
-                return Err(RetrievalError::Internal("No retrievers configured".into()));
+                return Err(RetrievalError::Internal(if interactive {
+                    "No current text lexical retriever configured".into()
+                } else {
+                    "No retrievers configured".into()
+                }));
             }
             let query = engine_pipeline::search_query_for_plan(plan, plan.original_query())?;
             let (batches, rewrites, web_requests_used, mut execution_usage) =
-                engine_pipeline::collect_initial_batches(
+                engine_pipeline::collect_initial_batches_with_cancellation(
                     &active_retrievers,
                     plan,
                     &authorization,
                     source_filter.as_ref(),
+                    cancellation.as_ref(),
                 )?;
+            check_interactive_budget(plan, started, cancellation.as_ref())?;
             let (outcome, lanes, rerank_trace, diversity_trace) =
                 engine_evaluation::evaluate_batches(engine_evaluation::EvaluationRequest {
                     engine: self,
@@ -166,6 +228,7 @@ impl RetrievalEngine {
                     authorization: &authorization,
                     source_filter: source_filter.as_ref(),
                 })?;
+            check_interactive_budget(plan, started, cancellation.as_ref())?;
             let mut state = engine_adaptive::AdaptiveSearchState {
                 batches,
                 rewrites,
@@ -176,15 +239,19 @@ impl RetrievalEngine {
                 rerank_trace,
                 diversity_trace,
             };
-            let explicit_stop_reason = engine_adaptive::iterate_until_stop(
-                self,
-                plan,
-                &query,
-                &authorization,
-                source_filter.as_ref(),
-                &mut state,
-                started,
-            )?;
+            let explicit_stop_reason = if interactive {
+                None
+            } else {
+                engine_adaptive::iterate_until_stop(
+                    self,
+                    plan,
+                    &query,
+                    &authorization,
+                    source_filter.as_ref(),
+                    &mut state,
+                    started,
+                )?
+            };
             let expansion_enabled = plan
                 .stages()
                 .contains(&maestria_domain::SearchStage::Filtering);
@@ -208,9 +275,10 @@ impl RetrievalEngine {
                     explicit_stop_reason,
                 },
             )?;
+            check_interactive_budget(plan, started, cancellation.as_ref())?;
             outcome.verify_compatibility(plan)?;
             Ok(outcome)
-        };
+        })();
         match active_result {
             Ok(outcome) => {
                 if let Some(shadow_task) = shadow_task {
@@ -221,4 +289,24 @@ impl RetrievalEngine {
             Err(error) => Err(error),
         }
     }
+}
+fn check_search_cancellation(cancellation: Option<&SearchCancellation>) -> RetrievalResult<()> {
+    if cancellation.is_some_and(SearchCancellation::is_cancelled) {
+        return Err(RetrievalError::Cancelled);
+    }
+    Ok(())
+}
+
+fn check_interactive_budget(
+    plan: &SearchPlan,
+    started: crate::MonotonicInstant,
+    cancellation: Option<&SearchCancellation>,
+) -> RetrievalResult<()> {
+    check_search_cancellation(cancellation)?;
+    if cancellation.is_some()
+        && started.elapsed().as_millis() >= u128::from(plan.budgets().max_latency_ms())
+    {
+        return Err(RetrievalError::Timeout);
+    }
+    Ok(())
 }

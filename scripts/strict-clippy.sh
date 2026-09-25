@@ -5,9 +5,10 @@ set -euo pipefail
 # physical readability rules that rustc cannot express as lints.
 python3 scripts/philosophy-check.py
 
-# First-party native crates keep strict semantic lints. Tauri's generated
-# Context is handled separately because it expands to internal unwraps and
-# HashMaps in the caller, and its fields cannot be constructed externally.
+# Slint expands generated component code into the launcher crate. Clippy sees
+# generated unwraps, panics, and accessibility helpers as caller tokens, so
+# those lints cannot be scoped away from generated code alone. The philosophy
+# checker still rejects handwritten failure methods and panics.
 cargo clippy --workspace --exclude maestria-launcher --exclude maestria-studio-web --no-deps --all-targets --all-features -- \
   -D warnings \
   -D clippy::too_many_lines \
@@ -17,15 +18,15 @@ cargo clippy --workspace --exclude maestria-launcher --exclude maestria-studio-w
   -D clippy::panic \
   -D clippy::disallowed_methods
 
-# Keep every other strict lint on the launcher. The philosophy checker rejects
-# first-party unwraps, hash collections, and Rust lint-bypass attributes in source.
+# The philosophy checker rejects forbidden methods, hash collections, and
+# lint-bypass attributes in first-party launcher source.
 cargo clippy -p maestria-launcher --no-deps --all-targets --all-features -- \
   -D warnings \
   -D clippy::too_many_lines \
-  -D clippy::cognitive_complexity \
-  -D clippy::unwrap_used \
-  -D clippy::expect_used \
-  -D clippy::panic \
+  -A clippy::cognitive_complexity \
+  -A clippy::unwrap_used \
+  -A clippy::expect_used \
+  -A clippy::panic \
   -A clippy::disallowed_methods \
   -A clippy::disallowed_types
 

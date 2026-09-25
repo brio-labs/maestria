@@ -52,6 +52,9 @@ impl EventLog for FailingEventLog {
     fn scan(&self, _filter: EventFilter) -> Result<Vec<DomainEventEnvelope>, PortError> {
         Ok(Vec::new())
     }
+    fn contains_id(&self, _event_id: maestria_domain::EventId) -> Result<bool, PortError> {
+        Ok(false)
+    }
 }
 
 /// Shared helper for task-completion integration tests.

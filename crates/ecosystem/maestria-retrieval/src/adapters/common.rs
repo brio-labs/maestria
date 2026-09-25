@@ -128,10 +128,56 @@ fn evidence_location(
                         "file evidence has a PDF region source span".to_string(),
                     ));
                 }
+                SourceSpan::DocxParagraphSpan { .. } => {
+                    return Err(RetrievalError::Internal(
+                        "file evidence has a DOCX paragraph source span".to_string(),
+                    ));
+                }
             };
             Ok((
                 SourceLocation::file(path.clone(), start_line, end_line)?,
                 ContentRange::new(range.start(), range.end())
+                    .map_err(|error| RetrievalError::Internal(error.to_string()))?,
+            ))
+        }
+        EvidenceKind::DocxParagraphSpan { path, range, .. } => {
+            let (start_paragraph, end_paragraph) = match source_span {
+                SourceSpan::DocxParagraphSpan {
+                    start_paragraph,
+                    end_paragraph,
+                } => {
+                    let start = u32::try_from(*start_paragraph).map_err(|error| {
+                        RetrievalError::Internal(format!(
+                            "DOCX paragraph start exceeds search evidence range: {error}"
+                        ))
+                    })?;
+                    let end = u32::try_from(*end_paragraph).map_err(|error| {
+                        RetrievalError::Internal(format!(
+                            "DOCX paragraph end exceeds search evidence range: {error}"
+                        ))
+                    })?;
+                    (start, end)
+                }
+                _ => {
+                    return Err(RetrievalError::Internal(
+                        "DOCX evidence has a non-DOCX source span".to_string(),
+                    ));
+                }
+            };
+            if range.start() != start_paragraph || range.end() != end_paragraph {
+                return Err(RetrievalError::Internal(
+                    "DOCX evidence paragraph range does not match its source span".to_string(),
+                ));
+            }
+            let start = usize::try_from(start_paragraph).map_err(|error| {
+                RetrievalError::Internal(format!("DOCX paragraph start is invalid: {error}"))
+            })?;
+            let end = usize::try_from(end_paragraph).map_err(|error| {
+                RetrievalError::Internal(format!("DOCX paragraph end is invalid: {error}"))
+            })?;
+            Ok((
+                SourceLocation::docx_paragraph(path.clone(), start_paragraph, end_paragraph)?,
+                ContentRange::new(start, end)
                     .map_err(|error| RetrievalError::Internal(error.to_string()))?,
             ))
         }

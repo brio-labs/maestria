@@ -132,6 +132,30 @@ fn filtered_search_excludes_denied_chunk_before_scoring() -> Result<(), Box<dyn 
 }
 
 #[test]
+fn filtered_rare_query_does_not_spend_work_on_unrelated_sources()
+-> Result<(), Box<dyn std::error::Error>> {
+    let index = TantivyFullTextIndex::in_memory()?;
+    let mut chunks: Vec<_> = (1..=100)
+        .map(|id| chunk(id, id * 10, "ordinary ledger entry"))
+        .collect();
+    chunks.push(chunk(101, 1010, "distinctive cobalt kestrel passage"));
+    index.index_chunks(chunks)?;
+
+    let hits = index.search_filtered(
+        SearchQuery {
+            q: "distinctive".to_string(),
+            limit: 1,
+            offset: 0,
+            execution_budget: SearchExecutionBudget::new(1, 10, 32, 8192)?,
+        },
+        &|_, artifact_id| Ok(artifact_id == ArtifactId::new(101)),
+    )?;
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].chunk.artifact_id, ArtifactId::new(101));
+    Ok(())
+}
+
+#[test]
 fn filtered_authorization_accounts_indexed_identity_bytes() -> Result<(), Box<dyn std::error::Error>>
 {
     let index = TantivyFullTextIndex::in_memory()?;

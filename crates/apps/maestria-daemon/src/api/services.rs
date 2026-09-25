@@ -20,6 +20,10 @@ mod repository_index_browse;
 mod repository_index_services;
 #[path = "retention_services.rs"]
 mod retention_services;
+#[path = "search_api_services.rs"]
+mod search_api_services;
+#[path = "search_roots_services.rs"]
+mod search_roots_services;
 #[path = "search_services.rs"]
 mod search_services;
 #[path = "support.rs"]
@@ -31,6 +35,15 @@ use super::server::{ApiContext, RequestPrincipal};
 use super::{ClientOperation, ClientResponse};
 
 const MAX_SEARCH_LIMIT: usize = 100;
+pub(crate) async fn dispatch_search_api(
+    context: &ApiContext,
+    consumer_realm: maestria_domain::RealmId,
+    credential: super::FederationCredential,
+    operation: super::protocol_search_api::SearchApiOperation,
+    interactive: Option<super::server::InteractiveSearchControl>,
+) -> Result<super::protocol_search_api::SearchApiResponse> {
+    search_api_services::dispatch(context, consumer_realm, credential, operation, interactive).await
+}
 
 pub(crate) async fn dispatch(
     context: &ApiContext,
@@ -112,6 +125,11 @@ pub(crate) async fn dispatch(
             provider_realm,
             evidence_id,
         } => federation_services::evidence(context, &principal, provider_realm, evidence_id).await,
+        operation @ (ClientOperation::SearchRootsStatus
+        | ClientOperation::SearchRootAdd { .. }
+        | ClientOperation::SearchRootRemove { .. }) => {
+            search_roots_services::dispatch(context, &principal, operation).await
+        }
         operation @ (ClientOperation::IndexCandidates { .. }
         | ClientOperation::IndexSelectionGet
         | ClientOperation::IndexSelectionSave { .. }
@@ -259,17 +277,23 @@ async fn dispatch_realm_grant(
             consumer_realm,
             access,
             max_sensitivity,
+            allowed_roots,
             max_results,
             max_evidence_bytes,
+            expires_in_seconds,
         } => {
             realm_grant_services::create(
                 context,
                 principal,
-                consumer_realm,
-                access,
-                max_sensitivity,
-                max_results,
-                max_evidence_bytes,
+                realm_grant_services::GrantRequest {
+                    consumer_realm,
+                    access,
+                    max_sensitivity,
+                    allowed_roots,
+                    max_results,
+                    max_evidence_bytes,
+                    expires_in_seconds,
+                },
             )
             .await
         }

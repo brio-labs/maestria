@@ -171,6 +171,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "server",
     ),
     "crates/apps/maestria-launcher/src/lib.rs": (
+        "ui",
         "application",
         "ipc",
         "model",
@@ -180,7 +181,6 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "actions",
         "settings",
         "shortcuts",
-        "metrics",
         "platform",
         "errors",
     ),
@@ -216,8 +216,11 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "repository_source_registration",
     ),
     "crates/apps/maestria-daemon/src/api.rs": (
+        "federation_previews",
         "protocol",
+        "protocol_search_api",
         "server",
+        "server_search_api",
         "services",
         "token",
     ),
@@ -298,6 +301,12 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     "crates/ecosystem/maestria-embedding-openai/src/lib.rs": (
         "embedding_provider",
     ),
+    "crates/ecosystem/maestria-extensions/src/lib.rs": (
+        "bundle",
+        "grants",
+        "manifest",
+        "protocol",
+    ),
     "crates/ecosystem/maestria-visual-local/src/lib.rs": (
         "dto",
         "visual_provider",
@@ -358,6 +367,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "chunking",
         "generic_text",
         "markdown",
+        "docx",
         "pdf",
         "pdf_geometry",
         "pdf_layout",

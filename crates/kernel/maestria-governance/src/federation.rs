@@ -20,6 +20,7 @@ pub enum FederatedGrantDenial {
     ProviderRealmMismatch,
     ConsumerRealmMismatch,
     GrantRevoked,
+    GrantExpired,
     UnsupportedAccess,
     InvalidBounds,
     ProviderPolicy(RetrievalAuthorizationError),
@@ -35,6 +36,7 @@ pub fn authorize_federated_read(
     consumer_realm: &RealmId,
     operation: FederatedReadOperation,
     grant: &RealmReadGrant,
+    now_unix_seconds: u64,
     provider_policy: &RetrievalSecurityPolicy,
     corpus: &CorpusScope,
 ) -> FederatedGrantDecision {
@@ -46,6 +48,9 @@ pub fn authorize_federated_read(
     }
     if grant.state() != RealmReadGrantState::Active {
         return FederatedGrantDecision::Denied(FederatedGrantDenial::GrantRevoked);
+    }
+    if grant.expires_at().is_expired_at(now_unix_seconds) {
+        return FederatedGrantDecision::Denied(FederatedGrantDenial::GrantExpired);
     }
     if matches!(operation, FederatedReadOperation::OpenEvidence)
         && !grant.access().allows_evidence_open()

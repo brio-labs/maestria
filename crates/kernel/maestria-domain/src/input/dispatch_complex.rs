@@ -28,9 +28,14 @@ impl KernelState {
     ) -> Result<KernelOutput, DomainError> {
         let mut output = KernelOutput::default();
         let existing = self.artifacts.get(&input.artifact_id);
-        let unchanged = existing.is_some_and(|a| {
-            a.content_hash.as_ref() == Some(&input.content_hash)
-                && a.index_status == IndexStatus::Indexed
+        let active_source = SourceIdentityKey::try_from(input.source_path.clone())
+            .ok()
+            .and_then(|key| self.active_sources.get(&key).copied());
+        let unchanged = existing.is_some_and(|artifact| {
+            artifact.content_hash.as_ref() == Some(&input.content_hash)
+                && artifact.index_status == IndexStatus::Indexed
+                && active_source == Some(input.artifact_id)
+                && !self.stale_sources.contains(&input.source_path)
         });
 
         // Also guard against duplicate detections while a parser is
@@ -388,21 +393,54 @@ impl KernelState {
         &mut self,
         input: crate::inputs::SourceRemoved,
     ) -> Result<KernelOutput, DomainError> {
-        let mut output = KernelOutput::default();
         let source_path = input.source_path.clone();
-        if Arc::make_mut(&mut self.stale_sources).insert(source_path.clone()) {
-            if let Ok(key) = SourceIdentityKey::try_from(source_path.clone())
-                && self.active_sources.get(&key) == Some(&input.artifact_id)
-            {
+        let source_key = SourceIdentityKey::try_from(source_path.clone()).ok();
+        let removes_active = source_key
+            .as_ref()
+            .is_some_and(|key| self.active_sources.get(key) == Some(&input.artifact_id));
+        if removes_active {
+            if let Some(key) = source_key {
                 Arc::make_mut(&mut self.active_sources).remove(&key);
             }
-            let event = self.emit_event(DomainEvent::SourceBecameStale {
-                artifact_id: input.artifact_id,
-                source_path,
-                content_hash: input.content_hash,
-            });
-            output = Self::output_for_event(event);
+            Arc::make_mut(&mut self.stale_sources).insert(source_path.clone());
+        } else if self.stale_sources.contains(&source_path)
+            || self
+                .event_log
+                .iter()
+                .rev()
+                .find_map(|envelope| match &envelope.event {
+                    DomainEvent::ParserStarted {
+                        artifact_id,
+                        source_path: path,
+                        content_hash,
+                        ..
+                    } if *artifact_id == input.artifact_id
+                        && path == &source_path
+                        && content_hash == &input.content_hash =>
+                    {
+                        Some(false)
+                    }
+                    DomainEvent::SourceBecameStale {
+                        artifact_id,
+                        source_path: path,
+                        content_hash,
+                    } if *artifact_id == input.artifact_id
+                        && path == &source_path
+                        && content_hash == &input.content_hash =>
+                    {
+                        Some(true)
+                    }
+                    _ => None,
+                })
+                .is_some_and(|retired| retired)
+        {
+            return Ok(KernelOutput::default());
         }
-        Ok(output)
+        let event = self.emit_event(DomainEvent::SourceBecameStale {
+            artifact_id: input.artifact_id,
+            source_path,
+            content_hash: input.content_hash,
+        });
+        Ok(Self::output_for_event(event))
     }
 }

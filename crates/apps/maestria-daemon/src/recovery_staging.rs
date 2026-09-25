@@ -58,18 +58,32 @@ pub(crate) fn source_artifact_ids(
 ) -> Result<BTreeMap<String, (ArtifactId, String)>> {
     let mut identities = BTreeMap::new();
     for envelope in store.scan(EventFilter { artifact_id: None })? {
-        if let DomainEvent::ParserStarted {
-            artifact_id,
-            source_path,
-            content_hash,
-            ..
-        } = envelope.event
-        {
-            // Same identity-key policy as the watcher (R28): canonical when
-            // the path exists, stored string verbatim otherwise (R24 modeled
-            // fallback for reconciliation of no-longer-present paths).
-            let key = crate::source_identity::stored_source_key(&source_path);
-            identities.insert(key, (artifact_id, content_hash.as_str().to_owned()));
+        match envelope.event {
+            DomainEvent::ParserStarted {
+                artifact_id,
+                source_path,
+                content_hash,
+                ..
+            } => {
+                // Same identity-key policy as the watcher (R28): canonical when
+                // the path exists, stored string verbatim otherwise (R24 modeled
+                // fallback for reconciliation of no-longer-present paths).
+                let key = crate::source_identity::stored_source_key(&source_path);
+                identities.insert(key, (artifact_id, content_hash.as_str().to_owned()));
+            }
+            DomainEvent::SourceBecameStale {
+                artifact_id,
+                source_path,
+                content_hash,
+            } => {
+                let key = crate::source_identity::stored_source_key(&source_path);
+                if identities.get(&key).is_some_and(|(known_id, known_hash)| {
+                    *known_id == artifact_id && known_hash == content_hash.as_str()
+                }) {
+                    identities.remove(&key);
+                }
+            }
+            _ => {}
         }
     }
     Ok(identities)

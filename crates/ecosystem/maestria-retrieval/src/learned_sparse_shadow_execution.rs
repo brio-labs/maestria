@@ -273,6 +273,7 @@ fn evaluate_shadow_lane(
         expected_generation: descriptor.generation,
         authorization: authorization.clone(),
         source_filter: source_filter.cloned(),
+        cancellation: None,
     };
     match retriever.retrieve(request) {
         Ok(batch)

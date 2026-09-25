@@ -23,6 +23,7 @@ pub(crate) fn build_tree_and_chunks(
         Some((_, source_span)) => match source_span {
             SourceSpan::TextSpan { end_line, .. } => *end_line,
             SourceSpan::PdfSpan { page } | SourceSpan::PdfRegion { page, .. } => *page,
+            SourceSpan::DocxParagraphSpan { end_paragraph, .. } => *end_paragraph,
         },
         None => 1,
     };
@@ -55,6 +56,12 @@ pub(crate) fn build_tree_and_chunks(
                     context: "allocate chunk node content range",
                     source: error.to_string(),
                 }
+            })?,
+            SourceSpan::DocxParagraphSpan {
+                start_paragraph,
+                end_paragraph,
+            } => ContentRange::new(start_paragraph, end_paragraph).map_err(|error| {
+                PortError::invalid_input("allocate DOCX paragraph content range", error.to_string())
             })?,
             SourceSpan::PdfSpan { .. } | SourceSpan::PdfRegion { .. } => ContentRange::new(1, 1)
                 .map_err(|error| {
@@ -142,9 +149,9 @@ fn raw_content_for_span(bytes: &[u8], span: &SourceSpan, fallback: &str) -> Stri
             start_line,
             end_line,
         } => (*start_line, *end_line),
-        SourceSpan::PdfSpan { .. } | SourceSpan::PdfRegion { .. } => {
-            return fallback.to_owned();
-        }
+        SourceSpan::PdfSpan { .. }
+        | SourceSpan::PdfRegion { .. }
+        | SourceSpan::DocxParagraphSpan { .. } => return fallback.to_owned(),
     };
     let lines: Vec<_> = source.split_inclusive('\n').collect();
     if start == 0 || end < start || end > lines.len() {
@@ -159,6 +166,11 @@ pub(crate) fn domain_source_span(span: &SourceSpan) -> Result<DomainSourceSpan, 
             start_line,
             end_line,
         } => DomainSourceSpan::text_span(*start_line, *end_line).map_err(span_error),
+        SourceSpan::DocxParagraphSpan {
+            start_paragraph,
+            end_paragraph,
+        } => DomainSourceSpan::docx_paragraph_span(*start_paragraph, *end_paragraph)
+            .map_err(span_error),
         SourceSpan::PdfSpan { page } => DomainSourceSpan::pdf_span(*page).map_err(span_error),
         SourceSpan::PdfRegion {
             page,

@@ -13,6 +13,17 @@ pub(crate) fn source_label(evidence: &maestria_domain::Evidence) -> String {
             range.end(),
             snapshot.content_hash().as_str()
         ),
+        EvidenceKind::DocxParagraphSpan {
+            path,
+            range,
+            snapshot,
+        } => format!(
+            "source=docx path={} paragraphs={}-{} hash={}",
+            path,
+            range.start(),
+            range.end(),
+            snapshot.content_hash().as_str()
+        ),
         EvidenceKind::PdfSpan {
             snapshot,
             page_start,

@@ -10,7 +10,7 @@ use maestria_domain::{ArtifactId, ChunkId, SearchExecutionCompletion, SearchExec
 use maestria_ports::{BoundedSearch, IndexedChunk, PortError, SearchHit, SearchQuery};
 use std::collections::BTreeSet;
 use tantivy::schema::Value;
-use tantivy::{TantivyDocument, Term, query::AllQuery};
+use tantivy::{TantivyDocument, Term, query::Query};
 
 type ScoredChunks = (
     Vec<(f32, u64, u64, IndexedChunk)>,
@@ -137,8 +137,9 @@ impl TantivyFullTextIndex {
         }
         self.commit_if_dirty()?;
         let searcher = self.reader.searcher();
+        let parsed_query = parse_query(&self.index, vec![self.fields.text], trimmed)?;
         let (allowed, authorization_stop) =
-            self.allowed_chunk_keys(&searcher, filter, &mut meter)?;
+            self.allowed_chunk_keys(&searcher, parsed_query.as_ref(), filter, &mut meter)?;
         if allowed.is_empty() {
             if let Some(resource) = authorization_stop {
                 return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Exhausted(resource)));
@@ -151,7 +152,6 @@ impl TantivyFullTextIndex {
                 SearchExecutionCompletion::Exhausted(SearchExecutionResource::Candidates),
             ));
         }
-        let parsed_query = parse_query(&self.index, vec![self.fields.text], trimmed)?;
         let scoped_query = scope_by_keys(parsed_query, self.fields.key, allowed);
         let remaining = query
             .execution_budget
@@ -236,26 +236,19 @@ impl TantivyFullTextIndex {
     pub(crate) fn allowed_chunk_keys(
         &self,
         searcher: &tantivy::Searcher,
+        query: &dyn Query,
         filter: &dyn Fn(ChunkId, ArtifactId) -> Result<bool, PortError>,
         meter: &mut Meter,
     ) -> Result<(BTreeSet<String>, Option<SearchExecutionResource>), PortError> {
-        // The AllQuery walk collects every live document; the candidate
-        // limit is one past the document count so a complete walk never
-        // trips the collector's `docs.len() == candidate_limit` truncation
-        // marker (which would mark the lane Exhausted(Candidates) and the
-        // engine's adaptive loop BudgetExhausted on a full answer).
+        // Only text-matched documents need authorization. Walking AllQuery
+        // before evaluating a rare phrase makes every interaction O(corpus)
+        // and can exhaust the budget before its matching document is seen.
         let limit = budget_usize(searcher.num_docs());
         if limit == 0 {
             return Ok((BTreeSet::new(), Some(SearchExecutionResource::Candidates)));
         }
-        let collection = collect_bounded(
-            searcher,
-            &AllQuery,
-            0,
-            limit,
-            limit.saturating_add(1),
-            meter,
-        )?;
+        let collection =
+            collect_bounded(searcher, query, 0, limit, limit.saturating_add(1), meter)?;
         if let Some(resource) = collection.stopped {
             return Ok((BTreeSet::new(), Some(resource)));
         }

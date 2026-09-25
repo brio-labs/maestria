@@ -148,6 +148,7 @@ impl LearnedSparseBenchmarkExecutor {
             expected_generation: generation_id,
             authorization,
             source_filter: None,
+            cancellation: None,
         };
         let batch = lane
             .retriever
@@ -165,6 +166,17 @@ impl LearnedSparseBenchmarkExecutor {
             .enumerate()
             .filter_map(|(index, candidate)| {
                 let (source_id, start_line, end_line) = match candidate.source_span().location() {
+                    maestria_domain::SourceLocation::DocxParagraph {
+                        path,
+                        start_paragraph,
+                        end_paragraph,
+                    } => {
+                        let source_id = match self.source_ids.get(path) {
+                            Some(source_id) => source_id.clone(),
+                            None => path.clone(),
+                        };
+                        (source_id, *start_paragraph, *end_paragraph)
+                    }
                     maestria_domain::SourceLocation::File {
                         path,
                         start_line,

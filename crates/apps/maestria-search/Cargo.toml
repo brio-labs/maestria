@@ -1,0 +1,45 @@
+[package]
+name = "maestria-search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "maestria-search"
+path = "src/main.rs"
+
+[dependencies]
+maestria-core = { path = "../../core/maestria-core" }
+maestria-daemon = { path = "../maestria-daemon" }
+maestria-domain = { path = "../../kernel/maestria-domain" }
+maestria-governance = { path = "../../kernel/maestria-governance" }
+anyhow = { workspace = true }
+clap = { workspace = true }
+libc = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[package.metadata.packager]
+product-name = "Sillage Search"
+authors = ["Brio Labs <contact@brio.build>"]
+identifier = "io.github.briolabs.Maestria.Search"
+before-packaging-command = "cargo build --release --package maestria-search"
+out-dir = "../../../target/search-packages"
+formats = ["deb"]
+description = "Headless search client and owner administration for Sillage"
+long-description = "A separate headless binary for managing approved search roots and grants, and using the local search-only API."
+category = "Utility"
+
+[package.metadata.packager.linux]
+generate-desktop-entry = false
+
+[package.metadata.packager.deb]
+package-name = "io-github-briolabs-maestria-search"
+depends = ["libc6", "libgcc-s1"]
+section = "utils"
+priority = "optional"
+
+[package.metadata.packager.deb.files]
+"../../../LICENSE" = "/usr/share/doc/io-github-briolabs-maestria-search/LICENSE"

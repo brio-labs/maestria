@@ -42,6 +42,11 @@ pub enum SourceLocation {
         start_line: u32,
         end_line: u32,
     },
+    DocxParagraph {
+        path: String,
+        start_paragraph: u32,
+        end_paragraph: u32,
+    },
     Page {
         page_start: u32,
         page_end: u32,
@@ -75,6 +80,24 @@ impl SourceLocation {
             path,
             start_line,
             end_line,
+        })
+    }
+
+    /// Builds a one-based inclusive DOCX paragraph location.
+    pub fn docx_paragraph(
+        path: String,
+        start_paragraph: u32,
+        end_paragraph: u32,
+    ) -> Result<Self, SearchCompatibilityError> {
+        if path.is_empty() || start_paragraph == 0 || start_paragraph > end_paragraph {
+            return Err(SearchCompatibilityError::InvalidSourceSpan(
+                "DOCX paragraph path and ordered positive bounds are required",
+            ));
+        }
+        Ok(Self::DocxParagraph {
+            path,
+            start_paragraph,
+            end_paragraph,
         })
     }
 
@@ -134,6 +157,11 @@ enum WireSourceLocationDto {
         start_line: u32,
         end_line: u32,
     },
+    DocxParagraph {
+        path: String,
+        start_paragraph: u32,
+        end_paragraph: u32,
+    },
     Page {
         page_start: u32,
         page_end: u32,
@@ -161,6 +189,11 @@ impl TryFrom<WireSourceLocationDto> for SourceLocation {
                 start_line,
                 end_line,
             } => Self::file(path, start_line, end_line),
+            WireSourceLocationDto::DocxParagraph {
+                path,
+                start_paragraph,
+                end_paragraph,
+            } => Self::docx_paragraph(path, start_paragraph, end_paragraph),
             WireSourceLocationDto::Page {
                 page_start,
                 page_end,
@@ -208,6 +241,32 @@ impl EvidenceSpan {
                 return Err(SearchCompatibilityError::InvalidSourceSpan(
                     "file start line must not exceed end line",
                 ));
+            }
+            SourceLocation::DocxParagraph {
+                path,
+                start_paragraph,
+                end_paragraph,
+            } => {
+                if path.is_empty() || *start_paragraph == 0 || start_paragraph > end_paragraph {
+                    return Err(SearchCompatibilityError::InvalidSourceSpan(
+                        "DOCX paragraph path and ordered positive bounds are required",
+                    ));
+                }
+                let start = usize::try_from(*start_paragraph).map_err(|_| {
+                    SearchCompatibilityError::InvalidSourceSpan(
+                        "DOCX paragraph start cannot be represented as a content range",
+                    )
+                })?;
+                let end = usize::try_from(*end_paragraph).map_err(|_| {
+                    SearchCompatibilityError::InvalidSourceSpan(
+                        "DOCX paragraph end cannot be represented as a content range",
+                    )
+                })?;
+                if range.start() != start || range.end() != end {
+                    return Err(SearchCompatibilityError::InvalidSourceSpan(
+                        "DOCX paragraph location and content range must match",
+                    ));
+                }
             }
             SourceLocation::Page {
                 page_start,
@@ -281,6 +340,18 @@ mod tests {
         assert!(SourceLocation::region(1, 1, 2, 0, 4).is_err());
         assert!(SourceLocation::symbol("p.rs".to_string(), "f".to_string()).is_ok());
         assert!(SourceLocation::symbol(String::new(), "f".to_string()).is_err());
+        assert!(SourceLocation::docx_paragraph("report.docx".to_string(), 1, 2).is_ok());
+        assert!(SourceLocation::docx_paragraph("report.docx".to_string(), 0, 2).is_err());
+        assert!(SourceLocation::docx_paragraph(String::new(), 1, 2).is_err());
+    }
+
+    #[test]
+    fn docx_evidence_span_requires_the_location_and_content_range_to_match()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let location = SourceLocation::docx_paragraph("report.docx".to_string(), 2, 4)?;
+        assert!(EvidenceSpan::new(None, location.clone(), ContentRange::new(2, 4)?).is_ok());
+        assert!(EvidenceSpan::new(None, location, ContentRange::new(1, 4)?).is_err());
+        Ok(())
     }
 
     #[test]

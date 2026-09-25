@@ -50,12 +50,20 @@ fn fixture() -> Result<Fixture> {
 }
 
 fn context(layout: InstanceLayout) -> Result<ApiContext> {
+    let realm_id = RealmId::try_from("a".repeat(64))?;
+    let source_manifest = std::sync::Arc::new(parking_lot::RwLock::new(
+        maestria_core::InstanceManifest::decode(&std::fs::read_to_string(&layout.manifest_path)?)?,
+    ));
     Ok(ApiContext {
         layout,
         token: "test-token".to_string(),
         socket_path: PathBuf::new(),
         runtime: None,
-        realm_id: RealmId::try_from("a".repeat(64))?,
+        realm_id,
+        source_manifest,
+        interactive_searches: std::sync::Arc::new(
+            crate::api::server::InteractiveSearchCoordinator::default(),
+        ),
     })
 }
 

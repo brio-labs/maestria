@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use maestria_blob_fs::FsBlobStore;
 use maestria_code_intel::{REPOSITORY_CODE_INDEX_FILENAME, RepositoryCodeIndex};
 use maestria_core::{InstanceLayout, InstanceManifest};
@@ -14,6 +14,7 @@ use maestria_retrieval::RepositoryExecutionPolicy;
 use maestria_runtime::{Adapters, Governance, MaestriaRuntime, RuntimeConfig};
 use maestria_storage_sqlite::SqliteStore;
 use maestria_web_evidence::UreqWebFetcher;
+use parking_lot::RwLock;
 use std::{fs, sync::Arc};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -128,15 +129,23 @@ fn build_ecosystem_adapters(
     })
 }
 
-fn build_search_executor(
+fn build_adapters(
+    layout: &InstanceLayout,
     state: &KernelState,
-    storage: &StorageAdapters,
-    indexes: &IndexAdapters,
-    ecosystem: &EcosystemAdapters,
     manifest: &InstanceManifest,
+    source_manifest: Arc<RwLock<InstanceManifest>>,
     embedding_provider: Option<Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>>,
     repository_execution_policy: RepositoryExecutionPolicy,
-) -> Result<Arc<dyn SearchKnowledgeExecutor + Send + Sync>> {
+    read_only_search_index: bool,
+) -> Result<(Adapters, Option<ProjectionFlushHook>)> {
+    let storage = build_storage_adapters(layout)?;
+    let (indexes, flush_hook) = build_index_adapters(
+        layout,
+        state,
+        read_only_search_index,
+        embedding_provider.is_some(),
+    )?;
+    let ecosystem = build_ecosystem_adapters(layout, manifest)?;
     let (primary_generation, corpus_snapshot, dense_generation) = resolve_index_generations(state)?;
     let (hybrid_execution_policy, learned_sparse_execution_policy, sparse_retriever) =
         crate::runtime_construction::search_lane_bundle(
@@ -146,7 +155,7 @@ fn build_search_executor(
             storage.blob_store.clone(),
         );
     let search_executor: Arc<dyn SearchKnowledgeExecutor + Send + Sync> =
-        Arc::new(SearchRuntime::from_parts(
+        Arc::new(SearchRuntime::from_parts_with_manifest(
             SearchRuntimeParts {
                 artifacts: storage.sqlite_store.clone(),
                 cards: storage.sqlite_store.clone(),
@@ -167,39 +176,13 @@ fn build_search_executor(
                 corpus_snapshot,
                 scope_id: maestria_domain::DEFAULT_INSTANCE_SCOPE_ID,
             },
-            embedding_provider,
+            embedding_provider.clone(),
             maestria_governance::RetrievalSecurityPolicy::default()
                 .require_read_allowed(true)
                 .allow_unscoped_items(true),
+            source_manifest,
+            layout.clone(),
         )?);
-    Ok(search_executor)
-}
-
-fn build_adapters(
-    layout: &InstanceLayout,
-    state: &KernelState,
-    manifest: &InstanceManifest,
-    embedding_provider: Option<Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>>,
-    repository_execution_policy: RepositoryExecutionPolicy,
-    read_only_search_index: bool,
-) -> Result<(Adapters, Option<ProjectionFlushHook>)> {
-    let storage = build_storage_adapters(layout)?;
-    let (indexes, flush_hook) = build_index_adapters(
-        layout,
-        state,
-        read_only_search_index,
-        embedding_provider.is_some(),
-    )?;
-    let ecosystem = build_ecosystem_adapters(layout, manifest)?;
-    let search_executor = build_search_executor(
-        state,
-        &storage,
-        &indexes,
-        &ecosystem,
-        manifest,
-        embedding_provider.clone(),
-        repository_execution_policy,
-    )?;
     Ok(Adapters {
         event_log: storage.sqlite_store.clone(),
         blob_store: storage.blob_store,
@@ -224,35 +207,39 @@ fn build_adapters(
     .map(|adapters| (adapters, flush_hook))
 }
 
-pub(crate) fn build_runtime(
+pub(crate) fn build_runtime_with_source_manifest(
     layout: &InstanceLayout,
     state: KernelState,
     profile: AutonomyProfile,
+    source_manifest: Arc<RwLock<InstanceManifest>>,
 ) -> Result<(
     MaestriaRuntime,
     mpsc::Sender<DomainInput>,
     mpsc::Receiver<DomainInput>,
     CancellationToken,
 )> {
-    build_runtime_with_repository_policy(layout, state, profile, RepositoryExecutionPolicy::Shadow)
+    build_runtime_with_source_manifest_and_policy(
+        layout,
+        state,
+        profile,
+        RepositoryExecutionPolicy::Shadow,
+        source_manifest,
+    )
 }
 
-/// Build a runtime with a verified repository benchmark promotion policy.
-pub(crate) fn build_runtime_with_repository_policy(
+fn build_runtime_with_source_manifest_and_policy(
     layout: &InstanceLayout,
     state: KernelState,
     profile: AutonomyProfile,
     repository_execution_policy: RepositoryExecutionPolicy,
+    source_manifest: Arc<RwLock<InstanceManifest>>,
 ) -> Result<(
     MaestriaRuntime,
     mpsc::Sender<DomainInput>,
     mpsc::Receiver<DomainInput>,
     CancellationToken,
 )> {
-    let manifest_contents = fs::read_to_string(&layout.manifest_path)
-        .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
-    let manifest = InstanceManifest::decode(&manifest_contents)
-        .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
+    let manifest = source_manifest.read().clone();
     let embedding_model = manifest
         .embeddings
         .as_ref()
@@ -263,6 +250,7 @@ pub(crate) fn build_runtime_with_repository_policy(
         layout,
         &state,
         &manifest,
+        source_manifest,
         embedding_provider,
         repository_execution_policy,
         false,

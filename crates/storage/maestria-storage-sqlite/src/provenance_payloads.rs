@@ -22,6 +22,10 @@ pub(crate) enum StoredSourceSpan {
         start_line: usize,
         end_line: usize,
     },
+    DocxParagraphSpan {
+        start_paragraph: usize,
+        end_paragraph: usize,
+    },
     PdfSpan {
         page: usize,
     },
@@ -43,6 +47,13 @@ impl From<SourceSpan> for StoredSourceSpan {
             } => Self::TextSpan {
                 start_line,
                 end_line,
+            },
+            SourceSpan::DocxParagraphSpan {
+                start_paragraph,
+                end_paragraph,
+            } => Self::DocxParagraphSpan {
+                start_paragraph,
+                end_paragraph,
             },
             SourceSpan::PdfSpan { page } => Self::PdfSpan { page },
             SourceSpan::PdfRegion {
@@ -71,6 +82,15 @@ impl TryFrom<StoredSourceSpan> for SourceSpan {
                 start_line,
                 end_line,
             } => SourceSpan::text_span(start_line, end_line).map_err(|error| {
+                maestria_ports::PortError::InvalidInputContext {
+                    context: "decode stored source span",
+                    source: error.to_string(),
+                }
+            }),
+            StoredSourceSpan::DocxParagraphSpan {
+                start_paragraph,
+                end_paragraph,
+            } => SourceSpan::docx_paragraph_span(start_paragraph, end_paragraph).map_err(|error| {
                 maestria_ports::PortError::InvalidInputContext {
                     context: "decode stored source span",
                     source: error.to_string(),

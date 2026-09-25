@@ -35,6 +35,9 @@ impl EventLog for BlockingEventLog {
     fn scan(&self, filter: EventFilter) -> Result<Vec<DomainEventEnvelope>, PortError> {
         self.inner.scan(filter)
     }
+    fn contains_id(&self, event_id: maestria_domain::EventId) -> Result<bool, PortError> {
+        self.inner.contains_id(event_id)
+    }
 }
 
 #[derive(Clone)]

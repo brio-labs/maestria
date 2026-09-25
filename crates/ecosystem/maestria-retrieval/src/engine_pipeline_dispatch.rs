@@ -1,17 +1,5 @@
+use super::admission::{lane_generation_is_current, lane_is_eligible, serial_dispatch_required};
 use super::*;
-fn lane_uses_primary_generation(descriptor: &crate::types::RetrieverDescriptor) -> bool {
-    !descriptor.modality.eq_ignore_ascii_case("dense")
-        && !descriptor.modality.eq_ignore_ascii_case("image")
-        && !descriptor.modality.eq_ignore_ascii_case("sparse")
-        && !descriptor.modality.eq_ignore_ascii_case("sparse-shadow")
-}
-
-fn lane_generation_is_current(
-    descriptor: &crate::types::RetrieverDescriptor,
-    plan: &SearchPlan,
-) -> bool {
-    !lane_uses_primary_generation(descriptor) || descriptor.generation == plan.index_generation()
-}
 
 fn normalize_batch(
     mut batch: crate::types::CandidateBatch,
@@ -80,43 +68,22 @@ type CompletedLane = Option<(
     SearchExecutionBudget,
     crate::types::CandidateBatch,
 )>;
-fn lane_is_eligible(
-    descriptor: &crate::types::RetrieverDescriptor,
-    plan: &SearchPlan,
-    web_requests_used: u32,
-) -> bool {
-    lane_generation_is_current(descriptor, plan)
-        && !(descriptor.modality.eq_ignore_ascii_case("web")
-            && web_requests_used >= plan.budgets().max_web_requests())
-}
-
-fn serial_dispatch_required(
-    retrievers: &[Arc<dyn CandidateRetriever>],
-    plan: &SearchPlan,
-    execution_usage: SearchExecutionUsage,
-    web_requests_used: u32,
-) -> bool {
-    let lane_count = retrievers
-        .iter()
-        .filter(|retriever| lane_is_eligible(retriever.descriptor(), plan, web_requests_used))
-        .count();
-    lane_count > 0
-        && (0..lane_count)
-            .any(|lane| lane_budget(plan, execution_usage, lane_count, lane).is_none())
-}
 
 fn collect_batches_serially(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     query: &SearchQuery,
-    authorization: &maestria_governance::RetrievalAuthorizationContext,
-    source_filter: Option<&crate::types::CandidateSourceFilter>,
+    sources: AuthorizedSources<'_>,
     web_requests_used: &mut u32,
     execution_usage: &mut SearchExecutionUsage,
+    cancellation: Option<&crate::types::SearchCancellation>,
 ) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
     let mut batches = Vec::with_capacity(retrievers.len());
 
     for (index, retriever) in retrievers.iter().enumerate() {
+        if cancellation.is_some_and(crate::types::SearchCancellation::is_cancelled) {
+            return Err(RetrievalError::Cancelled);
+        }
         let eligible_remaining = retrievers[index..]
             .iter()
             .filter(|retriever| lane_is_eligible(retriever.descriptor(), plan, *web_requests_used))
@@ -181,10 +148,15 @@ fn collect_batches_serially(
             query: request_query,
             execution_budget: allocation,
             expected_generation: descriptor.generation,
-            authorization: authorization.clone(),
-            source_filter: source_filter.cloned(),
+            authorization: sources.authorization.clone(),
+            source_filter: sources.source_filter.cloned(),
+            cancellation: cancellation.cloned(),
         };
-        let batch = match retriever.retrieve(request) {
+        let result = retriever.retrieve(request);
+        if cancellation.is_some_and(crate::types::SearchCancellation::is_cancelled) {
+            return Err(RetrievalError::Cancelled);
+        }
+        let batch = match result {
             Ok(batch) => normalize_batch(
                 batch,
                 descriptor.clone(),
@@ -212,10 +184,10 @@ fn plan_lane_dispatch(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     query: &SearchQuery,
-    authorization: &maestria_governance::RetrievalAuthorizationContext,
-    source_filter: Option<&crate::types::CandidateSourceFilter>,
+    sources: AuthorizedSources<'_>,
     web_requests_used: &mut u32,
     execution_usage: SearchExecutionUsage,
+    cancellation: Option<&crate::types::SearchCancellation>,
 ) -> RetrievalResult<(Vec<CompletedLane>, Vec<super::lane_workers::LaneJob>, usize)> {
     let eligible = retrievers
         .iter()
@@ -269,8 +241,9 @@ fn plan_lane_dispatch(
             query: request_query,
             execution_budget: allocation,
             expected_generation: generation,
-            authorization: authorization.clone(),
-            source_filter: source_filter.cloned(),
+            authorization: sources.authorization.clone(),
+            source_filter: sources.source_filter.cloned(),
+            cancellation: cancellation.cloned(),
         };
         jobs.push(super::lane_workers::LaneJob {
             index,
@@ -291,6 +264,29 @@ pub(crate) fn collect_batches(
     web_requests_used: &mut u32,
     execution_usage: &mut SearchExecutionUsage,
 ) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
+    collect_batches_with_cancellation(
+        retrievers,
+        plan,
+        query,
+        AuthorizedSources {
+            authorization,
+            source_filter,
+        },
+        web_requests_used,
+        execution_usage,
+        None,
+    )
+}
+
+pub(super) fn collect_batches_with_cancellation(
+    retrievers: &[Arc<dyn CandidateRetriever>],
+    plan: &SearchPlan,
+    query: &SearchQuery,
+    sources: AuthorizedSources<'_>,
+    web_requests_used: &mut u32,
+    execution_usage: &mut SearchExecutionUsage,
+    cancellation: Option<&crate::types::SearchCancellation>,
+) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
     // Static partitions can be zero when a legal global budget is smaller
     // than the number of eligible lanes. Run such lanes serially so an empty
     // earlier lane returns its unused budget to later lanes.
@@ -299,21 +295,24 @@ pub(crate) fn collect_batches(
             retrievers,
             plan,
             query,
-            authorization,
-            source_filter,
+            sources,
             web_requests_used,
             execution_usage,
+            cancellation,
         );
     }
     let (mut completed, jobs, lane_count) = plan_lane_dispatch(
         retrievers,
         plan,
         query,
-        authorization,
-        source_filter,
+        sources,
         web_requests_used,
         *execution_usage,
+        cancellation,
     )?;
+    if cancellation.is_some_and(crate::types::SearchCancellation::is_cancelled) {
+        return Err(RetrievalError::Cancelled);
+    }
     for (index, retriever) in retrievers.iter().enumerate() {
         if completed[index].is_some() {
             continue;
@@ -352,6 +351,9 @@ pub(crate) fn collect_batches(
         ));
     }
     let results = super::lane_workers::run_lane_jobs(plan, jobs)?;
+    if cancellation.is_some_and(crate::types::SearchCancellation::is_cancelled) {
+        return Err(RetrievalError::Cancelled);
+    }
     for (index, descriptor, allocation, result) in results {
         let batch = match result {
             Ok(batch) => normalize_batch(

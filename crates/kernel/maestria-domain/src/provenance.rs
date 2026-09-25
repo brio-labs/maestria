@@ -52,6 +52,10 @@ pub enum SourceSpan {
         start_line: usize,
         end_line: usize,
     },
+    DocxParagraphSpan {
+        start_paragraph: usize,
+        end_paragraph: usize,
+    },
     PdfSpan {
         page: usize,
     },
@@ -79,6 +83,25 @@ impl SourceSpan {
         Ok(Self::TextSpan {
             start_line,
             end_line,
+        })
+    }
+    /// Builds a one-based, inclusive DOCX paragraph span.
+    pub fn docx_paragraph_span(
+        start_paragraph: usize,
+        end_paragraph: usize,
+    ) -> Result<Self, SourceSpanError> {
+        if start_paragraph == 0 {
+            return Err(SourceSpanError::DocxParagraphStartMustBePositive);
+        }
+        if start_paragraph > end_paragraph {
+            return Err(SourceSpanError::DocxParagraphStartAfterEnd {
+                start_paragraph,
+                end_paragraph,
+            });
+        }
+        Ok(Self::DocxParagraphSpan {
+            start_paragraph,
+            end_paragraph,
         })
     }
 
@@ -118,10 +141,21 @@ impl SourceSpan {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceSpanError {
     TextSpanStartMustBePositive,
-    TextSpanStartAfterEnd { start_line: usize, end_line: usize },
+    TextSpanStartAfterEnd {
+        start_line: usize,
+        end_line: usize,
+    },
     PdfPageMustBePositive,
     PdfRegionPageMustBePositive,
-    PdfRegionWidthOrHeightZero { width: u32, height: u32 },
+    PdfRegionWidthOrHeightZero {
+        width: u32,
+        height: u32,
+    },
+    DocxParagraphStartMustBePositive,
+    DocxParagraphStartAfterEnd {
+        start_paragraph: usize,
+        end_paragraph: usize,
+    },
 }
 
 impl std::fmt::Display for SourceSpanError {
@@ -141,6 +175,16 @@ impl std::fmt::Display for SourceSpanError {
             Self::PdfRegionPageMustBePositive => {
                 write!(f, "PDF region page must be positive")
             }
+            Self::DocxParagraphStartMustBePositive => {
+                write!(f, "DOCX paragraph span start must be positive")
+            }
+            Self::DocxParagraphStartAfterEnd {
+                start_paragraph,
+                end_paragraph,
+            } => write!(
+                f,
+                "DOCX paragraph span start {start_paragraph} must not exceed end {end_paragraph}"
+            ),
             Self::PdfRegionWidthOrHeightZero { width, height } => write!(
                 f,
                 "PDF region width ({width}) and height ({height}) must be positive"
@@ -346,6 +390,28 @@ mod tests {
             Err(SourceSpanError::PdfRegionWidthOrHeightZero {
                 width: 0,
                 height: 4
+            })
+        );
+    }
+
+    #[test]
+    fn docx_paragraph_spans_require_positive_ordered_ordinals() {
+        assert_eq!(
+            SourceSpan::docx_paragraph_span(1, 2),
+            Ok(SourceSpan::DocxParagraphSpan {
+                start_paragraph: 1,
+                end_paragraph: 2,
+            })
+        );
+        assert_eq!(
+            SourceSpan::docx_paragraph_span(0, 1),
+            Err(SourceSpanError::DocxParagraphStartMustBePositive)
+        );
+        assert_eq!(
+            SourceSpan::docx_paragraph_span(4, 3),
+            Err(SourceSpanError::DocxParagraphStartAfterEnd {
+                start_paragraph: 4,
+                end_paragraph: 3,
             })
         );
     }

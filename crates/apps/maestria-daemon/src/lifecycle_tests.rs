@@ -6,6 +6,8 @@ use maestria_domain::{
     StartFullTextIndex, TaskId, content_hash,
 };
 use maestria_governance::AutonomyProfile;
+use maestria_storage_sqlite::SqliteStore;
+
 use tokio_util::sync::CancellationToken;
 
 fn parser_input(id: u64) -> Result<DomainInput, Box<dyn std::error::Error>> {
@@ -93,5 +95,32 @@ async fn secret_bearing_artifact_is_quarantined_and_runtime_continues()
     run.await
         .map_err(|join| join.to_string())?
         .map_err(|error| format!("clean external shutdown failed: {error:#}"))?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn retained_runtime_handle_does_not_block_reconciliation_after_shutdown()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::create()?;
+    let layout = prepare_instance(temp_dir.path().to_path_buf())?;
+    let lifecycle = InstanceLifecycle::start(layout.clone(), AutonomyProfile::ReadOnly).await?;
+    let retired_handle = lifecycle.runtime_handle();
+    assert!(
+        retired_handle.search_executor().is_some(),
+        "a live runtime handle must continue to expose its search executor"
+    );
+    lifecycle.shutdown().await?;
+
+    // Force the next start through the complete dirty-projection repair path.
+    let store = SqliteStore::open(&layout.database_path)?;
+    store.set_projection_watermark("")?;
+    drop(store);
+
+    let restarted = InstanceLifecycle::start(layout, AutonomyProfile::ReadOnly).await?;
+    restarted.shutdown().await?;
+    assert!(
+        retired_handle.search_executor().is_none(),
+        "a retained runtime handle must not keep the retired Tantivy writer alive"
+    );
     Ok(())
 }

@@ -1,0 +1,38 @@
+[package]
+name = "maestria-extension-worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+maestria-extensions = { path = "../../ecosystem/maestria-extensions" }
+rquickjs = { version = "0.14", features = ["futures"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-std", "io-util", "macros", "rt", "sync", "time"] }
+
+[package.metadata.packager]
+product-name = "Sillage Extension Worker"
+authors = ["Brio Labs <contact@brio.build>"]
+identifier = "io.github.briolabs.Maestria.ExtensionWorker"
+before-packaging-command = "cargo build --release --package maestria-extension-worker"
+out-dir = "../../../target/extension-packages"
+formats = ["deb"]
+description = "Isolated Sillage extension execution worker"
+long-description = "Bounded JavaScript extension worker. The launcher runs it only inside an OS sandbox."
+category = "Utility"
+
+[package.metadata.packager.linux]
+generate-desktop-entry = false
+
+[package.metadata.packager.deb]
+package-name = "io-github-briolabs-maestria-extension-worker"
+depends = ["libc6", "libgcc-s1", "bubblewrap"]
+section = "utils"
+priority = "optional"
+
+[package.metadata.packager.deb.files]
+"../../../LICENSE" = "/usr/share/doc/io-github-briolabs-maestria-extension-worker/LICENSE"

@@ -372,6 +372,7 @@ fn request_with_limit(
         expected_generation: identity.generation_id,
         authorization,
         source_filter: None,
+        cancellation: None,
     })
 }
 

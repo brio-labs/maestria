@@ -125,6 +125,7 @@ fn candidate_request(
         expected_generation,
         authorization,
         source_filter: None,
+        cancellation: None,
     })
 }
 

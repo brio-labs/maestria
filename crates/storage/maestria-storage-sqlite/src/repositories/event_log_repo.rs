@@ -142,6 +142,44 @@ impl EventLog for crate::SqliteStore {
 
         decode_scanned_events(stored)
     }
+
+    fn contains_id(&self, event_id: maestria_domain::EventId) -> Result<bool, PortError> {
+        let connection = self.lock()?;
+        connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM domain_events WHERE id = ?1)",
+                [u64_to_i64(event_id.value())?],
+                |row| row.get(0),
+            )
+            .map_err(to_port_error)
+    }
+}
+
+impl crate::SqliteStore {
+    /// Decode only events that can change the active source/version projection.
+    ///
+    /// Interactive local-text retrieval does not need unrelated audit, grant,
+    /// task, or agent history on each watched edit. The partial source-revision
+    /// index orders these same three event kinds by append-only event ID.
+    pub fn scan_searchable_source_events(&self) -> Result<Vec<DomainEventEnvelope>, PortError> {
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare_cached(
+                "SELECT id, event_kind, artifact_id, payload_json, payload_version \
+                 FROM domain_events \
+                 WHERE event_kind IN (
+                     'parser_started', 'document_tree_captured', 'source_became_stale'
+                 ) ORDER BY id ASC",
+            )
+            .map_err(to_port_error)?;
+        let mut rows = statement.query([]).map_err(to_port_error)?;
+        let mut events = Vec::new();
+        while let Some(row) = rows.next().map_err(to_port_error)? {
+            let (event, _) = read_stored_event(row)?.into_domain_with_trace_remap()?;
+            events.push(event);
+        }
+        Ok(events)
+    }
 }
 
 #[cfg(test)]

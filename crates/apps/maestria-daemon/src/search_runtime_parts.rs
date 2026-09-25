@@ -63,6 +63,11 @@ impl Clone for SearchRuntime {
             scope_id: self.scope_id,
             fingerprint: self.fingerprint.clone(),
             engine_cache: self.engine_cache.clone(),
+            interactive_cache: self.interactive_cache.clone(),
+            source_manifest: self.source_manifest.clone(),
+            source_layout: self.source_layout.clone(),
+            interactive_search_workers: self.interactive_search_workers.clone(),
+            allowed_roots: self.allowed_roots.clone(),
         }
     }
 }

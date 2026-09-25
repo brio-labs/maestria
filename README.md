@@ -1,28 +1,42 @@
 # Sillage
 
-Sillage is an open-source, Linux-first keyboard launcher and extension platform with local semantic search.
+Sillage is an open-source, Linux-first keyboard launcher, independently usable
+document-content retrieval component, and extension platform.
 
-That is the target product direction. The current build provides a CLI, daemon,
-browser-hosted Studio, retrieval infrastructure, and a separate native Linux
-launcher. The extension SDK and daemon-backed launcher file search remain planned.
+That is the target product direction. The current developer build provides a
+native **Slint** launcher, a separately built headless search-only Debian
+package, and the existing CLI/daemon/Studio. With an explicit authenticated
+search configuration, the launcher can display bounded source-backed passages
+without embedding the indexer or starting a model; app search still works
+without that configuration or service. The extension SDK and complete product
+release proof remain open.
+See [the product roadmap](docs/ROADMAP.md) for the work and GitHub issues.
 
 ## Product direction
 
-The primary loop is: invoke the launcher → type → select a result → execute an
-explicit action → dismiss. The native launcher discovers installed applications,
-exposes registered host commands, performs safe arithmetic calculations, and
-opens or copies only files selected in the native chooser. Future milestones add
-daemon-backed file-name, path, and content search, optional semantic enrichment,
-and extension commands. “Commands” means registered host or extension actions,
-not arbitrary shell evaluation of typed text.
+The primary launcher loop is: invoke → type → inspect an application, command
+or **source-backed passage inside an approved file** → perform an explicit
+action → dismiss. Content results must show the actual excerpt and line/page,
+not merely a matching filename. The current Slint launcher discovers installed
+applications, exposes registered host commands, performs safe arithmetic,
+opens or copies files selected in the native chooser, and optionally groups
+cited Markdown/DOCX/PDF passages from the separately installed search service.
+Passage actions reopen evidence under the grant before copying or opening a
+validated source; the default viewer may not jump to its cited line or page.
+Embeddings and OCR are optional; app launch and exact/lexical search do not
+require a model.
+“Commands” means registered host or extension actions, not arbitrary shell
+evaluation of typed text.
 
 The current build and target product remain intentionally different surfaces:
 
 | Capability | Status |
 |---|---|
-| File indexing and lexical file search | Available in the explicit CLI/daemon workflow; not connected to launcher queries |
-| Dense semantic search | Provider-dependent in the CLI/daemon workflow |
-| Native resident launcher and application catalog | Available on Linux |
+| File-content indexing, lexical passage search and evidence opening | Available in the separate CLI/daemon; optionally displayed as grouped cited passages in the native launcher after an explicit credential-path configuration. No daemon or model starts with the launcher |
+| Dense semantic search | Provider-dependent in the CLI/daemon workflow; not a launcher default |
+| Native resident launcher and application catalog | Available in the Slint developer build on X11 and Wayland; Debian and AppImage packages built and native-smoked |
+| Distinctive interface and full Tauri-to-Slint parity | Slint search, Preferences, About attribution, theme and keyboard basics work; parity and release performance measurements remain open |
+| Search-only installable service and scoped third-party client | `maestria-search` is built as a separate headless Debian package; its local Unix-socket API and external-process search/evidence commands work without launcher or model configuration. Search-only grants receive bounded cited previews without evidence-open permission. Ubuntu 24.04 container apt installation and installed-binary smoke passed locally; hosted CI and full product acceptance remain unverified |
 | X11 global shortcut | Available after user setup in Preferences |
 | Wayland global shortcut | Portal where supported; otherwise bind `maestria-launcher --activate` in the compositor |
 | Extension lifecycle, SDK, isolated workers and capability broker | Planned |
@@ -49,30 +63,63 @@ Sillage has no releases: the workspace version is pinned at `0.0.0` and
 
 ### Native Linux launcher
 
-Building the launcher requires Node 24, pnpm 9.15.9, Rust stable 1.95+, GTK3,
-WebKitGTK 4.1/JavaScriptCoreGTK 4.1, and the Linux Tauri system dependencies.
-On Ubuntu 24.04, the build also produces a Debian package and AppImage:
+The current developer launcher uses Slint's software renderer and does not need
+Node, pnpm, GTK3, or WebKitGTK. Build it with Rust stable 1.95+ and the native
+X11/Wayland development libraries used by the
+[CI dependency setup](.github/actions/setup-system-dependencies/action.yml):
 
 ```bash
-corepack pnpm@9.15.9 --dir launcher install --frozen-lockfile
-corepack pnpm@9.15.9 --dir launcher tauri build
-./target/release/maestria-launcher
+cargo build --release -p maestria-launcher
+./target/release/maestria-launcher --activate
 ```
 
-For a direct Cargo release build, first build `launcher/dist` and include
-`--features custom-protocol` with `cargo build --release -p maestria-launcher`.
-Without that feature, Tauri targets the Vite development URL instead of
-embedding the launcher frontend; the Tauri CLI command above enables it.
+To build the Debian and AppImage packages, install the pinned Cargo Packager:
 
-The package artifacts are under `target/release/bundle/{deb,appimage}/`. A
-Debian installation provides `maestria-launcher` on `PATH` and a desktop entry
-whose `Exec` is `maestria-launcher --activate`. No daemon or model is started,
-and installation does not enable autostart. Use `maestria-launcher --activate`
+```bash
+cargo install cargo-packager --locked --version 0.11.8
+NO_STRIP=1 APPIMAGE_EXTRACT_AND_RUN=1 cargo packager --release --packages maestria-launcher --formats deb,appimage
+```
+
+The packages land under `target/launcher-packages/`. Build distributable
+artifacts on the oldest supported runtime, such as an Ubuntu 24.04 builder:
+packaging a binary compiled on this Arch host required `GLIBC_2.43` and the
+apt-installed launcher could not start on Ubuntu 24.04 (`glibc` 2.39).
+`NO_STRIP=1` avoids an incompatible bundled linuxdeploy `strip` on systems
+whose ELF libraries use `.relr.dyn`; it does not change runtime compatibility.
+`APPIMAGE_EXTRACT_AND_RUN=1` lets linuxdeploy's AppImage plugin run without
+FUSE inside a container; the builder also needs the `file` utility. A Debian
+installation provides `maestria-launcher` on `PATH` and a desktop entry whose
+`Exec` is
+`maestria-launcher --activate`. No daemon or model is started, and installation
+does not enable autostart. Use `maestria-launcher --activate`
 to show and focus the resident window and `maestria-launcher --quit` for an
 explicit shutdown. Closing or unfocusing the window hides it without ending
 the resident process.
 
-Set up the X11 shortcut in Preferences; the initial suggestion is
+The final Debian and AppImage were built against Ubuntu 24.04, and both
+packaged executables passed a `glibc` ≤2.39 ABI check and native X11/Wayland
+smoke on this host. The Debian apt-installed into a disposable Ubuntu 24.04
+container with no search service and opened a visible X11 window, but that
+container's first-run AT-SPI offer assertion timed out. The host package UI
+smoke does not establish Ubuntu container accessibility acceptance.
+
+On first run, the launcher offers shortcut setup without blocking application
+search. “Not Now” persists a deferred choice; Preferences remains available
+with Ctrl+Comma for later setup. No global keybinding is installed until the
+user requests it. Local Debian/AppImage X11 package smoke exercised first-run
+deferral, arithmetic-result copying through the clipboard, Preferences, and
+resident reactivation. An isolated Debian-binary run also launched an XDG
+desktop-entry fixture and verified successful shortcut setup across restart,
+Caps/Num-lock activation, and rejection of a conflicting grab without changing
+the saved shortcut. A packaged Weston Wayland run with a fake seat verified
+the first-run offer, AT-SPI deferral and search focus, resident reactivation,
+and clean quit. Ubuntu 24.04's Weston 13 has no fake seat; the locally forced
+no-seat package smoke confirmed deferral persistence and reactivation but cannot
+test keyboard focus. Hosted Ubuntu CI and live desktop portal approval/denial,
+chooser, and full screen-reader interactions remain unverified.
+
+Open Preferences with Ctrl+Comma; the shortcut editor receives keyboard focus.
+Set up the X11 shortcut there; the initial suggestion is
 `Control+Space`. On Wayland, the global-shortcuts portal needs a desktop entry
 with the matching `io.github.briolabs.Maestria.Launcher` identity and a
 resolvable `Exec`. The Debian package provides it; an AppImage user must
@@ -93,7 +140,31 @@ The existing `maestria-launcher` executable, Debian package ID
 under the Sillage name. Existing preferences, shortcut grants, and compositor
 bindings continue to work without migrating or resetting user data.
 
-In a launcher-only X11 run with 500 frozen desktop entries and 200 samples per
+To opt into document results, install `maestria-search` separately and create
+an approved root plus a `search-and-open-evidence` consumer grant as shown
+below. After launching once to create `launcher.toml`, add this table to
+`$XDG_CONFIG_HOME/io.github.briolabs.Maestria.Launcher/launcher.toml` (or
+`~/.config/io.github.briolabs.Maestria.Launcher/launcher.toml` without
+`XDG_CONFIG_HOME`), replacing the paths and realm with the actual absolute
+socket path, 64-character hexadecimal consumer realm and mode-0600 credential
+file. Keep `maestria-search` on `PATH`; the launcher invokes it as a separate
+bounded process and never reads the credential contents into its UI:
+
+```toml
+[search]
+socketPath = "/home/you/Documents/sillage-search/system/daemon.sock"
+consumerRealm = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+credentialFile = "/home/you/.config/sillage/search-client.key"
+```
+
+Without this table, without a running service, or after a denial, application
+search remains available. A local isolated X11 Slint run found a phrase only
+inside an approved Markdown file, displayed its highlighted citation and full
+passage, copied freshly reopened evidence, refused the old copy action after
+the source changed, and showed an app result after a newer query. This is not
+a Wayland passage-action, live portal, whole-path latency, or release test.
+
+In a historical **Tauri-only** X11 run with 500 frozen desktop entries and 200 samples per
 class, native activation receipt to renderer-ready p95 was 30.715 ms and query
 input to results-ready p95 was 19 ms. These acknowledgments are not physical
 pixel presentation. A cold WebDriver-inclusive upper bound of 1,051.115 ms
@@ -249,7 +320,8 @@ maestria realm grant create -i ~/provider \
   --access search-and-open-evidence \
   --max-sensitivity confidential \
   --max-results 1 \
-  --max-evidence-bytes 128
+  --max-evidence-bytes 128 \
+  --expires-in-seconds 86400
 ```
 
 The create command prints the grant digest but never the bearer credential. Use
@@ -268,6 +340,103 @@ maestria realm grant revoke -i ~/provider <grant-token-digest>
 Federation is Unix-socket-only. The provider keeps its daemon token; the
 consumer receives a private, revocable capability that can search and,
 only when granted, open a bounded provider evidence excerpt.
+
+**Grant migration:** Schema v17 expires every older active realm read grant at
+fixed Unix second 1. The original grant event log is unchanged; old credentials
+cannot search or open evidence. On the provider, run `realm grant list`, revoke
+the expired grant digest, and issue a new time-bounded grant for the same
+consumer. Revoked grants remain revoked; access is never automatically renewed.
+
+### Scoped local search API and separate search-only package
+
+An approved and indexed provider can serve passage search from an unrelated
+local process without a launcher, Studio, extension runtime or embedding
+model. Start its daemon explicitly with
+`maestria start -i ~/provider --profile read-only`. In another terminal,
+issue a per-consumer capability. The credential is created once in a
+mode-0600 file and is never printed:
+
+```bash
+consumer_realm="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+maestria realm grant create-external -i ~/provider \
+  --consumer-realm "$consumer_realm" --credential-file ./search-client.key \
+  --access search-only --max-sensitivity internal \
+  --max-results 5 --max-evidence-bytes 256 --expires-in-seconds 3600
+maestria search-api search \
+  --socket-path ~/provider/system/daemon.sock \
+  --consumer-realm "$consumer_realm" --credential-file ./search-client.key \
+  --limit 5 "source-grounded phrase"
+maestria search-api status \
+  --socket-path ~/provider/system/daemon.sock \
+  --consumer-realm "$consumer_realm" --credential-file ./search-client.key
+```
+
+`search-only` grants can receive bounded `preview.excerpt` text with a typed
+`preview.location` and `preview.truncated` flag, but only a
+`search-and-open-evidence` grant permits `search-api open-evidence`.
+Grant revocation or expiry removes access; the provider instance token is
+never given to the external client. The existing `maestria` commands above
+are available from the full developer CLI. For a headless search-only build,
+use the separate `maestria-search` binary and Debian package instead:
+
+```bash
+cargo build --release -p maestria-search
+cargo install cargo-packager --locked --version 0.11.8
+cargo packager --release --packages maestria-search --formats deb
+# On a Debian-family host, install target/search-packages/maestria-search_*.deb
+# with apt so system runtime dependencies are resolved.
+maestria-search init --instance-dir ~/provider --read-root ~/Documents
+maestria-search start --instance-dir ~/provider
+# In a second terminal, generate a 64-character lowercase hexadecimal realm:
+consumer_realm="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+maestria-search owner grant create-external --instance-dir ~/provider \
+  --consumer-realm "$consumer_realm" --credential-file ./search-client.key \
+  --access search-and-open-evidence --max-sensitivity internal \
+  --max-results 5 --max-evidence-bytes 4096
+maestria-search search --socket-path ~/provider/system/daemon.sock \
+  --consumer-realm "$consumer_realm" --credential-file ./search-client.key \
+  --limit 5 "source-grounded phrase"
+maestria-search interactive-search --socket-path ~/provider/system/daemon.sock \
+  --consumer-realm "$consumer_realm" --credential-file ./search-client.key \
+  --limit 5 "source-grounded phrase"
+# Pass an evidence_id from the result to maestria-search open-evidence
+# with the same socket, realm and private credential file.
+```
+
+The provider's index has one owner; `start` uses the read-only profile without
+a model client, and installation does not start a service or enable autostart.
+Use `owner roots status|add|remove` to inspect or change approved read roots,
+`owner grant list|revoke` to inspect or revoke grants, and
+`indexing-status` to inspect live indexing freshness. A client without a
+matching, live grant is denied. In a disposable Ubuntu 24.04 container the
+apt-installed `/usr/bin/maestria-search` indexed Markdown, DOCX paragraphs and
+a text-bearing PDF, reported an image-only PDF as OCR-needed, and served
+bounded typed previews through general and v2 interactive search. Federated
+evidence reopening returned an authorized current PDF source path and exact
+page citation; previews exposed no PDF path. Grant denial/revocation, daemon
+restart, and suppression of both a previously indexed passage and direct
+reopening of its old evidence after the source changed passed locally.
+
+On an uninstrumented, fully indexed 10,000-Markdown-file corpus, 197 of 200
+warm exact-phrase interactive requests succeeded and three hit the existing
+100 ms daemon deadline. Successful separate-process CLI requests had p50
+68.05 ms, p95 78.42 ms, and p99 110.7 ms; these are **not** native
+keystroke-to-passage timings. After approving an additional 700-file root,
+indexing status reported 429 pending; the first six of 30 interactive
+requests timed out and the other 24 succeeded (successful CLI p95 101.4 ms).
+Indexing reached zero pending during that probe, so the successful subset
+does not establish active-indexing responsiveness.
+
+With direct-path lookup for file/DOCX source validation, a later isolated
+200-call warm run on the retained, now fully indexed corpus succeeded 199
+times; successful separate-process CLI p50/p95/p99 were 38.77/51.20/68.02 ms.
+One call still timed out at 100 ms. A concurrent daemon-test run succeeded
+196/200, with four timeouts. The workloads differ from the initial 10,000-file
+probe, so these figures do not establish a causal speedup or deadline
+acceptance.
+
+Hosted CI, native whole-path latency, Wayland passage actions, relevance and
+complete product acceptance remain open.
 
 ## Supported surfaces and capability status
 
@@ -450,6 +619,18 @@ maestria search [-i <dir>] [-l <n>] <query>
 maestria search explain [-i <dir>] [-l <n>] <query>
 maestria search trace [-i <dir>] <trace_id>
 maestria search compare [-i <dir>] <experiment_a> <experiment_b>
+maestria search [-i <dir>] roots status
+maestria search [-i <dir>] roots add <directory>
+maestria search [-i <dir>] roots remove <directory>
+```
+
+With the default instance, approve a root explicitly, inspect its index, and
+revoke it when no longer needed:
+
+```bash
+maestria search roots add ~/Documents
+maestria search roots status
+maestria search roots remove ~/Documents
 ```
 
 | Flag | Description |
@@ -466,6 +647,13 @@ Direct `search` runs daemon-first: it prints `served=daemon` when the
 instance daemon served the query and `served=local` when it ran locally, so
 benchmark and latency numbers are attributable (see
 [`docs/OPERATIONS.md`](./docs/OPERATIONS.md) §7).
+
+`search roots` is provider-owned administration: approval is explicit, and
+removal immediately excludes the root from search and evidence opening.
+`roots status` can list source paths for the owner. The daemon's watcher
+reports files as indexed only after a durable parser receipt; queued work is
+reported as pending. Edits, deletions, and reapproval of unchanged content
+reconcile without broadening scope.
 
 #### `search code`
 
@@ -573,7 +761,7 @@ maestria retire-retrieval-events -i <dir> --before-sequence <n> --reason "<why>"
 Start the Sillage daemon for the given instance.
 
 ```
-maestria start [-i <dir>]
+maestria start [-i <dir>] [--profile read-only|trusted-workspace]
 ```
 
 ### `realm`
@@ -587,7 +775,14 @@ maestria realm identity [-i <instance>]
 maestria realm grant create [-i <provider>] --consumer-instance <consumer> \
   --access search-only|search-and-open-evidence \
   --max-sensitivity public|internal|confidential|restricted \
-  --max-results <1..100> --max-evidence-bytes <1..65536>
+  --max-results <1..100> --max-evidence-bytes <1..65536> \
+  [--expires-in-seconds <1..31536000>]
+maestria realm grant create-external [-i <provider>] \
+  --consumer-realm <64-hex-id> --credential-file <path> \
+  --access search-only|search-and-open-evidence \
+  --max-sensitivity public|internal|confidential|restricted \
+  --max-results <1..100> --max-evidence-bytes <1..65536> \
+  [--expires-in-seconds <1..31536000>]
 maestria realm grant list [-i <provider>]
 maestria realm grant revoke [-i <provider>] <grant-token-digest>
 maestria realm search [-i <consumer>] --provider-realm <realm-id> [-l <n>] <query>
@@ -600,6 +795,27 @@ provider grant and installs the credential only in the consumer's private
 binding. `grant list` and `grant revoke` are provider administration commands.
 `realm search` and `realm open-evidence` use the consumer daemon and return
 only provider-authorized, bounded data with provider realm provenance.
+
+### `search-api`
+
+One explicit request to a running provider daemon from a separate local
+process. The caller supplies a private credential file and a stable consumer
+realm ID; no instance token, Studio or launcher is required.
+
+```
+maestria search-api search --socket-path <provider-daemon.sock> \
+  --consumer-realm <64-hex-id> --credential-file <path> [-l <n>] <query>
+maestria search-api status --socket-path <provider-daemon.sock> \
+  --consumer-realm <64-hex-id> --credential-file <path>
+maestria search-api indexing-status --socket-path <provider-daemon.sock> \
+  --consumer-realm <64-hex-id> --credential-file <path>
+maestria search-api open-evidence --socket-path <provider-daemon.sock> \
+  --consumer-realm <64-hex-id> --credential-file <path> --evidence-id <n>
+```
+
+`indexing-status` is a bounded aggregate with counts, exclusion reasons, and
+format support; unlike owner `roots status`, it does not disclose paths.
+Revoking the provider grant denies both search and evidence requests.
 
 ### `task`
 

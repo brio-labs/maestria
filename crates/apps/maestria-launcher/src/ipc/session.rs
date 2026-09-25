@@ -56,24 +56,13 @@ impl LauncherState {
         &self.catalog
     }
 
-    pub(super) fn ensure_generation(&self, generation: u64) -> Result<(), LauncherError> {
+    pub(crate) fn ensure_generation(&self, generation: u64) -> Result<(), LauncherError> {
         if self.session()?.last_generation != generation {
             return Err(LauncherError::stale_result(
                 "A newer activation or query superseded this action",
             ));
         }
         Ok(())
-    }
-
-    pub(super) fn dismiss_generation(&self, generation: u64) -> Result<bool, LauncherError> {
-        let mut state = self.session()?;
-        if state.last_generation != generation {
-            return Ok(false);
-        }
-        state.accepted.clear();
-        state.selected_file = None;
-        state.preferences_scope = false;
-        Ok(true)
     }
 
     pub fn initialize_settings(&self, settings: SettingsManager) -> Result<(), LauncherError> {
@@ -230,6 +219,28 @@ impl LauncherState {
         state.action_in_flight = true;
         Ok(target)
     }
+
+    /// Reserve one authenticated external-evidence action for the active generation.
+    pub(crate) fn begin_passage_action(&self, generation: u64) -> Result<(), LauncherError> {
+        let mut state = self.session()?;
+        if state.action_in_flight {
+            return Err(LauncherError::invalid_request(
+                "An action is already in progress",
+            ));
+        }
+        if generation != state.last_generation {
+            return Err(LauncherError::stale_result(
+                "This passage belongs to an older search generation",
+            ));
+        }
+        if state.preferences_scope {
+            return Err(LauncherError::invalid_request(
+                "Passage actions are unavailable while preferences are open",
+            ));
+        }
+        state.action_in_flight = true;
+        Ok(())
+    }
     fn preference_target(
         state: &SessionState,
         result_id: &str,
@@ -307,6 +318,13 @@ impl LauncherState {
         state.preferences_scope = true;
         Ok(())
     }
+    pub fn leave_preferences(&self) -> Result<(), LauncherError> {
+        let mut state = self.session()?;
+        if state.selected_file.is_none() {
+            state.preferences_scope = false;
+        }
+        Ok(())
+    }
 
     pub fn dismiss(&self) -> Result<(), LauncherError> {
         let mut state = self.session()?;
@@ -317,7 +335,7 @@ impl LauncherState {
         Ok(())
     }
 
-    pub(super) fn install_selected_file(
+    pub(crate) fn install_selected_file(
         &self,
         path: PathBuf,
         generation: u64,
@@ -344,7 +362,7 @@ impl LauncherState {
     }
 
     /// Keep the accepted file generation stable until native dispatch completes.
-    pub(super) fn with_current_file<T>(
+    pub(crate) fn with_current_file<T>(
         &self,
         generation: u64,
         path: &Path,

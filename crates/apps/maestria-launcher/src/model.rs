@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-pub const LAUNCHER_WINDOW_LABEL: &str = "launcher";
 pub const HOST_OPEN_FILE: &str = "host.open-file";
 pub const HOST_PREFERENCES: &str = "host.preferences";
 pub const HOST_REFRESH_APPLICATIONS: &str = "host.refresh-applications";
@@ -94,6 +93,7 @@ pub struct PreferencesDto {
     pub shortcut: String,
     pub shortcut_setup: ShortcutSetup,
     pub reduce_motion: bool,
+    pub theme: String,
     pub warning: Option<String>,
     pub read_only: bool,
     pub platform: String,
@@ -163,6 +163,7 @@ pub struct PreferencesUpdate {
     pub reduce_motion: Option<bool>,
     pub shortcut: Option<String>,
     pub shortcut_setup: Option<ShortcutSetup>,
+    pub theme: Option<String>,
     pub confirm_reset: Option<bool>,
 }
 

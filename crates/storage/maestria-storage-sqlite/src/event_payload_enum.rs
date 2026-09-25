@@ -16,6 +16,9 @@ use super::super::stored_structure::StoredStructureNode;
 use super::super::task_event_payloads::{StoredTaskPriority, StoredTaskStatus};
 use super::StoredApprovalOutcome;
 use serde::{Deserialize, Serialize};
+fn legacy_realm_read_grant_expiry() -> u64 {
+    1
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "event_kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -245,6 +248,10 @@ pub(crate) enum StoredEventPayload {
             crate::payloads::realm_read_grant_event_payloads::StoredFederatedSensitivity,
         max_results: u64,
         max_evidence_bytes: u64,
+        #[serde(default = "legacy_realm_read_grant_expiry")]
+        expires_at_unix_seconds: u64,
+        #[serde(default)]
+        allowed_roots: Option<Vec<String>>,
     },
     RealmReadGrantRevoked {
         token_digest: String,

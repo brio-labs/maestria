@@ -317,7 +317,9 @@ fn trace_candidate(
 
 fn source_identity(candidate: &EvidenceCandidate) -> String {
     match candidate.source_span().location() {
-        SourceLocation::File { path, .. } | SourceLocation::Symbol { path, .. } => path.clone(),
+        SourceLocation::File { path, .. }
+        | SourceLocation::Symbol { path, .. }
+        | SourceLocation::DocxParagraph { path, .. } => path.clone(),
         SourceLocation::Page { .. } | SourceLocation::Region { .. } => {
             format!("artifact:{}", candidate.artifact_version().value())
         }
@@ -339,6 +341,11 @@ fn section_identity(candidate: &EvidenceCandidate) -> String {
             path,
             qualified_name,
         } => format!("artifact:{artifact}:symbol:{path}:{qualified_name}"),
+        SourceLocation::DocxParagraph {
+            path,
+            start_paragraph,
+            end_paragraph,
+        } => format!("artifact:{artifact}:docx-paragraph:{path}:{start_paragraph}:{end_paragraph}"),
         SourceLocation::Page {
             page_start,
             page_end,

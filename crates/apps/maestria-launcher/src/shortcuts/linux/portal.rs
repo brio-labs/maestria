@@ -1,136 +1,238 @@
-use std::sync::Arc;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::Duration;
 
-use super::ConfigureOutcome;
-use super::helpers::{portal_error_was_denial, portal_trigger};
-use super::state::{ExportedParent, Portal, PortalSessionState};
-use super::status::{
-    available_system_status, lock_state, set_status, unavailable_status, unconfigured_status,
+use futures_util::StreamExt;
+use tokio::sync::mpsc as async_mpsc;
+
+use super::{
+    APP_ID, DEFAULT_SHORTCUT, PORTAL_DEFAULT_TRIGGER, PortalCommand, SHORTCUT_ID,
+    available_system_status, lock, unavailable_status, unconfigured_status,
 };
-use crate::model::{ShortcutConfigureAction, ShortcutControl};
+use crate::model::{ShortcutConfigureAction, ShortcutControl, ShortcutStatus};
+struct PortalActive {
+    portal: ashpd::desktop::global_shortcuts::GlobalShortcuts<'static>,
+    version: u32,
+    session: ashpd::desktop::Session<
+        'static,
+        ashpd::desktop::global_shortcuts::GlobalShortcuts<'static>,
+    >,
+    session_path: String,
+    activated: Pin<
+        Box<dyn futures_util::Stream<Item = ashpd::desktop::global_shortcuts::Activated> + Send>,
+    >,
+    changed: Pin<
+        Box<
+            dyn futures_util::Stream<Item = ashpd::desktop::global_shortcuts::ShortcutsChanged>
+                + Send,
+        >,
+    >,
+    closed: Pin<Box<dyn futures_util::Stream<Item = ()> + Send>>,
+    bound: bool,
+    description: Option<String>,
+}
 
-pub(super) async fn configure(
-    inner: &Arc<super::state::ShortcutInner>,
-    session: &mut Option<PortalSessionState>,
-    parent_identifier: Option<ExportedParent>,
-    preferred: &str,
-    explicit: bool,
-) -> ConfigureOutcome {
-    let trigger = match portal_trigger(preferred) {
-        Ok(trigger) => trigger,
-        Err(error) => {
-            let status = unavailable_status(&error.message);
-            set_status(inner, status.clone());
-            return ConfigureOutcome {
-                status,
-                denied: false,
-            };
-        }
-    };
-
-    if explicit
-        && session
-            .as_ref()
-            .is_some_and(|active| active.version < 2 && active.bound)
-    {
-        close_session(session).await;
+enum PortalEvent {
+    Command(Option<PortalCommand>),
+    Activated(Option<ashpd::desktop::global_shortcuts::Activated>),
+    Changed(Option<ashpd::desktop::global_shortcuts::ShortcutsChanged>),
+    Closed,
+}
+fn portal_trigger(value: &str) -> Result<String, String> {
+    super::x11::validate_accelerator(value)?;
+    if value.eq_ignore_ascii_case(DEFAULT_SHORTCUT) {
+        return Ok(PORTAL_DEFAULT_TRIGGER.to_string());
     }
-
-    if session.is_none() {
-        match create_session(inner).await {
-            Ok(active) => *session = Some(active),
-            Err(message) => {
-                let status = unavailable_status(&message);
-                set_status(inner, status.clone());
-                return ConfigureOutcome {
-                    status,
-                    denied: false,
-                };
+    let tokens = value.split('+').map(str::trim).collect::<Vec<_>>();
+    let mut output = Vec::with_capacity(tokens.len());
+    for (index, token) in tokens.iter().enumerate() {
+        if index + 1 == tokens.len() {
+            output.push(match token.to_ascii_lowercase().as_str() {
+                "space" => "space".to_string(),
+                other => other.to_string(),
+            });
+        } else {
+            output.push(match token.to_ascii_uppercase().as_str() {
+                "CTRL" | "CONTROL" => "CTRL".to_string(),
+                "ALT" | "OPTION" => "ALT".to_string(),
+                "SHIFT" => "SHIFT".to_string(),
+                "SUPER" | "META" | "CMD" | "COMMAND" => "SUPER".to_string(),
+                _ => return Err("unknown shortcut modifier".to_string()),
+            });
+        }
+    }
+    Ok(output.join("+"))
+}
+pub(super) async fn portal_worker(
+    mut receiver: async_mpsc::Receiver<PortalCommand>,
+    status: Arc<Mutex<ShortcutStatus>>,
+    activation: mpsc::SyncSender<()>,
+) {
+    let mut active: Option<PortalActive> = None;
+    loop {
+        match next_portal_event(&mut active, &mut receiver).await {
+            PortalEvent::Command(Some(PortalCommand::Configure {
+                preferred,
+                explicit,
+                parent,
+                response,
+            })) => {
+                let configured =
+                    configure_portal(&mut active, &preferred, explicit, parent.as_deref()).await;
+                *lock(&status) = configured.clone();
+                let _ = response.send(configured);
+            }
+            PortalEvent::Command(Some(PortalCommand::Clear { response })) => {
+                close_portal(&mut active).await;
+                let cleared = unconfigured_status(
+                    ShortcutControl::System,
+                    DEFAULT_SHORTCUT,
+                    Some("The desktop controls shortcut approval and activation."),
+                    ShortcutConfigureAction::Setup,
+                );
+                *lock(&status) = cleared.clone();
+                let _ = response.send(cleared);
+            }
+            PortalEvent::Command(Some(PortalCommand::Shutdown)) | PortalEvent::Command(None) => {
+                close_portal(&mut active).await;
+                return;
+            }
+            PortalEvent::Activated(Some(event)) => {
+                if event.shortcut_id() == SHORTCUT_ID
+                    && active.as_ref().is_some_and(|session| {
+                        event.session_handle().as_str() == session.session_path
+                    })
+                {
+                    let _ = activation.try_send(());
+                }
+            }
+            PortalEvent::Changed(Some(event)) => {
+                if let Some(session) = active.as_mut()
+                    && event.session_handle().as_str() == session.session_path
+                {
+                    session.description = event
+                        .shortcuts()
+                        .iter()
+                        .find(|shortcut| shortcut.id() == SHORTCUT_ID)
+                        .map(|shortcut| shortcut.trigger_description().to_string());
+                    let updated = session.description.as_deref().map_or_else(
+                        || {
+                            unavailable_status(
+                                "The system removed the launcher shortcut; retry setup",
+                            )
+                        },
+                        |description| available_system_status(description, session.version),
+                    );
+                    *lock(&status) = updated;
+                }
+            }
+            PortalEvent::Changed(None) | PortalEvent::Activated(None) | PortalEvent::Closed => {
+                close_portal(&mut active).await;
+                *lock(&status) =
+                    unavailable_status("The global-shortcuts portal disconnected; retry setup");
             }
         }
     }
-
-    if session.is_none() {
-        let status = unavailable_status("The global-shortcuts portal session is unavailable");
-        set_status(inner, status.clone());
-        return ConfigureOutcome {
-            status,
-            denied: false,
-        };
+}
+async fn next_portal_event(
+    active: &mut Option<PortalActive>,
+    receiver: &mut async_mpsc::Receiver<PortalCommand>,
+) -> PortalEvent {
+    if let Some(session) = active.as_mut() {
+        tokio::select! {
+            command = receiver.recv() => PortalEvent::Command(command),
+            activated = session.activated.next() => PortalEvent::Activated(activated),
+            changed = session.changed.next() => PortalEvent::Changed(changed),
+            _ = session.closed.next() => PortalEvent::Closed,
+        }
+    } else {
+        PortalEvent::Command(receiver.recv().await)
     }
-
-    let previously_bound = session.as_ref().is_some_and(|active| active.bound);
-    if let Some(outcome) = bind_if_needed(
-        inner,
-        session,
-        &trigger,
-        parent_identifier.as_deref(),
-        preferred,
-    )
-    .await
+}
+async fn reconfigure_bound_portal(
+    session: &mut PortalActive,
+    parent: Option<&ashpd::WindowIdentifier>,
+) -> ShortcutStatus {
+    if let Err(error) = session
+        .portal
+        .configure_shortcuts(&session.session, parent, None::<ashpd::ActivationToken>)
+        .await
     {
-        return outcome;
+        if portal_error_was_denial(&error) {
+            return available_system_status(
+                session
+                    .description
+                    .as_deref()
+                    .map_or("", |description| description),
+                session.version,
+            );
+        }
+        return unavailable_status(&format!("Global shortcut configuration failed: {error}"));
     }
-
-    if explicit
-        && previously_bound
-        && session.as_ref().is_some_and(|active| active.version >= 2)
-        && let Some(active) = session.as_mut()
-    {
-        return configure_existing(inner, active, parent_identifier, preferred).await;
-    }
-
-    let status = match session.as_ref().and_then(|active| {
-        active
-            .trigger_description
-            .as_deref()
-            .map(|description| (active, description))
-    }) {
-        Some((active, description)) => available_system_status(description, None, active.version),
-        None => unavailable_status("The system has no launcher shortcut; retry setup"),
-    };
-    set_status(inner, status.clone());
-    ConfigureOutcome {
-        status,
-        denied: false,
+    match list_portal_shortcut(session).await {
+        Ok(Some(description)) => {
+            session.description = Some(description.clone());
+            available_system_status(&description, session.version)
+        }
+        Ok(None) => unavailable_status("The system has no launcher shortcut; retry setup"),
+        Err(error) => unavailable_status(&format!("Global shortcut status failed: {error}")),
     }
 }
 
-async fn bind_if_needed(
-    inner: &Arc<super::state::ShortcutInner>,
-    session: &mut Option<PortalSessionState>,
-    trigger: &str,
-    parent: Option<&ashpd::WindowIdentifier>,
+async fn configure_portal(
+    active: &mut Option<PortalActive>,
     preferred: &str,
-) -> Option<ConfigureOutcome> {
-    if session.as_ref().is_some_and(|active| active.bound) {
-        return None;
-    }
-    let result = match session.as_mut() {
-        Some(active) => bind_shortcut(active, trigger, parent).await,
-        None => {
-            let status = unavailable_status("The global-shortcuts portal session is unavailable");
-            set_status(inner, status.clone());
-            return Some(ConfigureOutcome {
-                status,
-                denied: false,
-            });
-        }
+    explicit: bool,
+    parent: Option<&ashpd::WindowIdentifier>,
+) -> ShortcutStatus {
+    let trigger = match portal_trigger(preferred) {
+        Ok(trigger) => trigger,
+        Err(error) => return unavailable_status(&error),
     };
-    match result {
-        Ok(description) => {
-            if let Some(active) = session.as_mut() {
-                active.bound = true;
-                active.trigger_description = Some(description.clone());
-                set_status(
-                    inner,
-                    available_system_status(&description, None, active.version),
-                );
-            }
-            None
+    if explicit
+        && active
+            .as_ref()
+            .is_some_and(|session| session.bound && session.version < 2)
+    {
+        close_portal(active).await;
+    }
+    if active.is_none() {
+        match create_portal_session().await {
+            Ok(session) => *active = Some(session),
+            Err(error) => return unavailable_status(&error),
         }
+    }
+    let Some(session) = active.as_mut() else {
+        return unavailable_status("The global-shortcuts portal session is unavailable");
+    };
+    if explicit && session.bound && session.version >= 2 {
+        return reconfigure_bound_portal(session, parent).await;
+    }
+    if session.bound {
+        return available_system_status(
+            session
+                .description
+                .as_deref()
+                .map_or("", |description| description),
+            session.version,
+        );
+    }
+    let shortcut = ashpd::desktop::global_shortcuts::NewShortcut::new(
+        SHORTCUT_ID,
+        "Activate Sillage Launcher",
+    )
+    .preferred_trigger(Some(trigger.as_str()));
+    let response = match session
+        .portal
+        .bind_shortcuts(&session.session, &[shortcut], parent)
+        .await
+        .and_then(|request| request.response())
+    {
+        Ok(response) => response,
         Err(error) => {
-            let denied = portal_error_was_denial(&error);
-            let status = if denied {
+            let was_denied = portal_error_was_denial(&error);
+            close_portal(active).await;
+            return if was_denied {
                 unconfigured_status(
                     ShortcutControl::System,
                     preferred,
@@ -140,179 +242,60 @@ async fn bind_if_needed(
             } else {
                 unavailable_status(&format!("Global shortcut setup failed: {error}"))
             };
-            set_status(inner, status.clone());
-            close_session(session).await;
-            Some(ConfigureOutcome { status, denied })
+        }
+    };
+    let description = response
+        .shortcuts()
+        .iter()
+        .find(|shortcut| shortcut.id() == SHORTCUT_ID)
+        .map(|shortcut| shortcut.trigger_description().to_string());
+    match description {
+        Some(description) => {
+            session.bound = true;
+            session.description = Some(description.clone());
+            available_system_status(&description, session.version)
+        }
+        None => {
+            close_portal(active).await;
+            unavailable_status("The portal did not return a launcher shortcut")
         }
     }
 }
-
-async fn configure_existing(
-    inner: &Arc<super::state::ShortcutInner>,
-    active: &mut PortalSessionState,
-    parent_identifier: Option<ExportedParent>,
-    preferred: &str,
-) -> ConfigureOutcome {
-    if let Err(error) = active
-        .portal
-        .configure_shortcuts(
-            &active.session,
-            parent_identifier.as_deref(),
-            None::<ashpd::ActivationToken>,
-        )
+async fn create_portal_session() -> Result<PortalActive, String> {
+    let app_id = ashpd::AppID::try_from(APP_ID).map_err(|error| error.to_string())?;
+    ashpd::register_host_app(app_id)
         .await
-    {
-        let was_denied = portal_error_was_denial(&error);
-        let (status, denied) = if was_denied {
-            match active.trigger_description.as_deref() {
-                Some(description) if !description.trim().is_empty() => (
-                    available_system_status(
-                        description,
-                        Some("Shortcut configuration was cancelled"),
-                        active.version,
-                    ),
-                    true,
-                ),
-                Some(_) => (
-                    available_system_status(
-                        "",
-                        Some("Shortcut configuration was cancelled"),
-                        active.version,
-                    ),
-                    false,
-                ),
-                None => (
-                    unconfigured_status(
-                        ShortcutControl::System,
-                        preferred,
-                        Some("Shortcut configuration was cancelled"),
-                        ShortcutConfigureAction::Setup,
-                    ),
-                    true,
-                ),
-            }
-        } else {
-            (
-                unavailable_status(&format!("Global shortcut configuration failed: {error}")),
-                false,
-            )
-        };
-        set_status(inner, status.clone());
-        return ConfigureOutcome { status, denied };
-    }
-
-    match list_shortcut(active).await {
-        Ok(Some(description)) => {
-            active.trigger_description = Some(description.clone());
-            let status = available_system_status(&description, None, active.version);
-            set_status(inner, status.clone());
-            ConfigureOutcome {
-                status,
-                denied: false,
-            }
-        }
-        Ok(None) => {
-            active.trigger_description = None;
-            let status = unavailable_status("The system has no launcher shortcut; retry setup");
-            set_status(inner, status.clone());
-            ConfigureOutcome {
-                status,
-                denied: false,
-            }
-        }
-        Err(error) => {
-            let status = unavailable_status(&format!("Global shortcut status failed: {error}"));
-            set_status(inner, status.clone());
-            ConfigureOutcome {
-                status,
-                denied: false,
-            }
-        }
-    }
-}
-
-pub(super) async fn close_session(session: &mut Option<PortalSessionState>) {
-    if let Some(active) = session.take() {
-        let _ =
-            tokio::time::timeout(std::time::Duration::from_secs(1), active.session.close()).await;
-    }
-}
-
-async fn create_session(
-    inner: &Arc<super::state::ShortcutInner>,
-) -> Result<PortalSessionState, String> {
-    // Registry registration is once per portal service owner, before any portal
-    // call on ashpd's shared connection. Rebinding is not a new D-Bus peer.
-    let connection = ashpd::zbus::Connection::session()
+        .map_err(|error| format!("The portal host application could not be registered: {error}"))?;
+    let portal = ashpd::desktop::global_shortcuts::GlobalShortcuts::new()
         .await
-        .map_err(|error| error.to_string())?;
-    let rule = ashpd::zbus::MatchRule::builder()
-        .msg_type(ashpd::zbus::message::Type::Signal)
-        .sender("org.freedesktop.DBus")
-        .map_err(|error| error.to_string())?
-        .interface("org.freedesktop.DBus")
-        .map_err(|error| error.to_string())?
-        .member("NameOwnerChanged")
-        .map_err(|error| error.to_string())?
-        .add_arg("org.freedesktop.portal.Desktop")
-        .map_err(|error| error.to_string())?
-        .build();
-    let owner = ashpd::zbus::MessageStream::for_match_rule(rule, &connection, Some(8))
-        .await
-        .map_err(|error| format!("portal owner monitoring failed: {error}"))?;
-    let bus = ashpd::zbus::fdo::DBusProxy::new(&connection)
-        .await
-        .map_err(|error| error.to_string())?;
-    let name = ashpd::zbus::names::WellKnownName::try_from("org.freedesktop.portal.Desktop")
-        .map_err(|error| error.to_string())?;
-    bus.start_service_by_name(name.clone(), 0)
-        .await
-        .map_err(|error| format!("the portal service could not start: {error}"))?;
-    let owner_name = bus
-        .get_name_owner(name.into())
-        .await
-        .map_err(|error| error.to_string())?
-        .to_string();
-    let needs_registration =
-        lock_state(inner).registered_owner.as_deref() != Some(owner_name.as_str());
-    if needs_registration {
-        let app_id = ashpd::AppID::try_from(super::APP_ID).map_err(|error| error.to_string())?;
-        ashpd::register_host_app(app_id).await.map_err(|error| {
-            format!("the portal host application could not be registered: {error}")
-        })?;
-        lock_state(inner).registered_owner = Some(owner_name.clone());
-    }
-    let portal: Portal = ashpd::desktop::global_shortcuts::GlobalShortcuts::new()
-        .await
-        .map_err(|error| format!("the global-shortcuts portal is unavailable: {error}"))?;
+        .map_err(|error| format!("The global-shortcuts portal is unavailable: {error}"))?;
     let version = portal
         .get_property::<u32>("version")
         .await
-        .map_err(|error| format!("the portal version could not be read: {error}"))?;
+        .map_err(|error| format!("The portal version could not be read: {error}"))?;
     let activated = Box::pin(
         portal
             .receive_activated()
             .await
-            .map_err(|error| format!("portal activation subscription failed: {error}"))?,
+            .map_err(|error| format!("Portal activation subscription failed: {error}"))?,
     );
     let changed = Box::pin(
         portal
             .receive_shortcuts_changed()
             .await
-            .map_err(|error| format!("portal shortcut subscription failed: {error}"))?,
+            .map_err(|error| format!("Portal shortcut subscription failed: {error}"))?,
     );
     let session = portal
         .create_session()
         .await
-        .map_err(|error| format!("the global-shortcuts portal session could not start: {error}"))?;
+        .map_err(|error| format!("The global-shortcuts portal session could not start: {error}"))?;
     let closed = match session.receive_closed().await {
         Ok(stream) => Box::pin(stream),
         Err(error) => {
             let _ = session.close().await;
-            return Err(format!("portal session subscription failed: {error}"));
+            return Err(format!("Portal session subscription failed: {error}"));
         }
     };
-    // ashpd exposes Session's identity through Serialize, not a public path getter.
     let session_path = match serde_json::to_value(&session) {
         Ok(serde_json::Value::String(path)) => path,
         _ => {
@@ -320,50 +303,37 @@ async fn create_session(
             return Err("The portal session identity could not be read".to_string());
         }
     };
-    Ok(PortalSessionState {
+    Ok(PortalActive {
         portal,
         version,
-        owner_name,
-        session_path,
         session,
+        session_path,
         activated,
         changed,
         closed,
-        owner,
         bound: false,
-        trigger_description: None,
+        description: None,
     })
 }
-
-async fn bind_shortcut(
-    active: &mut PortalSessionState,
-    trigger: &str,
-    identifier: Option<&ashpd::WindowIdentifier>,
-) -> Result<String, ashpd::Error> {
-    let shortcut = ashpd::desktop::global_shortcuts::NewShortcut::new(
-        super::SHORTCUT_ID,
-        "Activate Sillage Launcher",
-    )
-    .preferred_trigger(Some(trigger));
-    let request = active
-        .portal
-        .bind_shortcuts(&active.session, &[shortcut], identifier)
-        .await?;
-    let response = request.response()?;
-    response
-        .shortcuts()
-        .iter()
-        .find(|shortcut| shortcut.id() == super::SHORTCUT_ID)
-        .map(|shortcut| shortcut.trigger_description().to_string())
-        .ok_or(ashpd::Error::NoResponse)
-}
-
-async fn list_shortcut(active: &mut PortalSessionState) -> Result<Option<String>, ashpd::Error> {
-    let request = active.portal.list_shortcuts(&active.session).await?;
+async fn list_portal_shortcut(session: &mut PortalActive) -> Result<Option<String>, ashpd::Error> {
+    let request = session.portal.list_shortcuts(&session.session).await?;
     let response = request.response()?;
     Ok(response
         .shortcuts()
         .iter()
-        .find(|shortcut| shortcut.id() == super::SHORTCUT_ID)
+        .find(|shortcut| shortcut.id() == SHORTCUT_ID)
         .map(|shortcut| shortcut.trigger_description().to_string()))
+}
+async fn close_portal(active: &mut Option<PortalActive>) {
+    if let Some(session) = active.take() {
+        let _ = tokio::time::timeout(Duration::from_secs(1), session.session.close()).await;
+    }
+}
+fn portal_error_was_denial(error: &ashpd::Error) -> bool {
+    matches!(
+        error,
+        ashpd::Error::Response(ashpd::desktop::ResponseError::Cancelled)
+            | ashpd::Error::Portal(ashpd::PortalError::Cancelled(_))
+            | ashpd::Error::Portal(ashpd::PortalError::NotAllowed(_))
+    )
 }

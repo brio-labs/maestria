@@ -39,4 +39,9 @@ impl crate::EventLog for InMemoryEventLog {
         }
         Ok(entries)
     }
+
+    fn contains_id(&self, event_id: maestria_domain::EventId) -> Result<bool, PortError> {
+        let guard = lock_map(&self.events, "event log lock poisoned")?;
+        Ok(event_id.value() != 0 && event_id.value() <= guard.len() as u64)
+    }
 }

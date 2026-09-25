@@ -1,7 +1,10 @@
+use std::path::{Component, Path, PathBuf};
+
 use super::event_payloads::{FamilyDecodeError, StoredEventPayload};
 use maestria_domain::{
     DomainEvent, EvidenceId, FederatedAccessRecord, FederatedEvidenceBounds, FederatedReadAccess,
-    GrantTokenDigest, QueryId, RealmId, RealmReadGrant, SearchTraceId, Sensitivity,
+    GrantTokenDigest, MAX_REALM_GRANT_ROOT_BYTES, MAX_REALM_GRANT_ROOTS, QueryId, RealmId,
+    RealmReadGrant, RealmReadGrantExpiry, SearchTraceId, Sensitivity,
 };
 use maestria_ports::PortError;
 use serde::{Deserialize, Serialize};
@@ -58,34 +61,47 @@ impl StoredFederatedAccessRecord {
 }
 
 impl StoredEventPayload {
-    pub(crate) fn try_from_domain_federation(event: &DomainEvent) -> Option<Self> {
+    pub(crate) fn try_from_domain_federation(
+        event: &DomainEvent,
+    ) -> Result<Option<Self>, PortError> {
         match event {
-            DomainEvent::RealmReadGrantIssued { grant } => Some(Self::RealmReadGrantIssued {
-                token_digest: grant.token_digest().as_str().to_string(),
-                provider_realm: grant.provider_realm().as_str().to_string(),
-                consumer_realm: grant.consumer_realm().as_str().to_string(),
-                access: StoredFederatedReadAccess::from_domain(grant.access()),
-                max_sensitivity: StoredFederatedSensitivity::from_domain(grant.max_sensitivity()),
-                max_results: grant.bounds().max_results() as u64,
-                max_evidence_bytes: grant.bounds().max_evidence_bytes() as u64,
-            }),
+            DomainEvent::RealmReadGrantIssued { grant } => {
+                let allowed_roots = grant
+                    .allowed_roots()
+                    .map(encode_allowed_root_paths)
+                    .transpose()
+                    .map_err(|error| PortError::internal("encode realm read grant roots", error))?;
+                Ok(Some(Self::RealmReadGrantIssued {
+                    token_digest: grant.token_digest().as_str().to_string(),
+                    provider_realm: grant.provider_realm().as_str().to_string(),
+                    consumer_realm: grant.consumer_realm().as_str().to_string(),
+                    access: StoredFederatedReadAccess::from_domain(grant.access()),
+                    max_sensitivity: StoredFederatedSensitivity::from_domain(
+                        grant.max_sensitivity(),
+                    ),
+                    max_results: grant.bounds().max_results() as u64,
+                    max_evidence_bytes: grant.bounds().max_evidence_bytes() as u64,
+                    expires_at_unix_seconds: grant.expires_at().unix_seconds(),
+                    allowed_roots,
+                }))
+            }
             DomainEvent::RealmReadGrantRevoked { token_digest } => {
-                Some(Self::RealmReadGrantRevoked {
+                Ok(Some(Self::RealmReadGrantRevoked {
                     token_digest: token_digest.as_str().to_string(),
-                })
+                }))
             }
             DomainEvent::FederatedReadAccessRecorded {
                 token_digest,
                 provider_realm,
                 consumer_realm,
                 record,
-            } => Some(Self::FederatedReadAccessRecorded {
+            } => Ok(Some(Self::FederatedReadAccessRecorded {
                 token_digest: token_digest.as_str().to_string(),
                 provider_realm: provider_realm.as_str().to_string(),
                 consumer_realm: consumer_realm.as_str().to_string(),
                 record: StoredFederatedAccessRecord::from_domain(*record),
-            }),
-            _ => None,
+            })),
+            _ => Ok(None),
         }
     }
 
@@ -99,8 +115,14 @@ impl StoredEventPayload {
                 max_sensitivity,
                 max_results,
                 max_evidence_bytes,
-            } => Ok(DomainEvent::RealmReadGrantIssued {
-                grant: RealmReadGrant::new(
+                expires_at_unix_seconds,
+                allowed_roots,
+            } => {
+                let allowed_roots = allowed_roots
+                    .map(decode_allowed_root_strings)
+                    .transpose()
+                    .map_err(invalid)?;
+                let grant = RealmReadGrant::new(
                     parse_digest(token_digest)?,
                     parse_realm(provider_realm)?,
                     parse_realm(consumer_realm)?,
@@ -111,8 +133,14 @@ impl StoredEventPayload {
                         .try_into_domain()
                         .map_err(FamilyDecodeError::Invalid)?,
                     parse_bounds(max_results, max_evidence_bytes)?,
-                ),
-            }),
+                    RealmReadGrantExpiry::new(expires_at_unix_seconds).map_err(invalid)?,
+                );
+                let grant = match allowed_roots {
+                    Some(roots) => grant.with_allowed_roots(roots),
+                    None => grant,
+                };
+                Ok(DomainEvent::RealmReadGrantIssued { grant })
+            }
             Self::RealmReadGrantRevoked { token_digest } => {
                 Ok(DomainEvent::RealmReadGrantRevoked {
                     token_digest: parse_digest(token_digest)?,
@@ -162,6 +190,91 @@ fn parse_bounds(
     let max_results = usize::try_from(max_results).map_err(invalid)?;
     let max_evidence_bytes = usize::try_from(max_evidence_bytes).map_err(invalid)?;
     FederatedEvidenceBounds::try_new(max_results, max_evidence_bytes).map_err(invalid)
+}
+
+pub(crate) fn encode_allowed_root_paths(roots: &[PathBuf]) -> Result<Vec<String>, String> {
+    if roots.is_empty() {
+        return Err("allowed roots must be nonempty".to_string());
+    }
+    if roots.len() > MAX_REALM_GRANT_ROOTS {
+        return Err(format!(
+            "allowed roots exceed {MAX_REALM_GRANT_ROOTS} entries"
+        ));
+    }
+    if roots
+        .iter()
+        .map(|root| root.as_os_str().len())
+        .sum::<usize>()
+        > MAX_REALM_GRANT_ROOT_BYTES
+    {
+        return Err(format!(
+            "allowed root paths exceed {MAX_REALM_GRANT_ROOT_BYTES} bytes"
+        ));
+    }
+
+    roots
+        .iter()
+        .map(|root| {
+            let value = root
+                .to_str()
+                .ok_or_else(|| "allowed root path is not valid UTF-8".to_string())?;
+            if !is_canonical_root_path(root) {
+                return Err(format!(
+                    "allowed root path is not absolute and canonical: {value}"
+                ));
+            }
+            Ok(value.to_owned())
+        })
+        .collect()
+}
+
+pub(crate) fn decode_allowed_root_strings(roots: Vec<String>) -> Result<Vec<PathBuf>, String> {
+    if roots.is_empty() {
+        return Err("allowed roots must be nonempty".to_string());
+    }
+    if roots.len() > MAX_REALM_GRANT_ROOTS {
+        return Err(format!(
+            "allowed roots exceed {MAX_REALM_GRANT_ROOTS} entries"
+        ));
+    }
+    if roots.iter().map(String::len).sum::<usize>() > MAX_REALM_GRANT_ROOT_BYTES {
+        return Err(format!(
+            "allowed root paths exceed {MAX_REALM_GRANT_ROOT_BYTES} bytes"
+        ));
+    }
+
+    roots
+        .into_iter()
+        .map(|value| {
+            let root = PathBuf::from(&value);
+            if !is_canonical_root_path(&root) {
+                return Err(format!(
+                    "allowed root path is not absolute and canonical: {value}"
+                ));
+            }
+            Ok(root)
+        })
+        .collect()
+}
+
+fn is_canonical_root_path(path: &Path) -> bool {
+    let Some(value) = path.to_str() else {
+        return false;
+    };
+    if !path.is_absolute() || value.contains('\0') {
+        return false;
+    }
+
+    // Event replay is deliberately filesystem-free; this checks only that the
+    // persisted spelling is lexically normalized and absolute.
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        if matches!(component, Component::CurDir | Component::ParentDir) {
+            return false;
+        }
+        normalized.push(component.as_os_str());
+    }
+    normalized.as_os_str() == path.as_os_str()
 }
 
 fn invalid(error: impl std::fmt::Display) -> FamilyDecodeError {

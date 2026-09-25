@@ -74,9 +74,6 @@ async fn try_daemon_search(
         .await
     {
         Ok(response) => response,
-        Err(error) if error.code == maestria_daemon::ClientErrorCode::DaemonUnavailable => {
-            return Ok(None);
-        }
         Err(error) => return Err(error.into()),
     };
     match response {

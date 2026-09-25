@@ -62,22 +62,40 @@ impl CandidateRetriever for LexicalChunkRetriever {
                 self.descriptor.generation,
             ));
         }
+        let cancellation = request.cancellation.clone();
+        if cancellation
+            .as_ref()
+            .is_some_and(crate::types::SearchCancellation::is_cancelled)
+        {
+            return Err(RetrievalError::Cancelled);
+        }
         let mut query = request.query.clone();
         query.execution_budget = request.execution_budget;
-        let bounded = self
-            .index
-            .search_filtered(query, &|chunk_id, artifact_id| {
-                self.prefilter_hit(
-                    chunk_id,
-                    artifact_id,
-                    &request.authorization,
-                    request.source_filter.as_ref(),
-                )
-            })
-            .map_err(port_error)?;
+        let bounded = self.index.search_filtered(query, &|chunk_id, artifact_id| {
+            self.prefilter_hit(
+                chunk_id,
+                artifact_id,
+                &request.authorization,
+                request.source_filter.as_ref(),
+                cancellation.as_ref(),
+            )
+        });
+        if cancellation
+            .as_ref()
+            .is_some_and(crate::types::SearchCancellation::is_cancelled)
+        {
+            return Err(RetrievalError::Cancelled);
+        }
+        let bounded = bounded.map_err(port_error)?;
         let hits = bounded.hits;
         let mut candidates = Vec::with_capacity(hits.len());
         for (raw_rank, hit) in hits.into_iter().enumerate() {
+            if cancellation
+                .as_ref()
+                .is_some_and(crate::types::SearchCancellation::is_cancelled)
+            {
+                return Err(RetrievalError::Cancelled);
+            }
             let raw_rank = one_based_rank(raw_rank)?;
             let Some(candidate) = self.candidate_from_hit(hit, raw_rank, &request.authorization)?
             else {
@@ -108,7 +126,14 @@ impl LexicalChunkRetriever {
         artifact_id: maestria_domain::ArtifactId,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
         source_filter: Option<&CandidateSourceFilter>,
+        cancellation: Option<&crate::types::SearchCancellation>,
     ) -> Result<bool, maestria_ports::PortError> {
+        if cancellation.is_some_and(crate::types::SearchCancellation::is_cancelled) {
+            return Err(maestria_ports::PortError::internal(
+                "interactive search cancelled",
+                "request was superseded or closed",
+            ));
+        }
         if source_filter.is_some_and(|filter| !filter.allows(artifact_id)) {
             return Ok(false);
         }

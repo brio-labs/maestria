@@ -94,7 +94,10 @@ fn daemon_instance_serves_search_status_and_open_evidence_while_running()
             Err(error) => return Err(error),
         };
         if let Some(attempt) = attempt
-            && (attempt.1.contains("evidence=") || search_attempts == 0)
+            && ((attempt.0 == 0
+                && attempt.1.contains("evidence=")
+                && attempt.1.contains("served=daemon"))
+                || search_attempts == 0)
         {
             break attempt;
         }

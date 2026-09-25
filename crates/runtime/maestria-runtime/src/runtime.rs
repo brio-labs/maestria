@@ -145,22 +145,25 @@ pub struct RuntimeHandle {
     pub(crate) next_command_id: Arc<AtomicU64>,
     pub(crate) id_allocator: Arc<dyn maestria_ports::IdAllocator + Send + Sync>,
     pub(crate) search_executor:
-        Option<Arc<dyn maestria_ports::SearchKnowledgeExecutor + Send + Sync>>,
+        Option<std::sync::Weak<dyn maestria_ports::SearchKnowledgeExecutor + Send + Sync>>,
     pub(crate) realm_read_grant_repo:
         Arc<dyn maestria_ports::RealmReadGrantRepository + Send + Sync>,
     pub(crate) state: Arc<RwLock<KernelState>>,
 }
 
 impl RuntimeHandle {
-    /// The runtime-owned knowledge-search executor, when one was configured.
+    /// The runtime-owned knowledge-search executor, when configured and still live.
     ///
     /// Application entry points that run a governed search reuse this executor
     /// instead of assembling a second search runtime beside the live one
-    /// (R28: lifecycle orchestration has one owner).
+    /// (R28: lifecycle orchestration has one owner). A handle does not extend
+    /// the executor's lifetime past runtime shutdown.
     pub fn search_executor(
         &self,
     ) -> Option<Arc<dyn maestria_ports::SearchKnowledgeExecutor + Send + Sync>> {
-        self.search_executor.clone()
+        self.search_executor
+            .as_ref()
+            .and_then(|executor| executor.upgrade())
     }
 
     pub fn realm_read_grant_repository(

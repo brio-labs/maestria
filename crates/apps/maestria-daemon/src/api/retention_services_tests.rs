@@ -33,12 +33,19 @@ fn fixture() -> Result<Fixture> {
 }
 
 fn context(layout: InstanceLayout) -> Result<ApiContext> {
+    let source_manifest = std::sync::Arc::new(parking_lot::RwLock::new(InstanceManifest::decode(
+        &std::fs::read_to_string(&layout.manifest_path)?,
+    )?));
     Ok(ApiContext {
         layout,
         token: "test-token".to_string(),
         socket_path: PathBuf::new(),
         runtime: None,
         realm_id: maestria_test_support::realm_id(10)?,
+        source_manifest,
+        interactive_searches: std::sync::Arc::new(
+            crate::api::server::InteractiveSearchCoordinator::default(),
+        ),
     })
 }
 

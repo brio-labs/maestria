@@ -6,15 +6,16 @@ This document is enforceable. CI and review block violations.
 
 Sillage prioritizes responsiveness, keyboard-first explicit actions,
 local-first search, and capability-scoped extensions. A focused native Linux
-launcher ships; daemon-backed launcher file search and the extension platform
-remain planned. Current CLI, daemon, Studio, and retrieval surfaces remain
+launcher and locally exercised extension platform exist in developer builds;
+daemon-backed launcher file search and full product release acceptance remain
+in progress. Current CLI, daemon, Studio, and retrieval surfaces remain
 supported backend and advanced capabilities.
 
 Retrieval-specific rules apply when retrieval capabilities are changed or
 served. They do not require every research lane to ship or become a product
-default. Planned extension controls in the architecture and security contracts
-are review requirements pending implementation and adversarial verification,
-not already CI-enforced guarantees.
+default. Extension controls in the architecture and security
+contracts remain review requirements: local implementation and targeted
+adversarial tests do not constitute full CI or product release acceptance.
 
 ## Rules
 

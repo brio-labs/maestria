@@ -15,6 +15,8 @@ pub mod promotion;
 pub mod realm;
 pub mod repository_index;
 pub mod search;
+pub mod search_api;
+pub mod search_roots;
 pub mod status;
 pub mod task;
 pub mod task_validation;

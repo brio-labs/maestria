@@ -189,8 +189,12 @@ mod tests {
     fn query_worker_rejects_late_older_submissions() -> Result<(), LauncherError> {
         let worker = QueryWorker::new()?;
         let catalog = Catalog::default().snapshot()?;
-        tauri::async_runtime::block_on(worker.submit("quit".to_string(), 2, Arc::clone(&catalog)))?;
-        let stale = tauri::async_runtime::block_on(worker.submit("quit".to_string(), 1, catalog));
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| LauncherError::platform_unavailable(error.to_string()))?;
+        runtime.block_on(worker.submit("quit".to_string(), 2, Arc::clone(&catalog)))?;
+        let stale = runtime.block_on(worker.submit("quit".to_string(), 1, catalog));
         assert_eq!(
             stale.err().map(|error| error.code).as_deref(),
             Some("stale_result")

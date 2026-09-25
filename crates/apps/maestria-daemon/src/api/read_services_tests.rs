@@ -157,12 +157,19 @@ fn seed_lexical_generation(layout: &InstanceLayout) -> Result<()> {
 }
 
 fn status_context(layout: InstanceLayout) -> Result<crate::api::server::ApiContext> {
+    let source_manifest = std::sync::Arc::new(parking_lot::RwLock::new(
+        maestria_core::InstanceManifest::decode(&std::fs::read_to_string(&layout.manifest_path)?)?,
+    ));
     Ok(crate::api::server::ApiContext {
         layout,
         token: "test-token".to_string(),
         socket_path: PathBuf::new(),
         runtime: None,
         realm_id: maestria_test_support::realm_id(10)?,
+        source_manifest,
+        interactive_searches: std::sync::Arc::new(
+            crate::api::server::InteractiveSearchCoordinator::default(),
+        ),
     })
 }
 
@@ -330,5 +337,31 @@ fn open_evidence_rejects_indexed_non_file_evidence_from_other_scope() -> Result<
             .contains("evidence is not available under retrieval policy: Scope mismatch"),
         "unexpected cross-instance evidence error: {error:#}"
     );
+    Ok(())
+}
+
+#[test]
+fn docx_evidence_response_uses_paragraph_ordinals_not_file_lines() -> Result<()> {
+    let evidence = Evidence {
+        id: EvidenceId::new(42),
+        artifact_id: ArtifactId::new(41),
+        claim_id: None,
+        kind: EvidenceKind::DocxParagraphSpan {
+            path: "approved/report.docx".to_string(),
+            range: maestria_domain::ParagraphRange::new(2, 4)?,
+            snapshot: SnapshotRef::new(BlobId::new(7), maestria_test_support::content_hash(6)?),
+        },
+        excerpt: "Revenue | 2026".to_string(),
+        observed_at: maestria_domain::LogicalTick::new(1),
+        security: SecurityMetadata::default(),
+    };
+
+    let response = evidence_source(&evidence)?;
+    let json = serde_json::to_value(response)?;
+    assert_eq!(json["type"], "docx_paragraph");
+    assert_eq!(json["path"], "approved/report.docx");
+    assert_eq!(json["start_paragraph"], 2);
+    assert_eq!(json["end_paragraph"], 4);
+    assert!(json.get("start_line").is_none());
     Ok(())
 }

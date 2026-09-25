@@ -17,7 +17,7 @@ class DocConsistencyTests(unittest.TestCase):
 
     def test_all_cli_commands_extracted(self) -> None:
         """Verify that every top-level and nested command is discovered."""
-        cli_text = DOC_CONSISTENCY_CHECK.CLI_TYPES.read_text()
+        cli_text = DOC_CONSISTENCY_CHECK.load_cli_types()
         tree = DOC_CONSISTENCY_CHECK.extract_top_level_commands(cli_text)
 
         # Top-level commands
@@ -42,6 +42,10 @@ class DocConsistencyTests(unittest.TestCase):
         self.assertIn("Trace", tree["Search"])
         self.assertIn("Compare", tree["Search"])
         self.assertIn("Code", tree["Search"])
+        self.assertIn("Roots", tree["Search"])
+        self.assertIn("Status", tree["Search"]["Roots"])
+        self.assertIn("Add", tree["Search"]["Roots"])
+        self.assertIn("Remove", tree["Search"]["Roots"])
 
         # Code subcommands (nested under Search > Code)
         self.assertIn("Symbol", tree["Search"]["Code"])
@@ -67,7 +71,7 @@ class DocConsistencyTests(unittest.TestCase):
 
     def test_readme_has_full_coverage(self) -> None:
         """Verify that the current README documents every CLI command."""
-        cli_text = DOC_CONSISTENCY_CHECK.CLI_TYPES.read_text()
+        cli_text = DOC_CONSISTENCY_CHECK.load_cli_types()
         readme_text = DOC_CONSISTENCY_CHECK.README.read_text()
         tree = DOC_CONSISTENCY_CHECK.extract_top_level_commands(cli_text)
         missing = DOC_CONSISTENCY_CHECK.find_readme_gaps(readme_text, tree)

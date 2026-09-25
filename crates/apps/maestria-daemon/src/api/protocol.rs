@@ -39,8 +39,10 @@ pub use protocol_notebook::{
 pub use protocol_read::{
     CoverageResponse, EvidenceResponse, EvidenceSourceResponse, RetrievalLaneStatus,
     RetrievalPromotionRecordWire, RetrievalPromotionRecords, RetrievalStatusResponse,
-    SearchEvidenceResponse, SearchRawRankResponse, SearchResponse, SearchScoreResponse,
-    SearchScoreScaleResponse, StatusResponse, TaskResponse, TaskSummary,
+    SearchEvidenceResponse, SearchExcludedSource, SearchIndexingStatus,
+    SearchPassagePreviewResponse, SearchPathResultResponse, SearchRawRankResponse, SearchResponse,
+    SearchRootStatus, SearchRootsStatusResponse, SearchScoreResponse, SearchScoreScaleResponse,
+    StatusResponse, TaskResponse, TaskSummary,
 };
 pub use protocol_repository_index::{
     RepositoryIndexCandidatesResponse, RepositoryIndexChildrenResponse, RepositoryIndexFile,
@@ -56,6 +58,13 @@ pub(crate) const MAX_SEARCH_LIMIT: usize = 100;
 pub enum ClientOperation {
     Status,
     RetrievalStatus,
+    SearchRootsStatus,
+    SearchRootAdd {
+        root: String,
+    },
+    SearchRootRemove {
+        root: String,
+    },
     Search {
         query: String,
         limit: usize,
@@ -82,8 +91,11 @@ pub enum ClientOperation {
         consumer_realm: RealmId,
         access: RealmGrantAccess,
         max_sensitivity: RealmGrantSensitivity,
+        #[serde(default)]
+        allowed_roots: Vec<String>,
         max_results: usize,
         max_evidence_bytes: usize,
+        expires_in_seconds: u64,
     },
     RealmGrantList,
     RealmGrantRevoke {
@@ -214,6 +226,7 @@ pub struct ClientRequest {
 pub enum ClientResponse {
     Status(StatusResponse),
     RetrievalStatus(Box<RetrievalStatusResponse>),
+    SearchRootsStatus(SearchRootsStatusResponse),
     Search(SearchResponse),
     Evidence(EvidenceResponse),
     Task(TaskResponse),
@@ -274,6 +287,50 @@ mod tests {
         let deserialized: ModelAgentProposalPayload = serde_json::from_str(&json)?;
         assert_eq!(deserialized.run_id, 1);
         assert_eq!(deserialized.query, "test query");
+        Ok(())
+    }
+    #[test]
+    fn realm_grant_protocol_defaults_missing_root_scope() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let operation = ClientOperation::RealmGrantCreate {
+            consumer_realm: maestria_test_support::realm_id(11)?,
+            access: RealmGrantAccess::SearchOnly,
+            max_sensitivity: RealmGrantSensitivity::Public,
+            allowed_roots: Vec::new(),
+            max_results: 1,
+            max_evidence_bytes: 1,
+            expires_in_seconds: 60,
+        };
+        let mut legacy_operation = serde_json::to_value(operation)?;
+        legacy_operation
+            .as_object_mut()
+            .ok_or("realm-grant operation was not serialized as an object")?
+            .remove("allowed_roots");
+
+        let decoded: ClientOperation = serde_json::from_value(legacy_operation)?;
+        let ClientOperation::RealmGrantCreate { allowed_roots, .. } = decoded else {
+            return Err("decoded operation was not a realm-grant creation".into());
+        };
+        assert!(allowed_roots.is_empty());
+
+        let mut legacy_response = serde_json::to_value(RealmGrantResponse {
+            token_digest: "a".repeat(64),
+            provider_realm: maestria_test_support::realm_id(10)?,
+            consumer_realm: maestria_test_support::realm_id(11)?,
+            access: RealmGrantAccess::SearchOnly,
+            max_sensitivity: RealmGrantSensitivity::Public,
+            allowed_roots: None,
+            max_results: 1,
+            max_evidence_bytes: 1,
+            expires_at_unix_seconds: 2,
+            state: "active".to_string(),
+        })?;
+        legacy_response
+            .as_object_mut()
+            .ok_or("realm-grant response was not serialized as an object")?
+            .remove("allowed_roots");
+        let decoded_response: RealmGrantResponse = serde_json::from_value(legacy_response)?;
+        assert_eq!(decoded_response.allowed_roots, None);
         Ok(())
     }
 

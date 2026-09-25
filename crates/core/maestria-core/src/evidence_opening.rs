@@ -2,8 +2,11 @@ use crate::error::{CoreError, CoreResult};
 use crate::ports::CorePorts;
 use crate::types::{OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput};
 use maestria_domain::{
-    Evidence, EvidenceKind, IndexStatus, SnapshotRef, verify_snapshot_bytes, verify_text_snapshot,
+    Evidence, EvidenceKind, IndexStatus, SnapshotRef, excerpt_for, verify_snapshot_bytes,
+    verify_text_snapshot,
 };
+use maestria_ports::{FileHandle, ParseContext, SourceSpan};
+use std::path::PathBuf;
 
 pub(super) fn open_evidence<'a>(
     ports: &CorePorts<'a>,
@@ -121,6 +124,86 @@ fn verify_source_snapshot(
                 reason: format!("web snapshot verification failed: {error}"),
             }
         })?;
+        return Ok(());
+    }
+    if let EvidenceKind::DocxParagraphSpan {
+        path,
+        range,
+        snapshot,
+    } = &evidence.kind
+    {
+        let source_path = PathBuf::from(path);
+        if !source_path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("docx"))
+        {
+            return Err(CoreError::InvalidEvidence {
+                evidence_id: evidence.id.to_string(),
+                reason: "DOCX paragraph evidence does not reference a .docx source".to_string(),
+            });
+        }
+        verify_snapshot_binding(evidence, artifact, snapshot)?;
+        let bytes = ports.blobs.get(snapshot.blob_id())?;
+        verify_snapshot_bytes(snapshot, &bytes).map_err(|error| CoreError::InvalidEvidence {
+            evidence_id: evidence.id.to_string(),
+            reason: format!("DOCX snapshot verification failed: {error}"),
+        })?;
+        let parsed = ports
+            .parser
+            .parse(
+                FileHandle {
+                    path: source_path,
+                    bytes,
+                },
+                ParseContext {
+                    artifact_id: evidence.artifact_id,
+                },
+            )
+            .map_err(|error| CoreError::InvalidEvidence {
+                evidence_id: evidence.id.to_string(),
+                reason: format!("DOCX snapshot parse failed: {error}"),
+            })?;
+        let start_paragraph =
+            usize::try_from(range.start()).map_err(|error| CoreError::InvalidEvidence {
+                evidence_id: evidence.id.to_string(),
+                reason: format!("DOCX paragraph start is invalid: {error}"),
+            })?;
+        let end_paragraph =
+            usize::try_from(range.end()).map_err(|error| CoreError::InvalidEvidence {
+                evidence_id: evidence.id.to_string(),
+                reason: format!("DOCX paragraph end is invalid: {error}"),
+            })?;
+        let mut matched_span = false;
+        for chunk in &parsed.chunks {
+            if let SourceSpan::DocxParagraphSpan {
+                start_paragraph: actual_start,
+                end_paragraph: actual_end,
+            } = &chunk.source_span
+                && *actual_start == start_paragraph
+                && *actual_end == end_paragraph
+            {
+                if matched_span {
+                    return Err(CoreError::InvalidEvidence {
+                        evidence_id: evidence.id.to_string(),
+                        reason: "DOCX paragraph span is ambiguous in its snapshot".to_string(),
+                    });
+                }
+                matched_span = true;
+                if excerpt_for(&chunk.text).as_str() != evidence.excerpt.as_str() {
+                    return Err(CoreError::InvalidEvidence {
+                        evidence_id: evidence.id.to_string(),
+                        reason: "DOCX excerpt does not match its paragraph span".to_string(),
+                    });
+                }
+            }
+        }
+        if !matched_span {
+            return Err(CoreError::InvalidEvidence {
+                evidence_id: evidence.id.to_string(),
+                reason: "DOCX paragraph span is absent from its snapshot".to_string(),
+            });
+        }
         return Ok(());
     }
     if let EvidenceKind::FileSpan {

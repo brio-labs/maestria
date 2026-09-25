@@ -1,23 +1,18 @@
-name: 'Setup and build Sillage launcher frontend'
-description: 'Install the pinned Node.js/pnpm toolchain and build launcher/dist for Tauri code generation'
-inputs:
-  native-test:
-    description: 'Install the pinned external tauri-driver used by native launcher checks'
-    required: false
-    default: 'false'
+name: 'Install Studio frontend dependencies'
+description: 'Install the pinned Node.js/pnpm toolchain and Studio web dependencies'
 
 runs:
   using: composite
   steps:
-    - name: Cache launcher pnpm store
+    - name: Cache Studio pnpm store
       uses: actions/cache@v6.0.0
       with:
         path: |
           ~/.local/share/pnpm/store
           ~/.cache/pnpm
-        key: pnpm-launcher-${{ runner.os }}-${{ hashFiles('launcher/pnpm-lock.yaml') }}
+        key: pnpm-studio-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}
         restore-keys: |
-          pnpm-launcher-${{ runner.os }}-
+          pnpm-studio-${{ runner.os }}-
 
     - uses: actions/setup-node@v4
       with:
@@ -27,18 +22,7 @@ runs:
       with:
         version: 9.15.9
 
-    - name: Install launcher frontend dependencies
+    - name: Install Studio frontend dependencies
       shell: bash
-      working-directory: launcher
+      working-directory: web
       run: pnpm install --frozen-lockfile
-
-    - name: Build launcher frontend
-      shell: bash
-      working-directory: launcher
-      run: pnpm build
-    - name: Install pinned tauri-driver
-      if: inputs.native-test == 'true'
-      shell: bash
-      run: cargo install tauri-driver --version 2.0.6 --locked
-      env:
-        RUSTC_WRAPPER: ''

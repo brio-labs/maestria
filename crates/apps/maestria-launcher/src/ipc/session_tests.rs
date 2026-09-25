@@ -1,6 +1,15 @@
 use super::*;
 use crate::model::HOST_PREFERENCES;
 
+type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+fn block_on<F: Future>(future: F) -> Result<F::Output, std::io::Error> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    Ok(runtime.block_on(future))
+}
+
 fn test_state() -> Result<LauncherState, LauncherError> {
     LauncherState::new(SettingsManager::load(Err(
         "test preferences are session-only".to_string(),
@@ -8,11 +17,11 @@ fn test_state() -> Result<LauncherState, LauncherError> {
 }
 
 #[test]
-fn rejects_stale_search_generations_before_worker_work() -> Result<(), LauncherError> {
+fn rejects_stale_search_generations_before_worker_work() -> TestResult {
     let state = test_state()?;
-    let first = tauri::async_runtime::block_on(state.search("quit".to_string(), 1));
+    let first = block_on(state.search("quit".to_string(), 1))?;
     assert!(first.is_ok());
-    let stale = tauri::async_runtime::block_on(state.search("quit".to_string(), 1));
+    let stale = block_on(state.search("quit".to_string(), 1))?;
     assert!(stale.is_err());
     assert_eq!(
         stale.err().map(|error| error.code).as_deref(),
@@ -22,9 +31,9 @@ fn rejects_stale_search_generations_before_worker_work() -> Result<(), LauncherE
 }
 
 #[test]
-fn validates_accepted_action_and_prevents_double_dispatch() -> Result<(), LauncherError> {
+fn validates_accepted_action_and_prevents_double_dispatch() -> TestResult {
     let state = test_state()?;
-    let search = tauri::async_runtime::block_on(state.search("quit".to_string(), 1));
+    let search = block_on(state.search("quit".to_string(), 1))?;
     assert!(search.is_ok());
     let accepted = state.begin_action(HOST_QUIT, "quit", 1);
     assert!(accepted.is_ok());
@@ -41,9 +50,9 @@ fn validates_accepted_action_and_prevents_double_dispatch() -> Result<(), Launch
 }
 
 #[test]
-fn rejects_forged_result_ids_with_stale_result_error() -> Result<(), LauncherError> {
+fn rejects_forged_result_ids_with_stale_result_error() -> TestResult {
     let state = test_state()?;
-    let search = tauri::async_runtime::block_on(state.search("quit".to_string(), 1));
+    let search = block_on(state.search("quit".to_string(), 1))?;
     assert!(search.is_ok());
     let forged = state.begin_action(HOST_PREFERENCES, "open", 1);
     assert!(forged.is_err());
@@ -55,22 +64,22 @@ fn rejects_forged_result_ids_with_stale_result_error() -> Result<(), LauncherErr
 }
 
 #[test]
-fn rejects_overlong_queries_without_advancing_generation() -> Result<(), LauncherError> {
+fn rejects_overlong_queries_without_advancing_generation() -> TestResult {
     let state = test_state()?;
     let query = "x".repeat(MAX_QUERY_BYTES + 1);
-    let result = tauri::async_runtime::block_on(state.search(query, 1));
+    let result = block_on(state.search(query, 1))?;
     assert!(result.is_err());
-    let accepted = tauri::async_runtime::block_on(state.search("quit".to_string(), 1));
+    let accepted = block_on(state.search("quit".to_string(), 1))?;
     assert!(accepted.is_ok());
     Ok(())
 }
 
 #[test]
-fn stale_search_does_not_revoke_preferences_scope() -> Result<(), LauncherError> {
+fn stale_search_does_not_revoke_preferences_scope() -> TestResult {
     let state = test_state()?;
-    tauri::async_runtime::block_on(state.search("quit".to_string(), 1))?;
+    block_on(state.search("quit".to_string(), 1))??;
     state.enter_preferences()?;
-    let stale = tauri::async_runtime::block_on(state.search("quit".to_string(), 1));
+    let stale = block_on(state.search("quit".to_string(), 1))?;
     assert_eq!(
         stale.err().map(|error| error.code).as_deref(),
         Some("stale_result")
@@ -80,7 +89,7 @@ fn stale_search_does_not_revoke_preferences_scope() -> Result<(), LauncherError>
 }
 
 #[test]
-fn superseded_file_selection_cannot_dispatch_an_effect() -> Result<(), LauncherError> {
+fn superseded_file_selection_cannot_dispatch_an_effect() -> TestResult {
     let state = test_state()?;
     state.request_activation()?;
     let path = std::path::PathBuf::from("/tmp/maestria-selected-file");

@@ -1,13 +1,10 @@
-#[cfg(not(target_os = "linux"))]
-use crate::{catalog::AppEntry, errors::LauncherError, model::SearchResult};
-
 #[cfg(target_os = "linux")]
 mod linux;
 
 #[cfg(target_os = "linux")]
 pub use linux::{
-    DisplayBackend, apply_activation_token, decorate_results, display_backend, enumerate_apps,
-    install_monitor, launch_app,
+    DisplayBackend, detect_display_backend, enumerate_apps, launch_app, open_local_file,
+    open_local_pdf_page, window_identifier,
 };
 
 #[cfg(not(target_os = "linux"))]
@@ -19,48 +16,37 @@ pub enum DisplayBackend {
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn enumerate_apps() -> Result<Vec<AppEntry>, LauncherError> {
-    Err(LauncherError::platform_unavailable(
+pub fn enumerate_apps() -> Result<Vec<crate::catalog::AppEntry>, crate::errors::LauncherError> {
+    Err(crate::errors::LauncherError::platform_unavailable(
         "application discovery is unavailable on this platform",
     ))
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn launch_app(_window: &tauri::WebviewWindow, _desktop_id: &str) -> Result<(), LauncherError> {
-    Err(LauncherError::platform_unavailable(
+pub fn launch_app(_desktop_id: &str) -> Result<(), crate::errors::LauncherError> {
+    Err(crate::errors::LauncherError::platform_unavailable(
         "application launching is unavailable on this platform",
     ))
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn decorate_results(
-    _window: &tauri::WebviewWindow,
-    _apps: &[AppEntry],
-    _results: &mut [SearchResult],
-) {
-}
-
-#[cfg(not(target_os = "linux"))]
-pub fn install_monitor<F>(_on_changed: F) -> Result<(), LauncherError>
-where
-    F: Fn() + 'static,
-{
-    Err(LauncherError::platform_unavailable(
-        "application change monitoring is unavailable on this platform",
+pub fn open_local_file(_path: &std::path::Path) -> Result<(), crate::errors::LauncherError> {
+    Err(crate::errors::LauncherError::platform_unavailable(
+        "opening local files is unavailable on this platform",
     ))
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn display_backend(_window: &tauri::WebviewWindow) -> DisplayBackend {
-    DisplayBackend::Unavailable
+pub fn open_local_pdf_page(
+    path: &std::path::Path,
+    _page: u32,
+) -> Result<(), crate::errors::LauncherError> {
+    open_local_file(path)
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn apply_activation_token(
-    _window: &tauri::WebviewWindow,
-    _token: &str,
-) -> Result<(), LauncherError> {
-    Err(LauncherError::platform_unavailable(
-        "activation tokens are unavailable on this platform",
-    ))
+pub fn detect_display_backend(
+    _window: &slint::Window,
+) -> Result<DisplayBackend, crate::errors::LauncherError> {
+    Ok(DisplayBackend::Unavailable)
 }

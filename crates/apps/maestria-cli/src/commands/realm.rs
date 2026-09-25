@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use std::io::Write;
 use std::{fs, path::PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -11,6 +13,14 @@ use crate::cli_types::{
     CliRealmGrantAccess, CliRealmGrantSensitivity, RealmCommands, RealmGrantCommands,
 };
 use crate::helpers;
+
+struct GrantPolicy {
+    access: CliRealmGrantAccess,
+    max_sensitivity: CliRealmGrantSensitivity,
+    max_results: usize,
+    max_evidence_bytes: usize,
+    expires_in_seconds: u64,
+}
 
 /// Dispatch one explicit local-realm command.
 ///
@@ -63,14 +73,42 @@ async fn grant(command: RealmGrantCommands) -> Result<()> {
             max_sensitivity,
             max_results,
             max_evidence_bytes,
+            expires_in_seconds,
         } => {
             create_grant(
                 instance_dir,
                 consumer_instance,
-                access,
-                max_sensitivity,
-                max_results,
-                max_evidence_bytes,
+                GrantPolicy {
+                    access,
+                    max_sensitivity,
+                    max_results,
+                    max_evidence_bytes,
+                    expires_in_seconds,
+                },
+            )
+            .await
+        }
+        RealmGrantCommands::CreateExternal {
+            instance_dir,
+            consumer_realm,
+            credential_file,
+            access,
+            max_sensitivity,
+            max_results,
+            max_evidence_bytes,
+            expires_in_seconds,
+        } => {
+            create_external_grant(
+                instance_dir,
+                parse_realm_id(consumer_realm)?,
+                credential_file,
+                GrantPolicy {
+                    access,
+                    max_sensitivity,
+                    max_results,
+                    max_evidence_bytes,
+                    expires_in_seconds,
+                },
             )
             .await
         }
@@ -85,28 +123,14 @@ async fn grant(command: RealmGrantCommands) -> Result<()> {
 async fn create_grant(
     provider_instance: PathBuf,
     consumer_instance: PathBuf,
-    access: CliRealmGrantAccess,
-    max_sensitivity: CliRealmGrantSensitivity,
-    max_results: usize,
-    max_evidence_bytes: usize,
+    policy: GrantPolicy,
 ) -> Result<()> {
     let provider_layout = helpers::validated_instance(provider_instance)?;
     let consumer_layout = helpers::validated_instance(consumer_instance)?;
     let consumer_realm = helpers::load_manifest(&consumer_layout)?.realm_id;
     let provider_socket_path = provider_socket_path(&provider_layout)?;
     let provider_client = DaemonClient::from_instance(&provider_layout)?;
-    let response = provider_client
-        .request(ClientOperation::RealmGrantCreate {
-            consumer_realm,
-            access: protocol_access(access),
-            max_sensitivity: protocol_sensitivity(max_sensitivity),
-            max_results,
-            max_evidence_bytes,
-        })
-        .await?;
-    let ClientResponse::RealmGrantCreated(created) = response else {
-        bail!("provider returned an unexpected realm-grant creation response");
-    };
+    let created = issue_grant(&provider_client, consumer_realm, policy).await?;
     let grant_digest = created.grant.token_digest.clone();
     let consumer_client = DaemonClient::from_instance(&consumer_layout)?;
     let installed = consumer_client
@@ -121,17 +145,118 @@ async fn create_grant(
             "consumer binding installation failed; revoke provider grant {grant_digest} before retrying"
         ));
     }
-    println!("grant_token_digest={grant_digest}");
-    println!("provider_realm={}", created.grant.provider_realm.as_str());
-    println!("consumer_realm={}", created.grant.consumer_realm.as_str());
-    println!("access={}", display_access(created.grant.access));
+    print_grant(&created.grant)?;
+    Ok(())
+}
+
+async fn create_external_grant(
+    provider_instance: PathBuf,
+    consumer_realm: RealmId,
+    credential_file: PathBuf,
+    policy: GrantPolicy,
+) -> Result<()> {
+    let provider_layout = helpers::validated_instance(provider_instance)?;
+    let provider_client = DaemonClient::from_instance(&provider_layout)?;
+    let created = issue_grant(&provider_client, consumer_realm, policy).await?;
+    if let Err(error) = write_credential_file(&credential_file, created.credential.expose()) {
+        let grant_digest = created.grant.token_digest.clone();
+        return match provider_client
+            .request(ClientOperation::RealmGrantRevoke {
+                token_digest: grant_digest.clone(),
+            })
+            .await
+        {
+            Ok(ClientResponse::RealmGrantList(_)) => Err(error)
+                .context("credential file creation failed; the issued grant was revoked"),
+            Ok(_) => Err(error).context(format!(
+                "credential file creation failed; revoke provider grant {grant_digest} manually"
+            )),
+            Err(revoke_error) => Err(error).context(format!(
+                "credential file creation failed and grant {grant_digest} could not be revoked: {revoke_error}"
+            )),
+        };
+    }
+    print_grant(&created.grant)?;
+    println!("credential_file={}", credential_file.display());
+    Ok(())
+}
+
+async fn issue_grant(
+    provider_client: &DaemonClient,
+    consumer_realm: RealmId,
+    policy: GrantPolicy,
+) -> Result<maestria_daemon::RealmGrantCreatedResponse> {
+    match provider_client
+        .request(ClientOperation::RealmGrantCreate {
+            consumer_realm,
+            access: protocol_access(policy.access),
+            max_sensitivity: protocol_sensitivity(policy.max_sensitivity),
+            allowed_roots: Vec::new(),
+            max_results: policy.max_results,
+            max_evidence_bytes: policy.max_evidence_bytes,
+            expires_in_seconds: policy.expires_in_seconds,
+        })
+        .await?
+    {
+        ClientResponse::RealmGrantCreated(created) => Ok(created),
+        _ => bail!("provider returned an unexpected realm-grant creation response"),
+    }
+}
+
+fn write_credential_file(path: &PathBuf, credential: &str) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true).mode(0o600);
+        let mut file = options
+            .open(path)
+            .with_context(|| format!("create private credential file {}", path.display()))?;
+        let write_result = file
+            .write_all(credential.as_bytes())
+            .and_then(|()| file.write_all(b"\n"))
+            .and_then(|()| file.sync_all());
+        if let Err(error) = write_result {
+            drop(file);
+            let _ = fs::remove_file(path);
+            return Err(error)
+                .with_context(|| format!("write private credential file {}", path.display()));
+        }
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, credential);
+        bail!("external federation credential files require Unix permissions")
+    }
+}
+
+fn print_grant(grant: &maestria_daemon::RealmGrantResponse) -> Result<()> {
+    println!("grant_token_digest={}", grant.token_digest);
+    println!("provider_realm={}", grant.provider_realm.as_str());
+    println!("consumer_realm={}", grant.consumer_realm.as_str());
+    println!("access={}", display_access(grant.access));
     println!(
         "max_sensitivity={}",
-        display_sensitivity(created.grant.max_sensitivity)
+        display_sensitivity(grant.max_sensitivity)
     );
-    println!("max_results={}", created.grant.max_results);
-    println!("max_evidence_bytes={}", created.grant.max_evidence_bytes);
+    println!("max_results={}", grant.max_results);
+    println!("max_evidence_bytes={}", grant.max_evidence_bytes);
+    println!("expires_at_unix_seconds={}", grant.expires_at_unix_seconds);
+    println!("state={}", grant.state);
+    println!(
+        "allowed_roots={}",
+        display_allowed_roots(&grant.allowed_roots)?
+    );
     Ok(())
+}
+
+fn display_allowed_roots(allowed_roots: &Option<Vec<String>>) -> Result<String> {
+    match allowed_roots {
+        Some(roots) => Ok(serde_json::to_string(roots)?),
+        None => Ok("legacy-all-approved".to_string()),
+    }
 }
 
 async fn list_grants(instance_dir: PathBuf) -> Result<()> {
@@ -144,7 +269,7 @@ async fn list_grants(instance_dir: PathBuf) -> Result<()> {
     };
     for grant in list.grants {
         println!(
-            "grant_token_digest={} provider_realm={} consumer_realm={} access={} max_sensitivity={} max_results={} max_evidence_bytes={} state={}",
+            "grant_token_digest={} provider_realm={} consumer_realm={} access={} max_sensitivity={} max_results={} max_evidence_bytes={} expires_at_unix_seconds={} state={} allowed_roots={}",
             grant.token_digest,
             grant.provider_realm.as_str(),
             grant.consumer_realm.as_str(),
@@ -152,8 +277,16 @@ async fn list_grants(instance_dir: PathBuf) -> Result<()> {
             display_sensitivity(grant.max_sensitivity),
             grant.max_results,
             grant.max_evidence_bytes,
+            grant.expires_at_unix_seconds,
             grant.state,
+            display_allowed_roots(&grant.allowed_roots)?,
         );
+        if grant.expires_at_unix_seconds == 1 {
+            println!(
+                "legacy_grant_reissue_required=true grant_token_digest={}",
+                grant.token_digest
+            );
+        }
     }
     Ok(())
 }

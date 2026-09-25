@@ -154,7 +154,9 @@ pub fn reconcile_full_text_projection(
         .evidences
         .values()
         .filter_map(|evidence| match &evidence.kind {
-            EvidenceKind::FileSpan { path, .. } => Some((evidence.artifact_id, path.clone())),
+            EvidenceKind::FileSpan { path, .. } | EvidenceKind::DocxParagraphSpan { path, .. } => {
+                Some((evidence.artifact_id, path.clone()))
+            }
             _ => None,
         })
         .collect();

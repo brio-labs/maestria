@@ -343,21 +343,23 @@ impl DomainEvent {
     }
 }
 
+/// Currently active indexed versions, keyed by canonical source path.
+pub type ActiveSourceVersions = BTreeMap<PathBuf, (ArtifactId, ArtifactVersionId, ContentHash)>;
+
 /// Projects the currently active source versions from the append-only event
 /// log, keyed by canonical source path.
 ///
-/// `ParserStarted` records the source path with a placeholder version
-/// (`ArtifactVersionId` derived from the artifact id); `DocumentTreeCaptured`
-/// carries the real content-addressed version and replaces the placeholder for
-/// that path (R27). A later `SourceBecameStale` removes the path when it
-/// matches the recorded artifact and hash. Consumers share this single
-/// projection so the version namespace never borrows the artifact-id namespace
-/// and stale versions never surface in retrieval.
-pub fn active_source_versions(
-    events: &[DomainEventEnvelope],
-) -> BTreeMap<PathBuf, (ArtifactId, ArtifactVersionId, ContentHash)> {
+/// `ParserStarted` records the source path, initially with a placeholder
+/// version derived from the artifact id. `DocumentTreeCaptured` replaces it
+/// with the content-addressed version. If an identical source is reapproved
+/// after `SourceBecameStale`, the previous captured version remains valid and
+/// must be restored even when parsing emits no duplicate tree event. Consumers
+/// share this projection so stale versions never surface in retrieval.
+pub fn active_source_versions(events: &[DomainEventEnvelope]) -> ActiveSourceVersions {
     let mut active = BTreeMap::new();
     let mut path_by_artifact = BTreeMap::new();
+    let mut captured_versions: BTreeMap<ArtifactId, BTreeMap<ContentHash, ArtifactVersionId>> =
+        BTreeMap::new();
     for envelope in events {
         match &envelope.event {
             DomainEvent::ParserStarted {
@@ -367,22 +369,32 @@ pub fn active_source_versions(
                 ..
             } => {
                 path_by_artifact.insert(*artifact_id, source_path.clone());
+                let version = match captured_versions
+                    .get(artifact_id)
+                    .and_then(|by_hash| by_hash.get(content_hash))
+                {
+                    Some(version) => *version,
+                    None => ArtifactVersionId::new(artifact_id.value()),
+                };
                 active.insert(
                     PathBuf::from(source_path),
-                    (
-                        *artifact_id,
-                        ArtifactVersionId::new(artifact_id.value()),
-                        content_hash.clone(),
-                    ),
+                    (*artifact_id, version, content_hash.clone()),
                 );
             }
             DomainEvent::DocumentTreeCaptured {
                 artifact_id,
                 artifact_version_id,
+                content_hash,
                 ..
             } => {
+                captured_versions
+                    .entry(*artifact_id)
+                    .or_default()
+                    .insert(content_hash.clone(), *artifact_version_id);
                 if let Some(path) = path_by_artifact.get(artifact_id)
                     && let Some(entry) = active.get_mut(Path::new(path))
+                    && entry.0 == *artifact_id
+                    && entry.2 == *content_hash
                 {
                     entry.1 = *artifact_version_id;
                 }

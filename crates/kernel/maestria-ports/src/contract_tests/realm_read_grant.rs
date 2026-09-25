@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 
 use maestria_domain::{
     FederatedEvidenceBounds, FederatedReadAccess, GrantTokenDigest, RealmId, RealmReadGrant,
-    RealmReadGrantState, Sensitivity,
+    RealmReadGrantExpiry, RealmReadGrantState, Sensitivity,
 };
 
 use super::*;
@@ -31,6 +31,7 @@ fn active_grant(
         access,
         Sensitivity::Public,
         FederatedEvidenceBounds::try_new(1, 1)?,
+        RealmReadGrantExpiry::new(1_000_000_000)?,
     ))
 }
 
@@ -82,12 +83,15 @@ pub fn assert_realm_read_grant_repository_contract(
     // a revoked grant does not block a new active grant for the same consumer
     // realm; clear the active row first (delete_not_in keeps only revoked)
     let revoked = maestria_domain::RealmReadGrant::from_current_state(
-        GrantTokenDigest::derive(b"contract-c"),
-        realm('a')?,
-        realm('b')?,
-        FederatedReadAccess::SearchOnly,
-        Sensitivity::Public,
-        FederatedEvidenceBounds::try_new(1, 1)?,
+        maestria_domain::RealmReadGrant::new(
+            GrantTokenDigest::derive(b"contract-c"),
+            realm('a')?,
+            realm('b')?,
+            FederatedReadAccess::SearchOnly,
+            Sensitivity::Public,
+            FederatedEvidenceBounds::try_new(1, 1)?,
+            RealmReadGrantExpiry::new(1_000_000_000)?,
+        ),
         RealmReadGrantState::Revoked,
     );
     repository.put(revoked.clone())?;

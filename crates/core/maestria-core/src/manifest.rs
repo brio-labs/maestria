@@ -212,11 +212,9 @@ impl InstanceManifest {
         let root = root.ok_or_else(|| CoreError::InvalidInput {
             message: "instance manifest is missing root".to_string(),
         })?;
-        if read_roots.is_empty() {
-            return Err(CoreError::InvalidInput {
-                message: "instance manifest must define at least one read_root".to_string(),
-            });
-        }
+        // An empty read-root set is the explicit revoked/disabled state. It
+        // must remain representable so removing the final approved root never
+        // widens access back to the instance directory.
         if excluded_patterns.is_empty() {
             return Err(CoreError::InvalidInput {
                 message: "instance manifest must define at least one excluded_pattern".to_string(),

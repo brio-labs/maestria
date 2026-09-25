@@ -610,3 +610,97 @@ candidates.
 The numeric budgets in a frozen corpus are comparability gates, not universal
 product SLOs. Changing a budget requires a new corpus revision and a
 workload-backed rationale; a candidate cannot relax its own gate.
+
+## 5. Slint backend feasibility evidence (2026-09-23)
+
+A disposable Rust 2024 probe **outside the workspace**, pinned to Slint 1.18.1,
+used `default-features = false` with `std`, `backend-winit`,
+`renderer-software`, `accessibility`, and `compat-1-2`; both runs selected
+`SLINT_BACKEND=winit-software`. Slint requires Rust 1.92; the workspace
+requires 1.95. The same binary rendered on X11 (`DISPLAY=:1`,
+`WAYLAND_DISPLAY=""`) and the active Wayland compositor (`DISPLAY=""`,
+`WAYLAND_DISPLAY=wayland-1`). Keyboard input reached two standard `LineEdit`
+controls through Tab navigation, and Tab/Return activated a button that hid
+the window then restored it after 400 ms on both backends. See the
+[X11 capture](evidence/slint-x11.webp) and the
+[Wayland app-only crop](evidence/slint-wayland.webp). With both instances
+open, sampled process RSS was
+25.5 MiB (X11) and 34.8 MiB (Wayland), respectively.
+
+Twenty headless X11 process launches on the same machine, with warm page
+cache, measured process-spawn to `Window::show()` return and its stdout
+acknowledgment: p50 58.117 ms, p95 67.294 ms, p99 75.738 ms
+(range 38.317–75.738 ms). This does **not** measure painted pixels or
+interactivity, and the disposable probe does not load a catalog. It is not
+comparable to the historical Tauri activation acknowledgment or
+WebDriver-inclusive 1,051.115 ms cold bound.
+
+With `org.a11y.Status.IsEnabled` on a private AT-SPI bus, the X11 probe
+registered an application, frame, label, two `entry` roles and a `button` role.
+Its two entries initially had empty accessible names despite placeholder text.
+Setting `accessible-label` on each `LineEdit` made AT-SPI report `Search query`
+and `Secondary query` as named entries in a rebuilt probe. The real launcher
+must name its query and actions likewise. Wayland AT-SPI and spoken
+screen-reader output were not tested.
+
+This is **backend feasibility, not the shipped launcher**. The small probe has
+no catalog, daemon, shortcut or native action; its RSS cannot be compared as a
+product benchmark with Tauri's 552.543 MiB full launcher/WebKit sum.
+Actual cold interactive latency and full screen-reader traversal remain
+unmeasured; they must be checked on the actual Slint launcher before #518
+and #523 close.
+The experiment also did not validate a GPU renderer: software is the proven
+portable fallback, while accelerated rendering is an opt-in benchmark choice.
+
+Choose Slint's [Royalty-free Desktop, Mobile, and Web Applications License
+2.0](https://slint.dev/terms-and-conditions), not GPLv3, for the MIT/Apache
+workspace. Distribution requires either
+the `AboutSlint` widget in an About dialog reached from the top-level menu
+(or a splash screen without one), **or** Slint's
+[attribution badge](https://github.com/slint-ui/slint/tree/master/logo/MadeWithSlint-logo-whitebg.png)
+readily discoverable on a public page, preferably beside the downloads.
+The working-tree launcher now presents `AboutSlint` from its top-level About
+control (see the actual-window evidence below). Neither toolkit-alone
+distribution nor API exposure is intended. The workspace uses version-pinned
+Slint license exceptions rather than a blanket GPL allowance, and
+`cargo deny --workspace --all-features check all` passed on the audited graph.
+This does not certify an as-yet unbuilt release package.
+
+## 6. Actual Slint launcher process evidence (2026-09-24)
+
+The `maestria-launcher` debug binary, not the disposable probe, opened a
+resident Slint window on isolated X11 and the active Wayland compositor with
+the software renderer. Both runs used private singleton/preference directories,
+without the daemon or an embedding model. On X11, first-launch keyboard input
+produced `7*6 → 42`; Ctrl+K exposed **Copy Result** and Return closed the
+action overlay. Escape hid the window without terminating the process, and
+another `--activate` remapped the same singleton window. On Wayland, keyboard
+input produced `9*9 → 81`; Escape and `--activate` likewise hid and restored the
+window. `--quit` exited the Wayland process cleanly.
+
+The actual [X11 window](evidence/slint-launcher-x11.webp),
+[Wayland app-only crop](evidence/slint-launcher-wayland.webp), and
+[top-level About view](evidence/slint-launcher-about.webp) are cropped to the
+launcher. The About view visibly contains Slint's official `AboutSlint` logo,
+version, and link; this implements the chosen toolkit attribution route.
+X11 preferences switched both application surfaces and native widgets to
+the dark palette. Saving produced an isolated `launcher.toml` with
+`theme = "dark"`, and a fresh launcher process loaded that theme.
+
+Local release artifacts were also packaged as Debian and AppImage with
+`cargo-packager 0.11.8` (`NO_STRIP=1` avoids linuxdeploy's obsolete strip on
+Arch `.relr.dyn` libraries). The Debian control retains
+`Package: io-github-briolabs-maestria-launcher`, the desktop entry retains
+`io.github.briolabs.Maestria.Launcher`, and both archives contain the native
+executable, a real PNG icon, and Slint notices. An isolated Xvfb/JWM/D-Bus
+session ran the extracted Debian executable and the AppImage: AT-SPI exposed
+the named focused search entry with typed input, a discoverable About button,
+and the focused global-shortcut editor after Ctrl+Comma. This verifies
+package payloads and partial native accessibility, not an apt fresh install.
+
+One X11 debug-process sample from `/proc/<pid>/status` reported VmRSS 89,216
+kB while the Xvfb output scaled the 760×590 logical window to 1901×1475
+pixels. This is neither release RSS nor a matched Tauri comparison. Actual
+painted-pixel cold/activation percentiles, full AT-SPI navigation, Wayland
+portal-grant interaction, and fresh-install package behavior remain
+unmeasured. Do not close #518 or #523 on this evidence alone.

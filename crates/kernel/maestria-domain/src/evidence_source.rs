@@ -55,6 +55,52 @@ impl LineRange {
     }
 }
 
+/// A one-based, inclusive paragraph interval in a DOCX source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ParagraphRange {
+    start: u32,
+    end: u32,
+}
+
+impl ParagraphRange {
+    pub fn new(start: u32, end: u32) -> Result<Self, ParagraphRangeError> {
+        if start == 0 {
+            return Err(ParagraphRangeError::StartMustBePositive);
+        }
+        if start > end {
+            return Err(ParagraphRangeError::StartAfterEnd { start, end });
+        }
+        Ok(Self { start, end })
+    }
+
+    pub const fn start(&self) -> u32 {
+        self.start
+    }
+
+    pub const fn end(&self) -> u32 {
+        self.end
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParagraphRangeError {
+    StartMustBePositive,
+    StartAfterEnd { start: u32, end: u32 },
+}
+
+impl fmt::Display for ParagraphRangeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::StartMustBePositive => write!(f, "paragraph range start must be at least one"),
+            Self::StartAfterEnd { start, end } => {
+                write!(f, "paragraph range start {start} must not exceed end {end}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ParagraphRangeError {}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineRangeError {
     StartMustBePositive,
@@ -91,6 +137,11 @@ pub enum EvidenceKind {
     FileSpan {
         path: String,
         range: LineRange,
+        snapshot: SnapshotRef,
+    },
+    DocxParagraphSpan {
+        path: String,
+        range: ParagraphRange,
         snapshot: SnapshotRef,
     },
     PdfSpan {
@@ -323,6 +374,18 @@ mod tests {
         assert_eq!(
             LineRange::new(3, 2),
             Err(LineRangeError::StartAfterEnd { start: 3, end: 2 })
+        );
+    }
+
+    #[test]
+    fn paragraph_range_rejects_zero_and_reversed_bounds() {
+        assert_eq!(
+            ParagraphRange::new(0, 1),
+            Err(ParagraphRangeError::StartMustBePositive)
+        );
+        assert_eq!(
+            ParagraphRange::new(3, 2),
+            Err(ParagraphRangeError::StartAfterEnd { start: 3, end: 2 })
         );
     }
 

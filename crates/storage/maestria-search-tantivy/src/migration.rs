@@ -4,7 +4,7 @@ use tantivy::{
     Index, IndexReader, ReloadPolicy, TantivyDocument,
     collector::TopDocs,
     query::AllQuery,
-    schema::{Schema, Value},
+    schema::{Schema, Type, Value},
 };
 
 use crate::{
@@ -39,6 +39,20 @@ pub(super) fn schema_has_lexical(schema: &Schema) -> bool {
     ]
     .iter()
     .all(|name| schema.get_field(name).is_ok())
+}
+
+pub(super) fn schema_supports_legacy_migration(schema: &Schema) -> bool {
+    [
+        (FIELD_ARTIFACT_ID, Type::U64),
+        (FIELD_CHUNK_ID, Type::U64),
+        (FIELD_TEXT, Type::Str),
+    ]
+    .into_iter()
+    .all(|(name, expected)| {
+        schema.get_field(name).ok().is_some_and(|field| {
+            schema.get_field_entry(field).field_type().value_type() == expected
+        })
+    })
 }
 
 pub(super) fn legacy_chunks(index: &Index) -> Result<Vec<IndexedChunk>, PortError> {

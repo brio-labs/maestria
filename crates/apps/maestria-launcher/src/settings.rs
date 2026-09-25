@@ -19,6 +19,18 @@ struct PersistedSettings {
     shortcut: String,
     shortcut_setup: ShortcutSetup,
     reduce_motion: bool,
+    #[serde(default = "default_theme")]
+    theme: String,
+    #[serde(default)]
+    search: Option<SearchServiceConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SearchServiceConfig {
+    pub(crate) socket_path: PathBuf,
+    pub(crate) consumer_realm: String,
+    pub(crate) credential_file: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +43,10 @@ pub struct SettingsManager {
     reset_confirmed: bool,
 }
 
+fn default_theme() -> String {
+    "system".to_string()
+}
+
 impl Default for PersistedSettings {
     fn default() -> Self {
         Self {
@@ -38,6 +54,8 @@ impl Default for PersistedSettings {
             shortcut: "Control+Space".to_string(),
             shortcut_setup: ShortcutSetup::Unconfigured,
             reduce_motion: false,
+            theme: default_theme(),
+            search: None,
         }
     }
 }
@@ -116,6 +134,7 @@ impl SettingsManager {
             shortcut: self.values.shortcut.clone(),
             shortcut_setup: self.values.shortcut_setup.clone(),
             reduce_motion: self.values.reduce_motion,
+            theme: self.values.theme.clone(),
             warning: self.warning.clone(),
             read_only: self.read_only,
             platform: platform_name().to_string(),
@@ -138,10 +157,13 @@ impl SettingsManager {
         if self.read_only {
             return Err("Preferences from an unknown schema version are read-only".to_string());
         }
-        if let Some(shortcut) = request.shortcut.as_deref()
-            && (shortcut.is_empty() || shortcut.contains('\0'))
+        if let Some(shortcut) = request.shortcut.as_deref() {
+            validate_shortcut(shortcut)?;
+        }
+        if let Some(theme) = request.theme.as_deref()
+            && !matches!(theme, "system" | "light" | "dark")
         {
-            return Err("Shortcut cannot be empty or contain NUL".to_string());
+            return Err("Theme must be system, light, or dark".to_string());
         }
         Ok(())
     }
@@ -156,6 +178,9 @@ impl SettingsManager {
         }
         if let Some(reduce_motion) = request.reduce_motion {
             self.values.reduce_motion = reduce_motion;
+        }
+        if let Some(theme) = request.theme.as_ref() {
+            self.values.theme.clone_from(theme);
         }
         // Persistence warnings remain visible while session values take effect.
         let _ = self.persist();
@@ -196,6 +221,12 @@ impl SettingsManager {
     pub fn shortcut(&self) -> &str {
         &self.values.shortcut
     }
+    pub fn theme(&self) -> &str {
+        &self.values.theme
+    }
+    pub(crate) fn search_service(&self) -> Option<SearchServiceConfig> {
+        self.values.search.clone()
+    }
 
     fn persist(&mut self) -> Result<(), String> {
         if self.preserve_existing {
@@ -234,6 +265,20 @@ fn parse_settings(contents: &str) -> Result<PersistedSettings, ParseSettingsErro
     let settings: PersistedSettings = toml::from_str(contents)
         .map_err(|error| ParseSettingsError::Malformed(error.to_string()))?;
     validate_shortcut(&settings.shortcut).map_err(ParseSettingsError::Malformed)?;
+    validate_theme(&settings.theme).map_err(ParseSettingsError::Malformed)?;
+    if let Some(search) = &settings.search
+        && (!search.socket_path.is_absolute()
+            || !search.credential_file.is_absolute()
+            || search.consumer_realm.len() != 64
+            || !search
+                .consumer_realm
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit()))
+    {
+        return Err(ParseSettingsError::Malformed(
+            "search requires absolute socketPath and credentialFile, and a 64-character hexadecimal consumerRealm".to_string(),
+        ));
+    }
     Ok(settings)
 }
 
@@ -241,92 +286,20 @@ fn validate_shortcut(shortcut: &str) -> Result<(), String> {
     if shortcut.trim().is_empty() || shortcut.contains('\0') {
         return Err("Shortcut cannot be empty or contain NUL".to_string());
     }
-    #[cfg(target_os = "linux")]
-    {
-        shortcut
-            .parse::<tauri_plugin_global_shortcut::Shortcut>()
-            .map(|_| ())
-            .map_err(|error| format!("invalid shortcut accelerator: {error}"))
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
+    crate::shortcuts::validate_accelerator(shortcut)
+}
+
+fn validate_theme(theme: &str) -> Result<(), String> {
+    if matches!(theme, "system" | "light" | "dark") {
         Ok(())
+    } else {
+        Err("Theme must be system, light, or dark".to_string())
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    static NEXT_TEST_DIRECTORY: AtomicUsize = AtomicUsize::new(0);
-
-    fn test_directory() -> io::Result<PathBuf> {
-        let path = std::env::temp_dir().join(format!(
-            "maestria-settings-{}-{}",
-            std::process::id(),
-            NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&path)?;
-        Ok(path)
-    }
-
-    #[test]
-    fn valid_version_one_preferences_are_loaded() -> io::Result<()> {
-        let directory = test_directory()?;
-        let contents = r#"
-schemaVersion = 1
-shortcut = "Control+Space"
-shortcutSetup = "requested"
-reduceMotion = true
-"#;
-        fs::write(directory.join(SETTINGS_FILE), contents)?;
-
-        let settings = SettingsManager::load(Ok(directory.clone()));
-
-        assert_eq!(settings.shortcut(), "Control+Space");
-        assert_eq!(settings.shortcut_setup(), ShortcutSetup::Requested);
-        assert!(settings.values.reduce_motion);
-        assert!(settings.warning.is_none());
-        assert!(!settings.read_only);
-        fs::remove_dir_all(directory)?;
-        Ok(())
-    }
-
-    #[test]
-    fn invalid_persisted_shortcut_is_rejected_and_preserved() -> io::Result<()> {
-        let directory = test_directory()?;
-        let path = directory.join(SETTINGS_FILE);
-        let contents = r#"
-schemaVersion = 1
-shortcut = "Control+NotARealKey"
-shortcutSetup = "requested"
-reduceMotion = false
-"#;
-        fs::write(&path, contents)?;
-
-        let mut settings = SettingsManager::load(Ok(directory.clone()));
-
-        assert_eq!(settings.shortcut(), "Control+Space");
-        assert_eq!(settings.shortcut_setup(), ShortcutSetup::Unconfigured);
-        assert!(settings.warning.as_deref().is_some_and(|warning| {
-            warning.contains("could not be read")
-                && warning.contains("invalid shortcut accelerator")
-        }));
-        assert!(!settings.read_only);
-        settings
-            .apply_update(&PreferencesUpdate {
-                reduce_motion: Some(true),
-                shortcut: None,
-                shortcut_setup: None,
-                confirm_reset: None,
-            })
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        assert_eq!(fs::read_to_string(&path)?, contents);
-        fs::remove_dir_all(directory)?;
-        Ok(())
-    }
-}
+#[path = "settings/tests.rs"]
+mod tests;
 
 fn atomic_replace(path: &Path, settings: &PersistedSettings) -> io::Result<()> {
     let directory = path.parent().ok_or_else(|| {

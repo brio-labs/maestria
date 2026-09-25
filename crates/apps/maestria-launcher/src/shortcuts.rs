@@ -1,86 +1,85 @@
 #[cfg(not(target_os = "linux"))]
 use crate::errors::LauncherError;
-use crate::model::ShortcutStatus;
 #[cfg(not(target_os = "linux"))]
-use crate::model::{ShortcutConfigureAction, ShortcutControl, ShortcutState};
-#[cfg(not(target_os = "linux"))]
-use tauri::{AppHandle, WebviewWindow};
-
-/// Result of an explicit or restored shortcut configuration request.
-#[derive(Debug, Clone)]
-pub struct ConfigureOutcome {
-    pub status: ShortcutStatus,
-    pub denied: bool,
-}
+use crate::model::{ShortcutConfigureAction, ShortcutControl, ShortcutState, ShortcutStatus};
 
 #[cfg(target_os = "linux")]
 mod linux;
 
 #[cfg(target_os = "linux")]
-pub use linux::{Shortcuts, clear, configure, initialize, request_shutdown, shutdown_complete};
+pub use linux::Shortcuts;
 
 #[cfg(not(target_os = "linux"))]
 #[derive(Clone)]
-pub struct Shortcuts;
+pub struct Shortcuts {
+    status: ShortcutStatus,
+}
 
 #[cfg(not(target_os = "linux"))]
 impl Shortcuts {
-    pub fn new() -> Self {
-        Self
+    pub fn new(_activation: std::sync::mpsc::SyncSender<()>) -> Self {
+        Self {
+            status: unavailable_status("Global shortcuts are unavailable on this platform"),
+        }
+    }
+
+    pub fn initialize(
+        &self,
+        _window: &slint::Window,
+        _runtime: &tokio::runtime::Handle,
+    ) -> Result<(), LauncherError> {
+        Ok(())
     }
 
     pub fn status(&self) -> ShortcutStatus {
-        unavailable_status("Global shortcuts are unavailable on this platform")
+        self.status.clone()
+    }
+
+    /// Configure the platform's global shortcut.
+    ///
+    /// # Cancellation
+    /// This fallback has no suspension point or platform side effect. It returns the current
+    /// unavailable status on its first poll; cancellation before polling drops only that response.
+    pub async fn configure(
+        &self,
+        _preferred: &str,
+        _explicit: bool,
+    ) -> Result<ShortcutStatus, LauncherError> {
+        Ok(self.status())
+    }
+
+    /// Clear the platform's global shortcut.
+    ///
+    /// # Cancellation
+    /// This fallback has no suspension point or platform side effect. It returns the current
+    /// unavailable status on its first poll; cancellation before polling drops only that response.
+    pub async fn clear(&self) -> Result<ShortcutStatus, LauncherError> {
+        Ok(self.status())
+    }
+
+    pub fn shutdown(&self) -> Result<(), LauncherError> {
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn validate_accelerator(value: &str) -> Result<(), String> {
+    linux::parse_hotkey(value)
+        .map(|_| ())
+        .map_err(|error| format!("invalid shortcut accelerator: {error}"))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn validate_accelerator(value: &str) -> Result<(), String> {
+    if value.trim().is_empty() || value.contains('\0') {
+        Err("shortcut cannot be empty or contain NUL".to_string())
+    } else {
+        Ok(())
     }
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn initialize(_app: &AppHandle, _window: &WebviewWindow) -> Result<(), LauncherError> {
-    Ok(())
-}
-
-#[cfg(not(target_os = "linux"))]
-/// Configure the platform shortcut.
-///
-/// # Cancellation
-///
-/// Platform unavailability is returned as a status outcome; no native
-/// registration work is started or left running.
-pub async fn configure(
-    _app: AppHandle,
-    _preferred: String,
-    _explicit: bool,
-) -> Result<ConfigureOutcome, LauncherError> {
-    Ok(ConfigureOutcome {
-        status: unavailable_status("Global shortcuts are unavailable on this platform"),
-        denied: false,
-    })
-}
-
-#[cfg(not(target_os = "linux"))]
-pub fn clear(_app: &AppHandle) -> Result<(), LauncherError> {
-    Ok(())
-}
-
-#[cfg(not(target_os = "linux"))]
-pub fn shutdown(_app: &AppHandle) -> Result<(), LauncherError> {
-    Ok(())
-}
-
-#[cfg(not(target_os = "linux"))]
-pub fn request_shutdown(app: &AppHandle) -> Result<bool, LauncherError> {
-    shutdown(app)?;
-    app.exit(0);
-    Ok(true)
-}
-
-#[cfg(not(target_os = "linux"))]
-pub fn shutdown_complete(_app: &AppHandle) -> bool {
-    true
-}
-
-#[cfg(not(target_os = "linux"))]
-fn unavailable_status(message: &str) -> ShortcutStatus {
+pub(crate) fn unavailable_status(message: &str) -> ShortcutStatus {
     ShortcutStatus {
         state: ShortcutState::Unavailable,
         description: "Global shortcut unavailable".to_string(),

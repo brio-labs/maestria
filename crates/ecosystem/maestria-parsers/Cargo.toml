@@ -9,6 +9,8 @@ rust-version.workspace = true
 lopdf = { workspace = true }
 maestria-domain = { workspace = true }
 maestria-ports = { workspace = true }
+quick-xml = "0.41"
+zip = { version = "0.6.6", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 insta = { workspace = true }

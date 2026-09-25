@@ -111,6 +111,9 @@ impl EventLog for BlockingOcrRequestedLog {
     fn scan(&self, filter: EventFilter) -> Result<Vec<DomainEventEnvelope>, PortError> {
         self.inner.scan(filter)
     }
+    fn contains_id(&self, event_id: maestria_domain::EventId) -> Result<bool, PortError> {
+        self.inner.contains_id(event_id)
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]

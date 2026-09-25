@@ -1,19 +1,9 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use serde::Serialize;
-
-use tauri::{AppHandle, Emitter, Manager};
-
 use crate::errors::LauncherError;
-use crate::ipc::LauncherState;
-use crate::model::{LAUNCHER_WINDOW_LABEL, SearchStatus, SearchStatusKind};
+use crate::model::{SearchStatus, SearchStatusKind};
 
-#[derive(Clone, Serialize)]
-struct CatalogChangedEvent {
-    revision: u64,
-}
-
-/// Owned index data; native GIO and GTK objects never cross this boundary.
+/// Owned index data; native GIO objects never cross this boundary.
 #[derive(Debug, Clone)]
 pub struct AppEntry {
     pub desktop_id: String,
@@ -66,7 +56,7 @@ struct CatalogState {
     monitor_warning: Option<String>,
 }
 
-/// One usable snapshot and at most one refresh plus one coalesced pending refresh.
+/// One usable application snapshot and at most one refresh plus one coalesced refresh.
 pub struct Catalog {
     state: Mutex<CatalogState>,
 }
@@ -112,15 +102,15 @@ impl Catalog {
         Ok(())
     }
 
-    pub fn refresh_if_dirty(self: &Arc<Self>, app: &AppHandle) -> Result<(), LauncherError> {
-        self.start(app, false)
+    pub fn refresh_if_dirty(self: &Arc<Self>) -> Result<(), LauncherError> {
+        self.start(false)
     }
 
-    pub fn request_refresh(self: &Arc<Self>, app: &AppHandle) -> Result<(), LauncherError> {
-        self.start(app, true)
+    pub fn request_refresh(self: &Arc<Self>) -> Result<(), LauncherError> {
+        self.start(true)
     }
 
-    fn start(self: &Arc<Self>, app: &AppHandle, force: bool) -> Result<(), LauncherError> {
+    fn start(self: &Arc<Self>, force: bool) -> Result<(), LauncherError> {
         {
             let mut state = self.state()?;
             state.dirty |= force;
@@ -131,7 +121,7 @@ impl Catalog {
             state.dirty = false;
             let previous = &state.snapshot;
             state.snapshot = Arc::new(CatalogSnapshot {
-                revision: previous.revision + 1,
+                revision: previous.revision.saturating_add(1),
                 apps: Arc::clone(&previous.apps),
                 status: SearchStatus {
                     kind: if previous.revision == 0 {
@@ -143,91 +133,73 @@ impl Catalog {
                 },
             });
         }
-        self.notify_visible(app);
+
         let catalog = Arc::clone(self);
-        let app = app.clone();
-        tauri::async_runtime::spawn(async move {
-            loop {
-                let result = tauri::async_runtime::spawn_blocking(crate::platform::enumerate_apps)
-                    .await
-                    .map_err(|error| {
-                        LauncherError::platform_unavailable(format!(
-                            "Application discovery failed: {error}"
-                        ))
-                    })
-                    .and_then(|result| result);
-                let visible = is_visible(&app);
-                let again = match catalog.state() {
-                    Ok(mut state) => {
-                        let previous = &state.snapshot;
-                        let (apps, status) = match result {
-                            Ok(apps) => {
-                                let message = state.monitor_warning.clone().or_else(|| {
-                                    apps.is_empty().then(|| {
+        std::thread::Builder::new()
+            .name("maestria-launcher-catalog".to_string())
+            .spawn(move || {
+                loop {
+                    let result = crate::platform::enumerate_apps();
+                    let again = match catalog.state() {
+                        Ok(mut state) => {
+                            let previous = &state.snapshot;
+                            let (apps, status) = match result {
+                                Ok(apps) => {
+                                    let warning = state.monitor_warning.clone().or_else(|| {
+                                        apps.is_empty().then(|| {
                                         "No applications found. Built-in commands are available."
                                             .to_string()
                                     })
-                                });
-                                let kind = if state.monitor_warning.is_some() {
-                                    SearchStatusKind::Error
-                                } else {
-                                    SearchStatusKind::Ready
-                                };
-                                (Arc::new(apps), SearchStatus { kind, message })
+                                    });
+                                    let kind = if state.monitor_warning.is_some() {
+                                        SearchStatusKind::Error
+                                    } else {
+                                        SearchStatusKind::Ready
+                                    };
+                                    (
+                                        Arc::new(apps),
+                                        SearchStatus {
+                                            kind,
+                                            message: warning,
+                                        },
+                                    )
+                                }
+                                Err(error) => (
+                                    Arc::clone(&previous.apps),
+                                    SearchStatus {
+                                        kind: SearchStatusKind::Error,
+                                        message: Some(error.message),
+                                    },
+                                ),
+                            };
+                            let again = state.dirty;
+                            state.snapshot = Arc::new(CatalogSnapshot {
+                                revision: previous.revision.saturating_add(1),
+                                apps,
+                                status,
+                            });
+                            state.running = again;
+                            if again {
+                                state.dirty = false;
                             }
-                            Err(error) => (
-                                Arc::clone(&previous.apps),
-                                SearchStatus {
-                                    kind: SearchStatusKind::Error,
-                                    message: Some(error.message),
-                                },
-                            ),
-                        };
-                        let again = state.dirty && visible;
-                        state.snapshot = Arc::new(CatalogSnapshot {
-                            revision: previous.revision + 1,
-                            apps,
-                            status,
-                        });
-                        state.running = again;
-                        if again {
-                            state.dirty = false;
+                            again
                         }
-                        again
+                        Err(_) => return,
+                    };
+                    if !again {
+                        return;
                     }
-                    Err(_) => return,
-                };
-                catalog.notify_visible(&app);
-                if !again {
-                    return;
                 }
-            }
-        });
+            })
+            .map_err(|error| {
+                if let Ok(mut state) = self.state() {
+                    state.running = false;
+                    state.dirty = true;
+                }
+                LauncherError::platform_unavailable(format!(
+                    "Application discovery could not start: {error}"
+                ))
+            })?;
         Ok(())
-    }
-    fn notify_visible(&self, app: &AppHandle) {
-        if is_visible(app)
-            && let Ok(snapshot) = self.snapshot()
-        {
-            let _ = app.emit_to(
-                LAUNCHER_WINDOW_LABEL,
-                "launcher://catalog-changed",
-                CatalogChangedEvent {
-                    revision: snapshot.revision,
-                },
-            );
-        }
-    }
-}
-
-fn is_visible(app: &AppHandle) -> bool {
-    app.get_webview_window(LAUNCHER_WINDOW_LABEL)
-        .is_some_and(|window| matches!(window.is_visible(), Ok(true)))
-}
-
-pub fn changed(app: &AppHandle) {
-    let state = app.state::<LauncherState>();
-    if state.catalog().mark_dirty().is_ok() && is_visible(app) {
-        let _ = state.catalog().refresh_if_dirty(app);
     }
 }

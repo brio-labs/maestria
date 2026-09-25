@@ -591,6 +591,7 @@ fn observe_visual(
             .authorization_context(&maestria_domain::CorpusScope::Global)
             .map_err(|error| format!("authorization: {error}"))?,
         source_filter: None,
+        cancellation: None,
     };
     let batch = retriever.retrieve(request)?;
     let mut ranked = Vec::new();

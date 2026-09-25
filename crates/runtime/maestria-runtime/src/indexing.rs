@@ -13,15 +13,13 @@ use tokio::sync::mpsc;
 impl EffectExecutionContext {
     /// Index one artifact's pending chunks in the full-text search index.
     ///
-    /// The domain emits one `IndexFullText` effect per chunk, but the search
-    /// index commits are the dominant per-artifact ingestion cost (segment
-    /// flush and fsync per commit). The first effect for an artifact takes a
-    /// per-artifact lock and indexes every still-pending chunk of the
-    /// artifact in one atomic commit, then completes each indexed chunk; the
-    /// sibling effects of the same artifact then observe their chunks
-    /// completed and no-op. A per-chunk effect for a chunk that is no longer
-    /// pending (already covered by an earlier batch, or re-driven after a
-    /// crash) is an idempotent no-op.
+    /// The domain emits one `IndexFullText` effect per chunk. The first
+    /// effect for an artifact takes its lock and buffers every still-pending
+    /// chunk as one projection update, then completes those chunks; sibling
+    /// effects observe their completions and no-op. Reader visibility and
+    /// durability are separate: the projection writer commits on demand for
+    /// a search or at shutdown. Re-driven completed chunks remain idempotent
+    /// no-ops.
     pub(crate) async fn handle_index_full_text(&self, request: IndexChunkRequest) -> bool {
         let artifact_lock = self.get_artifact_lock(request.artifact_id);
         let _artifact_guard = artifact_lock.lock().await;
@@ -174,7 +172,8 @@ impl EffectExecutionContext {
                         .evidences
                         .get(&evidence_id_for(artifact.id, chunk.order))
                         .and_then(|evidence| match &evidence.kind {
-                            EvidenceKind::FileSpan { path, .. } => Some(path.clone()),
+                            EvidenceKind::FileSpan { path, .. }
+                            | EvidenceKind::DocxParagraphSpan { path, .. } => Some(path.clone()),
                             _ => None,
                         });
                     (chunk.id, source_path)

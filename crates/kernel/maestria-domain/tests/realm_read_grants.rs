@@ -1,8 +1,8 @@
 use maestria_domain::{
     DomainError, DomainInput, EvidenceId, FederatedAccessRecord, FederatedEvidenceBounds,
     FederatedReadAccess, GrantTokenDigest, IssueRealmReadGrantInput, KernelState, QueryId, RealmId,
-    RealmReadGrant, RecordFederatedAccessInput, RevokeRealmReadGrantInput, SearchTraceId,
-    Sensitivity, replay_events,
+    RealmReadGrant, RealmReadGrantExpiry, RecordFederatedAccessInput, RevokeRealmReadGrantInput,
+    SearchTraceId, Sensitivity, replay_events,
 };
 
 fn realm(byte: char) -> Result<RealmId, Box<dyn std::error::Error>> {
@@ -20,6 +20,7 @@ fn grant(
         FederatedReadAccess::SearchAndOpenEvidence,
         Sensitivity::Confidential,
         FederatedEvidenceBounds::try_new(2, 128)?,
+        RealmReadGrantExpiry::new(1_000_000_000)?,
     ))
 }
 
@@ -138,6 +139,7 @@ fn search_only_grant_cannot_record_evidence_access() -> Result<(), Box<dyn std::
         FederatedReadAccess::SearchOnly,
         Sensitivity::Public,
         FederatedEvidenceBounds::try_new(1, 64)?,
+        RealmReadGrantExpiry::new(1_000_000_000)?,
     );
     let digest = grant.token_digest().clone();
     let mut state = KernelState::new();

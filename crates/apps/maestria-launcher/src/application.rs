@@ -1,239 +1,308 @@
-use std::error::Error;
+use std::sync::Mutex;
+use std::sync::atomic::AtomicU64;
+use std::time::Duration;
 
-use serde::Serialize;
+use slint::{ModelRc, VecModel};
 
-use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use crate::model::SearchResult;
+use crate::{ActionRow, LauncherWindow, ResultRow};
 
-use crate::errors::LauncherError;
-use crate::ipc::LauncherState;
-use crate::metrics::LauncherMetrics;
-use crate::model::{LAUNCHER_WINDOW_LABEL, PreferencesDto};
-use crate::settings::SettingsManager;
-use crate::shortcuts::Shortcuts;
+const UI_TICK: Duration = Duration::from_millis(50);
+const SEARCH_DEBOUNCE_TICKS: u8 = 2;
+const CATALOG_REFRESH_TICKS: u16 = 600;
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ActivationEvent {
-    generation: u64,
-    preferences: PreferencesDto,
-    metrics_enabled: bool,
+mod callbacks;
+mod dispatch;
+mod extensions;
+mod passages;
+mod platform;
+mod preferences;
+mod runtime;
+mod search;
+mod window;
+
+pub use runtime::run;
+pub(super) fn empty_actions() -> ModelRc<ActionRow> {
+    ModelRc::new(VecModel::default())
 }
 
-pub fn run() -> Result<(), Box<dyn Error>> {
-    let arguments: Vec<String> = std::env::args().collect();
-    let initial_quit = has_argument(&arguments, "--quit");
-    let initial_activate = has_argument(&arguments, "--activate");
-    let initial_settings = SettingsManager::load(Err("not initialized".to_string()));
-    let launcher_state = LauncherState::new(initial_settings)?;
-    let builder = build_builder(launcher_state, initial_quit, initial_activate);
-    let app = builder.build(tauri::generate_context!())?;
-    app.run(handle_run_event);
-    Ok(())
+pub(super) fn empty_results() -> ModelRc<ResultRow> {
+    ModelRc::new(VecModel::default())
 }
 
-fn build_builder(
-    launcher_state: LauncherState,
-    initial_quit: bool,
-    initial_activate: bool,
-) -> tauri::Builder<tauri::Wry> {
-    tauri::Builder::default()
-        // This must remain the first plugin: secondary invocations are routed before
-        // any other plugin can initialize a second native resource.
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if let Err(error) = secondary_invocation(app, &args) {
-                eprintln!("Launcher invocation failed: {error}");
-            }
-        }))
-        .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
-        .manage(launcher_state)
-        .manage(Shortcuts::new())
-        .manage(LauncherMetrics::new())
-        .invoke_handler(tauri::generate_handler![
-            crate::ipc::launcher_ready,
-            crate::ipc::search,
-            crate::ipc::execute_action,
-            crate::ipc::dismiss,
-            crate::ipc::get_preferences,
-            crate::ipc::save_preferences,
-            crate::ipc::configure_shortcut,
-            crate::ipc::frame_ready
-        ])
-        .on_window_event(|window, event| {
-            if window.label() != LAUNCHER_WINDOW_LABEL {
-                return;
-            }
-            match event {
-                WindowEvent::CloseRequested { api, .. } => {
-                    api.prevent_close();
-                    if let Err(error) = hide_window(window) {
-                        eprintln!("Launcher dismissal failed: {error}");
-                    }
-                }
-                WindowEvent::Focused(false) => {
-                    if let Err(error) = hide_window(window) {
-                        eprintln!("Launcher dismissal failed: {error}");
-                    }
-                }
-                _ => {}
-            }
-        })
-        .setup(move |app| setup_application(app, initial_quit, initial_activate))
+pub(super) type UiWeak = slint::Weak<LauncherWindow>;
+
+pub(super) enum RuntimeMessage {
+    Activate,
+    Quit,
 }
 
-fn secondary_invocation(app: &AppHandle, args: &[String]) -> Result<(), LauncherError> {
-    if has_argument(args, "--quit") {
-        let state = app.try_state::<LauncherState>().ok_or_else(|| {
-            LauncherError::platform_unavailable("Launcher lifecycle state is unavailable")
-        })?;
-        state.allow_exit()?;
-        app.exit(0);
-        Ok(())
-    } else {
-        present_existing(app)
+#[derive(Clone)]
+pub(super) struct FileSelection {
+    result_id: String,
+}
+#[derive(Clone)]
+struct AcceptedPassage {
+    result_id: String,
+    passage: passages::Passage,
+}
+
+#[derive(Clone)]
+struct AcceptedPath {
+    result_id: String,
+    path: String,
+}
+
+pub(super) enum DisplayedResult {
+    Application(usize),
+    Group,
+    Passage(usize),
+    Path(usize),
+}
+
+pub(super) struct FrontendModel {
+    query: String,
+    pending_ticks: Option<u8>,
+    accepted: Vec<SearchResult>,
+    selected_file: Option<FileSelection>,
+    catalog_ticks_until_refresh: u16,
+    accepted_passages: Vec<AcceptedPassage>,
+    accepted_paths: Vec<AcceptedPath>,
+    displayed: Vec<DisplayedResult>,
+    result_filter: String,
+    content_view_passages: Vec<usize>,
+}
+
+pub(super) struct Frontend {
+    generation: AtomicU64,
+    model: Mutex<FrontendModel>,
+}
+
+pub(super) fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
     }
 }
 
-fn hide_window(window: &tauri::Window) -> Result<(), LauncherError> {
-    let state = window.state::<LauncherState>();
-    if !state.hide_requested()? {
-        return Ok(());
-    }
-    state.dismiss()?;
-    window
-        .hide()
-        .map_err(|error| LauncherError::platform_unavailable(error.to_string()))
-}
-
-fn setup_application(
-    app: &mut tauri::App,
-    initial_quit: bool,
-    initial_activate: bool,
-) -> Result<(), Box<dyn Error>> {
-    let settings = SettingsManager::load(
-        app.path()
-            .app_config_dir()
-            .map_err(|error| error.to_string()),
-    );
-    app.state::<LauncherState>().initialize_settings(settings)?;
-    WebviewWindowBuilder::new(
-        app,
-        LAUNCHER_WINDOW_LABEL,
-        WebviewUrl::App("index.html".into()),
-    )
-    .title("Sillage Launcher")
-    .inner_size(720.0, 480.0)
-    .min_inner_size(480.0, 320.0)
-    .prevent_overflow()
-    .background_color(tauri::utils::config::Color(23, 26, 31, 255))
-    .resizable(true)
-    .decorations(false)
-    .shadow(true)
-    .visible(false)
-    .on_navigation(|url| {
-        (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
-            || (url.scheme() == "http" && url.host_str() == Some("tauri.localhost"))
-            || (cfg!(debug_assertions)
-                && url.host_str() == Some("127.0.0.1")
-                && url.port() == Some(1420))
-    })
-    .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
-    .build()?;
-
-    if initial_quit {
-        let state = app.state::<LauncherState>();
-        state.allow_exit()?;
-        app.handle().exit(0);
-    } else if initial_activate {
-        // The window remains hidden until launcher_ready. The activation is
-        // retained by request_activation and the ready command emits a fresh
-        // generation after listeners have been installed.
-        request_activation(app.handle())?;
-    }
-    if !initial_quit {
-        let handle = app.handle().clone();
-        let state = app.state::<LauncherState>();
-        if let Err(error) =
-            crate::platform::install_monitor(move || crate::catalog::changed(&handle))
-        {
-            state
-                .catalog()
-                .monitor_failed(error)
-                .map_err(|error| std::io::Error::other(error.message))?;
-        }
-        state
-            .catalog()
-            .refresh_if_dirty(app.handle())
-            .map_err(|error| std::io::Error::other(error.message))?;
-    }
-    Ok(())
-}
-
-fn handle_run_event(app: &AppHandle, event: RunEvent) {
-    if let RunEvent::ExitRequested { ref api, .. } = event {
-        let should_prevent = app
-            .try_state::<LauncherState>()
-            .is_none_or(|state| state.should_prevent_exit());
-        if should_prevent {
-            api.prevent_exit();
-        } else if !crate::shortcuts::shutdown_complete(app) {
-            match crate::shortcuts::request_shutdown(app) {
-                Ok(_) => api.prevent_exit(),
-                Err(error) => eprintln!("Shortcut shutdown could not start: {}", error.message),
-            }
-        }
-    }
-}
-
-fn has_argument(arguments: &[String], wanted: &str) -> bool {
+pub(super) fn has_argument(arguments: &[String], wanted: &str) -> bool {
     arguments.iter().any(|argument| argument == wanted)
 }
 
-pub(crate) fn request_activation(app: &AppHandle) -> Result<Option<u64>, LauncherError> {
-    let metrics = app.state::<LauncherMetrics>();
-    let received_at = metrics.enabled().then(glib::monotonic_time);
-    let generation = app.state::<LauncherState>().request_activation()?;
-    if let Some(received_at) = received_at {
-        metrics.activation_received(generation, received_at);
+#[cfg(target_os = "linux")]
+mod instance {
+    use std::fs::{self, File, OpenOptions};
+    use std::io::{self, Read, Write};
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+    use std::os::unix::net::{UnixListener, UnixStream};
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, mpsc};
+    use std::thread::{self, JoinHandle};
+    use std::time::Duration;
+
+    use super::RuntimeMessage;
+
+    pub struct PrimaryInstance {
+        _lock: File,
+        socket_path: PathBuf,
+        stopping: Arc<AtomicBool>,
+        listener: Option<JoinHandle<()>>,
     }
-    if let Some(generation) = generation {
-        let handle = app.clone();
-        app.run_on_main_thread(move || {
-            if let Err(error) = present_generation(&handle, generation) {
-                eprintln!("Launcher presentation failed: {}", error.message);
+
+    impl PrimaryInstance {
+        pub fn claim(
+            messages: mpsc::SyncSender<RuntimeMessage>,
+        ) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+            let runtime_dir = runtime_dir()?;
+            let uid = unsafe { libc::geteuid() };
+            let lock_path = runtime_dir.join(format!("maestria-launcher-{uid}.lock"));
+            let socket_path = runtime_dir.join(format!("maestria-launcher-{uid}.sock"));
+            let lock_file = OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .read(true)
+                .write(true)
+                .mode(0o600)
+                .open(&lock_path)?;
+            let result = unsafe {
+                libc::flock(
+                    std::os::fd::AsRawFd::as_raw_fd(&lock_file),
+                    libc::LOCK_EX | libc::LOCK_NB,
+                )
+            };
+            if result != 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() == io::ErrorKind::WouldBlock {
+                    if send_existing(RuntimeMessage::Activate)? {
+                        return Ok(None);
+                    }
+                    return Err(io::Error::new(
+                        io::ErrorKind::AddrInUse,
+                        "another launcher owns the instance lock but did not accept activation",
+                    )
+                    .into());
+                }
+                return Err(error.into());
             }
-        })
-        .map_err(|error| LauncherError::platform_unavailable(error.to_string()))?;
+
+            if socket_path.exists() {
+                fs::remove_file(&socket_path)?;
+            }
+            let listener = UnixListener::bind(&socket_path)?;
+            fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))?;
+            listener.set_nonblocking(true)?;
+            let stopping = Arc::new(AtomicBool::new(false));
+            let thread_stopping = Arc::clone(&stopping);
+            let thread_socket = socket_path.clone();
+            let listener_thread = thread::Builder::new()
+                .name("maestria-launcher-instance".to_string())
+                .spawn(move || {
+                    while !thread_stopping.load(Ordering::Acquire) {
+                        match listener.accept() {
+                            Ok((mut stream, _)) => {
+                                let mut command = [0u8; 1];
+                                if stream.read_exact(&mut command).is_ok() {
+                                    let message = match command[0] {
+                                        b'A' => Some(RuntimeMessage::Activate),
+                                        b'Q' => Some(RuntimeMessage::Quit),
+                                        _ => None,
+                                    };
+                                    if let Some(message) = message {
+                                        let _ = messages.try_send(message);
+                                        let _ = stream.write_all(&[1]);
+                                    }
+                                }
+                            }
+                            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                                thread::sleep(Duration::from_millis(20));
+                            }
+                            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                            Err(error) => {
+                                if !thread_stopping.load(Ordering::Acquire) {
+                                    eprintln!("Launcher instance listener failed: {error}");
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    let _ = fs::remove_file(thread_socket);
+                })?;
+
+            Ok(Some(Self {
+                _lock: lock_file,
+                socket_path,
+                stopping,
+                listener: Some(listener_thread),
+            }))
+        }
     }
-    Ok(generation)
+
+    impl Drop for PrimaryInstance {
+        fn drop(&mut self) {
+            self.stopping.store(true, Ordering::Release);
+            if let Some(listener) = self.listener.take() {
+                let _ = listener.join();
+            }
+            let _ = fs::remove_file(&self.socket_path);
+        }
+    }
+
+    pub fn send_existing(message: RuntimeMessage) -> Result<bool, Box<dyn std::error::Error>> {
+        let socket_path = runtime_dir()?.join(format!("maestria-launcher-{}.sock", unsafe {
+            libc::geteuid()
+        }));
+        if !socket_path.exists() {
+            return Ok(false);
+        }
+        let command = match message {
+            RuntimeMessage::Activate => b'A',
+            RuntimeMessage::Quit => b'Q',
+        };
+        for attempt in 0..40 {
+            match UnixStream::connect(&socket_path) {
+                Ok(mut stream) => {
+                    stream.set_read_timeout(Some(Duration::from_millis(500)))?;
+                    stream.write_all(&[command])?;
+                    let mut acknowledgement = [0u8; 1];
+                    return Ok(
+                        stream.read_exact(&mut acknowledgement).is_ok() && acknowledgement[0] == 1
+                    );
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+                    ) && attempt < 39 =>
+                {
+                    thread::sleep(Duration::from_millis(25));
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+                    ) =>
+                {
+                    return Ok(false);
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(false)
+    }
+
+    fn runtime_dir() -> Result<PathBuf, io::Error> {
+        let uid = unsafe { libc::geteuid() };
+        if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") {
+            let runtime = PathBuf::from(runtime);
+            if runtime.is_absolute()
+                && fs::symlink_metadata(&runtime).is_ok_and(|metadata| {
+                    metadata.is_dir()
+                        && metadata.uid() == uid
+                        && metadata.permissions().mode() & 0o077 == 0
+                })
+            {
+                return Ok(runtime);
+            }
+        }
+        let fallback = std::env::temp_dir().join(format!("maestria-launcher-{uid}"));
+        match fs::create_dir(&fallback) {
+            Ok(()) => fs::set_permissions(&fallback, fs::Permissions::from_mode(0o700))?,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                let metadata = fs::symlink_metadata(&fallback)?;
+                if !metadata.is_dir()
+                    || metadata.file_type().is_symlink()
+                    || metadata.uid() != uid
+                    || metadata.permissions().mode() & 0o077 != 0
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "launcher runtime directory is not private to the current user",
+                    ));
+                }
+            }
+            Err(error) => return Err(error),
+        }
+        Ok(fallback)
+    }
 }
 
-pub(crate) fn present_generation(app: &AppHandle, generation: u64) -> Result<(), LauncherError> {
-    let window = app
-        .get_webview_window(LAUNCHER_WINDOW_LABEL)
-        .ok_or_else(|| LauncherError::platform_unavailable("Launcher window is unavailable"))?;
-    window
-        .show()
-        .and_then(|()| window.set_focus())
-        .map_err(|error| LauncherError::platform_unavailable(error.to_string()))?;
-    crate::shortcuts::initialize(app, &window)?;
-    let state = app.state::<LauncherState>();
-    let preferences = state.settings()?.dto(app.state::<Shortcuts>().status());
-    app.emit_to(
-        LAUNCHER_WINDOW_LABEL,
-        "launcher://activate",
-        ActivationEvent {
-            generation,
-            preferences,
-            metrics_enabled: app.state::<LauncherMetrics>().enabled(),
-        },
-    )
-    .map_err(|error| LauncherError::platform_unavailable(error.to_string()))?;
-    state.catalog().refresh_if_dirty(app)?;
-    Ok(())
-}
+#[cfg(not(target_os = "linux"))]
+mod instance {
+    use super::RuntimeMessage;
+    use std::sync::mpsc;
 
-fn present_existing(app: &AppHandle) -> Result<(), LauncherError> {
-    request_activation(app).map(|_| ())
+    pub struct PrimaryInstance;
+
+    impl PrimaryInstance {
+        pub fn claim(
+            _messages: mpsc::SyncSender<RuntimeMessage>,
+        ) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+            Ok(Some(Self))
+        }
+    }
+
+    pub fn send_existing(_message: RuntimeMessage) -> Result<bool, Box<dyn std::error::Error>> {
+        Ok(false)
+    }
 }

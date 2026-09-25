@@ -1,7 +1,7 @@
 use super::web_evidence_payload::StoredWebEvidenceMetadata;
 use maestria_domain::{
     BlobId, ClaimStatus, ContentHash, EvidenceKind, HarnessRunId, LineRange, LogicalTick,
-    OutputStream, SnapshotRef, TestStatus, ValidationReportId,
+    OutputStream, ParagraphRange, SnapshotRef, TestStatus, ValidationReportId,
 };
 use maestria_ports::PortError;
 use serde::{Deserialize, Serialize};
@@ -42,6 +42,12 @@ pub(crate) enum StoredEvidenceKind {
         path: String,
         start: usize,
         end: usize,
+        snapshot: StoredSnapshotRef,
+    },
+    DocxParagraphSpan {
+        path: String,
+        start_paragraph: u32,
+        end_paragraph: u32,
         snapshot: StoredSnapshotRef,
     },
     PdfSpan {
@@ -94,6 +100,16 @@ impl StoredEvidenceKind {
                 path: path.clone(),
                 start: range.start(),
                 end: range.end(),
+                snapshot: StoredSnapshotRef::from(snapshot),
+            },
+            EvidenceKind::DocxParagraphSpan {
+                path,
+                range,
+                snapshot,
+            } => Self::DocxParagraphSpan {
+                path: path.clone(),
+                start_paragraph: range.start(),
+                end_paragraph: range.end(),
                 snapshot: StoredSnapshotRef::from(snapshot),
             },
             EvidenceKind::PdfSpan {
@@ -190,6 +206,21 @@ impl TryFrom<StoredEvidenceKind> for EvidenceKind {
                     snapshot,
                 })
             }
+            StoredEvidenceKind::DocxParagraphSpan {
+                path,
+                start_paragraph,
+                end_paragraph,
+                snapshot,
+            } => Ok(EvidenceKind::DocxParagraphSpan {
+                path,
+                range: ParagraphRange::new(start_paragraph, end_paragraph).map_err(|error| {
+                    PortError::InvalidInputContext {
+                        context: "decode stored DOCX paragraph range",
+                        source: error.to_string(),
+                    }
+                })?,
+                snapshot: SnapshotRef::try_from(snapshot)?,
+            }),
             StoredEvidenceKind::PdfRegion {
                 snapshot,
                 page,

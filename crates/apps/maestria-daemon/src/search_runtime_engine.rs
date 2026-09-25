@@ -24,6 +24,23 @@ impl SearchRuntime {
         )
     }
 
+    /// Reuse the event history and active-source projection already loaded by
+    /// the interactive snapshot instead of scanning and projecting twice.
+    pub(crate) fn retrieval_engine_from_snapshot(
+        &self,
+        events: &[maestria_domain::DomainEventEnvelope],
+        sources: &maestria_domain::ActiveSourceVersions,
+    ) -> Result<RetrievalEngine> {
+        self.assemble_retrieval_engine(
+            self.hybrid_execution_policy.clone(),
+            self.learned_sparse_execution_policy.clone(),
+            self.sparse_retriever.clone(),
+            true,
+            events,
+            sources,
+        )
+    }
+
     /// One shared assembly for every engine variant.
     ///
     /// The benchmark executor and the daemon both build engines here (R28);
@@ -122,10 +139,29 @@ impl SearchRuntime {
         // Single projection scan shared by the version filter and the
         // repository-code security resolver.
         let sources = maestria_domain::active_source_versions(&events);
-        let active_versions = reconcile_active_versions(&sources);
+        self.assemble_retrieval_engine(
+            hybrid_policy,
+            sparse_policy,
+            sparse_retriever,
+            include_base_retrievers,
+            &events,
+            &sources,
+        )
+    }
+
+    fn assemble_retrieval_engine(
+        &self,
+        hybrid_policy: HybridExecutionPolicy,
+        sparse_policy: maestria_retrieval::LearnedSparseExecutionPolicy,
+        sparse_retriever: Option<Arc<dyn CandidateRetriever>>,
+        include_base_retrievers: bool,
+        events: &[maestria_domain::DomainEventEnvelope],
+        sources: &maestria_domain::ActiveSourceVersions,
+    ) -> Result<RetrievalEngine> {
+        let active_versions = reconcile_active_versions(sources);
         let mut retrievers: Vec<Arc<dyn CandidateRetriever>> = Vec::new();
         if include_base_retrievers {
-            retrievers = self.base_retrievers(&events, &sources, active_versions)?;
+            retrievers = self.base_retrievers(events, sources, active_versions)?;
         }
         // The sparse lane registers after the base lanes so the engine's
         // primary generation stays the lexical generation (R24).
