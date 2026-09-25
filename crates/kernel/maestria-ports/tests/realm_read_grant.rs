@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use maestria_domain::{
     FederatedEvidenceBounds, FederatedReadAccess, GrantTokenDigest, RealmId, RealmReadGrant,
-    Sensitivity,
+    RealmReadGrantExpiry, Sensitivity,
 };
 use maestria_ports::{InMemoryRealmReadGrantRepository, RealmReadGrantRepository};
 
@@ -18,6 +18,7 @@ fn grant(credential: &[u8], consumer: char) -> Result<RealmReadGrant, Box<dyn st
         FederatedReadAccess::SearchOnly,
         Sensitivity::Internal,
         FederatedEvidenceBounds::try_new(1, 1)?,
+        RealmReadGrantExpiry::new(1_000_000_000)?,
     ))
 }
 

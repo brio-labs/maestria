@@ -8,6 +8,11 @@ use std::sync::Arc;
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateRequest, RetrievalError, RetrievalResult};
 
+struct AuthorizedSources<'a> {
+    authorization: &'a maestria_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&'a crate::types::CandidateSourceFilter>,
+}
+
 #[path = "engine_budget.rs"]
 mod engine_budget;
 pub use engine_budget::lane_budget;
@@ -20,11 +25,14 @@ pub(super) use engine_budget::{
 mod engine_diversity;
 pub use engine_diversity::reconcile_status;
 pub(crate) use engine_diversity::run_diversity_stage;
+#[path = "engine_lane_admission.rs"]
+mod admission;
 #[path = "engine_pipeline_dispatch.rs"]
 mod dispatch;
 #[path = "engine_lane_workers.rs"]
 mod lane_workers;
 pub(super) use dispatch::collect_batches;
+use dispatch::collect_batches_with_cancellation;
 
 pub(crate) fn search_query_for_plan(
     plan: &SearchPlan,
@@ -38,17 +46,21 @@ pub(crate) fn search_query_for_plan(
     })
 }
 
-pub(super) fn collect_initial_batches(
+pub(super) fn collect_initial_batches_with_cancellation(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
     source_filter: Option<&crate::types::CandidateSourceFilter>,
+    cancellation: Option<&crate::types::SearchCancellation>,
 ) -> RetrievalResult<(
     Vec<crate::types::CandidateBatch>,
     crate::rewrite::QueryRewriteSession,
     u32,
     SearchExecutionUsage,
 )> {
+    if cancellation.is_some_and(crate::types::SearchCancellation::is_cancelled) {
+        return Err(RetrievalError::Cancelled);
+    }
     let session = super::rewrite_session(plan);
     if session
         .records()
@@ -63,16 +75,25 @@ pub(super) fn collect_initial_batches(
     let mut web_requests_used = 0_u32;
     let mut execution_usage = SearchExecutionUsage::default();
     for rewrite in session.records() {
+        if cancellation.is_some_and(crate::types::SearchCancellation::is_cancelled) {
+            return Err(RetrievalError::Cancelled);
+        }
         let rewrite_query = search_query_for_plan(plan, &rewrite.query)?;
-        batches.extend(collect_batches(
+        batches.extend(collect_batches_with_cancellation(
             retrievers,
             plan,
             &rewrite_query,
-            authorization,
-            source_filter,
+            AuthorizedSources {
+                authorization,
+                source_filter,
+            },
             &mut web_requests_used,
             &mut execution_usage,
+            cancellation,
         )?);
+    }
+    if cancellation.is_some_and(crate::types::SearchCancellation::is_cancelled) {
+        return Err(RetrievalError::Cancelled);
     }
     Ok((batches, session, web_requests_used, execution_usage))
 }

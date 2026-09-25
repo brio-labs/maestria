@@ -3,7 +3,9 @@ use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_domain::{ArtifactId, DomainInput, KernelState, TaskId};
 use maestria_governance::AutonomyProfile;
 use maestria_storage_sqlite::SqliteStore;
+use parking_lot::RwLock;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -21,7 +23,6 @@ use crate::recovery_staging::{
     RecoveryQueueStage, queue_recovery_inputs, recovery_artifact_ids, source_artifact_ids,
     validation_task_ids,
 };
-use crate::runtime_construction::build_runtime;
 use crate::supervision_recovery::supervise_recovery;
 use crate::vector_startup::reconcile_vector_projection_for_layout;
 
@@ -50,7 +51,7 @@ pub struct RecoveryQueue {
 pub struct InstanceLifecycle {
     state: KernelState,
     layout: InstanceLayout,
-    manifest: InstanceManifest,
+    source_manifest: Arc<RwLock<InstanceManifest>>,
     recovery: Option<RecoveryInputs>,
     recovery_queue: Option<RecoveryQueue>,
     paused_effects: usize,
@@ -125,6 +126,7 @@ impl InstanceLifecycle {
             .with_context(|| "read instance manifest")?;
         let manifest = InstanceManifest::decode(&manifest_contents)
             .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
+        let source_manifest = Arc::new(RwLock::new(manifest.clone()));
         let embedding_hash = projection_watermark::embedding_config_hash(&manifest);
         let watermark_clean = projection_watermark::reconcile_after_drift(
             &layout,
@@ -165,7 +167,12 @@ impl InstanceLifecycle {
         };
 
         let (runtime, input_tx, input_rx, shutdown_token) =
-            build_runtime(&layout, state.clone(), profile)?;
+            crate::runtime_construction::build_runtime_with_source_manifest(
+                &layout,
+                state.clone(),
+                profile,
+                source_manifest.clone(),
+            )?;
         let runtime_handle = runtime.handle();
         let runtime = runtime.with_graceful_shutdown();
         let runtime_shutdown = shutdown_token.clone();
@@ -205,7 +212,7 @@ impl InstanceLifecycle {
             recovery: Some(diagnostics.inputs),
             recovery_queue: Some(recovery_queue),
             paused_effects: diagnostics.paused_effects.len(),
-            manifest,
+            source_manifest,
             input_tx,
             runtime_handle,
             shutdown_token,
@@ -226,11 +233,15 @@ impl InstanceLifecycle {
     pub fn runtime_handle(&self) -> maestria_runtime::RuntimeHandle {
         self.runtime_handle.clone()
     }
+
+    pub(crate) fn source_manifest(&self) -> Arc<RwLock<InstanceManifest>> {
+        self.source_manifest.clone()
+    }
     fn start_watcher(&mut self) {
         if self.watcher_task.is_none() {
             self.watcher_task = Some(crate::watcher::spawn(
                 self.layout.clone(),
-                self.manifest.clone(),
+                self.source_manifest.clone(),
                 self.input_tx.clone(),
                 self.watched_artifacts.clone(),
                 self.shutdown_token.clone(),

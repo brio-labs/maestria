@@ -70,21 +70,15 @@ pub trait FullTextIndex: Send + Sync {
     /// Index cards with lexical metadata.
     fn index_lexical_cards(&self, cards: Vec<IndexedLexicalCard>) -> Result<(), PortError>;
 
-    /// Index a whole artifact's chunks with its cards as one atomic
-    /// projection update.
+    /// Index a whole artifact's chunks with its cards as one projection
+    /// update. Reader visibility may require a later commit.
     ///
     /// The runtime emits one `IndexFullText` effect per pending chunk but
-    /// executes them as a per-artifact batch, so ingestion commits once per
-    /// artifact instead of once per chunk (chunk commits dominate the
-    /// ingestion cost: each flushes and fsyncs segments). The default
-    /// implementation preserves the historical call sequence (cards, lexical
-    /// cards, chunk, lexical chunk per chunk, with cards attached to the
-    /// first chunk), each with its own commit, so adapters without a native
-    /// batch path keep identical semantics. Adapters whose writes are costly
-    /// per commit SHOULD override this to apply the whole artifact update in
-    /// one commit; the operations must stay idempotent (delete-then-add per
-    /// key) so retries and recovery re-drives replace rather than duplicate
-    /// documents.
+    /// groups the pending chunks of an artifact in this call. The default
+    /// implementation preserves the historical card/chunk call sequence;
+    /// adapters with native batching SHOULD override it to avoid per-chunk
+    /// writer overhead. Operations must remain idempotent (delete-then-add
+    /// per key) so recovery re-drives replace rather than duplicate documents.
     fn index_artifact_chunks(
         &self,
         chunks: Vec<IndexedChunk>,

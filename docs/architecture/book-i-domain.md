@@ -1,6 +1,6 @@
 # Book I — Domain Kernel
 
-Maestria's domain is the source of truth. It contains **typed state**, **invariant-preserving
+Sillage's domain is the source of truth. It contains **typed state**, **invariant-preserving
 transitions**, and **pure deterministic logic**.
 
 ## Purpose

@@ -31,6 +31,10 @@ pub(crate) fn domain_source_span(span: &SourceSpan) -> Result<DomainSourceSpan, 
             start_line,
             end_line,
         } => DomainSourceSpan::text_span(*start_line, *end_line),
+        SourceSpan::DocxParagraphSpan {
+            start_paragraph,
+            end_paragraph,
+        } => DomainSourceSpan::docx_paragraph_span(*start_paragraph, *end_paragraph),
         SourceSpan::PdfSpan { page } => DomainSourceSpan::pdf_span(*page),
         SourceSpan::PdfRegion {
             page,

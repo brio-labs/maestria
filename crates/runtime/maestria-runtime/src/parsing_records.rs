@@ -2,8 +2,9 @@ use std::fmt;
 
 use crate::parser_mapping::{domain_representation, domain_source_span};
 use maestria_domain::{
-    ArtifactId, BlobId, ContentHash, EvidenceKind, LineRange, LogicalTick, RecordEvidenceInput,
-    RegisterChunkInput, SecurityMetadata, SnapshotRef, TrustZone, evidence_id_for, excerpt_for,
+    ArtifactId, BlobId, ContentHash, EvidenceKind, LineRange, LogicalTick, ParagraphRange,
+    RecordEvidenceInput, RegisterChunkInput, SecurityMetadata, SnapshotRef, TrustZone,
+    evidence_id_for, excerpt_for,
 };
 use maestria_governance::contains_prompt_injection_risk;
 use maestria_ports::{ParsedArtifact, ParsedCard, ParsedChunk, SourceSpan};
@@ -155,6 +156,40 @@ fn evidence_kind_from_span(
                 )
             })?;
             Ok(EvidenceKind::FileSpan {
+                path: source_path.to_string(),
+                range,
+                snapshot: SnapshotRef::new(blob_id, content_hash()),
+            })
+        }
+        SourceSpan::DocxParagraphSpan {
+            start_paragraph,
+            end_paragraph,
+        } => {
+            let start_paragraph = u32::try_from(*start_paragraph).map_err(|error| {
+                IndexableRecordsError::new(
+                    artifact_id,
+                    chunk_order,
+                    "source_span.paragraph_range",
+                    format!("DOCX paragraph start exceeds domain evidence range: {error}"),
+                )
+            })?;
+            let end_paragraph = u32::try_from(*end_paragraph).map_err(|error| {
+                IndexableRecordsError::new(
+                    artifact_id,
+                    chunk_order,
+                    "source_span.paragraph_range",
+                    format!("DOCX paragraph end exceeds domain evidence range: {error}"),
+                )
+            })?;
+            let range = ParagraphRange::new(start_paragraph, end_paragraph).map_err(|error| {
+                IndexableRecordsError::new(
+                    artifact_id,
+                    chunk_order,
+                    "source_span.paragraph_range",
+                    error.to_string(),
+                )
+            })?;
+            Ok(EvidenceKind::DocxParagraphSpan {
                 path: source_path.to_string(),
                 range,
                 snapshot: SnapshotRef::new(blob_id, content_hash()),

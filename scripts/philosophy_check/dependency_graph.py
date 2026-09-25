@@ -76,6 +76,7 @@ APP_CRATE_DIRS = {
     "maestria-cli",
     "maestria-daemon",
     "maestria-harness-cli",
+    "maestria-launcher",
     "maestria-tui",
     "maestria-web",
 }

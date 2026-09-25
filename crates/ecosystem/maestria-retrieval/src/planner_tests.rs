@@ -15,10 +15,9 @@ fn visual_document_plan_requests_text_and_visual_modalities()
         5,
         &context,
         PlanOptions {
-            max_stages: 1,
             expansion_enabled: false,
             reranking_enabled: false,
-            web_limits: (0, 0, 1),
+            budget_limits: general_budget_limits(1, (0, 0, 1)),
         },
         RouteParameters {
             intent: SearchIntent::VisualDocument,
@@ -48,10 +47,9 @@ fn visual_plan_can_request_bounded_reranking_stage() -> Result<(), Box<dyn std::
         5,
         &context,
         PlanOptions {
-            max_stages: 2,
             expansion_enabled: false,
             reranking_enabled: true,
-            web_limits: (0, 0, 1),
+            budget_limits: general_budget_limits(2, (0, 0, 1)),
         },
         RouteParameters {
             intent: SearchIntent::VisualDocument,
@@ -85,10 +83,9 @@ fn result_limit_overflow_is_rejected() -> Result<(), Box<dyn std::error::Error>>
         usize::MAX,
         &context,
         PlanOptions {
-            max_stages: 1,
             expansion_enabled: false,
             reranking_enabled: false,
-            web_limits: (0, 0, 1),
+            budget_limits: general_budget_limits(1, (0, 0, 1)),
         },
         RouteParameters {
             intent: SearchIntent::FactualLocal,

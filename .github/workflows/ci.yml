@@ -49,7 +49,10 @@ jobs:
               - '.github/actions/**'
               - 'scripts/*'
               - '!scripts/*.py'
+              - 'scripts/verify-search-packages.py'
               - 'web/**'
+              - 'launcher/**'
+              - 'vendor/**'
             philosophy:
               - 'README.md'
               - 'CONTRIBUTING.md'
@@ -63,6 +66,7 @@ jobs:
               - '.github/CODEOWNERS'
               - '.github/workflows/**'
               - '.github/PULL_REQUEST_TEMPLATE.md'
+              - 'vendor/**'
   studio-frontend:
     needs: [changes]
     runs-on: ubuntu-latest
@@ -83,8 +87,7 @@ jobs:
           sccache-gcs-bucket: ${{ secrets.SCCACHE_GCS_BUCKET }}
           sccache-gcs-key: ${{ secrets.SCCACHE_GCS_KEY }}
       - uses: Swatinem/rust-cache@v2.9.1
-      - name: Install Studio frontend dependencies
-        run: corepack pnpm@9.15.9 --dir web install --frozen-lockfile
+      - uses: ./.github/actions/setup-frontend
       - name: Test Studio web crate
         run: cargo test -p maestria-studio-web
       - name: Check Studio web WASM
@@ -159,7 +162,7 @@ jobs:
         with:
           tool: cargo-deny
       - name: Run dependency checks
-        run: cargo deny check all
+        run: cargo deny --workspace --all-features check all
 
   benchmark-smoke:
     needs: [changes, clippy, deny]
@@ -266,6 +269,79 @@ jobs:
       - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Run tests
         run: cargo test --workspace --all-targets --all-features
+
+  launcher-native:
+    needs: [changes]
+    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
+      - uses: ./.github/actions/setup-rust-build-dependencies
+        with:
+          native-test: 'true'
+      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Install Cargo Packager
+        run: cargo install cargo-packager --locked --version 0.11.8
+        env:
+          RUSTC_WRAPPER: ''
+      - name: Build Debian and AppImage packages
+        run: NO_STRIP=1 cargo packager --release --packages maestria-launcher --formats deb,appimage
+      - name: Inspect package contents and metadata
+        run: python3 scripts/verify-launcher-packages.py target/launcher-packages
+      - name: Install Debian package and declared runtime dependencies
+        run: sudo apt-get install --yes ./target/launcher-packages/*.deb
+      - name: Install isolated Wayland compositor for package smoke
+        run: sudo apt-get install --yes --no-install-recommends weston
+      - name: Smoke-test installed Debian and AppImage windows
+        run: xvfb-run -a -s '-screen 0 1280x1024x24' dbus-run-session -- bash scripts/smoke-launcher-packages.sh target/launcher-packages
+      - name: Retain launcher packages
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-native-packages
+          path: target/launcher-packages/
+          if-no-files-found: error
+
+  search-package:
+    needs: [changes]
+    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
+      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Install Cargo Packager
+        run: cargo install cargo-packager --locked --version 0.11.8
+        env:
+          RUSTC_WRAPPER: ''
+      - name: Build search-only Debian package
+        run: cargo packager --release --packages maestria-search --formats deb
+      - name: Inspect search-only package
+        run: python3 scripts/verify-search-packages.py target/search-packages
+      - name: Install Debian package and declared runtime dependencies
+        run: sudo apt-get install --yes --no-install-recommends ./target/search-packages/*.deb
+      - name: Smoke-test installed search-only package
+        run: bash scripts/smoke-search-packages.sh target/search-packages
+      - name: Retain search packages
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: search-only-debian-package
+          path: target/search-packages/
+          if-no-files-found: error
+
   golden-gate:
     needs: [changes]
     runs-on: ubuntu-latest
@@ -375,10 +451,10 @@ jobs:
       - name: Check branch name
         run: |
           BRANCH="${{ github.head_ref }}"
-          if ! [[ "$BRANCH" =~ ^((feat|fix)/[a-z0-9-]+-[a-z0-9-]+|(docs|test|refactor|chore)/[a-z0-9-]+)$ ]]; then
+          if ! [[ "$BRANCH" =~ ^((feat|fix)/[a-z0-9-]+-[a-z0-9-]+|(docs|test|refactor|chore|dev)/[a-z0-9-]+)$ ]]; then
             echo "❌ Branch '$BRANCH' does not match CONTRIBUTING convention:"
             echo "  feat/fix: feat/<area>-<short-description>"
-            echo "  other: <type>/<short-description>"
+            echo "  other: <type>/<short-description> (including dev/ integration branches)"
             exit 1
           fi
           echo "✓ Branch name '$BRANCH' OK"

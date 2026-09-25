@@ -25,6 +25,8 @@ pub enum ClientErrorCode {
     RevisionConflict,
     NoEvidence,
     RequestTooLarge,
+    /// The daemon speaks a different version of the versioned search API.
+    ProtocolVersionMismatch,
     /// The daemon socket accepted no connection: nothing is serving the
     /// instance right now (never started, stopped, or killed). Clients may
     /// treat this as "run locally" instead of as a failure.

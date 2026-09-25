@@ -308,6 +308,8 @@ pub fn assert_event_log_round_trip(log: &impl EventLog) -> Result<(), Box<dyn st
     log.append(evidence.clone())?;
     log.append(search.clone())?;
     log.append(unrelated)?;
+    assert!(log.contains_id(EventId::new(3))?);
+    assert!(!log.contains_id(EventId::new(5))?);
 
     let out_of_order = DomainEventEnvelope {
         id: EventId::new(6), // next is 5

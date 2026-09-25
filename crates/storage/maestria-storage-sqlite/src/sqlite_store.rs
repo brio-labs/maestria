@@ -95,6 +95,22 @@ impl SqliteStore {
             .map_err(to_port_error)
     }
 
+    /// Latest source-version change; federated read audits do not invalidate
+    /// the cached interactive lexical snapshot.
+    pub fn searchable_source_revision(&self) -> Result<i64, PortError> {
+        let connection = self.lock()?;
+        connection
+            .query_row(
+                "SELECT COALESCE(MAX(id), 0) FROM domain_events
+                 WHERE event_kind IN (
+                     'parser_started', 'document_tree_captured', 'source_became_stale'
+                 )",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(to_port_error)
+    }
+
     /// Highest retrieval audit retirement marker (ADR-0009), as the
     /// recorded `before_sequence` high-water (0 when nothing is retired).
     ///

@@ -1,6 +1,6 @@
 use maestria_domain::{
     ApprovalId, Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, ClaimId, DomainEventEnvelope,
-    Evidence, EvidenceId, GrantTokenDigest, MemoryCandidateId, RealmReadGrant,
+    EventId, Evidence, EvidenceId, GrantTokenDigest, MemoryCandidateId, RealmReadGrant,
 };
 use std::collections::BTreeSet;
 
@@ -58,6 +58,8 @@ pub trait RealmReadGrantRepository: Send + Sync {
 pub trait EventLog: Send + Sync {
     fn append(&self, event: DomainEventEnvelope) -> Result<(), PortError>;
     fn scan(&self, filter: EventFilter) -> Result<Vec<DomainEventEnvelope>, PortError>;
+    /// Check the durable journal by event ID without decoding unrelated events.
+    fn contains_id(&self, event_id: EventId) -> Result<bool, PortError>;
 }
 
 /// Durable per-namespace ID allocation.

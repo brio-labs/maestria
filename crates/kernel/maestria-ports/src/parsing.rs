@@ -169,6 +169,10 @@ pub enum SourceSpan {
         start_line: usize,
         end_line: usize,
     },
+    DocxParagraphSpan {
+        start_paragraph: usize,
+        end_paragraph: usize,
+    },
     PdfSpan {
         page: usize,
     },

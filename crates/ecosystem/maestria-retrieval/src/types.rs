@@ -51,6 +51,24 @@ impl CandidateSourceFilter {
         })
     }
 
+    /// Explicit deny-all filter used when the authorized source set is empty.
+    pub fn deny_all() -> Self {
+        Self {
+            allowed_artifact_ids: BTreeSet::new(),
+        }
+    }
+
+    /// Intersect two independent source restrictions without widening either.
+    pub fn intersect(&self, other: &Self) -> Self {
+        Self {
+            allowed_artifact_ids: self
+                .allowed_artifact_ids
+                .intersection(&other.allowed_artifact_ids)
+                .copied()
+                .collect(),
+        }
+    }
+
     pub fn allows(&self, artifact_id: ArtifactId) -> bool {
         self.allowed_artifact_ids.contains(&artifact_id)
     }
@@ -75,6 +93,37 @@ impl CandidateSourceFilter {
     }
 }
 
+/// Shared cooperative cancellation flag for synchronous retrieval lanes.
+#[derive(Clone, Default)]
+pub struct SearchCancellation(Arc<std::sync::atomic::AtomicBool>);
+
+impl SearchCancellation {
+    pub fn cancel(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Acquire)
+    }
+}
+
+impl std::fmt::Debug for SearchCancellation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("SearchCancellation")
+            .field(&self.is_cancelled())
+            .finish()
+    }
+}
+
+impl PartialEq for SearchCancellation {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for SearchCancellation {}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CandidateRequest {
     pub plan: std::sync::Arc<SearchPlan>,
@@ -83,6 +132,7 @@ pub struct CandidateRequest {
     pub expected_generation: IndexGenerationId,
     pub authorization: maestria_governance::RetrievalAuthorizationContext,
     pub source_filter: Option<CandidateSourceFilter>,
+    pub cancellation: Option<SearchCancellation>,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CandidateBatch {
@@ -260,6 +310,8 @@ pub enum RetrievalError {
     Compatibility(#[from] maestria_domain::SearchCompatibilityError),
     #[error("result limit {limit} exceeds the supported u32 maximum")]
     InvalidResultLimit { limit: usize },
+    #[error("invalid interactive query: {0}")]
+    InvalidQuery(String),
     #[error("Retrieval cancelled")]
     Cancelled,
     #[error("Retrieval timed out")]

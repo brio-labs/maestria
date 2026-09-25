@@ -78,7 +78,9 @@ impl SourceSnapshotVerifier {
                     ))
                 })
             }
-            EvidenceKind::PdfSpan { snapshot, .. } | EvidenceKind::PdfRegion { snapshot, .. } => {
+            EvidenceKind::DocxParagraphSpan { snapshot, .. }
+            | EvidenceKind::PdfSpan { snapshot, .. }
+            | EvidenceKind::PdfRegion { snapshot, .. } => {
                 if evidence.artifact_id != artifact.id {
                     return Err(RetrievalError::Internal(format!(
                         "evidence {} belongs to artifact {}, expected owning artifact {}",

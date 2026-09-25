@@ -22,6 +22,7 @@ impl KernelState {
         match &existing.kind {
             EvidenceKind::FileSpan { snapshot, .. }
             | EvidenceKind::PdfSpan { snapshot, .. }
+            | EvidenceKind::DocxParagraphSpan { snapshot, .. }
             | EvidenceKind::PdfRegion { snapshot, .. } => {
                 let Some(expected_hash) = self
                     .artifacts

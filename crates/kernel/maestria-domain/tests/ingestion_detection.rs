@@ -78,12 +78,16 @@ fn preflight_duplicate_is_noop_when_indexed() -> Result<(), Box<dyn std::error::
             artifact_id: ArtifactId::new(1),
         },
     })?;
+    Arc::make_mut(&mut state.active_sources).insert(
+        SourceIdentityKey::try_from("/tmp/notes.md".to_string())?,
+        ArtifactId::new(1),
+    );
 
     // Re-detection with same hash while Indexed is a no-op
     let output = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
-        source_path: String::new(),
+        source_path: "/tmp/notes.md".to_string(),
         source_bytes: Vec::new(),
         content_hash: hash_abc()?,
     }))?;
@@ -98,6 +102,102 @@ fn preflight_duplicate_is_noop_when_indexed() -> Result<(), Box<dyn std::error::
         0,
         "no effects for unchanged indexed artifact"
     );
+    state.apply_input(DomainInput::SourceRemoved(SourceRemoved {
+        artifact_id: ArtifactId::new(1),
+        source_path: "/tmp/notes.md".to_string(),
+        content_hash: hash_abc()?,
+    }))?;
+    let reapproved = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: "/tmp/notes.md".to_string(),
+        source_bytes: Vec::new(),
+        content_hash: hash_abc()?,
+    }))?;
+    assert!(matches!(
+        reapproved.effects.as_slice(),
+        [MaestriaEffect::ParseArtifact(req)] if req.artifact_id == ArtifactId::new(1)
+    ));
+    Ok(())
+}
+
+#[test]
+fn restored_version_is_detected_before_previous_version_is_retired()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut state = KernelState::new();
+    let path = "/tmp/notes.md";
+    let original = ArtifactId::new(1);
+    let replacement = ArtifactId::new(2);
+    for (index, (artifact_id, hash)) in [(original, hash_abc()?), (replacement, hash_bbb()?)]
+        .into_iter()
+        .enumerate()
+    {
+        let first = u64::try_from(index * 3 + 1)?;
+        state.apply_event(DomainEventEnvelope {
+            id: EventId::new(first),
+            event: DomainEvent::ArtifactRegistered {
+                artifact_id,
+                title: "Notes".to_string(),
+                security: SecurityMetadata::default(),
+            },
+        })?;
+        state.apply_event(DomainEventEnvelope {
+            id: EventId::new(first + 1),
+            event: DomainEvent::PendingIndex {
+                artifact_id,
+                content_hash: hash,
+            },
+        })?;
+        state.apply_event(DomainEventEnvelope {
+            id: EventId::new(first + 2),
+            event: DomainEvent::ArtifactIndexed { artifact_id },
+        })?;
+    }
+    let source = SourceIdentityKey::try_from(path.to_string())?;
+    Arc::make_mut(&mut state.active_sources).insert(source.clone(), replacement);
+
+    let revived = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: original,
+        title: "Notes".to_string(),
+        source_path: path.to_string(),
+        source_bytes: b"original".to_vec(),
+        content_hash: hash_abc()?,
+    }))?;
+    assert!(matches!(
+        revived.effects.as_slice(),
+        [MaestriaEffect::ParseArtifact(request)] if request.artifact_id == original
+    ));
+
+    state.apply_input(DomainInput::ParserStarted(ParserStarted {
+        artifact_id: original,
+        title: "Notes".to_string(),
+        source_path: path.to_string(),
+        content_hash: hash_abc()?,
+        blob_id: BlobId::new(42),
+    }))?;
+    let removed = SourceRemoved {
+        artifact_id: replacement,
+        source_path: path.to_string(),
+        content_hash: hash_bbb()?,
+    };
+    let retirement = state.apply_input(DomainInput::SourceRemoved(removed.clone()))?;
+    assert!(matches!(
+        retirement.events.as_slice(),
+        [DomainEventEnvelope {
+            event: DomainEvent::SourceBecameStale { artifact_id, .. },
+            ..
+        }] if *artifact_id == replacement
+    ));
+    assert_eq!(state.active_sources.get(&source), Some(&original));
+    assert!(!state.stale_sources.contains(path));
+    let repeated = state.apply_input(DomainInput::SourceRemoved(removed))?;
+    assert!(repeated.events.is_empty());
+    let mut replayed = KernelState::new();
+    for event in state.event_log.iter() {
+        replayed.apply_event(event.as_ref().clone())?;
+    }
+    assert_eq!(replayed.active_sources.get(&source), Some(&original));
+    assert!(!replayed.stale_sources.contains(path));
     Ok(())
 }
 

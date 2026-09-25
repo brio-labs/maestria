@@ -4,16 +4,20 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Maestria local-first, source-grounded second-brain runtime"
+description = "Sillage Linux-first launcher and extension platform with local semantic search"
 publish = false
 
 [workspace]
 resolver = "2"
+exclude = ["vendor/global-hotkey"]
 members = [
     "web",
     "crates/apps/maestria-daemon",
     "crates/apps/maestria-studio",
     "crates/apps/maestria-cli",
+    "crates/apps/maestria-search",
+    "crates/apps/maestria-launcher",
+    "crates/apps/maestria-extension-worker",
      "crates/core/maestria-core",
      "crates/ecosystem/maestria-memory",
      "crates/ecosystem/maestria-code-intel",
@@ -21,6 +25,7 @@ members = [
      "crates/ecosystem/maestria-index-selection",
      "crates/ecosystem/maestria-validation",
      "crates/ecosystem/maestria-web-evidence",
+    "crates/ecosystem/maestria-extensions",
      "crates/harness/maestria-harness",
      "crates/ecosystem/maestria-retrieval",
      "crates/harness/maestria-harness-cli",
@@ -40,6 +45,10 @@ members = [
      "crates/ecosystem/maestria-sparse-local",
      "crates/test-support/maestria-test-support",
  ]
+
+[patch.crates-io]
+# global-hotkey 0.8.0 otherwise leaves X11 ungrabs buffered after unregister.
+global-hotkey = { path = "vendor/global-hotkey" }
 
 [workspace.package]
 version = "0.0.0"

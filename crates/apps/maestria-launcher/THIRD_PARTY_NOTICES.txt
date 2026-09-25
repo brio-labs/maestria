@@ -1,0 +1,8 @@
+Third-party notices
+
+Slint
+Sillage Launcher uses Slint 1.18.1, a user-interface toolkit provided by SixtyFPS GmbH (https://slint.dev).
+
+Slint is available under the GNU General Public License version 3.0 or the Slint Royalty-free Desktop, Mobile, and Web Applications License version 2.0. The license terms and attribution options are published at https://slint.dev/terms-and-conditions.
+
+The application presents Slint's AboutSlint attribution in its About screen.

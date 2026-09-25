@@ -8,7 +8,9 @@ This document tracks experimental candidates for the Maestria search architectur
 
 ## 1. Evaluation Framework
 
-Candidates are evaluated strictly against the Maestria internal corpora. A candidate is eligible for promotion to the [ROADMAP.md](./ROADMAP.md) only if it demonstrates superior performance across the following budgets:
+Candidates are evaluated strictly against the Maestria internal corpora. A
+candidate is eligible for evaluated subsystem activation only if it
+demonstrates superior performance across the following budgets:
 
 * **Quality:** Precision, recall, exact-span retrieval, evidence-chain coverage, and relevance scores on standardized benchmarks.
 * **Latency:** P50, P95, and P99 response times for typical query loads.
@@ -17,6 +19,9 @@ Candidates are evaluated strictly against the Maestria internal corpora. A candi
 * **Privacy:** Compliance with local-first processing requirements, data sovereignty, provider disclosure, and retention guarantees.
 * **Security:** No ACL leakage, prohibited-candidate exposure, prompt-injection authorization, secret disclosure, quarantine escape, poisoning success, or fail-open behavior.
 * **Energy:** Joules per query or indexing operation where the platform can measure them. Unavailable telemetry remains explicit and is never fabricated.
+
+The product roadmap records product milestones; it is not a queue of models or
+research candidates.
 
 Synthetic or deterministic contract fixtures may prove schemas, lifecycle rules, and regressions. They do not prove product quality and cannot authorize a production promotion.
 
@@ -482,9 +487,12 @@ was built or promoted. The negative result is therefore: late interaction
 does not qualify for Stage A serving on this frozen run, and Stage B has no
 independent need authorization.
 
-## 4.5. Product-exit evidence checkpoint (dated 2026-09-11)
+## 4.5. Historical product-exit evidence checkpoint (dated 2026-09-11)
 
 The current ledger does not certify a product-complete retrieval surface.
+This dated section is historical retrieval evidence and does not certify a
+current product milestone.
+
 The machine-readable statuses are recorded in
 [`tests/contracts/benchmark_evidence_v1.json`](../tests/contracts/benchmark_evidence_v1.json).
 `v1.2` and `v1.3` contain complete real lane evaluations, but their pass
@@ -508,10 +516,10 @@ The required evidence task is a bounded product-exit report for the currently
 supported exact, lexical, dense-hybrid, repository, and visual surfaces. It
 must preserve the existing per-class routes and report quality, p50/p95/p99
 latency, memory, disk, privacy, security, freshness, update/rollback, and
-energy availability without converting unavailable counters into passes. The
-2026-09-11 run is an evidence snapshot, not completion of that gate; Phase 6
-remains open and no additional experimental lane is justified by the existence
-of an issue or adapter.
+energy availability without converting unavailable counters into passes.
+The 2026-09-11 run is an evidence snapshot, not completion of that retrieval
+gate; the former retrieval Phase 6 remained open and no additional
+experimental lane was justified by the existence of an issue or adapter.
 
 ### 4.5.1. Bounded supported-route run (2026-09-11)
 
@@ -565,16 +573,134 @@ the quality and latency improvement. The thread configuration is retained as
 a bounded research optimization; the visual route remains
 provider-dependent/research-only and shadowed.
 
+## 4.6. Historical retrieval roadmap checkpoint (dated 2026-09-11)
+
+This record was migrated from the former implementation roadmap. It is
+historical retrieval evidence, not a current product milestone or gate.
+
+**Historical checkpoint (2026-09-11):** Retrieval Phase 6 remained open. The
+learned-sparse and late-interaction evaluations were complete non-promoting
+decisions; the measured dense result promoted only `DomainTerminology`.
+
+The bounded supported-route run completed: repository process-RSS and
+persisted-index disk measurements emitted real values, while RAPL energy and
+serving-boundary security counters remained unavailable. The real visual
+provider had a measured four-thread ONNX optimization that materially reduced
+inference latency, but the optimized end-to-end run still exceeded four of six
+frozen visual latency budgets and left resource measurement status unavailable.
+
+The next retrieval gate was closing those evidence gaps for the exact,
+lexical, dense-hybrid, repository, and visual routes. No additional research
+lane was implemented solely because its issue was next in numeric order.
+
 ## 3. Promotion Criteria
 
-A candidate is promoted from this research document to an active architectural component only when:
+A candidate is eligible for evaluated subsystem activation only when:
 
 1. For each proposed served query class, it beats that class's eligible existing baseline on a frozen, versioned Maestria evaluation corpus; protected exact and lexical paths remain unchanged.
 2. It satisfies all requirements of [OPERATIONS.md](./OPERATIONS.md), including reproducibility, generation lifecycle, cancellation, degradation, and rollback.
 3. The integration is abstracted behind provider-neutral contracts and remains replaceable.
 4. The dated report records corpus, judgment, model/index, environment, quality, resource, privacy, security, and energy evidence.
-5. Promotion is restricted to the query classes and exact route configuration that won; all other paths remain shadowed or use the conservative baseline.
+5. Activation is restricted to the query classes and exact route configuration that won; all other paths remain shadowed or use the conservative baseline.
+
+These criteria govern retrieval subsystem activation; they do not schedule
+product milestones. The product roadmap is not a queue of models or research
+candidates.
 
 The numeric budgets in a frozen corpus are comparability gates, not universal
 product SLOs. Changing a budget requires a new corpus revision and a
 workload-backed rationale; a candidate cannot relax its own gate.
+
+## 5. Slint backend feasibility evidence (2026-09-23)
+
+A disposable Rust 2024 probe **outside the workspace**, pinned to Slint 1.18.1,
+used `default-features = false` with `std`, `backend-winit`,
+`renderer-software`, `accessibility`, and `compat-1-2`; both runs selected
+`SLINT_BACKEND=winit-software`. Slint requires Rust 1.92; the workspace
+requires 1.95. The same binary rendered on X11 (`DISPLAY=:1`,
+`WAYLAND_DISPLAY=""`) and the active Wayland compositor (`DISPLAY=""`,
+`WAYLAND_DISPLAY=wayland-1`). Keyboard input reached two standard `LineEdit`
+controls through Tab navigation, and Tab/Return activated a button that hid
+the window then restored it after 400 ms on both backends. See the
+[X11 capture](evidence/slint-x11.webp) and the
+[Wayland app-only crop](evidence/slint-wayland.webp). With both instances
+open, sampled process RSS was
+25.5 MiB (X11) and 34.8 MiB (Wayland), respectively.
+
+Twenty headless X11 process launches on the same machine, with warm page
+cache, measured process-spawn to `Window::show()` return and its stdout
+acknowledgment: p50 58.117 ms, p95 67.294 ms, p99 75.738 ms
+(range 38.317–75.738 ms). This does **not** measure painted pixels or
+interactivity, and the disposable probe does not load a catalog. It is not
+comparable to the historical Tauri activation acknowledgment or
+WebDriver-inclusive 1,051.115 ms cold bound.
+
+With `org.a11y.Status.IsEnabled` on a private AT-SPI bus, the X11 probe
+registered an application, frame, label, two `entry` roles and a `button` role.
+Its two entries initially had empty accessible names despite placeholder text.
+Setting `accessible-label` on each `LineEdit` made AT-SPI report `Search query`
+and `Secondary query` as named entries in a rebuilt probe. The real launcher
+must name its query and actions likewise. Wayland AT-SPI and spoken
+screen-reader output were not tested.
+
+This is **backend feasibility, not the shipped launcher**. The small probe has
+no catalog, daemon, shortcut or native action; its RSS cannot be compared as a
+product benchmark with Tauri's 552.543 MiB full launcher/WebKit sum.
+Actual cold interactive latency and full screen-reader traversal remain
+unmeasured; they must be checked on the actual Slint launcher before #518
+and #523 close.
+The experiment also did not validate a GPU renderer: software is the proven
+portable fallback, while accelerated rendering is an opt-in benchmark choice.
+
+Choose Slint's [Royalty-free Desktop, Mobile, and Web Applications License
+2.0](https://slint.dev/terms-and-conditions), not GPLv3, for the MIT/Apache
+workspace. Distribution requires either
+the `AboutSlint` widget in an About dialog reached from the top-level menu
+(or a splash screen without one), **or** Slint's
+[attribution badge](https://github.com/slint-ui/slint/tree/master/logo/MadeWithSlint-logo-whitebg.png)
+readily discoverable on a public page, preferably beside the downloads.
+The working-tree launcher now presents `AboutSlint` from its top-level About
+control (see the actual-window evidence below). Neither toolkit-alone
+distribution nor API exposure is intended. The workspace uses version-pinned
+Slint license exceptions rather than a blanket GPL allowance, and
+`cargo deny --workspace --all-features check all` passed on the audited graph.
+This does not certify an as-yet unbuilt release package.
+
+## 6. Actual Slint launcher process evidence (2026-09-24)
+
+The `maestria-launcher` debug binary, not the disposable probe, opened a
+resident Slint window on isolated X11 and the active Wayland compositor with
+the software renderer. Both runs used private singleton/preference directories,
+without the daemon or an embedding model. On X11, first-launch keyboard input
+produced `7*6 → 42`; Ctrl+K exposed **Copy Result** and Return closed the
+action overlay. Escape hid the window without terminating the process, and
+another `--activate` remapped the same singleton window. On Wayland, keyboard
+input produced `9*9 → 81`; Escape and `--activate` likewise hid and restored the
+window. `--quit` exited the Wayland process cleanly.
+
+The actual [X11 window](evidence/slint-launcher-x11.webp),
+[Wayland app-only crop](evidence/slint-launcher-wayland.webp), and
+[top-level About view](evidence/slint-launcher-about.webp) are cropped to the
+launcher. The About view visibly contains Slint's official `AboutSlint` logo,
+version, and link; this implements the chosen toolkit attribution route.
+X11 preferences switched both application surfaces and native widgets to
+the dark palette. Saving produced an isolated `launcher.toml` with
+`theme = "dark"`, and a fresh launcher process loaded that theme.
+
+Local release artifacts were also packaged as Debian and AppImage with
+`cargo-packager 0.11.8` (`NO_STRIP=1` avoids linuxdeploy's obsolete strip on
+Arch `.relr.dyn` libraries). The Debian control retains
+`Package: io-github-briolabs-maestria-launcher`, the desktop entry retains
+`io.github.briolabs.Maestria.Launcher`, and both archives contain the native
+executable, a real PNG icon, and Slint notices. An isolated Xvfb/JWM/D-Bus
+session ran the extracted Debian executable and the AppImage: AT-SPI exposed
+the named focused search entry with typed input, a discoverable About button,
+and the focused global-shortcut editor after Ctrl+Comma. This verifies
+package payloads and partial native accessibility, not an apt fresh install.
+
+One X11 debug-process sample from `/proc/<pid>/status` reported VmRSS 89,216
+kB while the Xvfb output scaled the 760×590 logical window to 1901×1475
+pixels. This is neither release RSS nor a matched Tauri comparison. Actual
+painted-pixel cold/activation percentiles, full AT-SPI navigation, Wayland
+portal-grant interaction, and fresh-install package behavior remain
+unmeasured. Do not close #518 or #523 on this evidence alone.

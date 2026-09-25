@@ -17,16 +17,18 @@ pub use construction::{
     prepare_search_runtime_read_only_with_repository_policy,
     prepare_search_runtime_with_repository_policy,
 };
+pub(crate) use dispatch::path_is_within_allowed_roots;
 #[cfg(test)]
 #[path = "search_executor_tests.rs"]
 mod tests;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 use maestria_code_intel::RepositoryCodeIndex;
 use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_domain::{
-    CorpusSnapshotId, DomainEventEnvelope, IndexGenerationId, KernelState,
+    ActiveSourceVersions, CorpusSnapshotId, DomainEventEnvelope, IndexGenerationId, KernelState,
     RetrievalModelFingerprint,
 };
 use maestria_ports::{
@@ -48,8 +50,35 @@ pub(crate) type EngineSignature = (
     Option<IndexGenerationId>,
     CorpusSnapshotId,
 );
+
 pub(crate) type CachedEngine = (EngineSignature, Arc<maestria_retrieval::RetrievalEngine>);
 pub(crate) type EngineCache = Arc<RwLock<Option<CachedEngine>>>;
+// Final source filter keyed by the current manifest and exact consumer root grant.
+type InteractiveApprovedCache = Arc<
+    RwLock<
+        Option<(
+            InstanceManifest,
+            Option<Arc<[PathBuf]>>,
+            maestria_retrieval::CandidateSourceFilter,
+        )>,
+    >,
+>;
+#[derive(Clone)]
+pub(crate) struct InteractiveSnapshot {
+    revision: i64,
+    engine: Arc<maestria_retrieval::RetrievalEngine>,
+    sources: Arc<ActiveSourceVersions>,
+    approved: InteractiveApprovedCache,
+}
+pub(crate) type InteractiveCache = Arc<RwLock<Option<InteractiveSnapshot>>>;
+/// A candidate filename match retained only inside the provider until its
+/// active version, root approval, and on-disk freshness are revalidated.
+pub(crate) struct InteractivePathCandidate {
+    pub(crate) path: std::path::PathBuf,
+    artifact_id: maestria_domain::ArtifactId,
+    artifact_version: maestria_domain::ArtifactVersionId,
+    content_hash: maestria_domain::ContentHash,
+}
 
 /// One immutable set of repositories, generations, and indexes used for a search request.
 ///
@@ -85,16 +114,54 @@ pub struct SearchRuntime {
     pub(crate) scope_id: maestria_domain::ScopeId,
     pub(crate) fingerprint: RetrievalModelFingerprint,
     pub(crate) engine_cache: EngineCache,
+    pub(crate) interactive_cache: InteractiveCache,
+    pub(crate) source_manifest: Option<Arc<RwLock<InstanceManifest>>>,
+    pub(crate) source_layout: Option<InstanceLayout>,
+    pub(crate) interactive_search_workers: Arc<tokio::sync::Semaphore>,
+    allowed_roots: Option<Arc<[PathBuf]>>,
 }
 
 pub(crate) use parts::SearchRuntimeParts;
 pub(crate) use projection::reconcile_active_versions;
 
 impl SearchRuntime {
+    #[cfg(test)]
     pub(crate) fn from_parts(
         parts: SearchRuntimeParts,
         embedding_provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>>,
         retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
+    ) -> Result<Self> {
+        Self::from_parts_with_source_manifest(
+            parts,
+            embedding_provider,
+            retrieval_policy,
+            None,
+            None,
+        )
+    }
+
+    pub(crate) fn from_parts_with_manifest(
+        parts: SearchRuntimeParts,
+        embedding_provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>>,
+        retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
+        source_manifest: Arc<RwLock<InstanceManifest>>,
+        source_layout: InstanceLayout,
+    ) -> Result<Self> {
+        Self::from_parts_with_source_manifest(
+            parts,
+            embedding_provider,
+            retrieval_policy,
+            Some(source_manifest),
+            Some(source_layout),
+        )
+    }
+
+    fn from_parts_with_source_manifest(
+        parts: SearchRuntimeParts,
+        embedding_provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>>,
+        retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
+        source_manifest: Option<Arc<RwLock<InstanceManifest>>>,
+        source_layout: Option<InstanceLayout>,
     ) -> Result<Self> {
         let fingerprint =
             RetrievalModelFingerprint::new("maestria-core:deterministic-v1".to_string())
@@ -127,7 +194,12 @@ impl SearchRuntime {
             corpus_snapshot: parts.corpus_snapshot,
             scope_id: parts.scope_id,
             fingerprint,
+            interactive_search_workers: Arc::new(tokio::sync::Semaphore::new(2)),
             engine_cache: Arc::new(RwLock::new(None)),
+            interactive_cache: Arc::new(RwLock::new(None)),
+            source_manifest,
+            source_layout,
+            allowed_roots: None,
         })
     }
 
@@ -212,10 +284,12 @@ impl SearchRuntime {
             corpus_snapshot,
             scope_id: maestria_domain::DEFAULT_INSTANCE_SCOPE_ID,
         };
-        Ok(Arc::new(Self::from_parts(
+        Ok(Arc::new(Self::from_parts_with_manifest(
             parts,
             embedding_provider,
             retrieval_policy,
+            Arc::new(RwLock::new(manifest.clone())),
+            layout.clone(),
         )?))
     }
 
@@ -229,6 +303,7 @@ impl SearchRuntime {
         }
         // Invalidate the cached engine: the event count changed.
         *self.engine_cache.write() = None;
+        *self.interactive_cache.write() = None;
         Ok(())
     }
 
@@ -287,5 +362,43 @@ impl SearchRuntime {
         let engine = Arc::new(engine);
         *self.engine_cache.write() = Some((sig, engine.clone()));
         Ok(engine)
+    }
+
+    /// Rebuild only when a source-version event changes. Search access audits
+    /// append events too, but cannot change the lexical source snapshot.
+    pub(crate) fn interactive_snapshot(&self) -> Result<InteractiveSnapshot> {
+        let revision = self.event_log.searchable_source_revision()?;
+        if let Some(snapshot) = self.interactive_cache.read().as_ref()
+            && snapshot.revision == revision
+        {
+            return Ok(snapshot.clone());
+        }
+        let events = if self.repository_code_index.is_some() {
+            // The code security resolver projects additional event families.
+            self.domain_events()?
+        } else {
+            self.event_log
+                .scan_searchable_source_events()
+                .map_err(|error| anyhow!("scan source history for retrieval: {error}"))?
+        };
+        let sources = maestria_domain::active_source_versions(&events);
+        let mut runtime = self.clone();
+        runtime.graph_index = None;
+        runtime.persist_learned_sparse_observations = false;
+        let snapshot = InteractiveSnapshot {
+            revision,
+            engine: Arc::new(runtime.retrieval_engine_from_snapshot(&events, &sources)?),
+            sources: Arc::new(sources),
+            approved: Arc::new(RwLock::new(None)),
+        };
+        if self.event_log.searchable_source_revision()? == revision {
+            *self.interactive_cache.write() = Some(snapshot.clone());
+        }
+        Ok(snapshot)
+    }
+
+    pub(crate) fn interactive_current_sources(&self) -> Result<(i64, Arc<ActiveSourceVersions>)> {
+        let snapshot = self.interactive_snapshot()?;
+        Ok((snapshot.revision, snapshot.sources))
     }
 }

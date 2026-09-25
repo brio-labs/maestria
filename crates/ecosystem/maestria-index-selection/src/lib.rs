@@ -32,5 +32,5 @@ pub use repo::{
 };
 pub use scan::{
     DirFeatures, collect_files, dir_features, is_home_root, is_privacy_excluded_path,
-    is_supported_source_file,
+    is_supported_source_file, supported_source_formats,
 };

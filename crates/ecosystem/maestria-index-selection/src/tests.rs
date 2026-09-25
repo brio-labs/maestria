@@ -9,6 +9,7 @@ use crate::policy::{IndexPolicy, Selection, group_by_child, select_source};
 use crate::profile::{IndexSelectionProfile, load_profile, save_profile};
 use crate::scan::{
     collect_files, dir_features, is_privacy_excluded_path, is_supported_source_file,
+    supported_source_formats,
 };
 use std::fs;
 use std::io::Write as _;
@@ -535,6 +536,19 @@ fn pdf_is_supported_index_path() {
     assert!(is_supported_source_file(Path::new("paper.pdf")));
     assert!(is_supported_source_file(Path::new("paper.PDF")));
     assert!(is_supported_source_file(Path::new("docs/report.Pdf")));
+}
+
+#[test]
+fn docx_is_supported_by_index_selection() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = TestDirectory::create()?;
+    let docx_file = directory.path().join("report.DOCX");
+    write_file_bytes(&docx_file, b"PK\x03\x04not parsed by selection")?;
+
+    assert!(is_supported_source_file(Path::new("report.docx")));
+    assert!(is_supported_source_file(Path::new("report.DOCX")));
+    assert!(supported_source_formats().contains(&".docx"));
+    assert_eq!(collect_files(&docx_file, false)?, vec![docx_file]);
+    Ok(())
 }
 
 #[test]

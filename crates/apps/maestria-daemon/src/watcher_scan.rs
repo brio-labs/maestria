@@ -41,6 +41,45 @@ fn is_instance_internal_path(path: &Path, normalized_instance_root: &Path) -> bo
     )
 }
 
+pub(super) fn is_source_internal_path(
+    normalized_root: &Path,
+    path: &Path,
+    normalized_instance_root: &Path,
+) -> bool {
+    if normalized_root != normalized_instance_root
+        && normalized_instance_root.starts_with(normalized_root)
+    {
+        is_instance_path(path, normalized_instance_root)
+    } else {
+        is_instance_internal_path(path, normalized_instance_root)
+    }
+}
+
+pub(super) fn file_signature(metadata: &fs::Metadata) -> FileSignature {
+    let mtime = match metadata.modified() {
+        Ok(time) => match time.duration_since(std::time::UNIX_EPOCH) {
+            Ok(duration) => duration.as_nanos() as i64,
+            Err(_) => 0,
+        },
+        Err(_) => 0,
+    };
+    #[cfg(unix)]
+    let change_time = {
+        use std::os::unix::fs::MetadataExt;
+        metadata
+            .ctime()
+            .saturating_mul(1_000_000_000)
+            .saturating_add(metadata.ctime_nsec())
+    };
+    #[cfg(not(unix))]
+    let change_time = mtime;
+    FileSignature {
+        mtime,
+        change_time,
+        size: metadata.len(),
+    }
+}
+
 pub(super) fn scan_manifest(
     manifest: &InstanceManifest,
     previous: &BTreeMap<String, FileSignature>,
@@ -60,16 +99,10 @@ pub(super) fn scan_manifest(
             Some(normalized) => normalized,
             None => root.clone(),
         };
-        let exclude_instance = normalized_root != normalized_instance_root
-            && normalized_instance_root.starts_with(&normalized_root);
         let normalized_instance_root = normalized_instance_root.clone();
         let walker = ignore::WalkBuilder::new(root)
             .filter_entry(move |entry| {
-                if exclude_instance {
-                    !is_instance_path(entry.path(), &normalized_instance_root)
-                } else {
-                    !is_instance_internal_path(entry.path(), &normalized_instance_root)
-                }
+                !is_source_internal_path(&normalized_root, entry.path(), &normalized_instance_root)
             })
             .hidden(true)
             .ignore(true)
@@ -98,12 +131,15 @@ pub(super) fn scan_manifest(
             if !manifest.allows_source(&path) {
                 continue;
             }
+            if maestria_index_selection::is_privacy_excluded_path(&path) {
+                continue;
+            }
 
             if !maestria_index_selection::is_supported_source_file(&path) {
                 continue;
             }
 
-            // Change detection: unchanged files (same mtime and size) are
+            // Change detection: unchanged metadata signatures (mtime, ctime, size) are
             // not re-read; their recorded content hash is reused by the
             // caller. A file is only skipped when a recorded hash exists:
             // sources that were never durably accepted (e.g. pending at
@@ -112,16 +148,7 @@ pub(super) fn scan_manifest(
             let key = source_key(&path);
             let metadata = fs::metadata(&path)
                 .with_context(|| format!("stat watched file {}", path.display()))?;
-            let signature = FileSignature {
-                mtime: match metadata.modified() {
-                    Ok(time) => match time.duration_since(std::time::UNIX_EPOCH) {
-                        Ok(duration) => duration.as_nanos() as i64,
-                        Err(_) => 0,
-                    },
-                    Err(_) => 0,
-                },
-                size: metadata.len(),
-            };
+            let signature = file_signature(&metadata);
             if previous.get(&key) == Some(&signature) && recorded.contains_key(&key) {
                 signatures.insert(key, signature);
                 continue;

@@ -109,6 +109,26 @@ pub(super) fn span_matches_record(
 ) -> bool {
     match (candidate.source_span().location(), &evidence.kind) {
         (
+            maestria_domain::SourceLocation::DocxParagraph {
+                path,
+                start_paragraph,
+                end_paragraph,
+            },
+            maestria_domain::EvidenceKind::DocxParagraphSpan {
+                path: evidence_path,
+                range,
+                ..
+            },
+        ) => {
+            path == evidence_path
+                && *start_paragraph == range.start()
+                && *end_paragraph == range.end()
+                && usize::try_from(*start_paragraph).ok()
+                    == Some(candidate.source_span().range().start())
+                && usize::try_from(*end_paragraph).ok()
+                    == Some(candidate.source_span().range().end())
+        }
+        (
             maestria_domain::SourceLocation::File { path, .. },
             maestria_domain::EvidenceKind::FileSpan {
                 path: evidence_path,

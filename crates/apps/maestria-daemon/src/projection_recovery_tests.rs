@@ -8,7 +8,7 @@ use maestria_vector_sqlite::SqliteVectorIndex;
 
 use super::{reconcile_graph_projection, reconcile_projections, reconcile_vector_projection};
 use crate::instance_setup::prepare_instance;
-use crate::runtime_construction::build_runtime;
+use crate::runtime_construction::build_runtime_with_source_manifest;
 use maestria_domain::{
     ArtifactDetected, ArtifactId, ArtifactVersionId, BlobId, CardId, ChunkId, ContentRange,
     CreateCardInput, DomainInput, EvidenceId, EvidenceKind, KernelState, LineRange, LogicalTick,
@@ -664,7 +664,12 @@ fn build_runtime_fails_on_corrupt_vector_projection() -> Result<(), Box<dyn std:
         b"not a sqlite database",
     )?;
 
-    let result = build_runtime(&layout, state, AutonomyProfile::ReadOnly);
+    let result = build_runtime_with_source_manifest(
+        &layout,
+        state,
+        AutonomyProfile::ReadOnly,
+        Arc::new(parking_lot::RwLock::new(manifest)),
+    );
     let Some(error) = result.err() else {
         let _ = fs::remove_dir_all(&root);
         return Err("corrupt vector projection must fail runtime startup"

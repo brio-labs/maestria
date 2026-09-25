@@ -1,6 +1,6 @@
 # Benchmarking
 
-How to produce performance numbers for Maestria that survive review. A
+How to produce performance numbers for Sillage that survive review. A
 number produced by this document's method is a measurement; anything else
 is an estimate, and estimates are labeled as such or left out.
 

@@ -248,7 +248,7 @@ impl maestria_retrieval::LearnedSparseBenchmarkExecutor for LearnedSparseBenchma
                 ))
             })?;
         let limit = configuration.result_limit as usize;
-        let rss_before = LearnedSparseBenchmarkExecutor::current_rss_bytes();
+        let rss_before = maestria_retrieval::benchmark_common::current_rss_bytes();
         let engine = self
             .engine_for(route, case.class)
             .map_err(|error| LearnedSparseBenchmarkError::InvalidCorpus(error.to_string()))?;
@@ -267,13 +267,13 @@ impl maestria_retrieval::LearnedSparseBenchmarkExecutor for LearnedSparseBenchma
         let safety = self.safety_for(
             &case,
             &candidates,
-            energy::EnergySample::delta_uj_pair(energy_before, energy_after),
+            energy::delta_millijoules_pair(energy_before, energy_after),
         );
         // The per-route memory attribution is the process RSS growth over
         // the route's run (search plus lifecycle operations): the delta is
         // attributable to this route, unlike the process-wide `VmHWM`
         // high-water mark, which the first measured route would dominate.
-        let rss_after = LearnedSparseBenchmarkExecutor::current_rss_bytes();
+        let rss_after = maestria_retrieval::benchmark_common::current_rss_bytes();
         let peak_ram_bytes = match (rss_before, rss_after) {
             (Some(before), Some(after)) => Measurement::measured(after.saturating_sub(before)),
             _ => Measurement::unavailable(

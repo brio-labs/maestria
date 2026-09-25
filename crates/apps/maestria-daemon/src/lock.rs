@@ -1,4 +1,4 @@
-//! Instance write-lock management for Maestria daemon.
+//! Instance write-lock management for Sillage daemon.
 //!
 //! Lock files prevent concurrent instance modifications from multiple
 //! daemon or CLI processes targeting the same instance directory.

@@ -5,6 +5,19 @@ use maestria_domain::TaskPriority;
 
 #[path = "cli_types/parsers.rs"]
 mod parsers;
+#[path = "cli_types/realm.rs"]
+mod realm;
+#[path = "cli_types/search.rs"]
+mod search;
+#[path = "cli_types/search_api.rs"]
+mod search_api;
+
+pub use search::{
+    CodeSearchCommands, EvidenceCommands, IndexCommands, SearchCommands, SearchRootCommands,
+};
+
+pub use realm::{CliRealmGrantAccess, CliRealmGrantSensitivity, RealmCommands, RealmGrantCommands};
+pub use search_api::SearchApiCommands;
 
 #[derive(ClapParser)]
 #[command(author, version, about, long_about = None)]
@@ -15,7 +28,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Create a local Maestria instance layout
+    /// Create a local Sillage instance layout
     Init {
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
@@ -141,6 +154,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: PromotionCommands,
     },
+    /// Use the opt-in, versioned search-only provider API from another process.
+    SearchApi {
+        #[command(subcommand)]
+        command: SearchApiCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -162,93 +180,6 @@ pub enum PromotionCommands {
     },
     /// Print the stored promotion record (or a no-record notice)
     Show {
-        #[arg(short, long, default_value = ".maestria-dev")]
-        instance_dir: PathBuf,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum SearchCommands {
-    /// Execute a search and print its durable plan and trace details
-    Explain {
-        #[arg(short, long, default_value = ".maestria-dev")]
-        instance_dir: PathBuf,
-        #[arg(long)]
-        task_id: Option<u64>,
-        query: String,
-        #[arg(short, long, default_value_t = 10)]
-        limit: usize,
-    },
-    /// Show a persisted search trace by deterministic identifier
-    Trace { trace_id: u64 },
-    /// Compare two persisted search traces as an experiment pair
-    Compare {
-        experiment_a: u64,
-        experiment_b: u64,
-    },
-    /// Query the persisted exact repository code index
-    Code {
-        #[command(subcommand)]
-        command: CodeSearchCommands,
-        #[arg(short, long, default_value_t = 20)]
-        limit: usize,
-    },
-}
-#[derive(Subcommand)]
-pub enum CodeSearchCommands {
-    /// Match repository symbols by name or qualified-name substring
-    Symbol { pattern: String },
-    /// Match repository symbols by source path substring
-    Path { pattern: String },
-    /// Match repository symbols and paths with a regular expression
-    Regex { pattern: String },
-    /// Match repository symbols whose doc comment contains the pattern
-    Doc { pattern: String },
-    /// Match repository symbols carrying a todo|fixme|hack|unsafe marker
-    Markers { kind: String },
-    /// Match symbols in files changed since a commit
-    Changed {
-        #[arg(long)]
-        since: Option<String>,
-    },
-    /// Traverse bounded repository relations from a symbol seed
-    Context {
-        pattern: String,
-        #[arg(short, long, default_value_t = 2)]
-        depth: usize,
-        #[arg(short, long, default_value_t = 64)]
-        nodes: usize,
-        #[arg(long, default_value = "both")]
-        direction: String,
-    },
-    /// Resolve cross-file symbol references (inbound by default)
-    References {
-        pattern: String,
-        #[arg(long)]
-        direction: Option<String>,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum IndexCommands {
-    /// List persisted index generations and lifecycle states
-    Generations {
-        #[arg(short, long, default_value = ".maestria-dev")]
-        instance_dir: PathBuf,
-    },
-    /// Build and persist exact Cargo metadata and Rust symbol records
-    Repository {
-        path: PathBuf,
-        #[command(flatten)]
-        selection: crate::commands::repository_index::RepositoryIndexArgs,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum EvidenceCommands {
-    /// Show evidence and validation coverage for a task
-    Coverage {
-        task_id: u64,
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
     },
@@ -348,88 +279,6 @@ pub enum ApprovalCommands {
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
     },
-}
-
-#[derive(Subcommand)]
-pub enum RealmCommands {
-    /// Explicitly migrate a schema-v1 instance manifest to schema v2
-    Migrate {
-        #[arg(short, long, default_value = ".maestria-dev")]
-        instance_dir: PathBuf,
-    },
-    /// Print this instance's stable realm identity
-    Identity {
-        #[arg(short, long, default_value = ".maestria-dev")]
-        instance_dir: PathBuf,
-    },
-    /// Provider-owned realm grant administration
-    Grant {
-        #[command(subcommand)]
-        command: RealmGrantCommands,
-    },
-    /// Search a bound provider through the consumer daemon
-    Search {
-        #[arg(short, long, default_value = ".maestria-dev")]
-        instance_dir: PathBuf,
-        #[arg(long)]
-        provider_realm: String,
-        query: String,
-        #[arg(short, long, default_value_t = 10)]
-        limit: usize,
-    },
-    /// Open bounded evidence from a bound provider through the consumer daemon
-    OpenEvidence {
-        #[arg(short, long, default_value = ".maestria-dev")]
-        instance_dir: PathBuf,
-        #[arg(long)]
-        provider_realm: String,
-        #[arg(long)]
-        evidence_id: u64,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum RealmGrantCommands {
-    /// Issue a grant and install its private consumer binding
-    Create {
-        #[arg(short, long, default_value = ".maestria-dev")]
-        instance_dir: PathBuf,
-        #[arg(long)]
-        consumer_instance: PathBuf,
-        #[arg(long, value_enum)]
-        access: CliRealmGrantAccess,
-        #[arg(long, value_enum)]
-        max_sensitivity: CliRealmGrantSensitivity,
-        #[arg(long, value_parser = parsers::parse_federated_results)]
-        max_results: usize,
-        #[arg(long, value_parser = parsers::parse_federated_evidence_bytes)]
-        max_evidence_bytes: usize,
-    },
-    /// List current provider grants
-    List {
-        #[arg(short, long, default_value = ".maestria-dev")]
-        instance_dir: PathBuf,
-    },
-    /// Revoke a provider grant by its displayed digest
-    Revoke {
-        #[arg(short, long, default_value = ".maestria-dev")]
-        instance_dir: PathBuf,
-        grant_token_digest: String,
-    },
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub enum CliRealmGrantAccess {
-    SearchOnly,
-    SearchAndOpenEvidence,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub enum CliRealmGrantSensitivity {
-    Public,
-    Internal,
-    Confidential,
-    Restricted,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]

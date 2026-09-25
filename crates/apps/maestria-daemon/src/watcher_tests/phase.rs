@@ -8,36 +8,44 @@ async fn phase_detect_additions_emits_for_new_file() -> Result<(), Box<dyn std::
     let (input_tx, mut input_rx) = mpsc::channel(256);
     let mut watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp"))?,
+        manifest: Arc::new(RwLock::new(test_manifest(PathBuf::from("/tmp"))?)),
         input_tx,
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
         state: WatchState::default(),
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
         pending: BTreeMap::new(),
+        receipts: test_receipts()?,
     };
     let obs = Observation {
         path: PathBuf::from("/tmp/new.md"),
         bytes: b"content".to_vec(),
         hash: maestria_test_support::content_hash_str(10),
     };
-    let current = watcher.phase_detect_additions(&[obs]).await?;
+    let current = watcher.phase_detect_additions(vec![obs]).await?;
     assert!(current.contains_key("/tmp/new.md"));
     let msg = input_rx
         .try_recv()
         .map_err(|_| "should have emitted ArtifactDetected")?;
-    assert!(
-        matches!(&msg, DomainInput::ArtifactDetected(input) if input.source_path == "/tmp/new.md")
-    );
+    let detected = match &msg {
+        DomainInput::ArtifactDetected(input) => input,
+        other => return Err(format!("expected ArtifactDetected, got {other:?}").into()),
+    };
+    assert_eq!(detected.source_path, "/tmp/new.md");
     assert_eq!(
-        watcher.pending.get("/tmp/new.md"),
+        watcher.pending.get(&pending_delivery_key(
+            "/tmp/new.md",
+            detected.artifact_id.value(),
+        )),
         Some(&PendingDelivery {
+            source_path: "/tmp/new.md".to_owned(),
+            artifact_id: detected.artifact_id,
             content_hash: maestria_test_support::content_hash_str(10),
             status: PendingDeliveryStatus::Enqueued,
         })
     );
     watcher
-        .phase_detect_additions(&[Observation {
+        .phase_detect_additions(vec![Observation {
             path: PathBuf::from("/tmp/new.md"),
             bytes: b"content".to_vec(),
             hash: maestria_test_support::content_hash_str(10),
@@ -54,7 +62,7 @@ async fn phase_detect_additions_skips_unchanged_file() -> Result<(), Box<dyn std
     let (input_tx, mut input_rx) = mpsc::channel(256);
     let mut watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp"))?,
+        manifest: Arc::new(RwLock::new(test_manifest(PathBuf::from("/tmp"))?)),
         input_tx,
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
@@ -69,13 +77,14 @@ async fn phase_detect_additions_skips_unchanged_file() -> Result<(), Box<dyn std
         },
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
         pending: BTreeMap::new(),
+        receipts: test_receipts()?,
     };
     let obs = Observation {
         path: PathBuf::from("/tmp/existing.md"),
         bytes: b"content".to_vec(),
         hash: maestria_test_support::content_hash_str(10),
     };
-    let current = watcher.phase_detect_additions(&[obs]).await?;
+    let current = watcher.phase_detect_additions(vec![obs]).await?;
     assert_eq!(
         current.get("/tmp/existing.md"),
         Some(maestria_test_support::content_hash_str(10)).as_ref()
@@ -93,7 +102,7 @@ async fn phase_detect_additions_skips_matching_artifact_id_and_hash()
     let (input_tx, mut input_rx) = mpsc::channel(256);
     let mut watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp"))?,
+        manifest: Arc::new(RwLock::new(test_manifest(PathBuf::from("/tmp"))?)),
         input_tx,
         artifact_ids: [(
             "/tmp/existing.md".to_string(),
@@ -108,13 +117,14 @@ async fn phase_detect_additions_skips_matching_artifact_id_and_hash()
         state: WatchState::default(),
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
         pending: BTreeMap::new(),
+        receipts: test_receipts()?,
     };
     let obs = Observation {
         path: PathBuf::from("/tmp/existing.md"),
         bytes: b"content".to_vec(),
         hash: maestria_test_support::content_hash_str(10),
     };
-    let current = watcher.phase_detect_additions(&[obs]).await?;
+    let current = watcher.phase_detect_additions(vec![obs]).await?;
     assert_eq!(
         current.get("/tmp/existing.md"),
         Some(maestria_test_support::content_hash_str(10)).as_ref()
@@ -141,31 +151,35 @@ async fn phase_detect_additions_respects_backpressure() -> Result<(), Box<dyn st
         .await?;
     let mut watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp"))?,
+        manifest: Arc::new(RwLock::new(test_manifest(PathBuf::from("/tmp"))?)),
         input_tx,
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
         state: WatchState::default(),
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
         pending: BTreeMap::new(),
+        receipts: test_receipts()?,
     };
     let obs = Observation {
         path: PathBuf::from("/tmp/backpressure.md"),
         bytes: b"content".to_vec(),
         hash: maestria_test_support::content_hash_str(3),
     };
-    let current = watcher.phase_detect_additions(&[obs]).await?;
+    let current = watcher.phase_detect_additions(vec![obs]).await?;
     assert!(
         current.contains_key("/tmp/backpressure.md"),
         "physical source presence must remain visible while channel is full"
     );
+    let pending = watcher
+        .pending
+        .values()
+        .find(|pending| pending.source_path == "/tmp/backpressure.md")
+        .ok_or("delivery should remain pending")?;
     assert_eq!(
-        watcher.pending.get("/tmp/backpressure.md"),
-        Some(&PendingDelivery {
-            content_hash: maestria_test_support::content_hash_str(3),
-            status: PendingDeliveryStatus::Deferred,
-        })
+        pending.content_hash,
+        maestria_test_support::content_hash_str(3)
     );
+    assert_eq!(pending.status, PendingDeliveryStatus::Deferred);
     // Only the filler message should be present.
     assert!(input_rx.try_recv().is_ok());
     assert!(input_rx.try_recv().is_err());
@@ -179,13 +193,14 @@ async fn phase_detect_additions_reports_closed_input_channel()
     drop(input_rx);
     let mut watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp"))?,
+        manifest: Arc::new(RwLock::new(test_manifest(PathBuf::from("/tmp"))?)),
         input_tx,
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
         state: WatchState::default(),
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
         pending: BTreeMap::new(),
+        receipts: test_receipts()?,
     };
     let obs = Observation {
         path: PathBuf::from("/tmp/closed.md"),
@@ -193,7 +208,7 @@ async fn phase_detect_additions_reports_closed_input_channel()
         hash: maestria_test_support::content_hash_str(4),
     };
 
-    let result = watcher.phase_detect_additions(&[obs]).await;
+    let result = watcher.phase_detect_additions(vec![obs]).await;
 
     assert!(result.is_err(), "closed input channel must be reported");
     Ok(())
@@ -215,13 +230,14 @@ async fn phase_detect_additions_full_channel_completes_without_false_commit()
         .map_err(|_| "fill the channel")?;
     let mut watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp"))?,
+        manifest: Arc::new(RwLock::new(test_manifest(PathBuf::from("/tmp"))?)),
         input_tx,
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
         state: WatchState::default(),
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
         pending: BTreeMap::new(),
+        receipts: test_receipts()?,
     };
     let obs = Observation {
         path: PathBuf::from("/tmp/race.md"),
@@ -232,7 +248,7 @@ async fn phase_detect_additions_full_channel_completes_without_false_commit()
     // Must complete without hanging even though the channel is full.
     let current = tokio::time::timeout(
         Duration::from_secs(1),
-        watcher.phase_detect_additions(&[obs]),
+        watcher.phase_detect_additions(vec![obs]),
     )
     .await
     .map_err(|_| "phase_detect_additions hung on full channel")??;

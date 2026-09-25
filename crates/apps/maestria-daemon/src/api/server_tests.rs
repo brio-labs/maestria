@@ -9,12 +9,18 @@ static NEXT_TEST_SOCKET: AtomicU64 = AtomicU64::new(0);
 
 fn test_context(socket_path: PathBuf) -> Result<Arc<ApiContext>> {
     let realm_id = maestria_test_support::realm_id(10)?;
+    let layout = InstanceLayout::for_root(std::env::temp_dir());
+    let source_manifest = std::sync::Arc::new(parking_lot::RwLock::new(
+        maestria_core::InstanceManifest::default_for_root(layout.root.clone(), realm_id.clone()),
+    ));
     Ok(Arc::new(ApiContext {
-        layout: InstanceLayout::for_root(std::env::temp_dir()),
+        layout,
         token: "test-token".to_string(),
         socket_path,
         runtime: None,
         realm_id,
+        source_manifest,
+        interactive_searches: Arc::new(InteractiveSearchCoordinator::default()),
     }))
 }
 
@@ -88,5 +94,91 @@ async fn shutdown_joins_blocked_connection_handler() -> Result<()> {
         0,
         "connection task remained registered"
     );
+    Ok(())
+}
+#[tokio::test]
+async fn search_api_protocol_mismatch_is_typed() -> Result<()> {
+    let (mut client, mut server) = UnixStream::pair()?;
+    let shutdown = CancellationToken::new();
+    #[derive(serde::Serialize)]
+    struct ProtocolProbe {
+        protocol: &'static str,
+        version: u64,
+    }
+    let request = serde_json::to_value(ProtocolProbe {
+        protocol: super::super::protocol_search_api::SEARCH_API_PROTOCOL,
+        version: u64::from(super::super::protocol_search_api::SEARCH_API_VERSION_2) + 1,
+    })?;
+
+    super::super::server_search_api::handle_request(
+        &shutdown,
+        &mut server,
+        test_context(PathBuf::new())?,
+        request,
+    )
+    .await?;
+
+    let bytes = read_capped_ndjson_line(&mut client).await?;
+    let reply: super::super::protocol_search_api::SearchApiReply =
+        serde_json::from_slice(bytes.trim_ascii())?;
+    assert_eq!(
+        reply.protocol,
+        super::super::protocol_search_api::SEARCH_API_PROTOCOL
+    );
+    assert_eq!(
+        reply.version,
+        super::super::protocol_search_api::SEARCH_API_VERSION_2
+    );
+    assert_eq!(
+        reply.error_code,
+        Some(ClientErrorCode::ProtocolVersionMismatch)
+    );
+    assert!(reply.response.is_none());
+    Ok(())
+}
+#[test]
+fn superseded_interactive_search_cancels_only_same_consumer_generation() -> Result<()> {
+    let coordinator = Arc::new(InteractiveSearchCoordinator::default());
+    let consumer = maestria_domain::RealmId::try_from("a".repeat(64))?;
+    let other_consumer = maestria_domain::RealmId::try_from("b".repeat(64))?;
+    let first_control = super::InteractiveSearchControl::default();
+    let first = coordinator.begin(consumer.clone(), first_control.clone());
+    let other_control = super::InteractiveSearchControl::default();
+    let _other = coordinator.begin(other_consumer, other_control.clone());
+    assert!(!first_control.signal.is_cancelled());
+    assert!(!other_control.signal.is_cancelled());
+
+    let second_control = super::InteractiveSearchControl::default();
+    let second = coordinator.begin(consumer.clone(), second_control.clone());
+    assert!(first_control.signal.is_cancelled());
+    assert!(first_control.cancellation.is_cancelled());
+    assert!(!other_control.signal.is_cancelled());
+
+    drop(first);
+    assert!(!second_control.signal.is_cancelled());
+    let third_control = super::InteractiveSearchControl::default();
+    let _third = coordinator.begin(consumer, third_control.clone());
+    assert!(second_control.signal.is_cancelled());
+    assert!(second_control.cancellation.is_cancelled());
+    drop(second);
+    assert!(!third_control.signal.is_cancelled());
+    assert!(!other_control.signal.is_cancelled());
+    Ok(())
+}
+
+#[test]
+fn completed_interactive_search_does_not_mark_its_result_superseded() -> Result<()> {
+    let coordinator = Arc::new(InteractiveSearchCoordinator::default());
+    let consumer = maestria_domain::RealmId::try_from("a".repeat(64))?;
+    let control = super::InteractiveSearchControl::default();
+    let request = coordinator.begin(consumer.clone(), control.clone());
+    drop(request);
+    assert!(!control.signal.is_cancelled());
+    assert!(!control.cancellation.is_cancelled());
+
+    let next = super::InteractiveSearchControl::default();
+    let _next_request = coordinator.begin(consumer, next.clone());
+    assert!(!control.signal.is_cancelled());
+    assert!(!next.signal.is_cancelled());
     Ok(())
 }

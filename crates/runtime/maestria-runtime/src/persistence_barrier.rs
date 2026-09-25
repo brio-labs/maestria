@@ -18,18 +18,14 @@ use maestria_domain::{
     ApprovalId, ArtifactId, BlobId, DomainEvent, DomainEventEnvelope, EventId, RealmReadGrant,
     ValidationReportId,
 };
-use maestria_ports::{ApprovalRepository, EventFilter, EventLog, RealmReadGrantRepository};
+use maestria_ports::{
+    ApprovalRepository, EventFilter, EventLog, PortError, RealmReadGrantRepository,
+};
 use tokio_util::sync::CancellationToken;
 
-/// Wait until `matches` observes the target condition in the event log, or
-/// `timeout` elapses, or `shutdown_token` is cancelled.
-///
-/// The predicate is invoked for every envelope of each scan; the scan is
-/// repeated on a fixed 5ms poll interval. Callers must pass the narrowest
-/// [`EventFilter`] they can: a filterless scan reads and decodes the whole
-/// event log on every poll, which dominates runtime cost as the log grows.
-/// Scan errors are logged and treated as a failed barrier (the caller must
-/// not continue on an unobservable durability check).
+/// Wait for a durable event matching the caller's projection predicate.
+/// Prefer [`wait_for_event_id`] where the event ID is known: a filterless
+/// scan decodes the entire append-only history on each poll.
 pub(crate) async fn wait_for_event(
     event_log: &dyn EventLog,
     filter: EventFilter,
@@ -38,23 +34,46 @@ pub(crate) async fn wait_for_event(
     context: &str,
     matches: impl Fn(&DomainEventEnvelope) -> bool,
 ) -> bool {
-    let check = async {
+    wait_for_condition(event_log, timeout, shutdown_token, context, |log| {
+        Ok(log.scan(filter.clone())?.iter().any(&matches))
+    })
+    .await
+}
+
+/// Confirm an emitted event is durable using the journal's indexed ID lookup.
+pub(crate) async fn wait_for_event_id(
+    event_log: &dyn EventLog,
+    event_id: EventId,
+    timeout: Duration,
+    shutdown_token: &CancellationToken,
+) -> bool {
+    wait_for_condition(
+        event_log,
+        timeout,
+        shutdown_token,
+        "event persistence barrier",
+        |log| log.contains_id(event_id),
+    )
+    .await
+}
+
+async fn wait_for_condition(
+    event_log: &dyn EventLog,
+    timeout: Duration,
+    shutdown_token: &CancellationToken,
+    context: &str,
+    check: impl Fn(&dyn EventLog) -> Result<bool, PortError>,
+) -> bool {
+    let poll = async {
         loop {
             if shutdown_token.is_cancelled() {
                 return false;
             }
-            match event_log.scan(filter.clone()) {
-                Ok(events) => {
-                    if events.iter().any(&matches) {
-                        return true;
-                    }
-                }
+            match check(event_log) {
+                Ok(true) => return true,
+                Ok(false) => {}
                 Err(error) => {
-                    tracing::error!(
-                        %error,
-                        %context,
-                        "failed to scan event log during persistence barrier"
-                    );
+                    tracing::error!(%error, %context, "failed to read event log during persistence barrier");
                     return false;
                 }
             }
@@ -64,7 +83,7 @@ pub(crate) async fn wait_for_event(
             }
         }
     };
-    matches!(tokio::time::timeout(timeout, check).await, Ok(true))
+    matches!(tokio::time::timeout(timeout, poll).await, Ok(true))
 }
 
 /// Predicate observing that a `ValidationReportCreated` event for
@@ -77,11 +96,6 @@ pub(crate) fn validation_report_created(
             .validation_report()
             .is_some_and(|(id, _, _)| id == report_id)
     }
-}
-
-/// Predicate observing that the event with `event_id` is durably recorded.
-pub(crate) fn event_persisted(event_id: EventId) -> impl Fn(&DomainEventEnvelope) -> bool {
-    move |env| env.id == event_id
 }
 
 /// Predicate observing that a realm grant event is durable and its current

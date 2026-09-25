@@ -9,11 +9,10 @@ use crate::sqlite_store::to_port_error;
 
 /// Current storage schema version supported by this adapter.
 ///
-/// Version 15 adds the durable learned-sparse promotion records table.
-/// Version 14 adds the rebuildable provider realm-read-grant projection.
-/// Version 13 is migrated forward exactly once; newer or older layouts are
-/// rejected rather than guessed.
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 16;
+/// Version 16 removes the redundant event-log sequence column.
+/// Version 17 adds explicit expiry to provider realm-read grants.
+/// Version 18 freezes grant root scopes in the rebuildable projection.
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 18;
 
 /// Captures the pre-migration state of the database.
 struct SchemaState {
@@ -46,7 +45,9 @@ const REALM_READ_GRANTS_DDL: &str = r#"CREATE TABLE IF NOT EXISTS realm_read_gra
          max_sensitivity TEXT NOT NULL CHECK(max_sensitivity IN ('public', 'internal', 'confidential', 'restricted')),
          max_results INTEGER NOT NULL CHECK(max_results BETWEEN 1 AND 100),
          max_evidence_bytes INTEGER NOT NULL CHECK(max_evidence_bytes BETWEEN 1 AND 65536),
-         state TEXT NOT NULL CHECK(state IN ('active', 'revoked'))
+         expires_at_unix_seconds INTEGER NOT NULL CHECK(expires_at_unix_seconds > 0),
+         state TEXT NOT NULL CHECK(state IN ('active', 'revoked')),
+         allowed_roots_json TEXT
      );
      CREATE INDEX IF NOT EXISTS idx_realm_read_grants_consumer
          ON realm_read_grants(consumer_realm);
@@ -167,6 +168,9 @@ static BASE_SCHEMA_SQL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|
      );
      CREATE INDEX IF NOT EXISTS idx_domain_events_artifact_id
          ON domain_events(artifact_id, id);
+     CREATE INDEX IF NOT EXISTS idx_domain_events_source_revision
+         ON domain_events(id)
+         WHERE event_kind IN ('parser_started', 'document_tree_captured', 'source_became_stale');
 {realm_read_grants}
      CREATE TABLE IF NOT EXISTS id_counters (
          namespace TEXT PRIMARY KEY,
@@ -390,6 +394,60 @@ fn migrate_v13_to_v14(connection: &Connection) -> Result<(), PortError> {
         .map_err(to_port_error)
 }
 
+const LEGACY_GRANT_EXPIRED_AT_UNIX_SECONDS: u64 = 1;
+
+/// Expires grants issued before expiry became part of their durable contract.
+///
+/// Legacy issue events remain byte-for-byte unchanged and decode with the same
+/// fixed expiry, keeping event history append-only and replay consistent.
+fn migrate_v16_to_v17(connection: &Connection) -> Result<(), PortError> {
+    let expires_at_sql = crate::sqlite_store::u64_to_i64(LEGACY_GRANT_EXPIRED_AT_UNIX_SECONDS)?;
+    connection
+        .execute_batch(
+            "CREATE TABLE realm_read_grants_v17 (
+                 token_digest TEXT NOT NULL PRIMARY KEY,
+                 provider_realm TEXT NOT NULL,
+                 consumer_realm TEXT NOT NULL,
+                 access TEXT NOT NULL CHECK(access IN ('search_only', 'search_and_open_evidence')),
+                 max_sensitivity TEXT NOT NULL CHECK(max_sensitivity IN ('public', 'internal', 'confidential', 'restricted')),
+                 max_results INTEGER NOT NULL CHECK(max_results BETWEEN 1 AND 100),
+                 max_evidence_bytes INTEGER NOT NULL CHECK(max_evidence_bytes BETWEEN 1 AND 65536),
+                 expires_at_unix_seconds INTEGER NOT NULL CHECK(expires_at_unix_seconds > 0),
+                 state TEXT NOT NULL CHECK(state IN ('active', 'revoked'))
+             );",
+        )
+        .map_err(to_port_error)?;
+    connection
+        .execute(
+            "INSERT INTO realm_read_grants_v17
+                 (token_digest, provider_realm, consumer_realm, access, max_sensitivity,
+                  max_results, max_evidence_bytes, expires_at_unix_seconds, state)
+             SELECT token_digest, provider_realm, consumer_realm, access, max_sensitivity,
+                    max_results, max_evidence_bytes, ?1, state
+             FROM realm_read_grants",
+            [expires_at_sql],
+        )
+        .map_err(to_port_error)?;
+    connection
+        .execute_batch(
+            "DROP TABLE realm_read_grants;
+             ALTER TABLE realm_read_grants_v17 RENAME TO realm_read_grants;
+             CREATE INDEX idx_realm_read_grants_consumer
+                 ON realm_read_grants(consumer_realm);
+             CREATE UNIQUE INDEX idx_realm_read_grants_active_consumer
+                 ON realm_read_grants(consumer_realm) WHERE state = 'active';",
+        )
+        .map_err(to_port_error)
+}
+
+/// Adds nullable root scope to the grant projection. Existing v17 rows remain
+/// NULL, preserving their legacy all-approved semantics.
+fn migrate_v17_to_v18(connection: &Connection) -> Result<(), PortError> {
+    connection
+        .execute_batch("ALTER TABLE realm_read_grants ADD COLUMN allowed_roots_json TEXT;")
+        .map_err(to_port_error)
+}
+
 /// Brings a database to [`CURRENT_SCHEMA_VERSION`].
 ///
 /// Fresh databases (no recorded version) are created from
@@ -407,16 +465,17 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     // events yet, and migrations are exactly the moments where column/payload
     // drift can be introduced. Steady-state opens keep the cheap structural
     // validators below.
-    let schema_changed = matches!(state.version, None | Some(13) | Some(14) | Some(15));
+    let schema_changed = matches!(
+        state.version,
+        None | Some(13) | Some(14) | Some(15) | Some(16) | Some(17)
+    );
     if let Some(version) = state.version
-        && version != 13
-        && version != 14
-        && version != 15
+        && !matches!(version, 13..=17)
         && version != CURRENT_SCHEMA_VERSION
     {
         return Err(PortError::InternalContext {
             context: "unsupported sqlite schema version",
-            source: format!("{version}; expected 13, 14, 15, or {CURRENT_SCHEMA_VERSION}"),
+            source: format!("{version}; expected 13 through 17, or {CURRENT_SCHEMA_VERSION}"),
         });
     }
 
@@ -430,6 +489,12 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     if state.version == Some(13) || state.version == Some(14) || state.version == Some(15) {
         migrate_v15_to_v16(&transaction)?;
     }
+    if matches!(state.version, Some(13..=16)) {
+        migrate_v16_to_v17(&transaction)?;
+    }
+    if matches!(state.version, Some(13..=17)) {
+        migrate_v17_to_v18(&transaction)?;
+    }
     seed_id_counters(&transaction)?;
 
     validate_domain_events_schema(&transaction)?;
@@ -438,11 +503,7 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
         validate_stored_event_payloads(&transaction)?;
     }
 
-    if state.version.is_none()
-        || state.version == Some(13)
-        || state.version == Some(14)
-        || state.version == Some(15)
-    {
+    if state.version.is_none() || matches!(state.version, Some(13..=17)) {
         transaction
             .execute(
                 "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",

@@ -17,8 +17,17 @@ pub struct SearchResponse {
     pub fingerprint: String,
     pub index_generation: u64,
     pub evidence: Vec<SearchEvidenceResponse>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub path_results: Vec<SearchPathResultResponse>,
     pub coverage: CoverageResponse,
     pub conflict_count: usize,
+}
+
+/// A fresh, approved filename/path match. It deliberately contains no excerpt,
+/// fabricated citation, or line number.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchPathResultResponse {
+    pub path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,6 +41,15 @@ pub struct SearchEvidenceResponse {
     pub scores: Vec<SearchScoreResponse>,
     pub trust: String,
     pub freshness: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<SearchPassagePreviewResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchPassagePreviewResponse {
+    pub excerpt: String,
+    pub truncated: bool,
+    pub location: EvidenceSourceResponse,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,10 +120,18 @@ pub enum EvidenceSourceResponse {
         end_line: u32,
         content_hash: String,
     },
+    DocxParagraph {
+        path: String,
+        start_paragraph: u32,
+        end_paragraph: u32,
+        content_hash: String,
+    },
     Pdf {
         snapshot_id: u64,
         page_start: u32,
         page_end: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
     },
     PdfRegion {
         snapshot_id: u64,
@@ -114,6 +140,8 @@ pub enum EvidenceSourceResponse {
         y: u32,
         width: u32,
         height: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
     },
     Web {
         url: String,
@@ -151,6 +179,52 @@ pub struct RetrievalStatusResponse {
     pub fingerprint: String,
     pub lanes: RetrievalLaneStatus,
     pub promotion_records: RetrievalPromotionRecords,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchRootsStatusResponse {
+    pub roots: Vec<SearchRootStatus>,
+    pub approved_root_count: usize,
+    pub roots_truncated: bool,
+    pub ocr_needed_file_count: usize,
+    pub supported_formats: Vec<String>,
+    pub ignored_by_default: Vec<String>,
+    pub privacy_exclusions: Vec<String>,
+    pub privacy_exclusions_truncated: bool,
+    pub excluded_sources: Vec<SearchExcludedSource>,
+    pub excluded_sources_truncated: bool,
+    pub exclusion_scan_truncated: bool,
+    pub indexing: SearchIndexingStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchRootStatus {
+    pub path: String,
+    pub path_truncated: bool,
+    pub indexed_file_count: usize,
+    pub indexed_sources: Vec<String>,
+    pub indexed_sources_truncated: bool,
+    pub indexed_source_paths_truncated: bool,
+    pub excluded_file_count: usize,
+    pub exclusions_by_reason: std::collections::BTreeMap<String, usize>,
+    pub exclusion_scan_truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchExcludedSource {
+    pub root: String,
+    pub path: String,
+    pub path_truncated: bool,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchIndexingStatus {
+    pub scanning: bool,
+    pub pending_file_count: usize,
+    pub last_scan_unix_ms: Option<u64>,
+    pub last_error: Option<String>,
+    pub last_error_truncated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

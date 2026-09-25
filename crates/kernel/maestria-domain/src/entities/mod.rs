@@ -19,7 +19,8 @@ pub use content_range::{ContentRange, ContentRangeError};
 pub use evidence::Evidence;
 pub use memory::{MIN_PROMOTION_CONFIDENCE_MILLI, Memory, MemoryCandidate, MemoryStatus};
 pub use realm_read_grant::{
-    FederatedAccessRecord, FederatedReadAccess, FederatedReadOperation, RealmReadGrant,
+    FederatedAccessRecord, FederatedReadAccess, FederatedReadOperation, MAX_REALM_GRANT_ROOT_BYTES,
+    MAX_REALM_GRANT_ROOTS, RealmReadGrant, RealmReadGrantExpiry, RealmReadGrantExpiryError,
     RealmReadGrantState,
 };
 pub use relation::{Relation, RelationEndpoint, RelationKind};

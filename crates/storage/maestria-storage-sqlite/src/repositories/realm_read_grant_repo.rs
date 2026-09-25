@@ -1,13 +1,17 @@
 use std::collections::BTreeSet;
 
+use crate::payloads::realm_read_grant_event_payloads::{
+    decode_allowed_root_strings, encode_allowed_root_paths,
+};
+
 use maestria_domain::{
     FederatedEvidenceBounds, FederatedReadAccess, GrantTokenDigest, RealmId, RealmReadGrant,
-    RealmReadGrantState, Sensitivity,
+    RealmReadGrantExpiry, RealmReadGrantState, Sensitivity,
 };
 use maestria_ports::{PortError, RealmReadGrantRepository};
 use rusqlite::{Row, params};
 
-use crate::sqlite_store::{to_port_error, usize_to_i64};
+use crate::sqlite_store::{to_port_error, u64_to_i64, usize_to_i64};
 
 impl RealmReadGrantRepository for crate::SqliteStore {
     fn get(&self, token_digest: &GrantTokenDigest) -> Result<Option<RealmReadGrant>, PortError> {
@@ -15,7 +19,8 @@ impl RealmReadGrantRepository for crate::SqliteStore {
         let mut statement = connection
             .prepare_cached(
                 "SELECT token_digest, provider_realm, consumer_realm, access, max_sensitivity,
-                max_results, max_evidence_bytes, state
+                max_results, max_evidence_bytes, expires_at_unix_seconds, state,
+                allowed_roots_json
          FROM realm_read_grants WHERE token_digest = ?1",
             )
             .map_err(to_port_error)?;
@@ -29,13 +34,23 @@ impl RealmReadGrantRepository for crate::SqliteStore {
     }
 
     fn put(&self, grant: RealmReadGrant) -> Result<(), PortError> {
+        let allowed_roots_json = grant
+            .allowed_roots()
+            .map(|roots| {
+                let roots = encode_allowed_root_paths(roots)
+                    .map_err(|error| invalid("encode realm read grant roots", error))?;
+                serde_json::to_string(&roots)
+                    .map_err(|error| invalid("encode realm read grant roots", error))
+            })
+            .transpose()?;
         let connection = self.lock()?;
         connection
             .execute(
                 "INSERT INTO realm_read_grants
                      (token_digest, provider_realm, consumer_realm, access, max_sensitivity,
-                      max_results, max_evidence_bytes, state)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                      max_results, max_evidence_bytes, expires_at_unix_seconds, state,
+                      allowed_roots_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
                  ON CONFLICT(token_digest) DO UPDATE SET
                      provider_realm = excluded.provider_realm,
                      consumer_realm = excluded.consumer_realm,
@@ -43,7 +58,9 @@ impl RealmReadGrantRepository for crate::SqliteStore {
                      max_sensitivity = excluded.max_sensitivity,
                      max_results = excluded.max_results,
                      max_evidence_bytes = excluded.max_evidence_bytes,
-                     state = excluded.state",
+                     expires_at_unix_seconds = excluded.expires_at_unix_seconds,
+                     state = excluded.state,
+                     allowed_roots_json = excluded.allowed_roots_json",
                 params![
                     grant.token_digest().as_str(),
                     grant.provider_realm().as_str(),
@@ -52,7 +69,9 @@ impl RealmReadGrantRepository for crate::SqliteStore {
                     sensitivity_name(grant.max_sensitivity()),
                     usize_to_i64(grant.bounds().max_results())?,
                     usize_to_i64(grant.bounds().max_evidence_bytes())?,
+                    u64_to_i64(grant.expires_at().unix_seconds())?,
                     state_name(grant.state()),
+                    allowed_roots_json,
                 ],
             )
             .map(|_| ())
@@ -64,7 +83,8 @@ impl RealmReadGrantRepository for crate::SqliteStore {
         let mut statement = connection
             .prepare_cached(
                 "SELECT token_digest, provider_realm, consumer_realm, access, max_sensitivity,
-                max_results, max_evidence_bytes, state
+                max_results, max_evidence_bytes, expires_at_unix_seconds, state,
+                allowed_roots_json
          FROM realm_read_grants ORDER BY token_digest ASC",
             )
             .map_err(to_port_error)?;
@@ -136,20 +156,39 @@ fn read_realm_read_grant(row: &Row<'_>) -> Result<RealmReadGrant, PortError> {
                 source: error.to_string(),
             }
         })?;
-    let state = match row.get::<_, String>(7).map_err(to_port_error)?.as_str() {
+    let expires_at = u64::try_from(row.get::<_, i64>(7).map_err(to_port_error)?)
+        .map_err(|error| invalid("decode realm read grant expiry", error))?;
+    let expires_at = RealmReadGrantExpiry::new(expires_at)
+        .map_err(|error| invalid("decode realm read grant expiry", error))?;
+    let state = match row.get::<_, String>(8).map_err(to_port_error)?.as_str() {
         "active" => RealmReadGrantState::Active,
         "revoked" => RealmReadGrantState::Revoked,
         value => return Err(invalid("decode realm read grant state", value)),
     };
-    Ok(RealmReadGrant::from_current_state(
+    let allowed_roots = row
+        .get::<_, Option<String>>(9)
+        .map_err(to_port_error)?
+        .map(|encoded| {
+            let roots: Vec<String> = serde_json::from_str(&encoded)
+                .map_err(|error| invalid("decode realm read grant roots", error))?;
+            decode_allowed_root_strings(roots)
+                .map_err(|error| invalid("decode realm read grant roots", error))
+        })
+        .transpose()?;
+    let grant = RealmReadGrant::new(
         token_digest,
         provider_realm,
         consumer_realm,
         access,
         max_sensitivity,
         bounds,
-        state,
-    ))
+        expires_at,
+    );
+    let grant = match allowed_roots {
+        Some(roots) => grant.with_allowed_roots(roots),
+        None => grant,
+    };
+    Ok(RealmReadGrant::from_current_state(grant, state))
 }
 
 fn access_name(access: FederatedReadAccess) -> &'static str {

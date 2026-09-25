@@ -170,6 +170,20 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "http",
         "server",
     ),
+    "crates/apps/maestria-launcher/src/lib.rs": (
+        "ui",
+        "application",
+        "ipc",
+        "model",
+        "query",
+        "calculator",
+        "catalog",
+        "actions",
+        "settings",
+        "shortcuts",
+        "platform",
+        "errors",
+    ),
     "crates/apps/maestria-daemon/src/lib.rs": (
         "api",
         "lock",
@@ -202,8 +216,11 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "repository_source_registration",
     ),
     "crates/apps/maestria-daemon/src/api.rs": (
+        "federation_previews",
         "protocol",
+        "protocol_search_api",
         "server",
+        "server_search_api",
         "services",
         "token",
     ),
@@ -284,6 +301,12 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     "crates/ecosystem/maestria-embedding-openai/src/lib.rs": (
         "embedding_provider",
     ),
+    "crates/ecosystem/maestria-extensions/src/lib.rs": (
+        "bundle",
+        "grants",
+        "manifest",
+        "protocol",
+    ),
     "crates/ecosystem/maestria-visual-local/src/lib.rs": (
         "dto",
         "visual_provider",
@@ -344,6 +367,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "chunking",
         "generic_text",
         "markdown",
+        "docx",
         "pdf",
         "pdf_geometry",
         "pdf_layout",
@@ -410,7 +434,7 @@ CANONICAL_DOC_SECTIONS = {
         "## 2. State and Recovery",
         "## 4. Data Evolution",
     ),
-    "docs/ROADMAP.md": ("## Phase 1:", "## Phase 6:"),
+    "docs/ROADMAP.md": ("## Milestone 1:", "## Milestone 4:"),
     "docs/RESEARCH.md": ("## 1. Evaluation Framework", "## 3. Promotion Criteria"),
 }
 
@@ -422,7 +446,7 @@ POLICY_DOC_MARKERS = {
         "43. Every retrieval lane",
         "44. Retrieval changes",
         "45. Normative architecture",
-        "46. Maestria preserves",
+        "preserves external observations and provenance",
         "47. Model-generated search plans",
         "55. Learned-sparse retrieval",
         "56. Domain types own",

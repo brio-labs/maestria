@@ -51,6 +51,8 @@
 
 # ── Daemon (HTTP API, supervisor, application entry point) ──────────────────
 /crates/apps/maestria-daemon/                                                  @carabistouflette
+/crates/apps/maestria-launcher/                                               @carabistouflette
+/launcher/                                                                     @carabistouflette
 
 # ── Test suites (property, replay, contract contracts) ──────────────────────
 /tests/property/                                                               @carabistouflette

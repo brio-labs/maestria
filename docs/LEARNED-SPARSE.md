@@ -181,7 +181,7 @@ The real-task freeze is maintained separately from the schema contract fixture:
 tests/contracts/learned_sparse_task_corpus_v1.json
 ```
 
-Its source manifest records repository-relative paths and content hashes. Real Maestria task
+Its source manifest records repository-relative paths and content hashes. Real Sillage task
 cases are primary for normal retrieval, terminology, path, symbol, freshness, and abstention
 workloads; synthetic cases are restricted to adversarial and lifecycle failure scenarios. Every
 final query class has at least two independent task IDs so no single case can determine
@@ -218,12 +218,12 @@ Measurements that exceed a budget remain valid report data. They are recorded wi
 violation and retain the baseline rather than being rejected or fabricated away.
 
 The committed corpus, deterministic adapters, and shadow-isolation tests are contract evidence
-only. A production promotion still requires real Maestria task observations and a dated
+only. A production promotion still requires real Sillage task observations and a dated
 benchmark artifact.
 
-When a source document included in the checked-in release benchmark ledger changes, its
-source hash and matching snapshot fingerprint must be recomputed. This records input drift;
-it does not advance the release stage or convert contract fixtures into real measurements.
+When a source document included in the checked-in release benchmark ledger changes,
+update its live source hash while retaining the historical snapshot and judgment identities.
+The retained results cannot authorize a new promotion until the changed inputs are reevaluated.
 
 ## Future provider or backend work
 

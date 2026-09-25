@@ -256,7 +256,7 @@ impl AgentHost {
                 let initialize = InitializeRequest::new(ProtocolVersion::V1)
                     .client_info(
                         Implementation::new("maestria-studio", env!("CARGO_PKG_VERSION"))
-                            .title("Maestria Studio"),
+                            .title("Sillage Studio"),
                     )
                     .client_capabilities(ClientCapabilities::default());
                 let initialized = connection.send_request(initialize).block_task().await?;

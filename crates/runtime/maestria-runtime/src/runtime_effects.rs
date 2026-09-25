@@ -348,13 +348,11 @@ impl MaestriaRuntime {
         event_id: maestria_domain::EventId,
         shutdown_token: &tokio_util::sync::CancellationToken,
     ) -> bool {
-        crate::persistence_barrier::wait_for_event(
+        crate::persistence_barrier::wait_for_event_id(
             &*self.adapters.event_log,
-            maestria_ports::EventFilter { artifact_id: None },
+            event_id,
             self.config.default_effect_timeout,
             shutdown_token,
-            "event persistence barrier",
-            crate::persistence_barrier::event_persisted(event_id),
         )
         .await
     }

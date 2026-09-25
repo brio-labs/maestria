@@ -119,7 +119,6 @@ impl MaestriaRuntime {
             tracing::error!("runtime command receiver missing");
             return Err(crate::runtime::RuntimeRunError::CommandReceiverUnavailable);
         };
-
         let queue_recovery =
             Self::queue_model_agent_recovery(recovery, &shutdown_token, &effect_tx);
         let mut input_rx = input_rx;

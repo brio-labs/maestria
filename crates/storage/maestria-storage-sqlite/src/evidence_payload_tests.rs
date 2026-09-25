@@ -29,6 +29,21 @@ fn web_snapshot_metadata_roundtrips_through_storage_payload()
 }
 
 #[test]
+fn docx_paragraph_span_roundtrips_through_storage_payload() -> Result<(), Box<dyn std::error::Error>>
+{
+    let kind = EvidenceKind::DocxParagraphSpan {
+        path: "approved/report.docx".to_string(),
+        range: maestria_domain::ParagraphRange::new(2, 4)?,
+        snapshot: SnapshotRef::new(BlobId::new(7), maestria_test_support::content_hash(10)?),
+    };
+    let stored = StoredEvidenceKind::from_domain(&kind);
+    let decoded = serde_json::from_str::<StoredEvidenceKind>(&serde_json::to_string(&stored)?)?;
+
+    assert_eq!(decoded.try_into_domain()?, kind);
+    Ok(())
+}
+
+#[test]
 fn omitted_file_snapshot_is_rejected_during_deserialization() {
     let error = serde_json::from_str::<StoredEvidenceKind>(
         r#"{"kind":"file_span","path":"notes.md","start":1,"end":1}"#,

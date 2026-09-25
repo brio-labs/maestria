@@ -1,0 +1,83 @@
+[package]
+name = "maestria-launcher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+build = "build.rs"
+
+[dependencies]
+slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software", "accessibility", "raw-window-handle-06", "unstable-winit-030"] }
+serde.workspace = true
+serde_json.workspace = true
+maestria-extensions = { path = "../../ecosystem/maestria-extensions" }
+thiserror.workspace = true
+reqwest = { version = "=0.12.28", default-features = false, features = ["http2", "rustls-tls"] }
+url.workspace = true
+toml.workspace = true
+sha2.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "macros", "rt", "rt-multi-thread", "process", "io-util", "net"] }
+raw-window-handle = "0.6"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ashpd = { version = "=0.12.3", default-features = false, features = ["tokio", "raw_handle", "wayland"] }
+arboard = { version = "3.6", default-features = false, features = ["wayland-data-control"] }
+futures-util = "0.3"
+gio = "0.20"
+glib = "0.20"
+global-hotkey = "0.8"
+libc.workspace = true
+
+[build-dependencies]
+slint-build = { version = "=1.18.1", default-features = false, features = ["compat-1-18", "renderer-software"] }
+
+[package.metadata.packager]
+product-name = "Sillage Launcher"
+authors = ["Brio Labs <contact@brio.build>"]
+identifier = "io.github.briolabs.Maestria.Launcher"
+before-packaging-command = "cargo build --release --package maestria-launcher"
+out-dir = "../../../target/launcher-packages"
+formats = ["deb", "appimage"]
+icons = ["icons/icon.png"]
+description = "Keyboard-first desktop launcher for Sillage"
+long-description = "Resident native Linux launcher for applications, host actions, and calculations. It runs independently of the search daemon."
+category = "Utility"
+
+[package.metadata.packager.deb]
+package-name = "io-github-briolabs-maestria-launcher"
+depends = [
+    "libglib2.0-0t64 | libglib2.0-0",
+    "libdbus-1-3",
+    "libx11-6",
+    "libx11-xcb1",
+    "libxcb1",
+    "libxkbcommon0",
+    "libxkbcommon-x11-0",
+    "libwayland-client0",
+    "libwayland-cursor0",
+    "libwayland-egl1",
+    "libxcursor1",
+    "libxi6",
+    "libxrandr2",
+    "libxinerama1",
+    "libxfixes3",
+    "libxext6",
+    "libfontconfig1",
+    "libfreetype6",
+    "wl-clipboard",
+]
+section = "utils"
+priority = "optional"
+
+[package.metadata.packager.deb.files]
+"linux/io.github.briolabs.Maestria.Launcher.desktop" = "/usr/share/applications/io.github.briolabs.Maestria.Launcher.desktop"
+"THIRD_PARTY_NOTICES.txt" = "/usr/share/doc/io-github-briolabs-maestria-launcher/THIRD_PARTY_NOTICES.txt"
+
+[package.metadata.packager.appimage.files]
+"linux/io.github.briolabs.Maestria.Launcher.desktop" = "usr/share/applications/io.github.briolabs.Maestria.Launcher.desktop"
+"linux/appimage.desktop" = "usr/share/applications/maestria-launcher.desktop"
+"THIRD_PARTY_NOTICES.txt" = "usr/share/doc/io-github-briolabs-maestria-launcher/THIRD_PARTY_NOTICES.txt"
+
+[package.metadata.packager.linux]
+generate-desktop-entry = false

@@ -9,9 +9,10 @@ use serde::{Deserialize, Serialize};
 
 impl StoredEventPayload {
     pub(crate) fn from_domain(event: &DomainEvent) -> Result<Self, PortError> {
+        let federation = Self::try_from_domain_federation(event)?;
         Self::try_from_domain_stale(event)
             .or_else(|| Self::try_from_domain_notebook(event))
-            .or_else(|| Self::try_from_domain_federation(event))
+            .or(federation)
             .or_else(|| Self::try_from_domain_ocr(event))
             .or_else(|| Self::try_from_domain_artifact(event))
             .or_else(|| Self::try_from_domain_task(event))

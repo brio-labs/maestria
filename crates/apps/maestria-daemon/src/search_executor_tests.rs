@@ -1,3 +1,4 @@
+use super::dispatch::path_is_within_allowed_roots;
 use super::*;
 use maestria_code_intel::REPOSITORY_CODE_INDEX_FILENAME;
 use maestria_domain::{ArtifactId, ArtifactVersionId, BlobId, DomainEvent, EventId};
@@ -176,7 +177,7 @@ fn document_tree_captured_version_overrides_placeholder() -> Result<(), Box<dyn 
         ArtifactVersionId::new(artifact_id.value()),
         "content-derived version must not equal the artifact-id placeholder"
     );
-    let events = vec![
+    let mut events = vec![
         DomainEventEnvelope {
             id: EventId::new(1),
             event: DomainEvent::ParserStarted {
@@ -192,7 +193,7 @@ fn document_tree_captured_version_overrides_placeholder() -> Result<(), Box<dyn 
             event: DomainEvent::DocumentTreeCaptured {
                 artifact_id,
                 artifact_version_id: real_version,
-                content_hash,
+                content_hash: content_hash.clone(),
                 root_id: maestria_domain::StructureNodeId::new(1),
                 nodes: Vec::new(),
             },
@@ -206,5 +207,47 @@ fn document_tree_captured_version_overrides_placeholder() -> Result<(), Box<dyn 
         "active versions must use the content-addressed tree-captured version"
     );
     assert!(!active.contains(&ArtifactVersionId::new(artifact_id.value())));
+    events.push(DomainEventEnvelope {
+        id: EventId::new(3),
+        event: DomainEvent::SourceBecameStale {
+            artifact_id,
+            source_path: path.clone(),
+            content_hash: content_hash.clone(),
+        },
+    });
+    assert!(maestria_domain::active_source_versions(&events).is_empty());
+    events.push(DomainEventEnvelope {
+        id: EventId::new(4),
+        event: DomainEvent::ParserStarted {
+            artifact_id,
+            title: "main".to_string(),
+            source_path: path,
+            content_hash,
+            blob_id: BlobId::new(1),
+        },
+    });
+    let restored = maestria_domain::active_source_versions(&events);
+    assert_eq!(
+        restored.values().next().map(|(_, version, _)| *version),
+        Some(real_version),
+        "reapproving identical bytes must restore the content-addressed version"
+    );
     Ok(())
+}
+
+#[test]
+fn allowed_root_constraints_are_component_safe_and_distinguish_legacy() {
+    let roots_a = [std::path::PathBuf::from("/repositories/project-a")];
+    let roots_b = [std::path::PathBuf::from("/repositories/project-b")];
+    let path_a = std::path::Path::new("/repositories/project-a/src/lib.rs");
+    let sibling_prefix = std::path::Path::new("/repositories/project-a-private/src/lib.rs");
+
+    assert!(path_is_within_allowed_roots(None, path_a));
+    assert!(path_is_within_allowed_roots(Some(&roots_a), path_a));
+    assert!(!path_is_within_allowed_roots(
+        Some(&roots_a),
+        sibling_prefix
+    ));
+    assert!(!path_is_within_allowed_roots(Some(&[]), path_a));
+    assert!(!path_is_within_allowed_roots(Some(&roots_b), path_a));
 }

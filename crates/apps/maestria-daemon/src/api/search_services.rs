@@ -196,6 +196,7 @@ pub(super) fn search_response(
         fingerprint: outcome.fingerprint.as_str().to_string(),
         index_generation: outcome.index_generation.value(),
         evidence: outcome.evidence.iter().map(search_evidence).collect(),
+        path_results: Vec::new(),
         coverage: CoverageResponse {
             percent_covered: outcome.coverage.percent_covered(),
             gaps: outcome.coverage.gaps_identified().to_vec(),
@@ -223,6 +224,7 @@ fn search_evidence(candidate: &EvidenceCandidate) -> SearchEvidenceResponse {
             .collect(),
         trust: format!("{:?}", candidate.trust()),
         freshness: format!("{:?}", candidate.freshness()),
+        preview: None,
     }
 }
 
@@ -308,5 +310,10 @@ fn format_source_span(span: &EvidenceSpan) -> String {
             path,
             qualified_name,
         } => format!("{path}::{qualified_name}"),
+        maestria_domain::SourceLocation::DocxParagraph {
+            path,
+            start_paragraph,
+            end_paragraph,
+        } => format!("{path}:paragraphs {start_paragraph}-{end_paragraph}"),
     }
 }

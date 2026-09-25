@@ -1,0 +1,972 @@
+import { AboutSlint, Button, CheckBox, LineEdit, Palette, ScrollView } from "std-widgets.slint";
+import { ExtensionPanel, ExtensionRow, ExtensionItemRow, ExtensionActionRow, ExtensionFieldRow } from "extensions.slint";
+
+export struct ResultRow {
+    id: string,
+    title: string,
+    subtitle: string,
+    kind: string,
+    accessible_name: string,
+    excerpt_before: string,
+    excerpt_match: string,
+    excerpt_after: string,
+    content: string,
+}
+
+export struct ActionRow {
+    id: string,
+    title: string,
+    accessible_name: string,
+}
+
+export component LauncherWindow inherits Window {
+    title: "Sillage Launcher";
+    width: 760px;
+    height: 760px;
+    background: root.dark-mode ? #141b20 : #f6f8f5;
+
+    in-out property <bool> dark-mode: true;
+    in-out property <bool> reduce-motion: false;
+    in-out property <bool> preferences-open: false;
+    in-out property <bool> about-open: false;
+    in-out property <bool> actions-open: false;
+    in-out property <string> query: "";
+    in-out property <string> status-message: "";
+    in-out property <string> status-kind: "loading";
+    in-out property <[ResultRow]> results: [];
+    in-out property <[ActionRow]> actions: [];
+    in-out property <bool> passage-view-open: false;
+    in-out property <string> passage-view-title: "";
+    in-out property <[ResultRow]> passage-view-results: [];
+    in-out property <string> result-filter: "all";
+    in-out property <string> index-status: "";
+    in-out property <int> selected-index: 0;
+    in-out property <int> selected-action-index: 0;
+    in-out property <string> shortcut: "Control+Space";
+    in-out property <string> shortcut-status: "Shortcut not configured";
+    in-out property <string> preferences-warning: "";
+    in-out property <bool> preferences-read-only: false;
+    in-out property <string> theme-choice: "system";
+    in-out property <bool> system-dark-mode: false;
+    in-out property <bool> reset-confirmation: false;
+    in-out property <bool> reduce-motion-choice: false;
+    in-out property <string> notice: "";
+    in-out property <bool> shortcut-offer-visible: false;
+    in-out property <bool> extensions-open: false;
+    in-out property <string> extension-view: "extensions";
+    in-out property <[ExtensionRow]> extension-rows: [];
+    in-out property <[ExtensionItemRow]> extension-items: [];
+    in-out property <[ExtensionActionRow]> extension-actions: [];
+    in-out property <[ExtensionFieldRow]> extension-fields: [];
+    in-out property <string> extension-selected-id: "";
+    in-out property <string> extension-selected-item-id: "";
+    in-out property <string> extension-selected-action-id: "";
+    in-out property <string> extension-install-path: "";
+    in-out property <string> extension-view-title: "";
+    in-out property <string> extension-detail-content: "";
+    in-out property <string> extension-status-message: "";
+    in-out property <string> extension-error-message: "";
+    in-out property <string> extension-notice-message: "";
+    in-out property <bool> extension-busy: false;
+
+    changed dark-mode => {
+        Palette.color-scheme = root.dark-mode ? ColorScheme.dark : ColorScheme.light;
+    }
+
+    callback query-changed(string);
+    callback result-activated(string);
+    callback action-activated(string, string);
+    callback preferences-requested();
+    callback preferences-closed();
+    callback preferences-saved(string, string, bool);
+    callback shortcut-configure-requested();
+    callback shortcut-offer-deferred();
+    callback shortcut-clear-requested();
+    callback copy-activation-requested();
+    callback preferences-reset-requested(bool);
+    callback dismissed();
+    callback selection-changed(int);
+    callback result-filter-changed(string);
+    callback passage-view-requested(string);
+    callback passage-view-closed();
+    callback extensions-requested();
+    callback extensions-closed();
+    callback extension-install-requested(string);
+    callback extension-approve-requested(string);
+    callback extension-revoke-requested(string);
+    callback extension-disable-requested(string);
+    callback extension-remove-requested(string, bool);
+    callback extension-selected-requested(string);
+    callback extension-invoke-requested(string, string);
+    callback extension-action-requested(string, string);
+    callback extension-form-changed(string, string);
+    callback extension-item-selected(string);
+    callback extension-file-select-requested(string);
+
+    function activate-selected() {
+        if (root.preferences-open || root.about-open || root.passage-view-open || root.extensions-open) {
+            return;
+        }
+        if (root.actions-open && root.actions.length > 0) {
+            root.action-activated(root.results[root.selected-index].id, root.actions[root.selected-action-index].id);
+        } else if (root.results.length > 0) {
+            let row = root.results[root.selected-index];
+            if (row.kind == "path") {
+                root.actions-open = true;
+                root.selected-action-index = 0;
+            } else if (row.kind == "passage" || row.kind == "file" || row.kind == "document") {
+                root.passage-view-requested(row.id);
+            } else {
+                root.result-activated(row.id);
+            }
+        }
+    }
+    public function focus-search() {
+        search-input.focus();
+    }
+    public function focus-preferences() {
+        shortcut-input.focus();
+    }
+
+    forward-focus: key-handler;
+    key-handler := FocusScope {
+    capture-key-pressed(event) => {
+        if (event.text == Key.Escape && root.about-open) {
+            root.about-open = false;
+            root.focus-search();
+            accept
+        } else if (event.text == Key.Escape) {
+            if (root.extensions-open) {
+                root.extensions-open = false;
+                root.extensions-closed();
+                root.focus-search();
+            } else if (root.preferences-open) {
+                root.preferences-open = false;
+                root.preferences-closed();
+                root.focus-search();
+            } else if (root.passage-view-open) {
+                root.passage-view-closed();
+                root.focus-search();
+            } else if (root.actions-open) {
+                root.actions-open = false;
+            } else {
+                root.dismissed();
+            }
+            accept
+        } else if (event.modifiers.control && event.text == ",") {
+            root.about-open = false;
+            if (root.extensions-open) {
+                root.extensions-open = false;
+                root.extensions-closed();
+            }
+            if (root.passage-view-open) {
+                root.passage-view-closed();
+            }
+            root.actions-open = false;
+            root.preferences-requested();
+            accept
+        } else if (!root.preferences-open && !root.about-open && !root.passage-view-open && !root.extensions-open
+            && event.modifiers.control && (event.text == "k" || event.text == "K")) {
+            root.actions-open = !root.actions-open;
+            root.selected-action-index = 0;
+            accept
+        } else if (!root.preferences-open && !root.about-open && !root.passage-view-open && !root.extensions-open
+            && event.text == Key.DownArrow) {
+            if (root.actions-open && root.actions.length > 0) {
+                if (root.selected-action-index < root.actions.length - 1) {
+                    root.selected-action-index += 1;
+                }
+            } else if (root.results.length > 0 && root.selected-index < root.results.length - 1) {
+                root.selected-index += 1;
+            }
+            if (!root.actions-open) {
+                root.selection-changed(root.selected-index);
+            }
+            accept
+        } else if (!root.preferences-open && !root.about-open && !root.passage-view-open && !root.extensions-open
+            && event.text == Key.UpArrow) {
+            if (root.actions-open && root.selected-action-index > 0) {
+                root.selected-action-index -= 1;
+            } else if (!root.actions-open && root.selected-index > 0) {
+                root.selected-index -= 1;
+            }
+            if (!root.actions-open) {
+                root.selection-changed(root.selected-index);
+            }
+            accept
+        } else if (!root.preferences-open && !root.about-open && !root.passage-view-open && !root.extensions-open
+            && event.text == Key.Return
+            && !(root.shortcut-offer-visible
+                && (shortcut-setup-button.has-focus || shortcut-defer-button.has-focus))) {
+            root.activate-selected();
+            accept
+        } else {
+            reject
+        }
+    }
+
+    Rectangle {
+        background: root.dark-mode ? #141b20 : #f6f8f5;
+        border-color: root.dark-mode ? #344442 : #d1ddd5;
+        border-width: 1px;
+        border-radius: 18px;
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 12px;
+
+            HorizontalLayout {
+                height: 32px;
+                spacing: 10px;
+                Rectangle {
+                    width: 22px;
+                    height: 22px;
+                    border-radius: 6px;
+                    background: #78dfb5;
+                    Text {
+                        text: "S";
+                        color: #112019;
+                        font-size: 14px;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+                Text {
+                    text: "SILLAGE";
+                    color: root.dark-mode ? #eaf5ef : #1a2b2b;
+                    font-size: 13px;
+                    font-weight: 700;
+                    letter-spacing: 2.6px;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+                Text {
+                    text: "your space";
+                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                Button {
+                    text: "About";
+                    accessible-role: button;
+                    accessible-label: "Open About Sillage and Slint attribution";
+                    clicked => {
+                        if (root.preferences-open) {
+                            root.preferences-open = false;
+                            root.preferences-closed();
+                        }
+                        if (root.passage-view-open) {
+                            root.passage-view-closed();
+                        }
+                        if (root.extensions-open) {
+                            root.extensions-open = false;
+                            root.extensions-closed();
+                        }
+                        root.actions-open = false;
+                        root.about-open = true;
+                        about-back.focus();
+                    }
+                }
+                Button {
+                    text: "Extensions";
+                    accessible-role: button;
+                    accessible-label: "Manage installed extensions and permissions";
+                    clicked => {
+                        if (root.preferences-open) {
+                            root.preferences-open = false;
+                            root.preferences-closed();
+                        }
+                        if (root.passage-view-open) {
+                            root.passage-view-closed();
+                        }
+                        root.about-open = false;
+                        root.actions-open = false;
+                        root.extensions-open = true;
+                        root.extension-view = "extensions";
+                        root.extensions-requested();
+                    }
+                }
+                Button {
+                    text: "Preferences";
+                    accessible-role: button;
+                    accessible-label: "Open launcher preferences";
+                    clicked => {
+                        root.about-open = false;
+                        if (root.passage-view-open) {
+                            root.passage-view-closed();
+                        }
+                        if (root.extensions-open) {
+                            root.extensions-open = false;
+                            root.extensions-closed();
+                        }
+                        root.preferences-requested();
+                    }
+                }
+            }
+
+            Rectangle {
+                vertical-stretch: 1;
+                background: transparent;
+                VerticalLayout {
+                    visible: !root.preferences-open && !root.about-open && !root.passage-view-open && !root.extensions-open;
+                    spacing: 10px;
+                    Rectangle {
+                        height: 64px;
+                        border-radius: 12px;
+                        background: root.dark-mode ? #202d30 : #ffffff;
+                        border-color: root.dark-mode ? #5d8176 : #87b29f;
+                        border-width: 1px;
+                        HorizontalLayout {
+                            padding-left: 18px;
+                            padding-right: 18px;
+                            spacing: 12px;
+                            Text { text: "⌕"; color: #85e3bf; font-size: 24px; vertical-alignment: center; }
+                            search-input := LineEdit {
+                                text <=> root.query;
+                                placeholder-text: "Search applications, commands, and documents, or calculate…";
+                                accessible-label: "Search applications, commands, files, or calculate";
+                                edited => { root.query-changed(self.text); }
+                                accepted => { root.activate-selected(); }
+                            }
+                            Text {
+                                text: "CTRL K  ACTIONS";
+                                color: root.dark-mode ? #cdebdc : #17694f;
+                                font-size: 10px;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        visible: root.shortcut-offer-visible;
+                        height: root.shortcut-offer-visible ? 72px : 0px;
+                        border-radius: 10px;
+                        background: root.dark-mode ? #202d30 : #ffffff;
+                        border-color: root.dark-mode ? #5d8176 : #87b29f;
+                        border-width: 1px;
+                        VerticalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            padding-top: 8px;
+                            padding-bottom: 8px;
+                            spacing: 4px;
+                            Text {
+                                text: "Set up a global shortcut to open Sillage from anywhere.";
+                                color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                                font-size: 13px;
+                                font-weight: 700;
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: "You can change this later in Preferences.";
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 11px;
+                                    vertical-alignment: center;
+                                }
+                                Rectangle { horizontal-stretch: 1; background: transparent; }
+                                shortcut-setup-button := Button {
+                                    text: "Set Up Shortcut";
+                                    accessible-role: button;
+                                    accessible-label: "Set Up Shortcut";
+                                    clicked => { root.shortcut-configure-requested(); }
+                                }
+                                shortcut-defer-button := Button {
+                                    text: "Not Now";
+                                    accessible-role: button;
+                                    accessible-label: "Not Now";
+                                    clicked => {
+                                        root.shortcut-offer-deferred();
+                                        root.focus-search();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Text {
+                        text: "APPLICATIONS, FILES, PATHS, AND CITED PASSAGES";
+                        color: root.dark-mode ? #abc0b7 : #4a625b;
+                        font-size: 10px;
+                        font-weight: 700;
+                        letter-spacing: 1.6px;
+                    }
+
+                    HorizontalLayout {
+                        height: 32px;
+                        spacing: 6px;
+                        Button {
+                            width: 64px;
+                            text: root.result-filter == "all" ? "All ✓" : "All";
+                            accessible-role: button;
+                            accessible-label: "Show all application, file, path, and cited-passage results";
+                            clicked => { root.result-filter-changed("all"); }
+                        }
+                        Button {
+                            width: 70px;
+                            text: root.result-filter == "files" ? "Files ✓" : "Files";
+                            accessible-role: button;
+                            accessible-label: "Filter to filename matches and returned file-range passages";
+                            clicked => { root.result-filter-changed("files"); }
+                        }
+                        Button {
+                            width: 70px;
+                            text: root.result-filter == "paths" ? "Paths ✓" : "Paths";
+                            accessible-role: button;
+                            accessible-label: "Filter to filename/path matches and evidence source paths";
+                            clicked => { root.result-filter-changed("paths"); }
+                        }
+                        Button {
+                            width: 94px;
+                            text: root.result-filter == "passages" ? "Passages ✓" : "Passages";
+                            accessible-role: button;
+                            accessible-label: "Filter to returned cited passages";
+                            clicked => { root.result-filter-changed("passages"); }
+                        }
+                        Rectangle { horizontal-stretch: 1; background: transparent; }
+                        Text {
+                            width: 230px;
+                            text: root.index-status;
+                            color: root.dark-mode ? #abc0b7 : #4a625b;
+                            font-size: 10px;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+
+                    ScrollView {
+                        height: root.shortcut-offer-visible ? 280px : 380px;
+                        accessible-role: list;
+                        accessible-label: "Launcher results";
+                        VerticalLayout {
+                            spacing: 8px;
+                            for row[index] in root.results : Rectangle {
+                                height: row.kind == "passage_group" ? 26px
+                                    : (row.kind == "passage" || row.kind == "file" ? 124px : 64px);
+                                border-radius: row.kind == "passage_group" ? 4px : 10px;
+                                background: row.kind == "passage_group"
+                                    ? transparent
+                                    : (root.selected-index == index
+                                        ? (root.dark-mode ? #263e39 : #e2f2e9)
+                                        : (root.dark-mode ? #1c282b : #ffffff));
+                                border-color: root.selected-index == index
+                                    ? (root.dark-mode ? #83e2bd : #67a98a)
+                                    : (root.dark-mode ? #354946 : #dce5df);
+                                border-width: row.kind == "passage_group" ? 0px : 1px;
+                                accessible-role: button;
+                                accessible-label: row.accessible_name;
+                                Text {
+                                    visible: row.kind == "passage_group";
+                                    text: row.title;
+                                    color: root.dark-mode ? #abc0b7 : #4a625b;
+                                    font-size: 11px;
+                                    font-weight: 700;
+                                    letter-spacing: 0.5px;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                                HorizontalLayout {
+                                    visible: row.kind != "passage_group";
+                                    padding-left: 15px;
+                                    padding-right: 15px;
+                                    spacing: 12px;
+                                    Rectangle {
+                                        visible: row.kind != "passage";
+                                        width: 32px;
+                                        height: 32px;
+                                        border-radius: 8px;
+                                        background: root.selected-index == index ? #356554 : #2d4c54;
+                                        Text {
+                                            text: row.kind == "calculation" ? "="
+                                                : (row.kind == "application" ? "+"
+                                                    : ((row.kind == "file" || row.kind == "path") ? "F"
+                                                        : (row.kind == "document" ? "P" : "⌕")));
+                                            color: #d8ffed;
+                                            font-size: 17px;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                    VerticalLayout {
+                                        spacing: 3px;
+                                        Text {
+                                            text: row.title;
+                                            color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                                            font-size: 13px;
+                                            font-weight: 700;
+                                            overflow: elide;
+                                        }
+                                        Text {
+                                            text: row.subtitle;
+                                            color: root.dark-mode ? #b2c0ba : #4a625b;
+                                            font-size: 11px;
+                                            overflow: elide;
+                                        }
+                                        HorizontalLayout {
+                                            visible: row.kind == "passage" || row.kind == "file";
+                                            height: 34px;
+                                            spacing: 0px;
+                                            Text {
+                                                width: 170px;
+                                                height: 30px;
+                                                text: row.excerpt_before;
+                                                color: root.dark-mode ? #d0dbd5 : #354741;
+                                                font-size: 11px;
+                                                vertical-alignment: center;
+                                                overflow: elide;
+                                            }
+                                            Rectangle {
+                                                width: 110px;
+                                                height: 28px;
+                                                border-radius: 4px;
+                                                background: row.excerpt_match == ""
+                                                    ? transparent
+                                                    : (root.dark-mode ? #eed77c : #f4d45f);
+                                                Text {
+                                                    width: 110px;
+                                                    height: 28px;
+                                                    text: row.excerpt_match;
+                                                    color: #202519;
+                                                    font-size: 11px;
+                                                    font-weight: 700;
+                                                    vertical-alignment: center;
+                                                    overflow: elide;
+                                                }
+                                            }
+                                            Text {
+                                                width: 170px;
+                                                height: 30px;
+                                                text: row.excerpt_after;
+                                                color: root.dark-mode ? #d0dbd5 : #354741;
+                                                font-size: 11px;
+                                                vertical-alignment: center;
+                                                overflow: elide;
+                                            }
+                                        }
+                                    }
+                                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                                    Text {
+                                        text: row.kind == "document"
+                                            ? (index == root.selected-index ? "Open passages  ↵" : "")
+                                            : ((row.kind == "passage" || row.kind == "file" || row.kind == "path")
+                                                ? (index == root.selected-index ? "Actions  ↵" : "")
+                                                : (index == root.selected-index ? "Open  ↵" : ""));
+                                        color: root.dark-mode ? #c4e8d8 : #17694f;
+                                        font-size: 11px;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                TouchArea {
+                                    visible: row.kind != "passage_group";
+                                    clicked => {
+                                        root.selection-changed(index);
+                                        if (row.kind == "path") {
+                                            root.actions-open = true;
+                                            root.selected-action-index = 0;
+                                        } else if (row.kind == "passage" || row.kind == "file" || row.kind == "document") {
+                                            root.passage-view-requested(row.id);
+                                        } else {
+                                            root.result-activated(row.id);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (root.actions-open && root.actions.length > 0) : Rectangle {
+                        height: 68px;
+                        border-radius: 10px;
+                        background: root.dark-mode ? #202d30 : #ffffff;
+                        border-color: root.dark-mode ? #5d8176 : #87b29f;
+                        border-width: 1px;
+                        HorizontalLayout {
+                            padding: 8px;
+                            spacing: 8px;
+                            for action[index] in root.actions : Button {
+                                text: action.title;
+                                accessible-role: button;
+                                accessible-label: action.accessible_name;
+                                clicked => {
+                                    root.selected-action-index = index;
+                                    root.action-activated(root.results[root.selected-index].id, action.id);
+                                }
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: root.results.length == 0
+                            ? (root.status-message != ""
+                                ? root.status-message
+                                : (root.query == "" ? "Type to search applications and commands."
+                                    : "No results. Try another search or calculate an expression."))
+                            : root.status-message;
+                        color: root.status-kind == "error" ? #e29580 : (root.dark-mode ? #b2c0ba : #4a625b);
+                        font-size: 12px;
+                    }
+                }
+
+                VerticalLayout {
+                    visible: root.passage-view-open && !root.preferences-open && !root.about-open;
+                    spacing: 10px;
+                    HorizontalLayout {
+                        height: 34px;
+                        spacing: 10px;
+                        Button {
+                            text: "← Results";
+                            accessible-role: button;
+                            accessible-label: "Return to launcher results";
+                            clicked => { root.passage-view-closed(); }
+                        }
+                        Text {
+                            text: root.passage-view-title;
+                            color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                            font-size: 13px;
+                            font-weight: 700;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        Rectangle { horizontal-stretch: 1; background: transparent; }
+                        Text {
+                            text: root.index-status;
+                            color: root.dark-mode ? #abc0b7 : #4a625b;
+                            font-size: 10px;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+                    Text {
+                        visible: root.notice != "";
+                        height: root.notice != "" ? 24px : 0px;
+                        text: root.notice;
+                        color: root.status-kind == "error" ? #e29580 : (root.dark-mode ? #b2c0ba : #4a625b);
+                        font-size: 12px;
+                        accessible-role: text;
+                        accessible-label: root.notice;
+                        overflow: elide;
+                    }
+                    ScrollView {
+                        vertical-stretch: 1;
+                        accessible-role: list;
+                        accessible-label: "Cited passages from selected document";
+                        VerticalLayout {
+                            spacing: 10px;
+                            for row in root.passage-view-results : Rectangle {
+                                height: 230px;
+                                border-radius: 10px;
+                                background: root.dark-mode ? #1c282b : #ffffff;
+                                border-color: root.dark-mode ? #354946 : #dce5df;
+                                border-width: 1px;
+                                accessible-role: groupbox;
+                                accessible-label: row.accessible_name;
+                                VerticalLayout {
+                                    padding: 12px;
+                                    spacing: 6px;
+                                    HorizontalLayout {
+                                        height: 30px;
+                                        spacing: 8px;
+                                        Text {
+                                            text: row.title;
+                                            color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                                            font-size: 13px;
+                                            font-weight: 700;
+                                            vertical-alignment: center;
+                                        }
+                                        Rectangle { horizontal-stretch: 1; background: transparent; }
+                                        Button {
+                                            text: "Show passage + open source";
+                                            accessible-role: button;
+                                            accessible-label: "Reopen current evidence, show its exact citation and passage here, and open the source when available";
+                                            clicked => {
+                                                root.action-activated(row.id, "passage.open-source");
+                                            }
+                                        }
+                                    }
+                                    Text {
+                                        height: 44px;
+                                        text: row.subtitle;
+                                        color: root.dark-mode ? #b2c0ba : #4a625b;
+                                        font-size: 11px;
+                                        wrap: word-wrap;
+                                        horizontal-alignment: left;
+                                        vertical-alignment: top;
+                                        accessible-role: text;
+                                        accessible-label: "Full citation";
+                                    }
+                                    Text {
+                                        vertical-stretch: 1;
+                                        text: row.content;
+                                        color: root.dark-mode ? #d0dbd5 : #354741;
+                                        font-size: 12px;
+                                        wrap: word-wrap;
+                                        horizontal-alignment: left;
+                                        vertical-alignment: top;
+                                        accessible-role: text;
+                                        accessible-label: "Full returned passage excerpt";
+                                    }
+                                    HorizontalLayout {
+                                        height: 30px;
+                                        spacing: 8px;
+                                        Button {
+                                            text: "Copy citation";
+                                            accessible-role: button;
+                                            accessible-label: "Reopen this evidence and copy its citation";
+                                            clicked => {
+                                                root.action-activated(row.id, "passage.copy-citation");
+                                            }
+                                        }
+                                        Button {
+                                            text: "Copy passage";
+                                            accessible-role: button;
+                                            accessible-label: "Reopen this evidence and copy the returned passage";
+                                            clicked => {
+                                                root.action-activated(row.id, "passage.copy-excerpt");
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    visible: root.preferences-open && !root.about-open;
+                    spacing: 12px;
+                    Text {
+                        text: "PREFERENCES";
+                        color: root.dark-mode ? #abc0b7 : #4a625b;
+                        font-size: 10px;
+                        font-weight: 700;
+                        letter-spacing: 1.6px;
+                    }
+                    Text {
+                        text: "Global shortcut";
+                        color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                        font-size: 13px;
+                        font-weight: 700;
+                    }
+                    shortcut-input := LineEdit {
+                        text <=> root.shortcut;
+                        accessible-label: "Global shortcut accelerator";
+                    }
+                    Text {
+                        text: root.shortcut-status;
+                        color: root.dark-mode ? #b2c0ba : #4a625b;
+                        font-size: 12px;
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button {
+                            text: "Configure shortcut";
+                            enabled: !root.preferences-read-only;
+                            accessible-role: button;
+                            accessible-label: "Request system permission to configure the global shortcut";
+                            clicked => { root.shortcut-configure-requested(); }
+                        }
+                        Button {
+                            text: "Clear shortcut";
+                            enabled: !root.preferences-read-only;
+                            accessible-role: button;
+                            accessible-label: "Clear the configured global shortcut";
+                            clicked => { root.shortcut-clear-requested(); }
+                        }
+                    }
+                    Button {
+                        text: "Copy activation command";
+                        accessible-role: button;
+                        accessible-label: "Copy the launcher activation command";
+                        clicked => { root.copy-activation-requested(); }
+                    }
+                    Text {
+                        text: "Appearance";
+                        color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                        font-size: 13px;
+                        font-weight: 700;
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button {
+                            text: root.theme-choice == "light" ? "Light ✓" : "Light";
+                            accessible-role: button;
+                            accessible-label: "Use the light color theme";
+                            clicked => { root.theme-choice = "light"; root.dark-mode = false; }
+                        }
+                        Button {
+                            text: root.theme-choice == "dark" ? "Dark ✓" : "Dark";
+                            accessible-role: button;
+                            accessible-label: "Use the dark color theme";
+                            clicked => { root.theme-choice = "dark"; root.dark-mode = true; }
+                        }
+                        Button {
+                            text: root.theme-choice == "system" ? "System ✓" : "System";
+                            accessible-role: button;
+                            clicked => { root.theme-choice = "system"; root.dark-mode = root.system-dark-mode; }
+                        }
+                    }
+                    CheckBox {
+                        text: "Reduce motion";
+                        checked <=> root.reduce-motion-choice;
+                        accessible-role: checkbox;
+                        accessible-label: "Reduce interface motion";
+                    }
+                    Text {
+                        text: root.preferences-warning;
+                        visible: root.preferences-warning != "";
+                        color: #e29580;
+                        font-size: 12px;
+                    }
+                    Text {
+                        text: root.notice;
+                        visible: root.notice != "";
+                        color: root.dark-mode ? #b2c0ba : #4a625b;
+                        font-size: 12px;
+                    }
+                    Rectangle { vertical-stretch: 1; background: transparent; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button {
+                            text: root.reset-confirmation ? "Confirm reset" : "Reset preferences";
+                            enabled: !root.preferences-read-only;
+                            accessible-role: button;
+                            accessible-label: root.reset-confirmation ? "Confirm resetting launcher preferences" : "Reset launcher preferences to defaults";
+                            clicked => {
+                                root.preferences-reset-requested(root.reset-confirmation);
+                                root.reset-confirmation = !root.reset-confirmation;
+                            }
+                        }
+                        Rectangle { horizontal-stretch: 1; background: transparent; }
+                        Button {
+                            text: "Save";
+                            enabled: !root.preferences-read-only;
+                            accessible-role: button;
+                            accessible-label: "Save launcher preferences";
+                            clicked => {
+                                root.preferences-saved(root.shortcut, root.theme-choice, root.reduce-motion-choice);
+                            }
+                        }
+                        Button {
+                            text: "Done";
+                            accessible-role: button;
+                            accessible-label: "Close preferences";
+                            clicked => {
+                                root.preferences-open = false;
+                                root.preferences-closed();
+                                root.focus-search();
+                            }
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    visible: root.about-open;
+                    spacing: 16px;
+                    Text {
+                        text: "ABOUT SILLAGE";
+                        color: root.dark-mode ? #eaf5ef : #1a2b2b;
+                        font-size: 20px;
+                        font-weight: 700;
+                    }
+                    Text {
+                        text: "A local, keyboard-first application launcher. Search and configuration stay on this device.";
+                        color: root.dark-mode ? #b2c0ba : #4a625b;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: "Interface powered by Slint";
+                        color: root.dark-mode ? #eaf5ef : #1a2b2b;
+                        font-size: 14px;
+                        font-weight: 700;
+                    }
+                    AboutSlint {
+                        width: 280px;
+                        height: 104px;
+                    }
+                    Rectangle { vertical-stretch: 1; background: transparent; }
+                    about-back := Button {
+                        text: "Back to search";
+                        accessible-role: button;
+                        accessible-label: "Close About Sillage";
+                        clicked => {
+                            root.about-open = false;
+                            root.focus-search();
+                        }
+                    }
+                }
+                ExtensionPanel {
+                    visible: root.extensions-open;
+                    width: parent.width;
+                    height: parent.height;
+                    dark-mode: root.dark-mode;
+                    view <=> root.extension-view;
+                    extensions: root.extension-rows;
+                    items: root.extension-items;
+                    actions: root.extension-actions;
+                    fields: root.extension-fields;
+                    selected-extension-id <=> root.extension-selected-id;
+                    selected-item-id <=> root.extension-selected-item-id;
+                    selected-action-id <=> root.extension-selected-action-id;
+                    install-path <=> root.extension-install-path;
+                    view-title: root.extension-view-title;
+                    detail-content: root.extension-detail-content;
+                    status-message: root.extension-status-message;
+                    error-message: root.extension-error-message;
+                    notice-message: root.extension-notice-message;
+                    busy: root.extension-busy;
+                    install-requested(path) => { root.extension-install-requested(path); }
+                    approve-requested(id) => { root.extension-approve-requested(id); }
+                    revoke-requested(id) => { root.extension-revoke-requested(id); }
+                    disable-requested(id) => { root.extension-disable-requested(id); }
+                    remove-requested(id, retain-data) => { root.extension-remove-requested(id, retain-data); }
+                    selected-requested(id) => { root.extension-selected-requested(id); }
+                    invoke-requested(id, command-id) => { root.extension-invoke-requested(id, command-id); }
+                    action-requested(action-id, item-id) => { root.extension-action-requested(action-id, item-id); }
+                    form-changed(field-id, value) => { root.extension-form-changed(field-id, value); }
+                    item-selected(item-id) => { root.extension-item-selected(item-id); }
+                    file-select-requested(field-id) => { root.extension-file-select-requested(field-id); }
+                    close-requested() => {
+                        root.extensions-open = false;
+                        root.extensions-closed();
+                        root.focus-search();
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 1px;
+                background: root.dark-mode ? #334441 : #d1ddd5;
+            }
+            HorizontalLayout {
+                height: 22px;
+                spacing: 24px;
+                Text { text: "↑ ↓  Navigate"; color: root.dark-mode ? #b2c0ba : #4a625b; font-size: 11px; }
+                Text { text: "↵  Open"; color: root.dark-mode ? #b2c0ba : #4a625b; font-size: 11px; }
+                Text { text: "Ctrl K  Actions"; color: root.dark-mode ? #b2c0ba : #4a625b; font-size: 11px; }
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+                Button {
+                    text: root.about-open || root.preferences-open || root.extensions-open ? "Esc  Back" : "Esc  Dismiss";
+                    accessible-role: button;
+                    accessible-label: root.about-open ? "Close About Sillage" : (root.preferences-open ? "Close preferences" : (root.extensions-open ? "Close extensions" : "Dismiss launcher"));
+                    clicked => {
+                        if (root.about-open) {
+                            root.about-open = false;
+                            root.focus-search();
+                        } else if (root.preferences-open) {
+                            root.preferences-open = false;
+                            root.preferences-closed();
+                            root.focus-search();
+                        } else if (root.extensions-open) {
+                            root.extensions-open = false;
+                            root.extensions-closed();
+                            root.focus-search();
+                        } else {
+                            root.dismissed();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+}

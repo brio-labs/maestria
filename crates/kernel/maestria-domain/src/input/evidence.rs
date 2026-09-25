@@ -58,6 +58,7 @@ impl KernelState {
         match &input.kind {
             EvidenceKind::FileSpan { snapshot, .. }
             | EvidenceKind::PdfSpan { snapshot, .. }
+            | EvidenceKind::DocxParagraphSpan { snapshot, .. }
             | EvidenceKind::PdfRegion { snapshot, .. }
                 if expected_hash == Some(snapshot.content_hash()) =>
             {
@@ -65,6 +66,7 @@ impl KernelState {
             }
             EvidenceKind::FileSpan { .. }
             | EvidenceKind::PdfSpan { .. }
+            | EvidenceKind::DocxParagraphSpan { .. }
             | EvidenceKind::PdfRegion { .. } => Err(DomainError::MalformedDeterministicEvidence {
                 evidence_id: input.evidence_id,
                 reason: "snapshot content hash does not match artifact content_hash",
@@ -101,6 +103,7 @@ impl KernelState {
             match &ev.kind {
                 EvidenceKind::FileSpan { snapshot, .. }
                 | EvidenceKind::PdfSpan { snapshot, .. }
+                | EvidenceKind::DocxParagraphSpan { snapshot, .. }
                 | EvidenceKind::PdfRegion { snapshot, .. }
                     if snapshot.content_hash() == expected_hash =>
                 {
@@ -231,6 +234,7 @@ impl KernelState {
             let valid = match kind {
                 EvidenceKind::FileSpan { snapshot, .. }
                 | EvidenceKind::PdfSpan { snapshot, .. }
+                | EvidenceKind::DocxParagraphSpan { snapshot, .. }
                 | EvidenceKind::PdfRegion { snapshot, .. } => {
                     expected_hash == Some(snapshot.content_hash())
                 }

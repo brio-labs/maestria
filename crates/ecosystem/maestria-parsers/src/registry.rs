@@ -4,6 +4,7 @@ use maestria_ports::{
 
 use crate::cargo_toml::CargoTomlParser;
 use crate::chunking::metadata_for_handle;
+use crate::docx::DocxParser;
 use crate::generic_text::GenericTextParser;
 use crate::markdown::MarkdownParser;
 use crate::pdf::PdfParser;
@@ -30,6 +31,7 @@ impl ParserRegistry {
         registry.register(PythonSourceParser::new());
         registry.register(TypeScriptSourceParser::new());
         registry.register(CargoTomlParser::new());
+        registry.register(DocxParser::new());
         registry.register(PdfParser::new());
         // Extension-independent fallback: claims any unclaimed source
         // within the text size cap; content decides in `parse`.

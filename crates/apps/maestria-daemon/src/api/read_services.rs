@@ -61,6 +61,26 @@ pub(super) fn evidence_response(
     })
 }
 
+pub(super) fn evidence_response_with_pdf_source_path(
+    output: maestria_core::OpenEvidenceOutput,
+    source_path: Option<&std::path::Path>,
+) -> Result<EvidenceResponse> {
+    let mut response = evidence_response(output)?;
+    if let Some(source_path) = source_path {
+        let source_path = source_path.display().to_string();
+        match &mut response.source {
+            EvidenceSourceResponse::Pdf { path, .. }
+            | EvidenceSourceResponse::PdfRegion { path, .. } => *path = Some(source_path),
+            _ => {
+                return Err(anyhow!(
+                    "validated PDF source path did not match PDF evidence"
+                ));
+            }
+        }
+    }
+    Ok(response)
+}
+
 fn load_state(layout: &InstanceLayout) -> Result<KernelState> {
     crate::instance_setup::load_kernel_state(layout)
 }
@@ -78,6 +98,16 @@ fn evidence_source(evidence: &Evidence) -> Result<EvidenceSourceResponse> {
             end_line: u32::try_from(range.end()).context("file evidence end line exceeds u32")?,
             content_hash: snapshot.content_hash().as_str().to_string(),
         },
+        EvidenceKind::DocxParagraphSpan {
+            path,
+            range,
+            snapshot,
+        } => EvidenceSourceResponse::DocxParagraph {
+            path: path.clone(),
+            start_paragraph: range.start(),
+            end_paragraph: range.end(),
+            content_hash: snapshot.content_hash().as_str().to_string(),
+        },
         EvidenceKind::PdfSpan {
             snapshot,
             page_start,
@@ -86,6 +116,7 @@ fn evidence_source(evidence: &Evidence) -> Result<EvidenceSourceResponse> {
             snapshot_id: snapshot.blob_id().value(),
             page_start: *page_start,
             page_end: *page_end,
+            path: None,
         },
         EvidenceKind::PdfRegion {
             snapshot,
@@ -101,6 +132,7 @@ fn evidence_source(evidence: &Evidence) -> Result<EvidenceSourceResponse> {
             y: *y,
             width: *width,
             height: *height,
+            path: None,
         },
         EvidenceKind::WebSnapshot { url, snapshot, .. } => EvidenceSourceResponse::Web {
             url: url.clone(),

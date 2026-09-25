@@ -32,6 +32,11 @@ pub(crate) enum StoredSourceLocation {
         start_line: u32,
         end_line: u32,
     },
+    DocxParagraph {
+        path: String,
+        start_paragraph: u32,
+        end_paragraph: u32,
+    },
     Page {
         page_start: u32,
         page_end: u32,
@@ -60,6 +65,15 @@ impl StoredSourceLocation {
                 path: path.clone(),
                 start_line: *start_line,
                 end_line: *end_line,
+            },
+            SourceLocation::DocxParagraph {
+                path,
+                start_paragraph,
+                end_paragraph,
+            } => Self::DocxParagraph {
+                path: path.clone(),
+                start_paragraph: *start_paragraph,
+                end_paragraph: *end_paragraph,
             },
             SourceLocation::Page {
                 page_start,
@@ -98,6 +112,12 @@ impl StoredSourceLocation {
                 start_line,
                 end_line,
             } => SourceLocation::file(path, start_line, end_line).map_err(span_decode_error),
+            Self::DocxParagraph {
+                path,
+                start_paragraph,
+                end_paragraph,
+            } => SourceLocation::docx_paragraph(path, start_paragraph, end_paragraph)
+                .map_err(span_decode_error),
             Self::Page {
                 page_start,
                 page_end,

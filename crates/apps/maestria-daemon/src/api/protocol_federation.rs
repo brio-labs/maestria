@@ -24,6 +24,11 @@ impl FederationCredential {
         }
         Ok(Self(value))
     }
+    /// Returns the raw bearer credential for explicit provisioning. Avoid
+    /// logging or retaining this value outside the consumer's credential file.
+    pub fn expose(&self) -> &str {
+        self.as_str()
+    }
 
     pub(crate) fn as_str(&self) -> &str {
         &self.0
@@ -109,8 +114,11 @@ pub struct RealmGrantResponse {
     pub consumer_realm: RealmId,
     pub access: RealmGrantAccess,
     pub max_sensitivity: RealmGrantSensitivity,
+    #[serde(default)]
+    pub allowed_roots: Option<Vec<String>>,
     pub max_results: usize,
     pub max_evidence_bytes: usize,
+    pub expires_at_unix_seconds: u64,
     pub state: String,
 }
 

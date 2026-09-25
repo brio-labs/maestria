@@ -1,6 +1,6 @@
 # Daemon Client Boundary
 
-The running daemon exposes an authenticated client boundary for one Maestria
+The running daemon exposes an authenticated client boundary for one Sillage
 instance. Read operations are projections of replayed kernel state; notebook
 and draft operations are the typed, durable mutation surface used by Studio.
 Transport is newline-delimited JSON over a Unix domain socket:

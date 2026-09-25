@@ -1,4 +1,4 @@
-use crate::{error::to_port_error, schema, tantivy_index::TantivyFullTextIndex};
+use crate::{error::to_port_error, migration, schema, tantivy_index::TantivyFullTextIndex};
 use maestria_domain::{ContentHash, IndexFingerprint, content_hash};
 use maestria_ports::PortError;
 use std::path::Path;
@@ -35,6 +35,53 @@ impl TantivyFullTextIndex {
                 "tantivy-default-tokenizer-v1",
             ),
         })
+    }
+
+    /// Resolve the lexical fingerprint without taking a writer lock for a current index.
+    ///
+    /// A missing index is initialized and a recognized legacy schema is migrated. Errors from
+    /// opening or inspecting any other existing index are returned instead of being retried
+    /// through a writable open.
+    pub fn fingerprint_for_path(path: impl AsRef<Path>) -> Result<IndexFingerprint, PortError> {
+        let path = path.as_ref();
+        match std::fs::symlink_metadata(path.join("meta.json")) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let index = Self::open(path)?;
+                let fingerprint = index.fingerprint()?;
+                drop(index);
+                return Ok(fingerprint);
+            }
+            Err(error) => {
+                return Err(PortError::downstream(
+                    "read full-text index metadata",
+                    format!("{}: {error}", path.display()),
+                ));
+            }
+        }
+
+        let index = Index::open_in_dir(path).map_err(to_port_error)?;
+        let index_schema = index.schema();
+        if migration::schema_has_cards(&index_schema)
+            && schema::supports_filtered_queries(&index_schema)
+            && migration::schema_has_lexical(&index_schema)
+        {
+            let marker = path.join(".cards-rebuild");
+            let index = Self::from_index(index, marker.exists(), Some(marker), true)?;
+            return index.fingerprint();
+        }
+        if !migration::schema_supports_legacy_migration(&index_schema) {
+            return Err(PortError::internal(
+                "fingerprint full-text index",
+                "index schema is neither current nor migratable from stored chunks",
+            ));
+        }
+
+        drop(index);
+        let index = Self::open(path)?;
+        let fingerprint = index.fingerprint()?;
+        drop(index);
+        Ok(fingerprint)
     }
 
     #[cfg(test)]

@@ -5,11 +5,31 @@ use maestria_governance::PrivacyExclusions;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Supported suffixes and the one Cargo manifest filename accepted by source scans.
+const SUPPORTED_EXTENSIONS: &[&str] = &[
+    "md", "markdown", "txt", "text", "rs", "toml", "json", "yaml", "yml", "pdf", "docx",
+];
+const SUPPORTED_FORMATS: &[&str] = &[
+    "Cargo.toml (exact filename)",
+    ".md",
+    ".markdown",
+    ".txt",
+    ".text",
+    ".rs",
+    ".toml",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".docx",
+    ".pdf",
+];
+
+/// Formats accepted by both index selection and continuous ingestion.
+pub fn supported_source_formats() -> &'static [&'static str] {
+    SUPPORTED_FORMATS
+}
+
 /// Whether `path` names a source file eligible for ingestion.
-///
-/// Union of the CLI and watcher policies: the CLI's `Cargo.toml` special case
-/// plus case-insensitive extensions md|markdown|txt|text|rs|toml|json|yaml|
-/// yml|pdf.
 pub fn is_supported_source_file(path: &Path) -> bool {
     if path.file_name().and_then(|name| name.to_str()) == Some("Cargo.toml") {
         return true;
@@ -17,11 +37,9 @@ pub fn is_supported_source_file(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| {
-            [
-                "md", "markdown", "txt", "text", "rs", "toml", "json", "yaml", "yml", "pdf",
-            ]
-            .iter()
-            .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+            SUPPORTED_EXTENSIONS
+                .iter()
+                .any(|candidate| extension.eq_ignore_ascii_case(candidate))
         })
 }
 
@@ -169,7 +187,7 @@ pub struct DirFeatures {
 }
 
 /// Extension buckets for the doc/code shares.
-const DOC_EXTENSIONS: &[&str] = &["md", "markdown", "txt", "text", "pdf"];
+const DOC_EXTENSIONS: &[&str] = &["md", "markdown", "txt", "text", "pdf", "docx"];
 const CODE_EXTENSIONS: &[&str] = &["rs", "py", "ts", "tsx"];
 
 /// Compute the numeric features of the directory `_dir` from `files` (all

@@ -1,0 +1,846 @@
+import { Button, CheckBox, LineEdit, ScrollView } from "std-widgets.slint";
+
+export struct ExtensionRow {
+    id: string,
+    title: string,
+    status: string,
+    permissions: string,
+}
+
+export struct ExtensionItemRow {
+    id: string,
+    title: string,
+    subtitle: string,
+}
+
+export struct ExtensionActionRow {
+    id: string,
+    label: string,
+}
+
+export struct ExtensionChoiceRow {
+    id: string,
+    label: string,
+}
+
+export struct ExtensionFieldRow {
+    id: string,
+    label: string,
+    kind: string,
+    value: string,
+    placeholder: string,
+    choices: [ExtensionChoiceRow],
+}
+
+export component ExtensionPanel inherits Rectangle {
+    width: 680px;
+    height: 620px;
+    background: root.dark-mode ? #141b20 : #f6f8f5;
+    border-color: root.dark-mode ? #344442 : #d1ddd5;
+    border-width: 1px;
+    border-radius: 16px;
+    clip: true;
+
+    in-out property <bool> dark-mode: true;
+    in-out property <string> view: "extensions";
+    in-out property <[ExtensionRow]> extensions: [];
+    in-out property <[ExtensionItemRow]> items: [];
+    in-out property <[ExtensionActionRow]> actions: [];
+    in-out property <[ExtensionFieldRow]> fields: [];
+    in-out property <string> selected-extension-id: "";
+    in-out property <string> selected-item-id: "";
+    in-out property <string> selected-action-id: "";
+    in-out property <string> install-path: "";
+    in-out property <string> view-title: "";
+    in-out property <string> detail-content: "";
+    in-out property <string> status-message: "";
+    in-out property <string> error-message: "";
+    in-out property <string> notice-message: "";
+    in-out property <bool> busy: false;
+
+    callback install-requested(string);
+    callback approve-requested(string);
+    callback revoke-requested(string);
+    callback disable-requested(string);
+    callback remove-requested(string, bool);
+    callback selected-requested(string);
+    callback invoke-requested(string, string);
+    callback action-requested(string, string);
+    callback form-changed(string, string);
+    callback item-selected(string);
+    callback file-select-requested(string);
+    callback close-requested();
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 10px;
+
+        HorizontalLayout {
+            height: 36px;
+            spacing: 10px;
+            Text {
+                text: "EXTENSIONS";
+                color: root.dark-mode ? #eaf5ef : #1a2b2b;
+                font-size: 14px;
+                font-weight: 700;
+                letter-spacing: 1.8px;
+                vertical-alignment: center;
+                accessible-role: text;
+                accessible-label: "Extensions";
+            }
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+            Button {
+                text: "Close";
+                accessible-role: button;
+                accessible-label: "Close extensions panel";
+                clicked => { root.close-requested(); }
+            }
+        }
+
+        Rectangle {
+            visible: root.error-message != "";
+            height: root.error-message != "" ? 54px : 0px;
+            border-radius: 8px;
+            background: root.dark-mode ? #392624 : #fff0eb;
+            border-color: root.dark-mode ? #75453d : #d88b75;
+            border-width: 1px;
+            Text {
+                x: 12px;
+                y: 7px;
+                width: parent.width - 24px;
+                height: parent.height - 14px;
+                text: root.error-message;
+                color: root.dark-mode ? #f0aa99 : #8d3828;
+                font-size: 12px;
+                wrap: word-wrap;
+                vertical-alignment: center;
+                accessible-role: text;
+                accessible-label: "Extension error";
+            }
+        }
+
+        Rectangle {
+            visible: root.notice-message != "";
+            height: root.notice-message != "" ? 40px : 0px;
+            border-radius: 8px;
+            background: root.dark-mode ? #1e332d : #e9f6ed;
+            border-color: root.dark-mode ? #426d5c : #93c4a3;
+            border-width: 1px;
+            Text {
+                x: 12px;
+                y: 5px;
+                width: parent.width - 24px;
+                height: parent.height - 10px;
+                text: root.notice-message;
+                color: root.dark-mode ? #bde7d2 : #24573b;
+                font-size: 12px;
+                wrap: word-wrap;
+                vertical-alignment: center;
+                accessible-role: text;
+                accessible-label: "Extension notice";
+            }
+        }
+
+        Rectangle {
+            vertical-stretch: 1;
+            background: transparent;
+            clip: true;
+
+            VerticalLayout {
+                visible: root.view == "extensions";
+                spacing: 10px;
+                Text {
+                    text: "Install from a local extension package, then review its requested permissions before approval.";
+                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                }
+                Rectangle {
+                    height: 48px;
+                    border-radius: 10px;
+                    background: root.dark-mode ? #202d30 : #ffffff;
+                    border-color: root.dark-mode ? #5d8176 : #87b29f;
+                    border-width: 1px;
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 8px;
+                        spacing: 8px;
+                        LineEdit {
+                            text <=> root.install-path;
+                            placeholder-text: "Extension package path";
+                            accessible-label: "Local extension package path";
+                        }
+                        Button {
+                            text: root.busy ? "Installing…" : "Install";
+                            enabled: !root.busy && root.install-path != "";
+                            accessible-role: button;
+                            accessible-label: "Install extension from the entered local package path";
+                            clicked => { root.install-requested(root.install-path); }
+                        }
+                    }
+                }
+                ScrollView {
+                    vertical-stretch: 1;
+                    content-width: self.width;
+                    VerticalLayout {
+                        spacing: 8px;
+                        if (root.extensions.length == 0) : Text {
+                            text: root.busy ? "Loading installed extensions…" : "No extensions are installed.";
+                            color: root.dark-mode ? #b2c0ba : #4a625b;
+                            font-size: 12px;
+                            accessible-role: text;
+                        }
+                        for extension in root.extensions : Rectangle {
+                            vertical-stretch: 0;
+                            height: 180px;
+                            border-radius: 10px;
+                            background: root.dark-mode ? #202d30 : #ffffff;
+                            border-color: extension.id == root.selected-extension-id
+                                ? (root.dark-mode ? #85dfb7 : #378768)
+                                : (root.dark-mode ? #344442 : #d1ddd5);
+                            border-width: 1px;
+                            VerticalLayout {
+                                padding: 10px;
+                                spacing: 6px;
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Button {
+                                        height: 36px;
+                                        text: extension.id == root.selected-extension-id
+                                            ? "Selected: " + extension.title
+                                            : extension.title;
+                                        horizontal-stretch: 1;
+                                        accessible-role: button;
+                                        accessible-label: "Review permissions and details for " + extension.title;
+                                        clicked => {
+                                            root.selected-extension-id = extension.id;
+                                            root.selected-requested(extension.id);
+                                            root.view = "extension-detail";
+                                        }
+                                    }
+                                    Text {
+                                        text: extension.status;
+                                        color: root.dark-mode ? #b2c0ba : #4a625b;
+                                        font-size: 11px;
+                                        vertical-alignment: center;
+                                        accessible-role: text;
+                                        accessible-label: "Extension status";
+                                    }
+                                }
+                                Text {
+                                    text: extension.permissions == "" ? "No permissions requested" : "Requested permissions: " + extension.permissions;
+                                    color: root.dark-mode ? #c4d0ca : #354741;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: "Requested extension permissions";
+                                }
+                                HorizontalLayout {
+                                    Text {
+                                        text: "Reinstall to review or change grants.";
+                                        color: root.dark-mode ? #b2c0ba : #4a625b;
+                                        font-size: 11px;
+                                        vertical-alignment: center;
+                                    }
+                                    Button {
+                                        height: 36px;
+                                        text: "Disable";
+                                        enabled: !root.busy;
+                                        accessible-role: button;
+                                        accessible-label: "Disable extension " + extension.title;
+                                        clicked => { root.disable-requested(extension.id); }
+                                    }
+                                    Button {
+                                        height: 36px;
+                                        text: "Revoke";
+                                        enabled: !root.busy;
+                                        accessible-role: button;
+                                        accessible-label: "Revoke permissions for " + extension.title;
+                                        clicked => { root.revoke-requested(extension.id); }
+                                    }
+                                    Button {
+                                        height: 36px;
+                                        text: "Remove";
+                                        enabled: !root.busy;
+                                        accessible-role: button;
+                                        accessible-label: "Remove extension " + extension.title;
+                                        clicked => {
+                                            root.selected-extension-id = extension.id;
+                                            root.view = "remove-confirm";
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            VerticalLayout {
+                visible: root.view == "extension-detail";
+                spacing: 8px;
+                Button {
+                    text: "Back to extensions";
+                    accessible-role: button;
+                    accessible-label: "Return to installed extensions";
+                    clicked => { root.view = "extensions"; }
+                }
+                ScrollView {
+                    vertical-stretch: 1;
+                    content-width: self.width;
+                    VerticalLayout {
+                        spacing: 8px;
+                        for extension in root.extensions : Rectangle {
+                            vertical-stretch: 0;
+                            height: extension.id == root.selected-extension-id ? 180px : 0px;
+                            visible: extension.id == root.selected-extension-id;
+                            border-radius: 10px;
+                            background: root.dark-mode ? #202d30 : #ffffff;
+                            border-color: root.dark-mode ? #5d8176 : #87b29f;
+                            border-width: 1px;
+                            VerticalLayout {
+                                padding: 12px;
+                                spacing: 8px;
+                                Text {
+                                    text: extension.title;
+                                    color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                                    font-size: 17px;
+                                    font-weight: 700;
+                                    accessible-role: text;
+                                    accessible-label: "Selected extension";
+                                }
+                                Text {
+                                    text: "Status: " + extension.status;
+                                    color: root.dark-mode ? #c4d0ca : #354741;
+                                    font-size: 12px;
+                                    accessible-role: text;
+                                }
+                                Text {
+                                    text: extension.permissions == "" ? "No permissions requested" : "Requested permissions: " + extension.permissions;
+                                    color: root.dark-mode ? #c4d0ca : #354741;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: "Requested extension permissions";
+                                }
+                                HorizontalLayout {
+                                    Text {
+                                        text: "Reinstall to review or change grants.";
+                                        color: root.dark-mode ? #b2c0ba : #4a625b;
+                                        font-size: 11px;
+                                        vertical-alignment: center;
+                                    }
+                                    Button {
+                                        height: 36px;
+                                        text: "Disable";
+                                        enabled: !root.busy;
+                                        accessible-role: button;
+                                        accessible-label: "Disable extension " + extension.title;
+                                        clicked => { root.disable-requested(extension.id); }
+                                    }
+                                    Button {
+                                        height: 36px;
+                                        text: "Revoke";
+                                        enabled: !root.busy;
+                                        accessible-role: button;
+                                        accessible-label: "Revoke permissions for " + extension.title;
+                                        clicked => { root.revoke-requested(extension.id); }
+                                    }
+                                    Button {
+                                        height: 36px;
+                                        text: "Remove";
+                                        enabled: !root.busy;
+                                        accessible-role: button;
+                                        accessible-label: "Remove extension " + extension.title;
+                                        clicked => {
+                                            root.selected-extension-id = extension.id;
+                                            root.view = "remove-confirm";
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (root.selected-extension-id == "") : Text {
+                            text: "Select an installed extension to review its permissions and commands.";
+                            color: root.dark-mode ? #b2c0ba : #4a625b;
+                            font-size: 12px;
+                            accessible-role: text;
+                        }
+                        Text {
+                            vertical-stretch: 0;
+                            height: 22px;
+                            visible: root.items.length > 0;
+                            text: "Commands";
+                            color: root.dark-mode ? #eaf5ef : #1a2b2b;
+                            font-size: 13px;
+                            font-weight: 700;
+                        }
+                        for item in root.items : Rectangle {
+                            vertical-stretch: 0;
+                            height: 72px;
+                            border-radius: 8px;
+                            background: root.dark-mode ? #192427 : #f0f5f1;
+                            HorizontalLayout {
+                                padding: 8px;
+                                spacing: 8px;
+                                VerticalLayout {
+                                    vertical-stretch: 1;
+                                    spacing: 2px;
+                                    Text {
+                                        text: item.title;
+                                        color: root.dark-mode ? #eaf5ef : #1a2b2b;
+                                        font-size: 12px;
+                                        accessible-role: text;
+                                    }
+                                    Text {
+                                        text: item.subtitle;
+                                        color: root.dark-mode ? #b2c0ba : #4a625b;
+                                        font-size: 11px;
+                                        wrap: word-wrap;
+                                        accessible-role: text;
+                                    }
+                                }
+                                Button {
+                                    height: 36px;
+                                    text: "Run";
+                                    enabled: !root.busy && root.selected-extension-id != "";
+                                    accessible-role: button;
+                                    accessible-label: "Run command " + item.title;
+                                    clicked => { root.invoke-requested(root.selected-extension-id, item.id); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            VerticalLayout {
+                visible: root.view == "approval";
+                spacing: 12px;
+                Text {
+                    text: "Review before installing";
+                    color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                    font-size: 17px;
+                    font-weight: 700;
+                    accessible-role: text;
+                    accessible-label: "Extension installation permission review";
+                }
+                Text {
+                    text: root.view-title;
+                    color: root.dark-mode ? #eaf5ef : #1a2b2b;
+                    font-size: 14px;
+                    font-weight: 700;
+                    accessible-role: text;
+                }
+                ScrollView {
+                    vertical-stretch: 1;
+                    content-width: self.width;
+                    Text {
+                        width: parent.width - 24px;
+                        text: root.detail-content;
+                        color: root.dark-mode ? #c4d0ca : #354741;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                        accessible-role: text;
+                        accessible-label: "Exact extension version, content identity and requested permissions";
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Button {
+                        text: "Cancel";
+                        enabled: !root.busy;
+                        accessible-role: button;
+                        accessible-label: "Cancel extension installation without changes";
+                        clicked => { root.approve-requested(""); }
+                    }
+                    Button {
+                        text: root.busy ? "Installing…" : "Approve and install";
+                        enabled: !root.busy && root.selected-extension-id != "";
+                        accessible-role: button;
+                        accessible-label: "Approve exact extension identity and permissions, then install";
+                        clicked => { root.approve-requested(root.selected-extension-id); }
+                    }
+                }
+            }
+
+            VerticalLayout {
+                visible: root.view == "remove-confirm";
+                spacing: 12px;
+                Text {
+                    text: "Remove " + root.selected-extension-id + "?";
+                    color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                    font-size: 17px;
+                    font-weight: 700;
+                    accessible-role: text;
+                    accessible-label: "Confirm extension removal";
+                }
+                Text {
+                    text: "Removing an extension revokes its grants and deletes its installed package. Choose whether to retain its private storage.";
+                    color: root.dark-mode ? #c4d0ca : #354741;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                }
+                Button {
+                    height: 36px;
+                    text: "Cancel removal";
+                    accessible-role: button;
+                    clicked => { root.view = "extensions"; }
+                }
+                Button {
+                    height: 36px;
+                    text: "Remove extension, retain data";
+                    enabled: !root.busy;
+                    accessible-role: button;
+                    accessible-label: "Remove extension but retain private storage";
+                    clicked => { root.remove-requested(root.selected-extension-id, true); }
+                }
+                Button {
+                    height: 36px;
+                    text: "Remove extension and delete data";
+                    enabled: !root.busy;
+                    accessible-role: button;
+                    accessible-label: "Remove extension and permanently delete private storage";
+                    clicked => { root.remove-requested(root.selected-extension-id, false); }
+                }
+            }
+
+            VerticalLayout {
+                visible: root.view == "list";
+                spacing: 8px;
+                Button {
+                    text: "Back to extensions";
+                    accessible-role: button;
+                    accessible-label: "Return to installed extensions";
+                    clicked => { root.view = "extensions"; }
+                }
+                Text {
+                    text: root.view-title;
+                    color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                    font-size: 16px;
+                    font-weight: 700;
+                    accessible-role: text;
+                }
+                ScrollView {
+                    vertical-stretch: 1;
+                    content-width: self.width;
+                    VerticalLayout {
+                        spacing: 6px;
+                        if (root.items.length == 0) : Text {
+                            text: root.status-message;
+                            color: root.dark-mode ? #b2c0ba : #4a625b;
+                            font-size: 12px;
+                            accessible-role: text;
+                        }
+                        for item in root.items : Button {
+                            height: 36px;
+                            text: item.id == root.selected-item-id ? "Selected: " + item.title : item.title;
+                            accessible-role: button;
+                            accessible-label: "Select " + item.title;
+                            clicked => {
+                                root.selected-item-id = item.id;
+                                root.selected-action-id = "";
+                                root.item-selected(item.id);
+                                if (root.actions.length > 0) {
+                                    root.view = "actions";
+                                }
+                            }
+                        }
+                        for item in root.items : Text {
+                            visible: item.id == root.selected-item-id && item.subtitle != "";
+                            text: item.subtitle;
+                            color: root.dark-mode ? #b2c0ba : #4a625b;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                            accessible-role: text;
+                            accessible-label: "Selected item details";
+                        }
+                        if (root.selected-item-id != "") : Button {
+                            height: 36px;
+                            text: "Clear item selection";
+                            accessible-role: button;
+                            accessible-label: "Return to list-level extension actions";
+                            clicked => {
+                                root.selected-item-id = "";
+                                root.selected-action-id = "";
+                                root.item-selected("");
+                            }
+                        }
+                        for action in root.actions : Button {
+                            height: 36px;
+                            visible: root.selected-item-id == "";
+                            text: action.label;
+                            enabled: !root.busy;
+                            accessible-role: button;
+                            accessible-label: "Run list action " + action.label;
+                            clicked => { root.action-requested(action.id, ""); }
+                        }
+                    }
+                }
+            }
+
+            VerticalLayout {
+                visible: root.view == "detail";
+                spacing: 8px;
+                Button {
+                    text: "Back to extensions";
+                    accessible-role: button;
+                    accessible-label: "Return to installed extensions";
+                    clicked => { root.view = "extensions"; }
+                }
+                Text {
+                    text: root.view-title;
+                    color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                    font-size: 16px;
+                    font-weight: 700;
+                    accessible-role: text;
+                }
+                ScrollView {
+                    vertical-stretch: 1;
+                    content-width: self.width;
+                    VerticalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: root.detail-content;
+                            color: root.dark-mode ? #c4d0ca : #354741;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                            accessible-role: text;
+                            accessible-label: "Extension detail";
+                        }
+                        for item in root.items : Rectangle {
+                            height: 120px;
+                            border-radius: 8px;
+                            background: root.dark-mode ? #202d30 : #ffffff;
+                            VerticalLayout {
+                                padding: 9px;
+                                spacing: 3px;
+                                Text {
+                                    text: item.title;
+                                    color: root.dark-mode ? #eaf5ef : #1a2b2b;
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                    accessible-role: text;
+                                }
+                                Text {
+                                    text: item.subtitle;
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                }
+                            }
+                        }
+                        for action in root.actions : Button {
+                            height: 36px;
+                            text: action.label;
+                            enabled: !root.busy;
+                            accessible-role: button;
+                            accessible-label: "Run action " + action.label;
+                            clicked => { root.action-requested(action.id, ""); }
+                        }
+                    }
+                }
+            }
+
+            VerticalLayout {
+                visible: root.view == "actions";
+                spacing: 8px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    Button {
+                        text: "Back to list";
+                        accessible-role: button;
+                        accessible-label: "Return to extension list view";
+                        clicked => { root.view = "list"; }
+                    }
+                    Text {
+                        text: root.view-title;
+                        color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                        font-size: 15px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                }
+                ScrollView {
+                    vertical-stretch: 1;
+                    content-width: self.width;
+                    VerticalLayout {
+                        spacing: 8px;
+                        for item in root.items : Rectangle {
+                            height: item.id == root.selected-item-id ? 120px : 0px;
+                            vertical-stretch: 0;
+                            visible: item.id == root.selected-item-id;
+                            border-radius: 8px;
+                            background: root.dark-mode ? #202d30 : #ffffff;
+                            VerticalLayout {
+                                padding: 10px;
+                                spacing: 4px;
+                                Text {
+                                    text: item.title;
+                                    color: root.dark-mode ? #eaf5ef : #1a2b2b;
+                                    font-size: 13px;
+                                    font-weight: 700;
+                                    accessible-role: text;
+                                }
+                                Text {
+                                    text: item.subtitle;
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                }
+                            }
+                        }
+                        if (root.selected-item-id == "" && root.items.length > 0) : Text {
+                            text: "Select an item before choosing an action.";
+                            color: root.dark-mode ? #b2c0ba : #4a625b;
+                            font-size: 12px;
+                            accessible-role: text;
+                        }
+                        for action in root.actions : Button {
+                            height: 36px;
+                            text: action.id == root.selected-action-id ? "Selected: " + action.label : action.label;
+                            enabled: !root.busy;
+                            accessible-role: button;
+                            accessible-label: "Run action " + action.label;
+                            clicked => {
+                                root.selected-action-id = action.id;
+                                root.action-requested(action.id, root.selected-item-id);
+                            }
+                        }
+                    }
+                }
+            }
+
+            VerticalLayout {
+                visible: root.view == "form";
+                spacing: 8px;
+                Button {
+                    text: "Back to extensions";
+                    accessible-role: button;
+                    accessible-label: "Return to installed extensions";
+                    clicked => { root.view = "extensions"; }
+                }
+                Text {
+                    text: root.view-title;
+                    color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                    font-size: 16px;
+                    font-weight: 700;
+                    accessible-role: text;
+                }
+                ScrollView {
+                    vertical-stretch: 1;
+                    content-width: self.width;
+                    VerticalLayout {
+                        spacing: 8px;
+                        for field in root.fields : Rectangle {
+                            border-radius: 8px;
+                            background: root.dark-mode ? #202d30 : #ffffff;
+                            VerticalLayout {
+                                padding: 9px;
+                                spacing: 5px;
+                                if (field.kind != "checkbox") : Text {
+                                    text: field.label;
+                                    color: root.dark-mode ? #eaf5ef : #1a2b2b;
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                    accessible-role: text;
+                                    accessible-label: field.label;
+                                }
+                                if (field.kind == "checkbox") : CheckBox {
+                                    text: field.label;
+                                    checked: field.value == "true";
+                                    accessible-role: checkbox;
+                                    accessible-label: field.label;
+                                    changed checked => {
+                                        root.form-changed(field.id, self.checked ? "true" : "false");
+                                    }
+                                }
+                                if (field.kind == "select") : VerticalLayout {
+                                    spacing: 4px;
+                                    for choice in field.choices : Button {
+                                        height: 36px;
+                                        text: field.value == choice.id ? "Selected: " + choice.label : choice.label;
+                                        accessible-role: button;
+                                        accessible-label: "Set " + field.label + " to " + choice.label;
+                                        clicked => { root.form-changed(field.id, choice.id); }
+                                    }
+                                }
+                                if (field.kind == "text" || field.kind == "number") : LineEdit {
+                                    text: field.value;
+                                    placeholder-text: field.placeholder == "" ? "Enter " + field.label : field.placeholder;
+                                    accessible-label: field.label;
+                                    edited => { root.form-changed(field.id, self.text); }
+                                }
+                                if (field.kind == "file") : Button {
+                                    height: 36px;
+                                    text: field.value == "" ? "Choose file" : "Choose another file";
+                                    accessible-role: button;
+                                    accessible-label: "Choose a file for " + field.label;
+                                    clicked => { root.file-select-requested(field.id); }
+                                }
+                            }
+                        }
+                        for action in root.actions : Button {
+                            height: 36px;
+                            text: action.id == root.selected-action-id ? "Selected: " + action.label : action.label;
+                            enabled: !root.busy;
+                            accessible-role: button;
+                            accessible-label: "Submit form action " + action.label;
+                            clicked => {
+                                root.selected-action-id = action.id;
+                                root.action-requested(action.id, root.selected-item-id);
+                            }
+                        }
+                    }
+                }
+            }
+
+            VerticalLayout {
+                visible: root.view == "loading";
+                vertical-stretch: 1;
+                spacing: 8px;
+                Text {
+                    text: root.status-message == "" ? "Loading extension…" : root.status-message;
+                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                    font-size: 13px;
+                    accessible-role: text;
+                    accessible-label: "Extension is loading";
+                }
+            }
+
+            VerticalLayout {
+                visible: root.view == "error";
+                vertical-stretch: 1;
+                spacing: 8px;
+                Button {
+                    height: 32px;
+                    text: "Back to extensions";
+                    accessible-role: button;
+                    accessible-label: "Return to installed extensions";
+                    clicked => { root.view = "extensions"; }
+                }
+                Text {
+                    vertical-stretch: 0;
+                    text: root.status-message == "" ? root.error-message : root.status-message;
+                    color: root.dark-mode ? #f0aa99 : #8d3828;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: "Extension error details";
+                }
+                for action in root.actions : Button {
+                    height: 32px;
+                    text: action.label;
+                    enabled: !root.busy;
+                    accessible-role: button;
+                    accessible-label: "Run action " + action.label;
+                    clicked => { root.action-requested(action.id, ""); }
+                }
+            }
+        }
+    }
+}

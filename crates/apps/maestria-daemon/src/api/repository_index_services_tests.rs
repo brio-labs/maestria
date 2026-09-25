@@ -72,12 +72,20 @@ fn fixture() -> Result<Fixture> {
 }
 
 fn status_context(layout: InstanceLayout) -> Result<ApiContext> {
+    let realm_id = RealmId::try_from("a".repeat(64))?;
+    let source_manifest = std::sync::Arc::new(parking_lot::RwLock::new(
+        maestria_core::InstanceManifest::decode(&std::fs::read_to_string(&layout.manifest_path)?)?,
+    ));
     Ok(ApiContext {
         layout,
         token: "test-token".to_string(),
         socket_path: PathBuf::new(),
         runtime: None,
-        realm_id: RealmId::try_from("a".repeat(64))?,
+        realm_id,
+        source_manifest,
+        interactive_searches: std::sync::Arc::new(
+            crate::api::server::InteractiveSearchCoordinator::default(),
+        ),
     })
 }
 
@@ -246,6 +254,7 @@ async fn run_builds_selected_index_and_status_reports_present() -> Result<()> {
     )
     .await?;
     let runtime = lifecycle.runtime_handle();
+    let source_manifest = lifecycle.source_manifest();
     let shutdown = tokio_util::sync::CancellationToken::new();
     let runtime_task = tokio::spawn(lifecycle.run_until_shutdown(shutdown.clone()));
     let context = ApiContext {
@@ -254,6 +263,10 @@ async fn run_builds_selected_index_and_status_reports_present() -> Result<()> {
         socket_path: PathBuf::new(),
         runtime: Some(runtime),
         realm_id: RealmId::try_from("a".repeat(64))?,
+        source_manifest,
+        interactive_searches: std::sync::Arc::new(
+            crate::api::server::InteractiveSearchCoordinator::default(),
+        ),
     };
 
     let includes = vec![fixture.repo.join("crates/one").display().to_string()];

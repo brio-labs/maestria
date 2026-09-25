@@ -21,9 +21,81 @@ allow = [
   "MIT-0",
 ]
 
+# Slint 1.18.1 is used only as part of the desktop launcher under its
+# Royalty-free Desktop, Mobile, and Web Applications License 2.0.
+# Distribution requires the attribution described in docs/RESEARCH.md.
+[[licenses.exceptions]]
+name = "slint"
+version = "=1.18.1"
+allow = ["LicenseRef-Slint-Royalty-free-2.0"]
+
+[[licenses.exceptions]]
+name = "slint-build"
+version = "=1.18.1"
+allow = ["LicenseRef-Slint-Royalty-free-2.0"]
+
+[[licenses.exceptions]]
+name = "slint-macros"
+version = "=1.18.1"
+allow = ["LicenseRef-Slint-Royalty-free-2.0"]
+
+[[licenses.exceptions]]
+name = "i-slint-common"
+version = "=1.18.1"
+allow = ["LicenseRef-Slint-Royalty-free-2.0"]
+
+[[licenses.exceptions]]
+name = "i-slint-compiler"
+version = "=1.18.1"
+allow = ["LicenseRef-Slint-Royalty-free-2.0"]
+
+[[licenses.exceptions]]
+name = "i-slint-core"
+version = "=1.18.1"
+allow = ["LicenseRef-Slint-Royalty-free-2.0"]
+
+[[licenses.exceptions]]
+name = "i-slint-core-macros"
+version = "=1.18.1"
+allow = ["LicenseRef-Slint-Royalty-free-2.0"]
+
+[[licenses.exceptions]]
+name = "i-slint-backend-selector"
+version = "=1.18.1"
+allow = ["LicenseRef-Slint-Royalty-free-2.0"]
+
+[[licenses.exceptions]]
+name = "i-slint-backend-winit"
+version = "=1.18.1"
+allow = ["LicenseRef-Slint-Royalty-free-2.0"]
+
+[[licenses.exceptions]]
+name = "i-slint-renderer-software"
+version = "=1.18.1"
+allow = ["LicenseRef-Slint-Royalty-free-2.0"]
+
+[[licenses.exceptions]]
+name = "i-slint-renderer-skia"
+version = "=1.18.1"
+allow = ["LicenseRef-Slint-Royalty-free-2.0"]
+
+# Windows-only dependencies in the resolved Slint graph; keep the BSL
+# exception pinned to the audited versions.
+[[licenses.exceptions]]
+name = "clipboard-win"
+version = "=5.4.1"
+allow = ["BSL-1.0"]
+
+[[licenses.exceptions]]
+name = "error-code"
+version = "=3.4.0"
+allow = ["BSL-1.0"]
+
 [advisories]
-# Refresh this periodically with new cargo-audit advisories if needed.
-ignore = []
+# RUSTSEC-2026-0192 marks ttf-parser 0.25.1 unmaintained; both the
+# existing lopdf parser and Slint's Winit backend depend on it, with no
+# safe upgrade yet. Revisit when either dependency offers a replacement.
+ignore = ["RUSTSEC-2026-0192"]
 
 [bans]
 multiple-versions = "warn"

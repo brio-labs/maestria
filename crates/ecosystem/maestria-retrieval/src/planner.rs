@@ -29,10 +29,9 @@ pub fn rewrite_session(plan: &SearchPlan) -> QueryRewriteSession {
 }
 
 struct PlanOptions {
-    max_stages: u32,
     expansion_enabled: bool,
     reranking_enabled: bool,
-    web_limits: (u32, u64, u32),
+    budget_limits: maestria_domain::SearchBudgetLimits,
 }
 
 struct RouteParameters {
@@ -40,6 +39,47 @@ struct RouteParameters {
     modality: Modality,
     original_intent: Option<SearchIntent>,
     route_decision: Option<SearchRouteDecision>,
+}
+
+/// Maximum UTF-8 byte length accepted by an interactive local query.
+pub const INTERACTIVE_MAX_QUERY_BYTES: usize = 512;
+/// Maximum latency budget for an interactive local query.
+pub const INTERACTIVE_MAX_LATENCY_MS: u32 = 100;
+
+const INTERACTIVE_MAX_CANDIDATES: u32 = 100_000;
+const INTERACTIVE_MAX_WORK_UNITS: u64 = 200_000;
+const INTERACTIVE_MAX_BYTES_READ: u64 = 8 * 1024 * 1024;
+
+fn general_budget_limits(
+    max_stages: u32,
+    web_limits: (u32, u64, u32),
+) -> maestria_domain::SearchBudgetLimits {
+    let (max_web_requests, max_bytes_read, max_concurrency) = web_limits;
+    maestria_domain::SearchBudgetLimits {
+        max_tokens: 1_000,
+        max_latency_ms: 30_000,
+        max_queries: 8,
+        max_stages,
+        max_web_requests,
+        max_bytes_read,
+        max_concurrency,
+        max_candidates: 30_000,
+        max_work_units: 30_000_000,
+    }
+}
+
+fn interactive_budget_limits() -> maestria_domain::SearchBudgetLimits {
+    maestria_domain::SearchBudgetLimits {
+        max_tokens: 128,
+        max_latency_ms: INTERACTIVE_MAX_LATENCY_MS,
+        max_queries: 1,
+        max_stages: 1,
+        max_web_requests: 0,
+        max_bytes_read: INTERACTIVE_MAX_BYTES_READ,
+        max_concurrency: 1,
+        max_candidates: INTERACTIVE_MAX_CANDIDATES,
+        max_work_units: INTERACTIVE_MAX_WORK_UNITS,
+    }
 }
 
 fn build_plan(
@@ -50,28 +90,16 @@ fn build_plan(
     route: RouteParameters,
     authorization: maestria_domain::RetrievalPolicySnapshot,
 ) -> RetrievalResult<SearchPlan> {
-    let (web_requests, web_bytes, web_concurrency) = options.web_limits;
-    let max_stages = options.max_stages;
-    let expansion_enabled = options.expansion_enabled;
-    let reranking_enabled = options.reranking_enabled;
-    let budgets = maestria_domain::SearchBudget::with_resource_limits(
-        1_000,
-        30_000,
-        8,
-        max_stages,
-        web_requests,
-        web_bytes,
-        web_concurrency,
-    )
-    .map_err(|error| RetrievalError::Internal(error.to_string()))?;
+    let budgets = maestria_domain::SearchBudget::with_execution_limits(options.budget_limits)
+        .map_err(|error| RetrievalError::Internal(error.to_string()))?;
     let max_results = u32::try_from(limit)
         .map_err(|_| RetrievalError::InvalidResultLimit { limit })?
         .max(1);
     let mut stages = vec![maestria_domain::SearchStage::InitialRetrieval];
-    if reranking_enabled {
+    if options.reranking_enabled {
         stages.push(maestria_domain::SearchStage::Reranking);
     }
-    if expansion_enabled {
+    if options.expansion_enabled {
         stages.push(maestria_domain::SearchStage::Filtering);
     }
     SearchPlan::builder()
@@ -120,6 +148,7 @@ fn build_plan(
         .build()
         .map_err(RetrievalError::Compatibility)
 }
+
 impl RetrievalEngine {
     fn authorization_snapshot(
         &self,
@@ -155,10 +184,9 @@ impl RetrievalEngine {
                 limit,
                 context,
                 PlanOptions {
-                    max_stages: 1,
                     expansion_enabled: false,
                     reranking_enabled: false,
-                    web_limits: (0, 0, 1),
+                    budget_limits: general_budget_limits(1, (0, 0, 1)),
                 },
                 RouteParameters {
                     intent: SearchIntent::FactualLocal,
@@ -199,6 +227,79 @@ impl RetrievalEngine {
             ),
         }
     }
+    /// Builds the bounded local lexical plan used by interactive passage queries.
+    ///
+    /// Unlike `plan`, this route never selects expansion, reranking, web,
+    /// dense, repository-code, or sparse work; execution further restricts the
+    /// registered retrievers to the text lexical lane.
+    pub fn plan_interactive(
+        &self,
+        query: impl Into<String>,
+        limit: usize,
+        context: &SearchPlannerContext,
+    ) -> RetrievalResult<SearchPlan> {
+        let original_query = query.into();
+        if original_query.trim().is_empty() {
+            return Err(RetrievalError::InvalidQuery(
+                "interactive query must not be empty".to_string(),
+            ));
+        }
+        if original_query.len() > INTERACTIVE_MAX_QUERY_BYTES {
+            return Err(RetrievalError::InvalidQuery(format!(
+                "interactive query exceeds {INTERACTIVE_MAX_QUERY_BYTES} bytes"
+            )));
+        }
+        if !(1..=100).contains(&limit) {
+            return Err(RetrievalError::InvalidQuery(
+                "interactive result limit must be between 1 and 100".to_string(),
+            ));
+        }
+
+        let inferred_intent = SearchIntent::classify(&original_query);
+        let (intent, original_intent, route_decision) = match inferred_intent {
+            SearchIntent::ExactLookup | SearchIntent::FactualLocal => (inferred_intent, None, None),
+            other => (
+                SearchIntent::FactualLocal,
+                Some(other),
+                Some(SearchRouteDecision::LocalTextFallback),
+            ),
+        };
+        let plan = build_plan(
+            &original_query,
+            limit,
+            context,
+            PlanOptions {
+                expansion_enabled: false,
+                reranking_enabled: false,
+                budget_limits: interactive_budget_limits(),
+            },
+            RouteParameters {
+                intent,
+                modality: Modality::Text,
+                original_intent,
+                route_decision,
+            },
+            self.authorization_snapshot(context)?,
+        )?;
+        let validation_plan = if plan.route_decision().is_some() {
+            plan.clone()
+                .with_original_query("interactive local text query".to_string())
+                .map_err(RetrievalError::Compatibility)?
+        } else {
+            plan.clone()
+        };
+        let capabilities = self
+            .capabilities
+            .clone()
+            .with_snapshot(context.corpus_snapshot);
+        maestria_governance::SearchPlanValidator::validate(
+            &validation_plan,
+            &capabilities,
+            &maestria_governance::RetrievalSecurityPolicy::default(),
+        )
+        .map_err(RetrievalError::SearchPlan)?;
+        Ok(plan)
+    }
 
     fn select_plan_options(
         &self,
@@ -216,17 +317,15 @@ impl RetrievalEngine {
             && inferred_intent == SearchIntent::VisualDocument
             && self.visual_execution_policy.allows_visual(original_query);
         let max_stages = 1 + u32::from(expansion_enabled) + u32::from(reranking_enabled);
-        let (web_requests, web_bytes, web_concurrency) =
-            if inferred_intent == SearchIntent::CurrentWeb {
-                (3, 1_000_000, 3)
-            } else {
-                (0, 0, 1)
-            };
+        let web_limits = if inferred_intent == SearchIntent::CurrentWeb {
+            (3, 1_000_000, 3)
+        } else {
+            (0, 0, 1)
+        };
         let options = PlanOptions {
-            max_stages,
             expansion_enabled,
             reranking_enabled,
-            web_limits: (web_requests, web_bytes, web_concurrency),
+            budget_limits: general_budget_limits(max_stages, web_limits),
         };
         let route = RouteParameters {
             intent: inferred_intent,
@@ -282,10 +381,9 @@ impl RetrievalEngine {
             limit,
             context,
             PlanOptions {
-                max_stages: 1,
                 expansion_enabled: false,
                 reranking_enabled: false,
-                web_limits: (0, 0, 1),
+                budget_limits: general_budget_limits(1, (0, 0, 1)),
             },
             RouteParameters {
                 intent: SearchIntent::FactualLocal,

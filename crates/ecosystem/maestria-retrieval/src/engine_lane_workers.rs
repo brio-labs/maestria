@@ -53,7 +53,31 @@ pub(super) fn run_lane_jobs(
                 } = job;
                 scope.spawn(move || {
                     let _permit = permits.acquire();
-                    (index, descriptor, allocation, retriever.retrieve(request))
+                    let cancellation = request.cancellation.clone();
+                    if cancellation
+                        .as_ref()
+                        .is_some_and(crate::types::SearchCancellation::is_cancelled)
+                    {
+                        return (
+                            index,
+                            descriptor,
+                            allocation,
+                            Err(RetrievalError::Cancelled),
+                        );
+                    }
+                    let result = retriever.retrieve(request);
+                    if cancellation
+                        .as_ref()
+                        .is_some_and(crate::types::SearchCancellation::is_cancelled)
+                    {
+                        return (
+                            index,
+                            descriptor,
+                            allocation,
+                            Err(RetrievalError::Cancelled),
+                        );
+                    }
+                    (index, descriptor, allocation, result)
                 })
             })
             .collect();

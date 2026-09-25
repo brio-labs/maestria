@@ -168,3 +168,77 @@ fn index_events_filter_by_artifact() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(for_artifact_1, vec![pending, full_text, indexed]);
     Ok(())
 }
+
+#[test]
+fn source_event_scan_preserves_stale_and_restored_content_versions_without_audits()
+-> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    let artifact_id = ArtifactId::new(7);
+    let source_path = "/tmp/reapproved.md".to_string();
+    let content_hash = maestria_test_support::content_hash(13)?;
+    let version = content_hash.version_id()?;
+    let started = DomainEvent::ParserStarted {
+        artifact_id,
+        title: "reapproved.md".to_string(),
+        source_path: source_path.clone(),
+        content_hash: content_hash.clone(),
+        blob_id: BlobId::new(42),
+    };
+    store.append(DomainEventEnvelope {
+        id: EventId::new(1),
+        event: started.clone(),
+    })?;
+    store.append(DomainEventEnvelope {
+        id: EventId::new(2),
+        event: DomainEvent::SearchExecuted {
+            query: "unrelated audit".to_string(),
+            limit: 1,
+            evidence_ids: Vec::new(),
+            pack_metadata: None,
+            at: LogicalTick::new(1),
+        },
+    })?;
+    store.append(DomainEventEnvelope {
+        id: EventId::new(3),
+        event: DomainEvent::DocumentTreeCaptured {
+            artifact_id,
+            artifact_version_id: version,
+            content_hash: content_hash.clone(),
+            root_id: StructureNodeId::new(1),
+            nodes: Vec::new(),
+        },
+    })?;
+    store.append(DomainEventEnvelope {
+        id: EventId::new(4),
+        event: DomainEvent::SourceBecameStale {
+            artifact_id,
+            source_path: source_path.clone(),
+            content_hash: content_hash.clone(),
+        },
+    })?;
+    assert!(active_source_versions(&store.scan_searchable_source_events()?).is_empty());
+
+    store.append(DomainEventEnvelope {
+        id: EventId::new(5),
+        event: started,
+    })?;
+    let source_events = store.scan_searchable_source_events()?;
+    assert_eq!(
+        source_events
+            .iter()
+            .map(|event| event.id.value())
+            .collect::<Vec<_>>(),
+        [1, 3, 4, 5]
+    );
+    assert_eq!(store.searchable_source_revision()?, 5);
+    let active = active_source_versions(&source_events);
+    assert_eq!(
+        active,
+        active_source_versions(&store.scan(EventFilter { artifact_id: None })?)
+    );
+    assert_eq!(
+        active.get(std::path::Path::new(&source_path)),
+        Some(&(artifact_id, version, content_hash))
+    );
+    Ok(())
+}

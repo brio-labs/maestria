@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Maestria search is a typed, budgeted, auditable retrieval capability. It is not a fixed sequence of vector lookup, top-*k* selection, and prompting.
+Sillage search is a typed, budgeted, auditable retrieval capability. It is not a fixed sequence of vector lookup, top-*k* selection, and prompting.
 
-Search produces evidence candidates and coverage information for downstream validation, reasoning, and decisions. It does **not** establish external factual truth. Maestria can preserve source-backed observations and enforce internal state invariants; it cannot make an external claim true.
+Search produces evidence candidates and coverage information for downstream validation, reasoning, and decisions. It does **not** establish external factual truth. Sillage can preserve source-backed observations and enforce internal state invariants; it cannot make an external claim true.
 
 This document defines the search architecture. General system invariants and design principles are defined in:
 
@@ -36,8 +36,8 @@ It does not define a permanent model, database, vector index, ranking algorithm,
 6. Evidence snapshots are immutable. Trust, freshness, conflict, and validity annotations are versioned.
 7. Provider-specific payloads remain inside adapters.
 8. Search implementations are replaceable until benchmark results justify a choice.
-9. No model name, public leaderboard, or architecture diagram proves that retrieval works for Maestria.
-10. Material retrieval changes require evaluation against a versioned Maestria query set.
+9. No model name, public leaderboard, or architecture diagram proves that retrieval works for Sillage.
+10. Material retrieval changes require evaluation against a versioned Sillage query set.
 11. Original query identity is immutable; rewrites are additional typed retrieval views.
 12. Deterministic expansions precede model proposals, and stage roles restrict where each rewrite may execute.
 
@@ -777,7 +777,7 @@ snapshot or artifact retention
 validation method
 ```
 
-A search result or external provider response does not become domain truth merely because Maestria stored it.
+A search result or external provider response does not become domain truth merely because Sillage stored it.
 
 ## Runtime and Crate Boundaries
 
@@ -822,7 +822,7 @@ compression methods
 hardware and deployment profiles
 ```
 
-A replacement is eligible for activation only after evaluation against the relevant Maestria workload. Evaluation must include, as applicable:
+A replacement is eligible for activation only after evaluation against the relevant Sillage workload. Evaluation must include, as applicable:
 
 ```text
 Recall@k
@@ -838,7 +838,7 @@ p50/p95/p99 latency
 RAM, disk, indexing, update, and energy cost
 ```
 
-Public benchmarks and vendor claims may inform experiments but are not acceptance evidence for Maestria.
+Public benchmarks and vendor claims may inform experiments but are not acceptance evidence for Sillage.
 
 ## Retrieval Evaluation Gate
 

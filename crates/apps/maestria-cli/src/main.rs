@@ -161,6 +161,7 @@ async fn dispatch(command: Commands) -> Result<()> {
         Commands::Memory { command } => dispatch_memory(command).await?,
         Commands::Approval { command } => dispatch_approval(command).await?,
         Commands::Realm { command } => commands::realm::run(command).await?,
+        Commands::SearchApi { command } => commands::search_api::run(command).await?,
         Commands::Promotion { command } => dispatch_promotion(command)?,
     }
     Ok(())
@@ -261,6 +262,9 @@ async fn dispatch_search(
             experiment_a,
             experiment_b,
         }) => commands::observability::run_search_compare(instance_dir, experiment_a, experiment_b),
+        Some(SearchCommands::Roots { command }) => {
+            commands::search_roots::run(instance_dir, command).await
+        }
         Some(SearchCommands::Code { command, limit }) => {
             let query = match command {
                 CodeSearchCommands::Context {

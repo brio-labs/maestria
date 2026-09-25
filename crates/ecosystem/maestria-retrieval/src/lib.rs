@@ -39,9 +39,10 @@ pub mod visual_reranker;
 pub use monotonic::MonotonicInstant;
 
 pub use engine::{
-    LearnedSparseShadowCandidate, LearnedSparseShadowLane, LearnedSparseShadowLaneStatus,
-    LearnedSparseShadowObservation, LearnedSparseShadowRoute, LearnedSparseShadowStore,
-    LearnedSparseShadowStoreError, RetrievalEngine, SearchPlannerContext,
+    INTERACTIVE_MAX_LATENCY_MS, INTERACTIVE_MAX_QUERY_BYTES, LearnedSparseShadowCandidate,
+    LearnedSparseShadowLane, LearnedSparseShadowLaneStatus, LearnedSparseShadowObservation,
+    LearnedSparseShadowRoute, LearnedSparseShadowStore, LearnedSparseShadowStoreError,
+    RetrievalEngine, SearchPlannerContext,
 };
 pub use fusion::{FixedKRrf, NormalizedBlend};
 pub use learned_sparse_benchmark::{
@@ -81,7 +82,7 @@ pub use types::{
     CandidateSourceFilter, CandidateSourceFilterError, ContextExpansion, ExpansionPolicy,
     HybridExecutionPolicy, HybridPromotionRecord, RerankConstraintScore, RerankLimits,
     RerankRequest, RerankResult, RerankScoreComponents, RerankScorerInput, RetrievalError,
-    RetrievalResult,
+    RetrievalResult, SearchCancellation,
 };
 pub use visual_benchmark::{
     VisualBenchmarkCase, VisualBenchmarkComparison, VisualBenchmarkCorpus, VisualBenchmarkError,

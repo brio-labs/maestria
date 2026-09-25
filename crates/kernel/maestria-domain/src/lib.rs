@@ -71,21 +71,24 @@ pub use crate::effects::{
 pub use crate::entities::{
     Artifact, Card, Chunk, Claim, ClaimStatus, ContentRange, ContentRangeError, Evidence,
     FederatedAccessRecord, FederatedReadAccess, FederatedReadOperation, IndexStatus,
-    MIN_PROMOTION_CONFIDENCE_MILLI, Memory, MemoryCandidate, MemoryStatus, OutputStream,
-    PendingArtifact, RealmReadGrant, RealmReadGrantState, Relation, RelationEndpoint, RelationKind,
-    Task, TaskPriority, TestStatus, ValidationReportRecord,
+    MAX_REALM_GRANT_ROOT_BYTES, MAX_REALM_GRANT_ROOTS, MIN_PROMOTION_CONFIDENCE_MILLI, Memory,
+    MemoryCandidate, MemoryStatus, OutputStream, PendingArtifact, RealmReadGrant,
+    RealmReadGrantExpiry, RealmReadGrantExpiryError, RealmReadGrantState, Relation,
+    RelationEndpoint, RelationKind, Task, TaskPriority, TestStatus, ValidationReportRecord,
 };
 pub use crate::errors::DomainError;
-pub use crate::events::{DomainEvent, DomainEventEnvelope, active_source_versions};
+pub use crate::events::{
+    ActiveSourceVersions, DomainEvent, DomainEventEnvelope, active_source_versions,
+};
 pub use crate::evidence_pack::{
     ClaimCoverageStatusRecord, ClaimEvidenceCoverageRecord, EvidenceFreshnessRecord,
     EvidencePackCompressionRecord, EvidencePackMetadataRecord, EvidencePackReplayKeyRecord,
     EvidencePackReproducibilityRecord, SourceIndependenceRecord,
 };
 pub use crate::evidence_source::{
-    EvidenceKind, LineRange, LineRangeError, SnapshotRef, SnapshotVerificationError,
-    TextSnapshotVerificationError, WebEvidenceMetadata, verify_snapshot_bytes,
-    verify_text_snapshot,
+    EvidenceKind, LineRange, LineRangeError, ParagraphRange, ParagraphRangeError, SnapshotRef,
+    SnapshotVerificationError, TextSnapshotVerificationError, WebEvidenceMetadata,
+    verify_snapshot_bytes, verify_text_snapshot,
 };
 pub use crate::federated_evidence_bounds::{
     FederatedEvidenceBounds, FederatedEvidenceBoundsError, MAX_FEDERATED_EVIDENCE_BYTES,

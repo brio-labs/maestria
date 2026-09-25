@@ -43,3 +43,4 @@ maestria-adapter-http = { workspace = true }
 maestria-visual-local = { workspace = true }
 maestria-ports = { workspace = true, features = ["contract-tests"] }
 maestria-test-support = { workspace = true }
+lopdf = { workspace = true }

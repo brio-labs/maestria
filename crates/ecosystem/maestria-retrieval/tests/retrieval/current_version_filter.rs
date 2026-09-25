@@ -54,6 +54,7 @@ fn request() -> RetrievalResult<CandidateRequest> {
         expected_generation: maestria_domain::IndexGenerationId::new(1),
         authorization,
         source_filter: None,
+        cancellation: None,
     })
 }
 

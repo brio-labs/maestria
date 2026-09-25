@@ -85,7 +85,25 @@ pub async fn run_instance_with_shutdown(
         .with_context(|| "prepare instance layout")?;
     let lifecycle = InstanceLifecycle::start(layout.clone(), profile).await?;
     let runtime = lifecycle.runtime_handle();
-    let api = crate::api::ApiServer::start(layout, runtime).await?;
+    // Build the source-version snapshot before the socket accepts requests.
+    // The 100 ms interactive deadline must not pay for cold event replay.
+    let executor = runtime
+        .search_executor()
+        .ok_or_else(|| anyhow::anyhow!("daemon-owned search executor is unavailable"))?;
+    tokio::task::spawn_blocking(move || {
+        let search_runtime = executor
+            .as_any()
+            .and_then(|executor| executor.downcast_ref::<crate::SearchRuntime>())
+            .ok_or_else(|| {
+                anyhow::anyhow!("daemon-owned search executor has an unexpected type")
+            })?;
+        search_runtime.interactive_snapshot().map(|_| ())
+    })
+    .await
+    .context("join interactive search startup snapshot")?
+    .context("prepare interactive search startup snapshot")?;
+    let source_manifest = lifecycle.source_manifest();
+    let api = crate::api::ApiServer::start(layout, runtime, source_manifest).await?;
     println!("daemon_api_socket={}", api.socket_path().display());
     let lifecycle_result = lifecycle.run_until_shutdown(shutdown).await;
     let api_result = api.shutdown().await;

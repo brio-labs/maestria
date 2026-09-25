@@ -142,14 +142,16 @@ pub fn reconcile_retrieval_generations(
 ) -> Result<RetrievalGenerations> {
     let store = SqliteStore::open(&layout.database_path)
         .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
-    let lexical_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)
-        .with_context(|| "open lexical index for fingerprint")?;
+    // The storage adapter reads current indexes without taking Tantivy's writer lock. It only
+    // opens writable for a missing index or a schema verified as migratable legacy data.
+    let fingerprint = TantivyFullTextIndex::fingerprint_for_path(&layout.full_text_index_dir)
+        .with_context(|| "fingerprint full-text index")?;
     let snapshot = maestria_domain::DEFAULT_CORPUS_SNAPSHOT_ID;
     let primary = ensure_generation(
         state,
         &store,
         RepresentationName::new("lexical_text_v1"),
-        lexical_index.fingerprint()?,
+        fingerprint,
         snapshot,
         None,
     )?;

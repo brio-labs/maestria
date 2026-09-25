@@ -71,7 +71,8 @@ pub use api::{
     NotebookDraftListResponse, NotebookDraftResponse, NotebookDraftSavedResponse,
     NotebookDraftSummary, NotebookListResponse, NotebookResponse, NotebookSourceCatalogEntry,
     NotebookSourceCatalogResponse, NotebookSourceSelection, NotebookSummary, RealmGrantAccess,
-    RealmGrantSensitivity, SearchResponse,
+    RealmGrantCreatedResponse, RealmGrantResponse, RealmGrantSensitivity, SEARCH_API_PROTOCOL,
+    SEARCH_API_VERSION, SearchApiClient, SearchApiOperation, SearchApiResponse, SearchResponse,
 };
 pub use approval_recovery::{reconcile_approval_repo, reconcile_pending_approvals};
 pub use full_text_recovery::pending_start_full_text;

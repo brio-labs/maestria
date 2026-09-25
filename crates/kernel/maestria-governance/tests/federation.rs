@@ -1,10 +1,11 @@
 use maestria_domain::{
     Authority, CorpusScope, FederatedEvidenceBounds, FederatedReadAccess, FederatedReadOperation,
-    GrantTokenDigest, IntegrityState, RealmId, RealmReadGrant, ReviewStatus, ScopeId,
-    SecurityMetadata, Sensitivity, TrustZone,
+    GrantTokenDigest, IntegrityState, RealmId, RealmReadGrant, RealmReadGrantExpiry, ReviewStatus,
+    ScopeId, SecurityMetadata, Sensitivity, TrustZone,
 };
 use maestria_governance::{
-    FederatedGrantDecision, RetrievalDecision, RetrievalSecurityPolicy, authorize_federated_read,
+    FederatedGrantDecision, FederatedGrantDenial, RetrievalDecision, RetrievalSecurityPolicy,
+    authorize_federated_read,
 };
 
 fn realm(byte: char) -> Result<RealmId, Box<dyn std::error::Error>> {
@@ -19,6 +20,7 @@ fn grant(access: FederatedReadAccess) -> Result<RealmReadGrant, Box<dyn std::err
         access,
         Sensitivity::Confidential,
         FederatedEvidenceBounds::try_new(3, 128)?,
+        RealmReadGrantExpiry::new(100)?,
     ))
 }
 
@@ -46,6 +48,7 @@ fn authorization(
         &realm('b')?,
         FederatedReadOperation::Search,
         value,
+        0,
         &policy,
         &CorpusScope::Global,
     ) {
@@ -118,6 +121,7 @@ fn rejects_wrong_realm_and_unsupported_evidence_access() -> Result<(), Box<dyn s
             &realm('b')?,
             FederatedReadOperation::Search,
             &grant,
+            0,
             &RetrievalSecurityPolicy::new(),
             &CorpusScope::Global,
         ),
@@ -129,10 +133,36 @@ fn rejects_wrong_realm_and_unsupported_evidence_access() -> Result<(), Box<dyn s
             &realm('b')?,
             FederatedReadOperation::OpenEvidence,
             &grant,
+            0,
             &RetrievalSecurityPolicy::new(),
             &CorpusScope::Global,
         ),
         FederatedGrantDecision::Denied(_)
     ));
+    Ok(())
+}
+#[test]
+fn grant_is_denied_at_its_expiry_boundary() -> Result<(), Box<dyn std::error::Error>> {
+    let expired = RealmReadGrant::new(
+        GrantTokenDigest::derive(b"expiring-grant"),
+        realm('a')?,
+        realm('b')?,
+        FederatedReadAccess::SearchOnly,
+        Sensitivity::Public,
+        FederatedEvidenceBounds::try_new(1, 1)?,
+        RealmReadGrantExpiry::new(10)?,
+    );
+    assert_eq!(
+        authorize_federated_read(
+            &realm('a')?,
+            &realm('b')?,
+            FederatedReadOperation::Search,
+            &expired,
+            10,
+            &RetrievalSecurityPolicy::new(),
+            &CorpusScope::Global,
+        ),
+        FederatedGrantDecision::Denied(FederatedGrantDenial::GrantExpired),
+    );
     Ok(())
 }

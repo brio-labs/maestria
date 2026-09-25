@@ -2,6 +2,7 @@ use std::{future::Future, path::Path, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use maestria_core::{InstanceLayout, InstanceManifest};
+use parking_lot::{Mutex as ParkingMutex, RwLock};
 use tokio::{
     io::AsyncWriteExt,
     net::{UnixListener, UnixStream},
@@ -37,6 +38,7 @@ impl ApiServer {
     pub async fn start(
         layout: InstanceLayout,
         runtime: maestria_runtime::RuntimeHandle,
+        source_manifest: Arc<RwLock<InstanceManifest>>,
     ) -> Result<Self> {
         let socket = socket_path(&layout);
         super::set_private_directory_permissions(&layout.system_dir)?;
@@ -58,6 +60,8 @@ impl ApiServer {
             socket_path: socket,
             runtime: Some(runtime),
             realm_id,
+            source_manifest,
+            interactive_searches: Arc::new(InteractiveSearchCoordinator::default()),
         });
         let shutdown = CancellationToken::new();
         let connections = ConnectionTasks::default();
@@ -147,6 +151,73 @@ pub(crate) struct ApiContext {
     pub(crate) socket_path: std::path::PathBuf,
     pub(crate) runtime: Option<maestria_runtime::RuntimeHandle>,
     pub(crate) realm_id: maestria_domain::RealmId,
+    pub(crate) source_manifest: Arc<RwLock<InstanceManifest>>,
+    pub(crate) interactive_searches: Arc<InteractiveSearchCoordinator>,
+}
+#[derive(Default)]
+struct InteractiveSearchState {
+    generation: u64,
+    active: std::collections::BTreeMap<maestria_domain::RealmId, (u64, InteractiveSearchControl)>,
+}
+
+#[derive(Default)]
+pub(crate) struct InteractiveSearchCoordinator {
+    state: ParkingMutex<InteractiveSearchState>,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct InteractiveSearchControl {
+    pub(crate) signal: CancellationToken,
+    pub(crate) cancellation: maestria_retrieval::SearchCancellation,
+}
+
+impl InteractiveSearchControl {
+    pub(crate) fn cancel(&self) {
+        self.cancellation.cancel();
+        self.signal.cancel();
+    }
+}
+
+pub(crate) struct InteractiveSearchRequest {
+    coordinator: Arc<InteractiveSearchCoordinator>,
+    consumer_realm: maestria_domain::RealmId,
+    generation: u64,
+}
+
+impl InteractiveSearchCoordinator {
+    pub(crate) fn begin(
+        self: &Arc<Self>,
+        consumer_realm: maestria_domain::RealmId,
+        control: InteractiveSearchControl,
+    ) -> InteractiveSearchRequest {
+        let mut state = self.state.lock();
+        if let Some((_, previous)) = state.active.remove(&consumer_realm) {
+            previous.cancel();
+        }
+        state.generation = state.generation.wrapping_add(1).max(1);
+        let generation = state.generation;
+        state
+            .active
+            .insert(consumer_realm.clone(), (generation, control));
+        InteractiveSearchRequest {
+            coordinator: self.clone(),
+            consumer_realm,
+            generation,
+        }
+    }
+}
+
+impl Drop for InteractiveSearchRequest {
+    fn drop(&mut self) {
+        let mut state = self.coordinator.state.lock();
+        if state
+            .active
+            .get(&self.consumer_realm)
+            .is_some_and(|(generation, _)| *generation == self.generation)
+        {
+            state.active.remove(&self.consumer_realm);
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -220,17 +291,20 @@ async fn handle_connection(
         }
         None => return Ok(()),
     };
-    let request = match serde_json::from_slice::<ClientRequest>(line.trim_ascii()) {
+    let value = match serde_json::from_slice::<serde_json::Value>(line.trim_ascii()) {
+        Ok(value) => value,
+        Err(error) => {
+            return invalid_request(&shutdown, &mut stream, error.to_string()).await;
+        }
+    };
+    if value.get("protocol").is_some() {
+        return super::server_search_api::handle_request(&shutdown, &mut stream, context, value)
+            .await;
+    }
+    let request = match serde_json::from_value::<ClientRequest>(value) {
         Ok(request) => request,
         Err(error) => {
-            return write_reply_until_shutdown(
-                &shutdown,
-                &mut stream,
-                None,
-                Some(format!("invalid request: {error}")),
-                Some(ClientErrorCode::InvalidInput),
-            )
-            .await;
+            return invalid_request(&shutdown, &mut stream, error.to_string()).await;
         }
     };
     let principal = match request.authentication {
@@ -284,6 +358,20 @@ async fn handle_connection(
         }
     }
 }
+async fn invalid_request(
+    shutdown: &CancellationToken,
+    stream: &mut UnixStream,
+    message: String,
+) -> Result<()> {
+    write_reply_until_shutdown(
+        shutdown,
+        stream,
+        None,
+        Some(format!("invalid request: {message}")),
+        Some(ClientErrorCode::InvalidInput),
+    )
+    .await
+}
 
 async fn write_reply_until_shutdown(
     shutdown: &CancellationToken,
@@ -298,7 +386,7 @@ async fn write_reply_until_shutdown(
     }
 }
 
-async fn run_until_shutdown<T, F>(shutdown: &CancellationToken, future: F) -> Option<T>
+pub(super) async fn run_until_shutdown<T, F>(shutdown: &CancellationToken, future: F) -> Option<T>
 where
     F: Future<Output = T>,
 {
@@ -340,9 +428,17 @@ async fn write_reply(
         .context("write daemon response")
 }
 
-fn classify_error(message: &str) -> ClientErrorCode {
+pub(super) fn classify_error(message: &str) -> ClientErrorCode {
     let message = message.to_ascii_lowercase();
-    if message.contains("unauthorized") || message.contains("access denied") {
+    if message.contains("executor is unavailable")
+        || message.contains("service request timed out")
+        || message.contains("requires a live daemon runtime")
+    {
+        ClientErrorCode::DaemonUnavailable
+    } else if message.contains("unauthorized")
+        || message.contains("access denied")
+        || message.contains("grant expired")
+    {
         ClientErrorCode::Unauthorized
     } else if message.contains("source_not_selected")
         || message.contains("source not selected")

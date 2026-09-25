@@ -36,7 +36,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "2636d029d450559c7b663a22891018a1d0ad193b64014aad897e66981ad69df9"
+        "source_hash": "1323a79931d1ae565df59bfa33c2e368b4da914fc80162b96d4ba411e93bf78c"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -51,15 +51,15 @@
       "results": {
         "quality": {
           "status": "warning",
-          "reason": "golden gate is measured; source-index report is generated in CI"
+          "reason": "Retained golden observations are historical evidence; README.md, docs/ARCHITECTURE.md, and docs/PHILOSOPHY.md changed, so fresh evaluation is required before any new promotion."
         },
         "resource": {
           "status": "warning",
-          "reason": "platform counters are reported only when available"
+          "reason": "Retained resource status is historical evidence; README.md, docs/ARCHITECTURE.md, and docs/PHILOSOPHY.md changed, so fresh resource measurement is required before any new promotion."
         },
         "security": {
           "status": "warning",
-          "reason": "security counters are unavailable for this deterministic fixture"
+          "reason": "Retained security status is historical evidence; README.md, docs/ARCHITECTURE.md, and docs/PHILOSOPHY.md changed, so fresh security evaluation is required before any new promotion."
         }
       },
       "degradations": [
@@ -70,6 +70,10 @@
         {
           "area": "observations",
           "description": "Golden observations are deterministic contract fixtures, not measured performance for a live provider or index."
+        },
+        {
+          "area": "source-change",
+          "description": "The product-reset documentation changed README.md, docs/ARCHITECTURE.md, and docs/PHILOSOPHY.md source inputs; retained reports are historical evidence and require fresh evaluation before any new promotion."
         }
       ],
       "reports": [
@@ -92,7 +96,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "2636d029d450559c7b663a22891018a1d0ad193b64014aad897e66981ad69df9"
+        "source_hash": "1323a79931d1ae565df59bfa33c2e368b4da914fc80162b96d4ba411e93bf78c"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -107,15 +111,15 @@
       "results": {
         "quality": {
           "status": "warning",
-          "reason": "comparison is retained against the deterministic baseline; no route is promoted without a measured win"
+          "reason": "The retained hybrid comparison is historical evidence; README.md, docs/ARCHITECTURE.md, and docs/PHILOSOPHY.md changed, so fresh evaluation is required before any new promotion."
         },
         "resource": {
           "status": "warning",
-          "reason": "memory, disk, and energy counters are explicit when unavailable"
+          "reason": "Retained hybrid resource status is historical evidence; README.md, docs/ARCHITECTURE.md, and docs/PHILOSOPHY.md changed, so fresh resource measurement is required before any new promotion."
         },
         "security": {
           "status": "warning",
-          "reason": "security counters are unavailable for the staged hybrid fixture"
+          "reason": "Retained hybrid security status is historical evidence; README.md, docs/ARCHITECTURE.md, and docs/PHILOSOPHY.md changed, so fresh security evaluation is required before any new promotion."
         }
       },
       "degradations": [
@@ -126,6 +130,10 @@
         {
           "area": "comparison",
           "description": "The checked-in golden fixture does not contain a v0.5 hybrid profile; hybrid quality and resource comparison remains pending."
+        },
+        {
+          "area": "source-change",
+          "description": "The product-reset documentation changed README.md, docs/ARCHITECTURE.md, and docs/PHILOSOPHY.md source inputs; retained reports are historical evidence and require fresh evaluation before any new promotion."
         }
       ],
       "reports": [
@@ -144,9 +152,10 @@
         "judgment_set": "rust-repository-benchmark-v1",
         "source_paths": [
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
-          "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
+          "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs",
+          "crates/ecosystem/maestria-retrieval/src/benchmark_common.rs"
         ],
-        "source_hash": "467e8bd4f798c98e58729b4302035fa8bf8daf4b7f506fa8db228faa7932cfd1"
+        "source_hash": "7b5d85566c2609675199b9c59c6890ef94c1cee152127b87a56fbd28370df869"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
@@ -211,6 +220,7 @@
           "crates/ecosystem/maestria-retrieval/src/visual_benchmark_runner.rs",
           "crates/ecosystem/maestria-retrieval/src/visual_benchmark_schema.rs",
           "crates/apps/maestria-daemon/tests/maestria_visual_evaluation.rs",
+          "crates/ecosystem/maestria-retrieval/src/benchmark_common.rs",
           "scripts/siglip_visual_server.py",
           "scripts/requirements-visual.txt",
           "scripts/rapidocr_server.py",
@@ -223,7 +233,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/formula-page.svg",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/scanned-page.svg"
         ],
-        "source_hash": "5aaf3244f7630a8f31bd1ee4e0713975344d0451db6d595b183ef6a6a9cd44c1"
+        "source_hash": "92e483fed3f00eb070a32de704ba5e0ae7021a95ea4c4b1bcf57e6401f02ce1b"
       },
       "fingerprints": {
         "corpus_snapshot": "visual-retrieval-benchmark-v1@visual-fixture-r2",
@@ -238,15 +248,15 @@
       "results": {
         "quality": {
           "status": "warning",
-          "reason": "real visual-provider observations preserve quality and show a measured latency improvement; no class satisfies the complete quality, latency, resource, and measurement gates"
+          "reason": "Retained visual-provider observations are historical evidence; docs/ARCHITECTURE.md changed, so fresh quality evaluation is required before any new promotion."
         },
         "resource": {
           "status": "warning",
-          "reason": "four-thread inference lowers provider latency, but four of six optimized visual cases still exceed frozen budgets and peak-memory, energy, and measurement telemetry is incomplete"
+          "reason": "Retained visual resource status is historical evidence; docs/ARCHITECTURE.md changed, so fresh resource measurement is required before any new promotion."
         },
         "security": {
           "status": "warning",
-          "reason": "fixture security checks record zero violations; serving-boundary security counters are not independently measured"
+          "reason": "Retained visual security status is historical evidence; docs/ARCHITECTURE.md changed, so fresh security evaluation is required before any new promotion."
         }
       },
       "degradations": [
@@ -261,6 +271,10 @@
         {
           "area": "ocr",
           "description": "Scanned-page cases remain an explicit OCR degradation until the real OCR route meets the frozen quality and resource gates."
+        },
+        {
+          "area": "source-change",
+          "description": "The product-reset documentation changed docs/ARCHITECTURE.md as a benchmark source input; the retained report is historical evidence and requires fresh evaluation before any new promotion."
         }
       ],
       "reports": [
@@ -283,9 +297,10 @@
         "judgment_set": "rust-repository-benchmark-v1",
         "source_paths": [
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
-          "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
+          "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs",
+          "crates/ecosystem/maestria-retrieval/src/benchmark_common.rs"
         ],
-        "source_hash": "467e8bd4f798c98e58729b4302035fa8bf8daf4b7f506fa8db228faa7932cfd1"
+        "source_hash": "7b5d85566c2609675199b9c59c6890ef94c1cee152127b87a56fbd28370df869"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
