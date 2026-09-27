@@ -10,10 +10,11 @@ An opt-in Slint client displays cited passages and reopens evidence for actions;
 isolated X11 covered copied text, changed-source denial and superseded results.
 An isolated **source-built** Weston/Wayland run also exercised typed keyboard
 search, passage detail and Copy passage through its private Wayland clipboard.
-Ubuntu 24.04 installed-package smokes and hosted CI passed at the earlier
-structural-cutover commit, not at the current uncommitted changes. Native
-latency, upgraded packages, portal decisions and combined release proof remain
-open. Neither local package constitutes a product-milestone exit.
+Hosted Ubuntu 24.04 CI now independently builds, installs and smokes launcher,
+search and isolated worker packages at the committed Sillage cutover; the
+Weston/Wayland passage action above used **source-built** binaries instead.
+Native latency, version-different upgrades, portal decisions and combined
+release proof remain open. None of these packages exits a product milestone.
 [PR #516](https://github.com/brio-labs/maestria/pull/516) remains a draft
 baseline, not a release candidate.
 
@@ -252,8 +253,8 @@ search-only Debian were rebuilt, inspected, installed and smoke-tested by
 their separate jobs. Those artifacts and results cover the committed
 structural cutover, not later visibility or extension-package changes.
 
-The current **source-built, not yet Ubuntu-packaged** ingestion path publishes
-Tantivy writes with `commit_and_reload` before full-text completion feedback;
+The source-built ingestion path, subsequently packaged by the Ubuntu search job,
+publishes Tantivy writes with `commit_and_reload` before full-text completion feedback;
 reads do not commit. A blocked-publication regression covered edit, deletion
 and restart. Watcher admission holds at most eight unconfirmed source deliveries,
 probes only enqueued receipts, and replaces durably confirmed slots during the
@@ -269,9 +270,9 @@ searches returned the previously indexed real excerpt with durable audit,
 p50/p95/p99 29.70/35.97/43.80 ms, maximum 79.13 ms; 610 files remained
 pending at the last interaction and the watcher reached zero pending after
 72 more seconds. These are socket-API samples from short documents, **not**
-native Slint latency, a large retained corpus, Ubuntu package proof, or
-held-out passage relevance. The intermittent `LockBusy` [#517](https://github.com/brio-labs/maestria/issues/517)
-remains open.
+native Slint latency, a large retained corpus, latency from the installed
+Ubuntu package, or held-out passage relevance. The intermittent `LockBusy`
+[#517](https://github.com/brio-labs/maestria/issues/517) remains open.
 
 [Product milestone](https://github.com/brio-labs/maestria/milestone/11).
 
@@ -417,11 +418,11 @@ byte-identical to those Debian payloads: Slint rendered a filename-only row
 and a cited body-only Markdown passage, copied authorized path and reopened
 excerpt, and explicitly denied Copy Path after deletion. This does not prove
 an Ubuntu-container native UI, extension-enabled packaged UI, or combined
-release. The earlier hosted CI covers launcher/search packages only; fresh
-worker-package CI, real portal decisions, cross-compositor isolation, native
-active-indexing latency, actual version upgrades and combined release proof
-remain open. The source-built Wayland Copy passage proof above is not a
-packaged worker or full extension-grant acceptance test.
+release. Hosted CI now proves the independent installed worker smoke, not a
+real launcher broker, preserved app grants, a portal decision, a
+version-different upgrade, cross-compositor accessibility/isolation or native
+active-indexing latency. The source-built Wayland Copy passage proof above is
+not a packaged extension-enabled UI or combined release.
 
 The launcher Debian verifier rejects declared relationships that force or
 prevent co-installation with optional search/worker packages. Hosted Ubuntu
@@ -439,10 +440,15 @@ at `9ee10edd` likewise built and apt-installed the exact worker Debian and
 passed launcher-native, search-package, philosophy, tests and strict Clippy;
 its worker smoke stopped at the sandbox preflight because Ubuntu AppArmor
 denied Bubblewrap's loopback setup (`RTM_NEWADDR: Operation not permitted`).
-The next job loads Ubuntu's **bwrap-only** AppArmor profile on the disposable
-runner, not a global sysctl relaxation or shared-network fallback. A new run
-must establish user/pid/network namespace isolation, host-canary denial,
-installed JavaScript execution and removal on its own exact commit.
+Hosted Ubuntu 24.04 [run 36350436748](https://github.com/brio-labs/maestria/actions/runs/36350436748)
+at commit `6583bfae` then loaded Ubuntu's **bwrap-only** AppArmor profile on
+its disposable runner; it did not relax a global sysctl or share networking.
+The full CI passed, including freshly built/installed launcher, search and
+worker jobs. The worker smoke verified exact independent dependencies and
+binary provenance, isolated user/pid/network namespaces, an inaccessible
+host-filesystem canary, a bounded real JavaScript command with no ambient
+host I/O APIs, and clean worker removal. This does not exercise the real
+broker's capabilities or actual version upgrades and retained grants.
 
 [Product milestone](https://github.com/brio-labs/maestria/milestone/13).
 

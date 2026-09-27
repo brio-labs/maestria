@@ -362,8 +362,8 @@ and search remain absent, requires working bubblewrap user/pid/network
 namespaces, runs an installed JavaScript command with a host-filesystem
 canary inaccessible, and removes the worker. It does **not** prove a real
 launcher broker grant, a version-different upgrade or the portal's permission
-decision. The last green hosted run cited above predates this job; only a
-fresh run on the changed commit can validate this package.
+decision. Hosted Ubuntu [run 36350436748](https://github.com/brio-labs/maestria/actions/runs/36350436748)
+at `6583bfae` passed all these installed-worker stages, not the real broker.
 
 A freshly built local Ubuntu 24.04 worker Debian in
 `target/extension-packages-ubuntu-current` passed apt installation, metadata,
@@ -374,11 +374,11 @@ canary and removal stages remain unverified locally. Hosted Ubuntu
 [run 36349114236](https://github.com/brio-labs/maestria/actions/runs/36349114236)
 also built and installed the worker but stopped before the JavaScript command:
 AppArmor denied loopback setup in Bubblewrap's private network namespace.
-The subsequent job loads Ubuntu's specific `bwrap-userns-restrict` profile
-only on its disposable runner; it does not disable system-wide namespace
-protection, share the network, or execute the worker outside the sandbox.
-Inspect the **new** commit's CI for its namespace, canary, worker and
-removal stages, not the earlier launcher/search CI.
+The passing hosted job loaded Ubuntu's specific `bwrap-userns-restrict`
+profile only on its disposable runner; it did not disable system-wide
+namespace protection, share the network, or execute the worker outside
+the sandbox. Unlike local nested Podman, hosted CI verified the real
+JavaScript response, inaccessible host canary and clean worker removal.
 
 ### Disable, uninstall, and choose local-data retention
 
