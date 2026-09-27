@@ -20,6 +20,7 @@ fn index_search_returns_source_openable_chunk_metadata() -> Result<(), Box<dyn s
         chunk(7, 70, "alpha source chunk"),
         chunk(8, 80, "beta unrelated chunk"),
     ])?;
+    index.commit_and_reload()?;
 
     let hits = index.search(SearchQuery {
         q: "alpha".to_string(),
@@ -45,6 +46,7 @@ fn limit_is_honored() -> Result<(), Box<dyn std::error::Error>> {
         chunk(1, 11, "shared term two"),
         chunk(1, 12, "shared term three"),
     ])?;
+    index.commit_and_reload()?;
 
     let hits = index.search(SearchQuery {
         q: "shared".to_string(),
@@ -63,6 +65,7 @@ fn byte_budget_exhaustion_is_reported_before_chunk_result() -> Result<(), Box<dy
 {
     let index = TantivyFullTextIndex::in_memory()?;
     index.index_chunks(vec![chunk(9, 90, "a payload larger than one byte")])?;
+    index.commit_and_reload()?;
     let budget = SearchExecutionBudget::new(1, 10, 10, 1)?;
 
     let hits = index.search(SearchQuery {
@@ -91,6 +94,7 @@ fn scorer_work_budget_exhaustion_is_reported_before_scoring()
         chunk(1, 10, "shared term one"),
         chunk(1, 11, "shared term two"),
     ])?;
+    index.commit_and_reload()?;
     let hits = index.search(SearchQuery {
         q: "shared".to_string(),
         limit: 2,
@@ -116,6 +120,7 @@ fn filtered_search_excludes_denied_chunk_before_scoring() -> Result<(), Box<dyn 
         chunk(1, 10, "shared searchable term"),
         chunk(1, 11, "shared searchable term"),
     ])?;
+    index.commit_and_reload()?;
 
     let hits = index.search_filtered(
         SearchQuery {
@@ -140,6 +145,7 @@ fn filtered_rare_query_does_not_spend_work_on_unrelated_sources()
         .collect();
     chunks.push(chunk(101, 1010, "distinctive cobalt kestrel passage"));
     index.index_chunks(chunks)?;
+    index.commit_and_reload()?;
 
     let hits = index.search_filtered(
         SearchQuery {
@@ -160,6 +166,7 @@ fn filtered_authorization_accounts_indexed_identity_bytes() -> Result<(), Box<dy
 {
     let index = TantivyFullTextIndex::in_memory()?;
     index.index_chunks(vec![chunk(1, 10, "searchable term")])?;
+    index.commit_and_reload()?;
     let hits = index.search_filtered(
         SearchQuery {
             q: "searchable".to_string(),
@@ -202,6 +209,7 @@ fn reindexing_same_chunk_replaces_without_duplicate_hits() -> Result<(), Box<dyn
 
     index.index_chunks(vec![chunk(2, 20, "original searchable text")])?;
     index.index_chunks(vec![chunk(2, 20, "updated searchable text")])?;
+    index.commit_and_reload()?;
 
     let hits = index.search(SearchQuery {
         q: "searchable".to_string(),
@@ -222,6 +230,7 @@ fn no_results_for_missing_term() -> Result<(), Box<dyn std::error::Error>> {
     let index = TantivyFullTextIndex::in_memory()?;
 
     index.index_chunks(vec![chunk(3, 30, "present words only")])?;
+    index.commit_and_reload()?;
 
     let hits = index.search(SearchQuery {
         q: "absent".to_string(),
@@ -239,6 +248,7 @@ fn directory_backed_index_can_be_reopened() -> Result<(), Box<dyn std::error::Er
     let directory = TempDir::new()?;
     let index = TantivyFullTextIndex::open(directory.path())?;
     index.index_chunks(vec![chunk(4, 40, "durable indexed text")])?;
+    index.commit_and_reload()?;
     drop(index);
 
     let reopened = TantivyFullTextIndex::open(directory.path())?;
@@ -261,6 +271,7 @@ fn read_only_directory_backed_index_searches_durable_chunks()
     let directory = TempDir::new()?;
     let index = TantivyFullTextIndex::open(directory.path())?;
     index.index_chunks(vec![chunk(4, 40, "durable indexed text")])?;
+    index.commit_and_reload()?;
     drop(index);
 
     let reopened = TantivyFullTextIndex::open_read_only(directory.path())?;
@@ -283,6 +294,7 @@ fn read_only_directory_backed_index_pre_filters_before_scoring()
     let directory = TempDir::new()?;
     let index = TantivyFullTextIndex::open(directory.path())?;
     index.index_chunks(vec![chunk(4, 40, "durable indexed text")])?;
+    index.commit_and_reload()?;
     drop(index);
 
     let reopened = TantivyFullTextIndex::open_read_only(directory.path())?;

@@ -6,12 +6,14 @@ search-only Debian package, and the existing CLI/daemon with document-content
 retrieval. Legacy Tauri/React sources remain until behavioral parity and
 release criteria permit their removal. Scoped external search and authorized
 bounded, typed passage previews were exercised independently without a model.
-An opt-in Slint client now displays cited passages and reopens evidence for
-actions; an isolated X11 run covered content-only retrieval, copied reopened
-text, changed-source denial and superseded app results. Ubuntu 24.04 apt
-installation and installed-process search smoke passed locally; hosted CI,
-Wayland passage actions and product release proof remain pending.
-Neither this package nor local launcher packaging constitutes a product-milestone exit.
+An opt-in Slint client displays cited passages and reopens evidence for actions;
+isolated X11 covered copied text, changed-source denial and superseded results.
+An isolated **source-built** Weston/Wayland run also exercised typed keyboard
+search, passage detail and Copy passage through its private Wayland clipboard.
+Ubuntu 24.04 installed-package smokes and hosted CI passed at the earlier
+structural-cutover commit, not at the current uncommitted changes. Native
+latency, upgraded packages, portal decisions and combined release proof remain
+open. Neither local package constitutes a product-milestone exit.
 [PR #516](https://github.com/brio-labs/maestria/pull/516) remains a draft
 baseline, not a release candidate.
 
@@ -138,8 +140,8 @@ fully indexed retained corpus, after direct-path source lookup, succeeded
 199/200 with successful CLI p95 51.20 ms; one daemon timeout remained.
 With daemon tests running concurrently, 196/200 succeeded. The workloads
 differ, so no causal latency gain or 100 ms acceptance is claimed.
-Active-indexing and native whole-path latency have **not** passed. Hosted
-CI, held-out passage relevance, portal approval/denial, extension isolation,
+The earlier runs did not pass active-indexing or native whole-path latency.
+Held-out passage relevance, portal approval/denial, extension isolation,
 and combined release proof remain open. The v2 interactive API now returns
 distinct authorized filename/path-only results for indexed text sources; it
 does not invent a passage or line number, and skips PDF paths. An independent
@@ -180,8 +182,8 @@ spent about 42 ms building its source snapshot and 7 ms on the scoped filter,
 then Tantivy's deferred writer commit took 111 ms and exceeded the deadline.
 Committing each artifact before publishing its completion was tested and
 reverted: indexing finished in 19.19 s, but the first query took 449.2 ms and
-timed out. The existing batched writer behavior remains; a batch-level
-visibility barrier is needed before considering the cold-query gate passed.
+timed out. The current ingestion-owned batch publication and feedback barrier
+were implemented later; the failed per-artifact variant is not deployed.
 
 Two bounded commit thresholds were then measured and reverted on a fresh
 521-short-Markdown-file standalone CLI fixture with an exact root grant.
@@ -196,8 +198,8 @@ elapsed, both returning cited passages) but timed out during active indexing
 establishes a correct completion/reader-visibility boundary or active-indexing
 latency; both can leave multiple Tantivy segments for subsequent queries.
 
-Startup prewarming and narrower replay do not establish active-indexing latency,
-200-sample native whole-path performance or combined-release acceptance.
+Startup prewarming and narrower replay alone do not establish active-indexing
+latency, 200-sample native whole-path performance or combined-release acceptance.
 Version-18 grant storage now freezes a nonempty set of approved roots per new
 consumer grant; old grants retain explicit legacy all-approved semantics until
 revoked and reissued. A live two-sibling-root daemon regression exercised
@@ -242,6 +244,34 @@ the earlier consumer could not search or open the later-approved root
 (`SourceNotSelected`), while the later consumer reopened its own evidence.
 This smoke did not install rebuilt Ubuntu packages or resolve the intermittent
 Tantivy startup `LockBusy` tracked in [#517](https://github.com/brio-labs/maestria/issues/517).
+
+The subsequent hosted Ubuntu 24.04 [run 36340469343](https://github.com/brio-labs/maestria/actions/runs/36340469343)
+at commit `a74c4cda` passed check, philosophy, strict Clippy, docs, full tests,
+nextest, launcher-native and search-package. The launcher Debian/AppImage and
+search-only Debian were rebuilt, inspected, installed and smoke-tested by
+their separate jobs. Those artifacts and results cover the committed
+structural cutover, not later visibility or extension-package changes.
+
+The current **source-built, not yet Ubuntu-packaged** ingestion path publishes
+Tantivy writes with `commit_and_reload` before full-text completion feedback;
+reads do not commit. A blocked-publication regression covered edit, deletion
+and restart. Watcher admission holds at most eight unconfirmed source deliveries,
+probes only enqueued receipts, and replaces durably confirmed slots during the
+same scan. A grant-scoped preview rechecks current source versions on unrelated
+revision changes rather than dropping all valid citations; the same-source
+staleness check remains. Before these fixes, 40/40 active queries timed out at
+the unchanged 100 ms deadline because durable audit waited behind ingestion.
+After them, a disposable two-passage Markdown socket fixture returned 200/200
+cited results in each class: fresh p50/p95/p99 24.50/27.83/31.29 ms, edited
+27.86/32.85/35.30 ms, and other passage after deletion
+25.32/29.30/32.57 ms. During 650 newly observed Markdown files, 200/200
+searches returned the previously indexed real excerpt with durable audit,
+p50/p95/p99 29.70/35.97/43.80 ms, maximum 79.13 ms; 610 files remained
+pending at the last interaction and the watcher reached zero pending after
+72 more seconds. These are socket-API samples from short documents, **not**
+native Slint latency, a large retained corpus, Ubuntu package proof, or
+held-out passage relevance. The intermittent `LockBusy` [#517](https://github.com/brio-labs/maestria/issues/517)
+remains open.
 
 [Product milestone](https://github.com/brio-labs/maestria/milestone/11).
 
@@ -315,11 +345,16 @@ Slint launcher exposed its offer and persisted deferral through AT-SPI, accepted
 visually inspected native screenshot. This launcher-only run did not exercise
 fresh passage actions or a live desktop portal.
 
-Complete native Slint pure-Wayland actions, per-consumer root filters, exact
-viewer line/page jumps, native p50/p95/p99, held-out relevance,
-active-indexing latency, and provider-backed paraphrase quality remain
-unproved. M3 depends on M1's Slint command/action shell and M2's search-only
-API, **not** on extensions.
+A source-built launcher/search pair was also exercised on an isolated nested
+Weston Wayland session with a real keyboard seat, private D-Bus/AT-SPI and
+`DISPLAY` absent. Typing a content-only Markdown phrase displayed its cited
+passage; Return opened its detail; the AT-SPI Copy passage action freshly
+reopened evidence and `wl-paste` read the exact text from Weston's private
+clipboard. This did not touch the host clipboard or test fresh Ubuntu Debian
+payloads. Per-consumer native filters, exact viewer line/page jumps, native
+p50/p95/p99, held-out relevance, portal decisions, active-indexing **native**
+latency and provider-backed paraphrase quality remain unproved. M3 depends on
+M1's Slint command/action shell and M2's search-only API, **not** extensions.
 [Product milestone](https://github.com/brio-labs/maestria/milestone/12).
 
 **Scope:** Show applications/commands immediately, then searchable filename,
@@ -382,19 +417,26 @@ byte-identical to those Debian payloads: Slint rendered a filename-only row
 and a cited body-only Markdown passage, copied authorized path and reopened
 excerpt, and explicitly denied Copy Path after deletion. This does not prove
 an Ubuntu-container native UI, extension-enabled packaged UI, or combined
-release. Hosted CI, full pure-Wayland Slint clipboard actions, live portal
-decisions, cross-compositor accessibility/isolation acceptance, active-indexing
-latency, and combined release proof remain open. The repository-wide
-philosophy gate still reports non-extension module, function-size, and parser
-violations; extension-specific findings were addressed locally.
+release. The earlier hosted CI covers launcher/search packages only; fresh
+worker-package CI, real portal decisions, cross-compositor isolation, native
+active-indexing latency, actual version upgrades and combined release proof
+remain open. The source-built Wayland Copy passage proof above is not a
+packaged worker or full extension-grant acceptance test.
 
-The launcher Debian verifier now rejects declared relationships that force or
-prevent co-installation with the optional search/worker packages. A previously
-built Ubuntu launcher Debian/AppImage passed the new verifier in a disposable
-Ubuntu CI image. The updated launcher-only native package smoke also checks
-that search and worker are uninstalled and constrains all launcher invocations
-to `/usr/bin`; it has not yet been run against freshly rebuilt packages. This
-metadata proof is not hosted CI or installed-extension UI acceptance.
+The launcher Debian verifier rejects declared relationships that force or
+prevent co-installation with optional search/worker packages. Hosted Ubuntu
+[run 36340469343](https://github.com/brio-labs/maestria/actions/runs/36340469343)
+rebuilt and smoke-tested launcher/search at commit `a74c4cda`; it did not
+build the subsequently added `extension-worker-package` job. A disposable
+Ubuntu 24.04 Podman container **did** freshly build and apt-install this
+working-tree worker Debian from `target/extension-packages-ubuntu-current`;
+its smoke verified package identity, dependencies, installed binary ownership
+and absence of launcher/search. It then stopped **before** executing worker
+JavaScript: bubblewrap could not mount `/proc` inside nested Podman
+(`Operation not permitted`), and the script refused an unsandboxed fallback.
+The new hosted job must establish namespace isolation, host-canary denial
+and installed JavaScript execution on the actual committed package. A fresh
+run on the new commit is needed before attributing any CI result here.
 
 [Product milestone](https://github.com/brio-labs/maestria/milestone/13).
 

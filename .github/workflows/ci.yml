@@ -342,6 +342,38 @@ jobs:
           path: target/search-packages/
           if-no-files-found: error
 
+  extension-worker-package:
+    needs: [changes]
+    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
+      - uses: ./.github/actions/setup-rust-build-dependencies
+      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Install Cargo Packager
+        run: cargo install cargo-packager --locked --version 0.11.8
+        env:
+          RUSTC_WRAPPER: ''
+      - name: Build fresh extension worker Debian package
+        run: cargo packager --release --packages maestria-extension-worker --formats deb
+      - name: Install worker package and declared runtime dependencies
+        run: sudo apt-get install --yes --no-install-recommends ./target/extension-packages/*.deb
+      - name: Smoke-test installed extension worker in its required sandbox
+        run: timeout --kill-after=5s 180s bash scripts/smoke-extension-packages.sh target/extension-packages
+      - name: Retain extension worker package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-worker-debian-package
+          path: target/extension-packages/
+          if-no-files-found: error
+
   golden-gate:
     needs: [changes]
     runs-on: ubuntu-latest

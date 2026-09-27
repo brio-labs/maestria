@@ -74,13 +74,16 @@ persists its latest state before shutdown. A watcher-state persistence error
 fails lifecycle shutdown and is returned to the daemon caller rather than being
 logged and discarded.
 
-The current observer uses a one-second polling interval and the runtime's
-bounded channel for backpressure. To pause continuous ingestion, stop the
-daemon (`Ctrl-C` or the service manager); restart it after changing the
-manifest roots or exclusions. There is intentionally no hidden background
-process or network watcher. Removed paths are retained in the watch-state
-tombstone map for explicit operational review rather than being silently
-forgotten.
+The observer polls every second. At most eight detections await a durable
+`ParserStarted` receipt; the bounded runtime channel applies additional
+backpressure. Deferred sources remain pending and are retried after a receipt,
+not treated as indexed. Receipt probes skip deferred observations so a large
+root cannot starve the small enqueued set; newly confirmed slots can be reused
+in that scan. Ingestion publishes full-text changes before emitting successful
+completion feedback. To pause, stop the daemon (`Ctrl-C` or the service manager);
+restart it after changing manifest roots or exclusions. There is no hidden
+background process or network watcher. Removed paths remain in the watch-state
+tombstone map for explicit operational review.
 
 ## 6. Versioning Posture
 
@@ -164,10 +167,10 @@ is not PID 1 of a container. The script enables the private session's
 AccessKit does not expose its AT-SPI tree even when the X11 window is visible.
 The Ubuntu Debian and AppImage passed this bounded local smoke, including
 first-run offer/deferral and shortcut persistence. Hosted Ubuntu 24.04 CI
-[run 36154676323](https://github.com/brio-labs/maestria/actions/runs/36154676323)
-also rebuilt both formats, installed the Debian package and passed its
-window smoke. This does not verify live desktop portal approval, Wayland
-passage actions or a version upgrade.
+[run 36340469343](https://github.com/brio-labs/maestria/actions/runs/36340469343)
+rebuilt both formats from commit `a74c4cda`, installed the Debian package and
+passed its native window smoke. This does not verify live desktop portal
+approval, Wayland passage actions or a version upgrade.
 
 The launcher-only package smoke requires the launcher Debian to be installed
 at the package version under inspection, checks that neither the separate
@@ -175,8 +178,8 @@ search nor extension-worker package or executable is installed, and uses only
 system paths for all launcher interactions. Run it on a clean launcher-only
 Ubuntu installation; the combined-install smoke has a different purpose.
 The absence/PATH assertions passed the launcher-native job of hosted Ubuntu
-[run 36154676323](https://github.com/brio-labs/maestria/actions/runs/36154676323)
-at commit `fc748efe`; rebuild and rerun after subsequent code changes.
+[run 36340469343](https://github.com/brio-labs/maestria/actions/runs/36340469343)
+at commit `a74c4cda`; rebuild and rerun after subsequent code changes.
 The Debian verifier independently checks that no launcher package relationship
 pulls in, conflicts with, or claims the separately optional components.
 
@@ -242,6 +245,19 @@ changed-body request after a settled edit still hit the 100 ms daemon timeout
 despite the narrower event scan; retrying once the snapshot was warm returned
 the changed cited passage. Do not treat successful-only latency percentiles as
 proof of live-indexing deadline acceptance.
+
+On the subsequently changed **source-built** search-only daemon, an unmodified
+100 ms request deadline and required durable audit accompanied 200/200 cited
+socket-API searches during observation of 650 short Markdown files:
+p50/p95/p99 29.70/35.97/43.80 ms, maximum 79.13 ms. The observer still had
+610 pending files at the last interaction and reached zero 72 seconds later.
+Fresh/edit/other-passage-after-delete classes also each returned 200/200
+real excerpts. This does not establish native Slint timings, the retained
+10,000-file deadline, a fresh Ubuntu package run or a provider-backed
+French/English relevance gate. Preview revalidation refreshes source-event
+truth when an unrelated file advances the global revision; it still denies
+the cited source after its own edit/removal. The intermittent Tantivy startup
+`LockBusy` in [#517](https://github.com/brio-labs/maestria/issues/517) remains open.
 
 ### Create a scoped credential and configure launcher search
 
@@ -339,6 +355,23 @@ Its package ID is `io-github-briolabs-maestria-extension-worker`; it brings
 an extension, grant extension capabilities, start a daemon, or execute extension
 code. The launcher refuses to run extensions outside the sandbox if the worker
 or sandbox setup is missing.
+
+The new `extension-worker-package` Ubuntu job builds the worker separately,
+installs exactly its declared runtime dependencies, verifies that launcher
+and search remain absent, requires working bubblewrap user/pid/network
+namespaces, runs an installed JavaScript command with a host-filesystem
+canary inaccessible, and removes the worker. It does **not** prove a real
+launcher broker grant, a version-different upgrade or the portal's permission
+decision. The last green hosted run cited above predates this job; only a
+fresh run on the changed commit can validate this package.
+
+A freshly built local Ubuntu 24.04 worker Debian in
+`target/extension-packages-ubuntu-current` passed apt installation, metadata,
+installed-binary ownership and modularity checks in disposable Podman. The
+smoke stopped at the required bubblewrap preflight: nested Podman denied the
+`/proc` mount. No worker command was run outside the sandbox; the JavaScript,
+canary and removal stages remain unverified locally. Inspect the hosted job
+for those stages on the **new** commit, not the earlier launcher/search CI.
 
 ### Disable, uninstall, and choose local-data retention
 

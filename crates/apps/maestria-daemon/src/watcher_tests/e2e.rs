@@ -106,6 +106,62 @@ async fn scan_once_detects_creation_and_removal() -> Result<(), Box<dyn std::err
 }
 
 #[tokio::test]
+async fn unconfirmed_delivery_bound_retries_after_durable_parser_receipt()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = env::temp_dir().join(format!("maestria-watcher-bounded-{}", process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root)?;
+    let file_count = MAX_ENQUEUED_DELIVERIES + 64;
+    for index in 0..file_count {
+        fs::write(
+            root.join(format!("page-{index:03}.md")),
+            format!("passage {index}"),
+        )?;
+    }
+    let (input_tx, mut input_rx) = mpsc::channel(256);
+    let mut watcher = Watcher {
+        layout: InstanceLayout::for_root(root.clone()),
+        manifest: Arc::new(RwLock::new(test_manifest(root.clone())?)),
+        input_tx,
+        artifact_ids: BTreeMap::new(),
+        shutdown: CancellationToken::new(),
+        state: WatchState::default(),
+        pending: BTreeMap::new(),
+        receipts: test_receipts()?,
+        scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
+    };
+
+    watcher.scan_once().await?;
+    let mut first = None;
+    for _ in 0..MAX_ENQUEUED_DELIVERIES {
+        let DomainInput::ArtifactDetected(detected) = input_rx.try_recv()? else {
+            return Err("expected bounded ArtifactDetected delivery".into());
+        };
+        if first.is_none() {
+            first = Some(detected);
+        }
+    }
+    assert!(input_rx.try_recv().is_err(), "ninth delivery must wait");
+    assert_eq!(watcher.state.pending_files, file_count);
+
+    let first = first.ok_or("missing initial delivery")?;
+    append_parser_started(&watcher, &first)?;
+    watcher.scan_once().await?;
+    let DomainInput::ArtifactDetected(deferred) = input_rx.try_recv()? else {
+        return Err("expected formerly deferred delivery after durable receipt".into());
+    };
+    assert!(deferred.source_path.ends_with("page-008.md"));
+    assert!(input_rx.try_recv().is_err());
+    assert_eq!(
+        watcher.state.files.get(&first.source_path),
+        Some(&first.content_hash.as_str().to_owned())
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn delayed_parser_start_for_changed_delivery_is_revoked()
 -> Result<(), Box<dyn std::error::Error>> {
     let root = env::temp_dir().join(format!("maestria-watcher-late-start-{}", process::id()));

@@ -197,7 +197,11 @@ pub fn reconcile_full_text_projection(
             .index_cards(cards.iter().map(|(card, _)| card.clone()).collect())
             .context("index full-text cards")?;
     }
-    index_lexical_metadata(index, &chunks, &cards)
+    index_lexical_metadata(index, &chunks, &cards)?;
+    index
+        .commit_and_reload()
+        .context("commit and reload reconciled full-text projection")?;
+    Ok(())
 }
 
 fn index_lexical_metadata(

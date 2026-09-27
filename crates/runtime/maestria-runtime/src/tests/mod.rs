@@ -19,6 +19,7 @@ mod blob;
 mod card_index;
 mod completion;
 mod evidence;
+mod full_text_visibility;
 mod graph;
 mod harness;
 mod harness_terminalization;

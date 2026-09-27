@@ -66,7 +66,7 @@ impl MaestriaRuntime {
                 journal_recovery_claims: Arc::new(Mutex::new(BTreeSet::new())),
                 feedback_acks: Arc::new(Mutex::new(BTreeMap::new())),
                 degraded_vector_artifacts: Arc::new(Mutex::new(BTreeMap::new())),
-                full_text_locks: Arc::new(Mutex::new(BTreeMap::new())),
+                full_text_batch_lock: Arc::new(tokio::sync::Mutex::new(())),
                 pending_effect_batches: Arc::new(AtomicUsize::new(0)),
                 in_flight_effects: Arc::new(AtomicUsize::new(0)),
                 executor_quiescent: Arc::new(AtomicBool::new(true)),
@@ -150,7 +150,11 @@ impl MaestriaRuntime {
             }
         })?;
         if let Some(flush_projections) = self.config.flush_projections.as_ref() {
-            flush_projections();
+            flush_projections().map_err(|error| {
+                crate::runtime::RuntimeRunError::ProjectionFlush {
+                    reason: error.to_string(),
+                }
+            })?;
         }
         Ok(())
     }

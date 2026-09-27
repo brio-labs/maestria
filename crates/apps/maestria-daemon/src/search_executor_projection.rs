@@ -43,6 +43,7 @@ pub(crate) fn ensure_search_index(
         })
         .collect();
     search_index.index_cards(cards)?;
+    search_index.commit_and_reload()?;
     search_index.complete_card_rebuild()?;
     Ok(())
 }

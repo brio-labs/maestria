@@ -148,7 +148,8 @@ impl LearnedSparseBenchmarkExecutor {
         let initial = self.measure_operation(route, "initial indexing", chunks.len(), || {
             index
                 .index_chunks(chunks.clone())
-                .map_err(anyhow::Error::from)
+                .map_err(anyhow::Error::from)?;
+            index.commit_and_reload().map_err(anyhow::Error::from)
         });
         let incremental = self.measure_operation(route, "incremental update", 1, || {
             let one_chunk = chunks
@@ -156,16 +157,19 @@ impl LearnedSparseBenchmarkExecutor {
                 .filter(|chunk| chunk.artifact_id == one.0 && chunk.chunk_id == one.1)
                 .cloned()
                 .collect::<Vec<_>>();
-            index.index_chunks(one_chunk).map_err(anyhow::Error::from)
+            index.index_chunks(one_chunk).map_err(anyhow::Error::from)?;
+            index.commit_and_reload().map_err(anyhow::Error::from)
         });
         let deletion = self.measure_operation(route, "deletion", 1, || {
-            index.delete_chunks(&[one]).map_err(anyhow::Error::from)
+            index.delete_chunks(&[one]).map_err(anyhow::Error::from)?;
+            index.commit_and_reload().map_err(anyhow::Error::from)
         });
         let rebuild = self.measure_operation(route, "rebuild", chunks.len(), || {
             index.clear().map_err(anyhow::Error::from)?;
             index
                 .index_chunks(chunks.clone())
-                .map_err(anyhow::Error::from)
+                .map_err(anyhow::Error::from)?;
+            index.commit_and_reload().map_err(anyhow::Error::from)
         });
         let (activation, rollback) = self.generation_transition_ops(route);
         (

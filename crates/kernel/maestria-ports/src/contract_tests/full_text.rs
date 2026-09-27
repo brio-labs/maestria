@@ -38,6 +38,7 @@ fn verify_artifact_chunk_batch(
         Vec::new(),
         Vec::new(),
     )?;
+    index.commit_and_reload()?;
 
     let chunk_hits = index.search(SearchQuery {
         q: "quuxwobble".to_string(),
@@ -69,6 +70,7 @@ fn verify_artifact_chunk_batch(
         Vec::new(),
         Vec::new(),
     )?;
+    index.commit_and_reload()?;
     let revised_hits = index.search(SearchQuery {
         q: "revv".to_string(),
         limit: 10,
@@ -100,6 +102,7 @@ fn verify_chunk_round_trip(index: &impl FullTextIndex) -> Result<(), Box<dyn std
             text: "unrelated".to_string(),
         },
     ])?;
+    index.commit_and_reload()?;
 
     let hits = index.search(SearchQuery {
         q: "hello".to_string(),
@@ -149,6 +152,7 @@ fn verify_card_round_trip(index: &impl FullTextIndex) -> Result<(), Box<dyn std:
             body: "unrelated".to_string(),
         },
     ])?;
+    index.commit_and_reload()?;
 
     let card_hits = index.search_cards(SearchQuery {
         q: "card".to_string(),
@@ -179,6 +183,7 @@ fn verify_card_replacement(index: &impl FullTextIndex) -> Result<(), Box<dyn std
         title: "Alpha Updated".to_string(),
         body: "revised first card".to_string(),
     }])?;
+    index.commit_and_reload()?;
 
     // Old Beta (card_id=101) should still exist — only card 100 was re-indexed.
     let beta_hits = index.search_cards(SearchQuery {
@@ -224,6 +229,7 @@ fn verify_tie_ordering(index: &impl FullTextIndex) -> Result<(), Box<dyn std::er
             body: "same".to_string(),
         },
     ])?;
+    index.commit_and_reload()?;
 
     let tie_hits = index.search_cards(SearchQuery {
         q: "dup".to_string(),

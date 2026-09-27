@@ -7,6 +7,10 @@ pub trait FullTextIndex: Send + Sync {
     fn search(&self, query: SearchQuery) -> Result<BoundedSearch<SearchHit>, PortError>;
     fn index_cards(&self, cards: Vec<IndexedCard>) -> Result<(), PortError>;
     fn search_cards(&self, query: SearchQuery) -> Result<BoundedSearch<CardHit>, PortError>;
+    /// Publish all buffered full-text mutations so subsequent searches can
+    /// observe them. Adapters with immediately visible writes may return
+    /// successfully without work.
+    fn commit_and_reload(&self) -> Result<(), PortError>;
 
     /// Delete chunks by their (artifact, chunk) identity, removing every
     /// representation. Adapters without a standalone deletion operation MUST
@@ -69,16 +73,16 @@ pub trait FullTextIndex: Send + Sync {
 
     /// Index cards with lexical metadata.
     fn index_lexical_cards(&self, cards: Vec<IndexedLexicalCard>) -> Result<(), PortError>;
-
     /// Index a whole artifact's chunks with its cards as one projection
-    /// update. Reader visibility may require a later commit.
+    /// update. Mutations are not searchable until `commit_and_reload` succeeds.
     ///
     /// The runtime emits one `IndexFullText` effect per pending chunk but
-    /// groups the pending chunks of an artifact in this call. The default
-    /// implementation preserves the historical card/chunk call sequence;
-    /// adapters with native batching SHOULD override it to avoid per-chunk
-    /// writer overhead. Operations must remain idempotent (delete-then-add
-    /// per key) so recovery re-drives replace rather than duplicate documents.
+    /// groups pending chunks across artifacts into one publish boundary.
+    /// The default implementation preserves the historical card/chunk call
+    /// sequence; adapters with native batching SHOULD override it to avoid
+    /// per-chunk writer overhead. Operations must remain idempotent
+    /// (delete-then-add per key) so recovery re-drives replace rather than
+    /// duplicate documents.
     fn index_artifact_chunks(
         &self,
         chunks: Vec<IndexedChunk>,

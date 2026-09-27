@@ -97,6 +97,54 @@ impl EffectExecutionContext {
             }
         }
     }
+    /// Execute the coalesced full-text work under the ordinary retry and
+    /// watchdog policy for idempotent indexing effects.
+    pub(crate) async fn execute_index_full_text_batch_with_retries(
+        self,
+        requests: Vec<maestria_domain::IndexChunkRequest>,
+    ) -> Result<(), EffectFailure> {
+        let watchdog = self.default_effect_timeout + Duration::from_secs(5);
+        let result = tokio::time::timeout(watchdog, async {
+            let mut attempts = 0;
+            loop {
+                for request in &requests {
+                    let prepared = self
+                        .prepare_effect(MaestriaEffect::IndexFullText(request.clone()))
+                        .await?;
+                    match prepared {
+                        PreparedEffect::Dispatch { effect, .. }
+                            if matches!(&*effect, MaestriaEffect::IndexFullText(_)) => {}
+                        _ => {
+                            return Err(EffectFailure::Failed(
+                                "full-text batch admission prepared a non-index effect".to_string(),
+                            ));
+                        }
+                    }
+                }
+                match self.handle_index_full_text_batch(requests.clone()).await {
+                    Ok(()) => return Ok(()),
+                    Err(error) if !error.retryable() || attempts >= self.max_retries => {
+                        return Err(error);
+                    }
+                    Err(error) => {
+                        attempts += 1;
+                        tracing::warn!(%error, "retrying full-text batch execution");
+                        tokio::time::sleep(Duration::from_millis(500 * (1 << attempts))).await;
+                    }
+                }
+            }
+        })
+        .await;
+        match result {
+            Ok(inner) => inner,
+            Err(_) => {
+                tracing::error!("Watchdog: full-text batch timed out after {:?}", watchdog);
+                Err(EffectFailure::Degraded(
+                    "full-text batch watchdog timeout".to_string(),
+                ))
+            }
+        }
+    }
 
     pub(crate) async fn execute_prepared_with_watchdog(
         self,

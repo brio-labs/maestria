@@ -48,6 +48,9 @@ const WATCH_INTERVAL: Duration = Duration::from_secs(1);
 /// Maximum number of concurrent scan operations. Prevents unbounded I/O
 /// when the manifest contains many read roots.
 const MAX_CONCURRENT_SCANS: usize = 4;
+/// Bound unconfirmed observations so durable interactive commands do not wait
+/// behind an entire scan's event-log writes and parse effects.
+const MAX_ENQUEUED_DELIVERIES: usize = 8;
 
 pub(crate) fn spawn(
     layout: InstanceLayout,
@@ -149,7 +152,9 @@ impl Watcher {
         let manifest = self.manifest.read().clone();
         let (observations, signatures) =
             scan_manifest(&manifest, &self.state.signatures, &self.state.files)?;
-        let mut current = self.phase_detect_additions(observations).await?;
+        let mut current = self
+            .phase_detect_additions(observations, confirmed.len())
+            .await?;
 
         // Unchanged accepted files produced no observation; retain their hash
         // so source removals can still be reconciled.

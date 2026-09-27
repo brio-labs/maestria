@@ -22,7 +22,7 @@ async fn phase_detect_additions_emits_for_new_file() -> Result<(), Box<dyn std::
         bytes: b"content".to_vec(),
         hash: maestria_test_support::content_hash_str(10),
     };
-    let current = watcher.phase_detect_additions(vec![obs]).await?;
+    let current = watcher.phase_detect_additions(vec![obs], 0).await?;
     assert!(current.contains_key("/tmp/new.md"));
     let msg = input_rx
         .try_recv()
@@ -45,11 +45,14 @@ async fn phase_detect_additions_emits_for_new_file() -> Result<(), Box<dyn std::
         })
     );
     watcher
-        .phase_detect_additions(vec![Observation {
-            path: PathBuf::from("/tmp/new.md"),
-            bytes: b"content".to_vec(),
-            hash: maestria_test_support::content_hash_str(10),
-        }])
+        .phase_detect_additions(
+            vec![Observation {
+                path: PathBuf::from("/tmp/new.md"),
+                bytes: b"content".to_vec(),
+                hash: maestria_test_support::content_hash_str(10),
+            }],
+            0,
+        )
         .await?;
     assert!(
         input_rx.try_recv().is_err(),
@@ -84,7 +87,7 @@ async fn phase_detect_additions_skips_unchanged_file() -> Result<(), Box<dyn std
         bytes: b"content".to_vec(),
         hash: maestria_test_support::content_hash_str(10),
     };
-    let current = watcher.phase_detect_additions(vec![obs]).await?;
+    let current = watcher.phase_detect_additions(vec![obs], 0).await?;
     assert_eq!(
         current.get("/tmp/existing.md"),
         Some(maestria_test_support::content_hash_str(10)).as_ref()
@@ -124,7 +127,7 @@ async fn phase_detect_additions_skips_matching_artifact_id_and_hash()
         bytes: b"content".to_vec(),
         hash: maestria_test_support::content_hash_str(10),
     };
-    let current = watcher.phase_detect_additions(vec![obs]).await?;
+    let current = watcher.phase_detect_additions(vec![obs], 0).await?;
     assert_eq!(
         current.get("/tmp/existing.md"),
         Some(maestria_test_support::content_hash_str(10)).as_ref()
@@ -165,7 +168,7 @@ async fn phase_detect_additions_respects_backpressure() -> Result<(), Box<dyn st
         bytes: b"content".to_vec(),
         hash: maestria_test_support::content_hash_str(3),
     };
-    let current = watcher.phase_detect_additions(vec![obs]).await?;
+    let current = watcher.phase_detect_additions(vec![obs], 0).await?;
     assert!(
         current.contains_key("/tmp/backpressure.md"),
         "physical source presence must remain visible while channel is full"
@@ -208,7 +211,7 @@ async fn phase_detect_additions_reports_closed_input_channel()
         hash: maestria_test_support::content_hash_str(4),
     };
 
-    let result = watcher.phase_detect_additions(vec![obs]).await;
+    let result = watcher.phase_detect_additions(vec![obs], 0).await;
 
     assert!(result.is_err(), "closed input channel must be reported");
     Ok(())
@@ -248,7 +251,7 @@ async fn phase_detect_additions_full_channel_completes_without_false_commit()
     // Must complete without hanging even though the channel is full.
     let current = tokio::time::timeout(
         Duration::from_secs(1),
-        watcher.phase_detect_additions(vec![obs]),
+        watcher.phase_detect_additions(vec![obs], 0),
     )
     .await
     .map_err(|_| "phase_detect_additions hung on full channel")??;

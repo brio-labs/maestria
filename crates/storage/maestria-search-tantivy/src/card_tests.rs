@@ -25,6 +25,7 @@ fn card_search_returns_indexed_card_metadata() -> Result<(), Box<dyn std::error:
         ),
         card(8, 80, "Beta Overview", "Unrelated beta card body text."),
     ])?;
+    index.commit_and_reload()?;
 
     let hits = index.search_cards(SearchQuery {
         q: "alpha".to_string(),
@@ -54,6 +55,7 @@ fn card_search_limit_is_honored() -> Result<(), Box<dyn std::error::Error>> {
         card(1, 11, "Shared Term Two", "body two"),
         card(1, 12, "Shared Term Three", "body three"),
     ])?;
+    index.commit_and_reload()?;
 
     let hits = index.search_cards(SearchQuery {
         q: "shared".to_string(),
@@ -87,6 +89,7 @@ fn card_limit_offset_beyond_results_returns_empty() -> Result<(), Box<dyn std::e
     let index = TantivyFullTextIndex::in_memory()?;
 
     index.index_cards(vec![card(3, 30, "Present", "words only")])?;
+    index.commit_and_reload()?;
 
     let hits = index.search_cards(SearchQuery {
         q: "present".to_string(),
@@ -116,6 +119,7 @@ fn card_reindexing_replaces_without_duplicates() -> Result<(), Box<dyn std::erro
         "Updated Title",
         "updated searchable body",
     )])?;
+    index.commit_and_reload()?;
 
     let hits = index.search_cards(SearchQuery {
         q: "searchable".to_string(),
@@ -137,6 +141,7 @@ fn card_no_results_for_missing_term() -> Result<(), Box<dyn std::error::Error>> 
     let index = TantivyFullTextIndex::in_memory()?;
 
     index.index_cards(vec![card(3, 30, "Present Title", "present body words")])?;
+    index.commit_and_reload()?;
 
     let hits = index.search_cards(SearchQuery {
         q: "absent".to_string(),
@@ -159,6 +164,7 @@ fn card_directory_backed_index_can_be_reopened() -> Result<(), Box<dyn std::erro
         "Durable Card",
         "durable indexed card body",
     )])?;
+    index.commit_and_reload()?;
     drop(index);
 
     let reopened = TantivyFullTextIndex::open(directory.path())?;
@@ -185,6 +191,7 @@ fn card_and_chunk_searches_are_isolated() -> Result<(), Box<dyn std::error::Erro
         text: "unique chunk text".to_string(),
     }])?;
     index.index_cards(vec![card(5, 50, "Unique Card", "unique card text")])?;
+    index.commit_and_reload()?;
 
     let card_hits = index.search_cards(SearchQuery {
         q: "unique".to_string(),

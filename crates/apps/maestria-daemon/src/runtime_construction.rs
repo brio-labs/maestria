@@ -61,7 +61,8 @@ fn build_storage_adapters(layout: &InstanceLayout) -> Result<StorageAdapters> {
     })
 }
 
-type ProjectionFlushHook = std::sync::Arc<dyn Fn() + Send + Sync>;
+type ProjectionFlushHook =
+    std::sync::Arc<dyn Fn() -> std::result::Result<(), maestria_ports::PortError> + Send + Sync>;
 
 /// Flush hook for lazy projection commits: keeps a concrete handle to the
 /// writable tantivy index so the runtime can commit buffered documents
@@ -78,11 +79,7 @@ fn build_index_adapters(
         None
     } else {
         let index = std::sync::Arc::clone(&concrete_search_index);
-        Some(Arc::new(move || {
-            if let Err(error) = index.commit_if_dirty() {
-                tracing::warn!(%error, "projection flush failed to commit tantivy buffer");
-            }
-        }))
+        Some(Arc::new(move || index.commit_and_reload()))
     };
     let search_index: Arc<dyn FullTextIndex + Send + Sync> = concrete_search_index;
     let vector_index = open_vector_index(layout, has_embedding_provider)?;

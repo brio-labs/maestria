@@ -62,6 +62,13 @@ impl FilteredFullTextSpy {
 }
 
 impl FullTextIndex for FilteredFullTextSpy {
+    fn commit_and_reload(&self) -> Result<(), PortError> {
+        Err(PortError::InternalContext {
+            context: "test full-text publication",
+            source: "filtered full-text spy is read-only".to_string(),
+        })
+    }
+
     fn index_chunks(&self, _chunks: Vec<IndexedChunk>) -> Result<(), PortError> {
         Ok(())
     }

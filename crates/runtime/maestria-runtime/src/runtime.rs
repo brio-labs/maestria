@@ -1,5 +1,5 @@
 use crate::config::{
-    Adapters, DegradedVectorArtifacts, FullTextLocks, Governance, HarnessFeedbackAcks,
+    Adapters, DegradedVectorArtifacts, FullTextBatchLock, Governance, HarnessFeedbackAcks,
     JournalRecoveryClaims, RuntimeConfig,
 };
 use maestria_domain::{DomainError, DomainEventEnvelope, DomainInput, HarnessRunId, KernelState};
@@ -39,7 +39,7 @@ pub struct MaestriaRuntime {
     pub(crate) journal_recovery_claims: JournalRecoveryClaims,
     pub(crate) feedback_acks: HarnessFeedbackAcks,
     pub(crate) degraded_vector_artifacts: DegradedVectorArtifacts,
-    pub(crate) full_text_locks: FullTextLocks,
+    pub(crate) full_text_batch_lock: FullTextBatchLock,
     /// Effect batches sent to the executor but not yet taken by it. The
     /// dispatcher increments before sending; the executor decrements on
     /// receive. Zero together with zero in-flight effects means every
@@ -77,6 +77,7 @@ pub enum RuntimeRunError {
     RecoveryPlanning { reason: String },
     CommandReceiverUnavailable,
     EffectExecutorJoin { reason: String },
+    ProjectionFlush { reason: String },
 }
 
 impl std::fmt::Display for RuntimeRunError {
@@ -90,6 +91,12 @@ impl std::fmt::Display for RuntimeRunError {
             }
             Self::EffectExecutorJoin { reason } => {
                 write!(formatter, "effect executor task failed: {reason}")
+            }
+            Self::ProjectionFlush { reason } => {
+                write!(
+                    formatter,
+                    "projection flush failed during runtime shutdown: {reason}"
+                )
             }
         }
     }

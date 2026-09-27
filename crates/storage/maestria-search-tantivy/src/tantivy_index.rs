@@ -67,6 +67,7 @@ impl TantivyFullTextIndex {
             let rebuilt = Index::create_in_dir(&temp_path, schema()).map_err(to_port_error)?;
             let projection = Self::from_index(rebuilt, true, Some(temp_marker), false)?;
             projection.index_chunks(chunks)?;
+            projection.commit_and_reload()?;
             drop(projection);
 
             let backup_path = path.with_extension("legacy");
@@ -181,15 +182,9 @@ impl TantivyFullTextIndex {
         Ok(self.reader.searcher().num_docs())
     }
 
-    /// Commit buffered writer operations when any are pending.
-    ///
-    /// Write paths mark the index dirty instead of committing per operation
-    /// (tantivy re-spawns its worker threads on every commit), so read paths
-    /// flush here to preserve read-your-writes, and `Drop` flushes to
-    /// preserve durability across normal process exit.
-    /// Also public for the daemon session-flush hook, which commits buffered
-    /// documents before the runtime session reports completion.
-    pub fn commit_if_dirty(&self) -> Result<(), PortError> {
+    /// Commit buffered writer operations and reload the reader when any are
+    /// pending. Ingestion owns publication; search operations never commit.
+    pub fn commit_and_reload(&self) -> Result<(), PortError> {
         if !self.dirty.load(Ordering::Relaxed) {
             return Ok(());
         }
@@ -197,8 +192,14 @@ impl TantivyFullTextIndex {
             context: "Tantivy writer lock poisoned",
             source: "Tantivy writer mutex is poisoned".to_string(),
         })?;
-        let Some(writer) = writer_guard.as_mut() else {
+        if !self.dirty.load(Ordering::Relaxed) {
             return Ok(());
+        }
+        let Some(writer) = writer_guard.as_mut() else {
+            return Err(PortError::downstream(
+                "publish full-text index",
+                "full-text index is read-only",
+            ));
         };
         writer.commit().map_err(to_port_error)?;
         self.reader.reload().map_err(to_port_error)?;
@@ -206,10 +207,9 @@ impl TantivyFullTextIndex {
         Ok(())
     }
 }
-
 impl Drop for TantivyFullTextIndex {
     fn drop(&mut self) {
-        if let Err(error) = self.commit_if_dirty() {
+        if let Err(error) = self.commit_and_reload() {
             tracing::warn!(%error, "tantivy index dropped with uncommittable buffered writes");
         }
     }

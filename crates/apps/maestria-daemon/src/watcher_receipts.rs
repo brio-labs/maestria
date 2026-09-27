@@ -59,7 +59,11 @@ impl Watcher {
     /// Confirm only a bounded, rotating batch of enqueued detections. Each
     /// probe is restricted to that artifact's event-log partition.
     pub(super) fn phase_confirm_deliveries(&mut self) -> Result<Vec<(String, PendingDelivery)>> {
-        let keys = bounded_keys(&self.pending, &mut self.receipts.acceptance_cursor);
+        let keys = bounded_keys(
+            &self.pending,
+            &mut self.receipts.acceptance_cursor,
+            |delivery| delivery.status == PendingDeliveryStatus::Enqueued,
+        );
         let mut confirmed = Vec::new();
         for key in keys {
             let Some(delivery) = self.pending.get(&key).cloned() else {
@@ -125,6 +129,7 @@ impl Watcher {
         let keys = bounded_keys(
             &self.state.pending_removals,
             &mut self.receipts.removal_cursor,
+            |_| true,
         );
         for key in keys {
             let Some(removal) = self.state.pending_removals.get(&key).cloned() else {
@@ -227,25 +232,36 @@ pub(super) fn pending_removal_key(source_path: &str, artifact_id: u64) -> String
     format!("{source_path}\0{artifact_id}")
 }
 
-fn bounded_keys<V>(map: &BTreeMap<String, V>, cursor: &mut Option<String>) -> Vec<String> {
+fn bounded_keys<V>(
+    map: &BTreeMap<String, V>,
+    cursor: &mut Option<String>,
+    eligible: impl Fn(&V) -> bool,
+) -> Vec<String> {
     use std::ops::Bound::{Excluded, Unbounded};
 
     let mut keys = Vec::with_capacity(MAX_ACCEPTANCE_PROBES_PER_SCAN.min(map.len()));
     if let Some(last) = cursor.as_ref() {
         keys.extend(
             map.range((Excluded(last.clone()), Unbounded))
+                .filter(|(_, value)| eligible(value))
                 .take(MAX_ACCEPTANCE_PROBES_PER_SCAN)
                 .map(|(key, _)| key.clone()),
         );
         if keys.len() < MAX_ACCEPTANCE_PROBES_PER_SCAN {
             keys.extend(
                 map.range(..=last.clone())
+                    .filter(|(_, value)| eligible(value))
                     .take(MAX_ACCEPTANCE_PROBES_PER_SCAN - keys.len())
                     .map(|(key, _)| key.clone()),
             );
         }
     } else {
-        keys.extend(map.keys().take(MAX_ACCEPTANCE_PROBES_PER_SCAN).cloned());
+        keys.extend(
+            map.iter()
+                .filter(|(_, value)| eligible(value))
+                .take(MAX_ACCEPTANCE_PROBES_PER_SCAN)
+                .map(|(key, _)| key.clone()),
+        );
     }
     *cursor = keys.last().cloned();
     keys

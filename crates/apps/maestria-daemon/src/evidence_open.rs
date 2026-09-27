@@ -9,7 +9,7 @@
 //! client surface evaluates the retrieval policy and the manifest read-root
 //! scope before evidence is dispatched.
 
-use std::{fs, path::PathBuf};
+use std::{borrow::Cow, fs, path::PathBuf};
 
 use anyhow::{Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
@@ -183,6 +183,25 @@ pub fn open_evidence_scoped_batch_with_authorization(
     .collect())
 }
 
+fn active_sources_for_preview<'a>(
+    sqlite: &SqliteStore,
+    current_sources: Option<(i64, &'a ActiveSourceVersions)>,
+) -> Result<Cow<'a, ActiveSourceVersions>> {
+    if let Some((revision, sources)) = current_sources
+        && sqlite.searchable_source_revision()? == revision
+    {
+        return Ok(Cow::Borrowed(sources));
+    }
+    // A different source may have indexed since the search. Reconcile
+    // current truth per candidate rather than discarding all previews.
+    let events = match current_sources {
+        Some(_) => sqlite.scan_searchable_source_events()?,
+        None => EventLog::scan(sqlite, EventFilter { artifact_id: None })
+            .map_err(|error| anyhow!("read active sources for evidence: {error}"))?,
+    };
+    Ok(Cow::Owned(maestria_domain::active_source_versions(&events)))
+}
+
 fn open_evidence_scoped_batch_with_authorization_and_pdf_path(
     layout: &InstanceLayout,
     evidence_ids: &[u64],
@@ -225,18 +244,7 @@ fn open_evidence_scoped_batch_with_authorization_and_pdf_path(
     if pending.is_empty() {
         return Ok(complete_scoped_batch(outputs));
     }
-    let active_sources = if let Some((revision, sources)) = current_sources {
-        if sqlite.searchable_source_revision()? != revision {
-            return Err(anyhow!(
-                "indexed source versions changed before evidence preview"
-            ));
-        }
-        std::borrow::Cow::Borrowed(sources)
-    } else {
-        let events = EventLog::scan(&sqlite, EventFilter { artifact_id: None })
-            .map_err(|error| anyhow!("read active sources for evidence: {error}"))?;
-        std::borrow::Cow::Owned(maestria_domain::active_source_versions(&events))
-    };
+    let active_sources = active_sources_for_preview(&sqlite, current_sources)?;
     let mut current_pending = Vec::with_capacity(pending.len());
     for (index, evidence_id, evidence) in pending {
         if let Err(error) = current_source_path_with_active_sources(
@@ -467,3 +475,7 @@ fn source_scope_allowed(manifest: &InstanceManifest, path: &str) -> bool {
             && !maestria_index_selection::is_privacy_excluded_path(candidate)
     })
 }
+
+#[cfg(test)]
+#[path = "evidence_open_tests.rs"]
+mod tests;

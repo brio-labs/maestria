@@ -125,7 +125,7 @@ impl MaestriaRuntime {
             feedback_acks: Arc::clone(&self.feedback_acks),
             journal_recovery_claims: Arc::clone(&self.journal_recovery_claims),
             degraded_vector_artifacts: Arc::clone(&self.degraded_vector_artifacts),
-            full_text_locks: Arc::clone(&self.full_text_locks),
+            full_text_batch_lock: Arc::clone(&self.full_text_batch_lock),
             default_effect_timeout: self.config.default_effect_timeout,
             max_retries: self.config.max_retries,
         }
@@ -193,9 +193,26 @@ impl MaestriaRuntime {
         effect_shutdown: &tokio_util::sync::CancellationToken,
         runtime_shutdown: &tokio_util::sync::CancellationToken,
     ) -> bool {
+        let mut full_text_requests = Vec::new();
         let mut remaining = effects.len();
         for work in effects {
             remaining = remaining.saturating_sub(1);
+            let work = match work {
+                EffectWork::Pending(MaestriaEffect::IndexFullText(request)) => {
+                    full_text_requests.push(request);
+                    continue;
+                }
+                EffectWork::Prepared(prepared) => {
+                    if let PreparedEffect::Dispatch { effect, .. } = &prepared
+                        && let MaestriaEffect::IndexFullText(request) = &**effect
+                    {
+                        full_text_requests.push(request.clone());
+                        continue;
+                    }
+                    EffectWork::Prepared(prepared)
+                }
+                other => other,
+            };
             match Self::admit_effect(
                 in_flight,
                 in_flight_effects,
@@ -217,6 +234,24 @@ impl MaestriaRuntime {
                     return false;
                 }
             }
+        }
+        if !full_text_requests.is_empty() {
+            if effect_shutdown.is_cancelled() {
+                tracing::warn!(
+                    dropped_full_text_effects = full_text_requests.len(),
+                    "effect executor dropped full-text work during shutdown"
+                );
+                return false;
+            }
+            Self::spawn_effect_task(
+                in_flight,
+                in_flight_effects,
+                execution_context.clone(),
+                EffectWork::FullTextBatch(full_text_requests),
+                Arc::clone(&lanes.main),
+                effect_shutdown.clone(),
+                runtime_shutdown.clone(),
+            );
         }
         false
     }
@@ -288,10 +323,14 @@ impl MaestriaRuntime {
                     },
                     message = receiver.recv() => message,
                 };
-                let Some(effects) = message else { break };
-                // The batch left the queue and is now this loop's sole
-                // responsibility (executed, inline-persisted, or dropped).
+                let Some(mut effects) = message else { break };
+                // Drain already-queued transition batches before dispatch so
+                // pending full-text updates share one visibility boundary.
                 pending_effect_batches.fetch_sub(1, Ordering::Relaxed);
+                while let Ok(mut queued) = receiver.try_recv() {
+                    pending_effect_batches.fetch_sub(1, Ordering::Relaxed);
+                    effects.append(&mut queued);
+                }
                 if effect_shutdown.is_cancelled() {
                     break;
                 }

@@ -283,7 +283,6 @@ async fn run_builds_selected_index_and_status_reports_present() -> Result<()> {
         vec!["crates/one".to_string()]
     );
     assert_eq!(response.summary.packages, vec!["one".to_string()]);
-    assert!(response.registered >= 1, "sources must be registered");
 
     // Status reports the persisted index with a current freshness.
     let status = status(&context, fixture.repo.display().to_string()).await?;

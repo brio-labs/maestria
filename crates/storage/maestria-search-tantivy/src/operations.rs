@@ -6,6 +6,10 @@ use maestria_ports::{
 };
 
 impl FullTextIndex for TantivyFullTextIndex {
+    fn commit_and_reload(&self) -> Result<(), PortError> {
+        TantivyFullTextIndex::commit_and_reload(self)
+    }
+
     fn supports_lexical_metadata(&self) -> bool {
         true
     }

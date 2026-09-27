@@ -15,6 +15,7 @@ fn chunk(artifact_id: u64, chunk_id: u64, text: &str) -> maestria_ports::Indexed
 fn very_large_query_still_parses() -> Result<(), Box<dyn std::error::Error>> {
     let index = TantivyFullTextIndex::in_memory()?;
     index.index_chunks(vec![chunk(1, 10, "alpha beta gamma")])?;
+    index.commit_and_reload()?;
 
     let long_term = "a".repeat(10_000);
     let hits = index.search(SearchQuery {
@@ -34,6 +35,7 @@ fn very_large_query_still_parses() -> Result<(), Box<dyn std::error::Error>> {
 fn special_character_injection_query_is_handled() -> Result<(), Box<dyn std::error::Error>> {
     let index = TantivyFullTextIndex::in_memory()?;
     index.index_chunks(vec![chunk(1, 10, "alpha beta gamma")])?;
+    index.commit_and_reload()?;
 
     // Tantivy query parser treats some of these as syntax.
     // The boundary requirement is that none of them panic or crash the process.
@@ -53,6 +55,7 @@ fn special_character_injection_query_is_handled() -> Result<(), Box<dyn std::err
 fn unicode_boundary_query_works() -> Result<(), Box<dyn std::error::Error>> {
     let index = TantivyFullTextIndex::in_memory()?;
     index.index_chunks(vec![chunk(1, 10, "hello 世界"), chunk(2, 20, "alpha beta")])?;
+    index.commit_and_reload()?;
 
     let hits = index.search(SearchQuery {
         q: "世界".to_string(),

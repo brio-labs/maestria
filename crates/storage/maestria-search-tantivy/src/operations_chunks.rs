@@ -81,7 +81,6 @@ impl TantivyFullTextIndex {
         if query.limit == 0 {
             return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Complete));
         }
-        self.commit_if_dirty()?;
         let searcher = self.reader.searcher();
         let parsed_query = parse_query(&self.index, vec![self.fields.text], trimmed)?;
         let collection = collect_bounded(
@@ -135,7 +134,6 @@ impl TantivyFullTextIndex {
         if query.limit == 0 {
             return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Complete));
         }
-        self.commit_if_dirty()?;
         let searcher = self.reader.searcher();
         let parsed_query = parse_query(&self.index, vec![self.fields.text], trimmed)?;
         let (allowed, authorization_stop) =

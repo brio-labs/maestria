@@ -30,12 +30,11 @@ pub struct RuntimeConfig {
     /// via the quiescence signal; only genuinely busy sessions wait.
     pub shutdown_drain_grace: Duration,
     /// Invoked once after the effect executor has joined on shutdown, before
-    /// `run` returns. Projection adapters use it to make buffered writes
-    /// durable (e.g. a lazy tantivy commit) so callers that snapshot
-    /// projection state after `run` observe committed data.
-    pub flush_projections: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    /// `run` returns. Projection adapters use it to publish buffered writes;
+    /// failures are returned from `run` instead of being logged and ignored.
+    pub flush_projections:
+        Option<std::sync::Arc<dyn Fn() -> Result<(), maestria_ports::PortError> + Send + Sync>>,
 }
-
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
@@ -90,14 +89,8 @@ pub(crate) type JournalRecoveryClaims =
 /// effects short-circuit. Not persisted: a fresh runtime re-probes.
 pub(crate) type DegradedVectorArtifacts = Arc<Mutex<BTreeMap<ArtifactId, String>>>;
 
-/// Per-artifact serialization for the full-text index lane: the first
-/// `IndexFullText` effect for an artifact batches all of its pending chunks
-/// into one projection commit, and the sibling effects of the same artifact
-/// (emitted per chunk) observe the completed chunks and no-op. Without the
-/// serialization, concurrent sibling effects would each re-batch the whole
-/// artifact under a stale state snapshot. Bounded by the artifact
-/// population; entries persist for the runtime lifetime.
-pub(crate) type FullTextLocks = Arc<Mutex<BTreeMap<ArtifactId, Arc<tokio::sync::Mutex<()>>>>>;
+/// Single ingestion-side owner for full-text writes and publication.
+pub(crate) type FullTextBatchLock = Arc<tokio::sync::Mutex<()>>;
 
 /// Bundles everything an effect handler needs at execution time.
 #[derive(Clone)]
@@ -112,7 +105,7 @@ pub struct EffectExecutionContext {
     pub feedback_acks: HarnessFeedbackAcks,
     pub journal_recovery_claims: JournalRecoveryClaims,
     pub degraded_vector_artifacts: DegradedVectorArtifacts,
-    pub full_text_locks: FullTextLocks,
+    pub full_text_batch_lock: FullTextBatchLock,
     pub embedding_model: Option<String>,
     pub default_effect_timeout: Duration,
     pub max_retries: u32,
@@ -138,7 +131,7 @@ impl EffectExecutionContext {
             feedback_acks: Arc::new(Mutex::new(BTreeMap::new())),
             journal_recovery_claims: Arc::new(Mutex::new(BTreeSet::new())),
             degraded_vector_artifacts: Arc::new(Mutex::new(BTreeMap::new())),
-            full_text_locks: Arc::new(Mutex::new(BTreeMap::new())),
+            full_text_batch_lock: Arc::new(tokio::sync::Mutex::new(())),
             embedding_model: None,
             default_effect_timeout: Duration::from_secs(300),
             max_retries: 3,

@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 pub(crate) enum EffectWork {
     Pending(MaestriaEffect),
     Prepared(PreparedEffect),
+    FullTextBatch(Vec<maestria_domain::IndexChunkRequest>),
 }
 
 pub(crate) type EffectBatch = Vec<EffectWork>;

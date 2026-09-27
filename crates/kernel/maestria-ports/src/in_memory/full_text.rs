@@ -19,6 +19,10 @@ impl InMemoryFullTextIndex {
 }
 
 impl crate::FullTextIndex for InMemoryFullTextIndex {
+    fn commit_and_reload(&self) -> Result<(), PortError> {
+        Ok(())
+    }
+
     fn supports_lexical_metadata(&self) -> bool {
         true
     }

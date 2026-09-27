@@ -58,6 +58,10 @@ struct DelayedFullTextIndex {
 }
 
 impl FullTextIndex for DelayedFullTextIndex {
+    fn commit_and_reload(&self) -> Result<(), PortError> {
+        self.inner.commit_and_reload()
+    }
+
     fn supports_lexical_metadata(&self) -> bool {
         true
     }

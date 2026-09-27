@@ -68,6 +68,11 @@ impl MaestriaRuntime {
                 EffectWork::Prepared(effect) => {
                     context.execute_prepared_with_watchdog(effect).await
                 }
+                EffectWork::FullTextBatch(requests) => {
+                    context
+                        .execute_index_full_text_batch_with_retries(requests)
+                        .await
+                }
             };
             if let Err(error) = result {
                 Self::supervise_effect_failure(error, &effect_shutdown, &runtime_shutdown);

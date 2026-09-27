@@ -80,8 +80,15 @@ impl Watcher {
     pub(super) async fn phase_detect_additions(
         &mut self,
         observations: Vec<Observation>,
+        confirmed_deliveries: usize,
     ) -> Result<BTreeMap<String, String>> {
         let mut current: BTreeMap<String, String> = BTreeMap::new();
+        let mut enqueued = self
+            .pending
+            .values()
+            .filter(|delivery| delivery.status == PendingDeliveryStatus::Enqueued)
+            .count()
+            .saturating_sub(confirmed_deliveries);
 
         for observation in observations {
             let key = source_key(&observation.path);
@@ -138,16 +145,25 @@ impl Watcher {
                 None => pending_delivery_key(&key, artifact_id.value()),
             };
 
-            let status = match self.input_tx.try_send(input) {
-                Ok(()) => PendingDeliveryStatus::Enqueued,
-                Err(mpsc::error::TrySendError::Full(_)) => {
-                    tracing::debug!("watcher input channel full — deferring artifact detection");
-                    PendingDeliveryStatus::Deferred
-                }
-                Err(mpsc::error::TrySendError::Closed(_)) => {
-                    return Err(anyhow::anyhow!(
-                        "submit watched artifact: input channel closed"
-                    ));
+            let status = if enqueued >= super::MAX_ENQUEUED_DELIVERIES {
+                PendingDeliveryStatus::Deferred
+            } else {
+                match self.input_tx.try_send(input) {
+                    Ok(()) => {
+                        enqueued += 1;
+                        PendingDeliveryStatus::Enqueued
+                    }
+                    Err(mpsc::error::TrySendError::Full(_)) => {
+                        tracing::debug!(
+                            "watcher input channel full — deferring artifact detection"
+                        );
+                        PendingDeliveryStatus::Deferred
+                    }
+                    Err(mpsc::error::TrySendError::Closed(_)) => {
+                        return Err(anyhow::anyhow!(
+                            "submit watched artifact: input channel closed"
+                        ));
+                    }
                 }
             };
             self.pending.insert(

@@ -242,10 +242,9 @@ impl EffectExecutionContext {
                 "parse artifact",
             ),
             MaestriaEffect::Ocr(effect) => self.handle_ocr(effect).await,
-            MaestriaEffect::IndexFullText(request) => handler_result(
-                self.handle_index_full_text(request).await,
-                "index full text",
-            ),
+            MaestriaEffect::IndexFullText(request) => {
+                self.handle_index_full_text_batch(vec![request]).await
+            }
             MaestriaEffect::IndexArtifactVectors(request) => {
                 self.handle_index_artifact_vectors(request).await
             }
