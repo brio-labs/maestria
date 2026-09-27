@@ -364,6 +364,10 @@ jobs:
         run: cargo packager --release --packages maestria-extension-worker --formats deb
       - name: Install worker package and declared runtime dependencies
         run: sudo apt-get install --yes --no-install-recommends ./target/extension-packages/*.deb
+      - name: Allow Bubblewrap namespace setup with Ubuntu's scoped AppArmor profile
+        run: |
+          sudo apt-get install --yes --no-install-recommends apparmor apparmor-profiles
+          sudo apparmor_parser -r /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
       - name: Smoke-test installed extension worker in its required sandbox
         run: timeout --kill-after=5s 180s bash scripts/smoke-extension-packages.sh target/extension-packages
       - name: Retain extension worker package

@@ -434,9 +434,15 @@ its smoke verified package identity, dependencies, installed binary ownership
 and absence of launcher/search. It then stopped **before** executing worker
 JavaScript: bubblewrap could not mount `/proc` inside nested Podman
 (`Operation not permitted`), and the script refused an unsandboxed fallback.
-The new hosted job must establish namespace isolation, host-canary denial
-and installed JavaScript execution on the actual committed package. A fresh
-run on the new commit is needed before attributing any CI result here.
+The hosted [run 36349114236](https://github.com/brio-labs/maestria/actions/runs/36349114236)
+at `9ee10edd` likewise built and apt-installed the exact worker Debian and
+passed launcher-native, search-package, philosophy, tests and strict Clippy;
+its worker smoke stopped at the sandbox preflight because Ubuntu AppArmor
+denied Bubblewrap's loopback setup (`RTM_NEWADDR: Operation not permitted`).
+The next job loads Ubuntu's **bwrap-only** AppArmor profile on the disposable
+runner, not a global sysctl relaxation or shared-network fallback. A new run
+must establish user/pid/network namespace isolation, host-canary denial,
+installed JavaScript execution and removal on its own exact commit.
 
 [Product milestone](https://github.com/brio-labs/maestria/milestone/13).
 

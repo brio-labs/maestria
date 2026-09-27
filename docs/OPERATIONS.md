@@ -370,8 +370,15 @@ A freshly built local Ubuntu 24.04 worker Debian in
 installed-binary ownership and modularity checks in disposable Podman. The
 smoke stopped at the required bubblewrap preflight: nested Podman denied the
 `/proc` mount. No worker command was run outside the sandbox; the JavaScript,
-canary and removal stages remain unverified locally. Inspect the hosted job
-for those stages on the **new** commit, not the earlier launcher/search CI.
+canary and removal stages remain unverified locally. Hosted Ubuntu
+[run 36349114236](https://github.com/brio-labs/maestria/actions/runs/36349114236)
+also built and installed the worker but stopped before the JavaScript command:
+AppArmor denied loopback setup in Bubblewrap's private network namespace.
+The subsequent job loads Ubuntu's specific `bwrap-userns-restrict` profile
+only on its disposable runner; it does not disable system-wide namespace
+protection, share the network, or execute the worker outside the sandbox.
+Inspect the **new** commit's CI for its namespace, canary, worker and
+removal stages, not the earlier launcher/search CI.
 
 ### Disable, uninstall, and choose local-data retention
 
