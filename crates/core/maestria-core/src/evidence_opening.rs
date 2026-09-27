@@ -1,12 +1,10 @@
 use crate::error::{CoreError, CoreResult};
 use crate::ports::CorePorts;
 use crate::types::{OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput};
-use maestria_domain::{
-    Evidence, EvidenceKind, IndexStatus, SnapshotRef, excerpt_for, verify_snapshot_bytes,
-    verify_text_snapshot,
-};
-use maestria_ports::{FileHandle, ParseContext, SourceSpan};
-use std::path::PathBuf;
+use maestria_domain::IndexStatus;
+
+#[path = "evidence_source_verification.rs"]
+mod source_verification;
 
 pub(super) fn open_evidence<'a>(
     ports: &CorePorts<'a>,
@@ -49,7 +47,7 @@ pub(super) fn open_evidence<'a>(
             reason: "not available under retrieval policy",
         });
     }
-    verify_source_snapshot(ports, &evidence, &artifact)?;
+    source_verification::verify_source_snapshot(ports, &evidence, &artifact)?;
     if artifact.index_status != IndexStatus::Indexed {
         return Err(CoreError::NotAvailable {
             kind: "artifact",
@@ -97,154 +95,4 @@ pub(super) fn open_chunk_evidence<'a>(
         },
         authorization,
     )
-}
-
-fn verify_source_snapshot(
-    ports: &CorePorts<'_>,
-    evidence: &Evidence,
-    artifact: &maestria_domain::Artifact,
-) -> CoreResult<()> {
-    if let EvidenceKind::PdfSpan { snapshot, .. } | EvidenceKind::PdfRegion { snapshot, .. } =
-        &evidence.kind
-    {
-        verify_snapshot_binding(evidence, artifact, snapshot)?;
-        let bytes = ports.blobs.get(snapshot.blob_id())?;
-        verify_snapshot_bytes(snapshot, &bytes).map_err(|error| CoreError::InvalidEvidence {
-            evidence_id: evidence.id.to_string(),
-            reason: format!("PDF snapshot verification failed: {error}"),
-        })?;
-        return Ok(());
-    }
-    if let EvidenceKind::WebSnapshot { snapshot, .. } = &evidence.kind {
-        verify_snapshot_binding(evidence, artifact, snapshot)?;
-        let bytes = ports.blobs.get(snapshot.blob_id())?;
-        verify_text_snapshot(snapshot, &bytes, None, &evidence.excerpt).map_err(|error| {
-            CoreError::InvalidEvidence {
-                evidence_id: evidence.id.to_string(),
-                reason: format!("web snapshot verification failed: {error}"),
-            }
-        })?;
-        return Ok(());
-    }
-    if let EvidenceKind::DocxParagraphSpan {
-        path,
-        range,
-        snapshot,
-    } = &evidence.kind
-    {
-        let source_path = PathBuf::from(path);
-        if !source_path
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("docx"))
-        {
-            return Err(CoreError::InvalidEvidence {
-                evidence_id: evidence.id.to_string(),
-                reason: "DOCX paragraph evidence does not reference a .docx source".to_string(),
-            });
-        }
-        verify_snapshot_binding(evidence, artifact, snapshot)?;
-        let bytes = ports.blobs.get(snapshot.blob_id())?;
-        verify_snapshot_bytes(snapshot, &bytes).map_err(|error| CoreError::InvalidEvidence {
-            evidence_id: evidence.id.to_string(),
-            reason: format!("DOCX snapshot verification failed: {error}"),
-        })?;
-        let parsed = ports
-            .parser
-            .parse(
-                FileHandle {
-                    path: source_path,
-                    bytes,
-                },
-                ParseContext {
-                    artifact_id: evidence.artifact_id,
-                },
-            )
-            .map_err(|error| CoreError::InvalidEvidence {
-                evidence_id: evidence.id.to_string(),
-                reason: format!("DOCX snapshot parse failed: {error}"),
-            })?;
-        let start_paragraph =
-            usize::try_from(range.start()).map_err(|error| CoreError::InvalidEvidence {
-                evidence_id: evidence.id.to_string(),
-                reason: format!("DOCX paragraph start is invalid: {error}"),
-            })?;
-        let end_paragraph =
-            usize::try_from(range.end()).map_err(|error| CoreError::InvalidEvidence {
-                evidence_id: evidence.id.to_string(),
-                reason: format!("DOCX paragraph end is invalid: {error}"),
-            })?;
-        let mut matched_span = false;
-        for chunk in &parsed.chunks {
-            if let SourceSpan::DocxParagraphSpan {
-                start_paragraph: actual_start,
-                end_paragraph: actual_end,
-            } = &chunk.source_span
-                && *actual_start == start_paragraph
-                && *actual_end == end_paragraph
-            {
-                if matched_span {
-                    return Err(CoreError::InvalidEvidence {
-                        evidence_id: evidence.id.to_string(),
-                        reason: "DOCX paragraph span is ambiguous in its snapshot".to_string(),
-                    });
-                }
-                matched_span = true;
-                if excerpt_for(&chunk.text).as_str() != evidence.excerpt.as_str() {
-                    return Err(CoreError::InvalidEvidence {
-                        evidence_id: evidence.id.to_string(),
-                        reason: "DOCX excerpt does not match its paragraph span".to_string(),
-                    });
-                }
-            }
-        }
-        if !matched_span {
-            return Err(CoreError::InvalidEvidence {
-                evidence_id: evidence.id.to_string(),
-                reason: "DOCX paragraph span is absent from its snapshot".to_string(),
-            });
-        }
-        return Ok(());
-    }
-    if let EvidenceKind::FileSpan {
-        range, snapshot, ..
-    } = &evidence.kind
-    {
-        verify_snapshot_binding(evidence, artifact, snapshot)?;
-        let bytes = ports.blobs.get(snapshot.blob_id())?;
-        verify_text_snapshot(snapshot, &bytes, Some(range), &evidence.excerpt).map_err(
-            |error| CoreError::InvalidEvidence {
-                evidence_id: evidence.id.to_string(),
-                reason: format!("file snapshot verification failed: {error}"),
-            },
-        )?;
-    }
-    Ok(())
-}
-
-fn verify_snapshot_binding(
-    evidence: &Evidence,
-    artifact: &maestria_domain::Artifact,
-    snapshot: &SnapshotRef,
-) -> CoreResult<()> {
-    if evidence.artifact_id != artifact.id {
-        return Err(CoreError::InvalidEvidence {
-            evidence_id: evidence.id.to_string(),
-            reason: format!(
-                "evidence belongs to artifact {}, loaded owning artifact is {}",
-                evidence.artifact_id, artifact.id
-            ),
-        });
-    }
-    if artifact.content_hash.as_ref() != Some(snapshot.content_hash()) {
-        return Err(CoreError::InvalidEvidence {
-            evidence_id: evidence.id.to_string(),
-            reason: format!(
-                "snapshot hash does not match owning artifact: expected {:?}, got {}",
-                artifact.content_hash,
-                snapshot.content_hash().as_str()
-            ),
-        });
-    }
-    Ok(())
 }

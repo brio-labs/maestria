@@ -485,32 +485,7 @@ fn v16_grants_expire_deterministically_without_rewriting_event_history()
 #[test]
 fn v17_grants_gain_nullable_roots_without_changing_legacy_state()
 -> Result<(), Box<dyn std::error::Error>> {
-    let mut connection = Connection::open_in_memory()?;
-    connection.execute_batch(
-        "CREATE TABLE schema_version (
-             version INTEGER NOT NULL PRIMARY KEY,
-             applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-         );
-         INSERT INTO schema_version (version) VALUES (17);
-         CREATE TABLE domain_events (
-             id INTEGER NOT NULL PRIMARY KEY,
-             event_kind TEXT NOT NULL,
-             artifact_id INTEGER,
-             payload_json TEXT NOT NULL,
-             payload_version INTEGER NOT NULL DEFAULT 2
-         );
-         CREATE TABLE realm_read_grants (
-             token_digest TEXT NOT NULL PRIMARY KEY,
-             provider_realm TEXT NOT NULL,
-             consumer_realm TEXT NOT NULL,
-             access TEXT NOT NULL,
-             max_sensitivity TEXT NOT NULL,
-             max_results INTEGER NOT NULL,
-             max_evidence_bytes INTEGER NOT NULL,
-             expires_at_unix_seconds INTEGER NOT NULL,
-             state TEXT NOT NULL
-         );",
-    )?;
+    let mut connection = v17_legacy_grant_schema()?;
     let active = (
         "a".repeat(64),
         "b".repeat(64),
@@ -594,6 +569,36 @@ fn v17_grants_gain_nullable_roots_without_changing_legacy_state()
         ]
     );
     Ok(())
+}
+
+fn v17_legacy_grant_schema() -> Result<Connection, Box<dyn std::error::Error>> {
+    let connection = Connection::open_in_memory()?;
+    connection.execute_batch(
+        "CREATE TABLE schema_version (
+             version INTEGER NOT NULL PRIMARY KEY,
+             applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+         );
+         INSERT INTO schema_version (version) VALUES (17);
+         CREATE TABLE domain_events (
+             id INTEGER NOT NULL PRIMARY KEY,
+             event_kind TEXT NOT NULL,
+             artifact_id INTEGER,
+             payload_json TEXT NOT NULL,
+             payload_version INTEGER NOT NULL DEFAULT 2
+         );
+         CREATE TABLE realm_read_grants (
+             token_digest TEXT NOT NULL PRIMARY KEY,
+             provider_realm TEXT NOT NULL,
+             consumer_realm TEXT NOT NULL,
+             access TEXT NOT NULL,
+             max_sensitivity TEXT NOT NULL,
+             max_results INTEGER NOT NULL,
+             max_evidence_bytes INTEGER NOT NULL,
+             expires_at_unix_seconds INTEGER NOT NULL,
+             state TEXT NOT NULL
+         );",
+    )?;
+    Ok(connection)
 }
 
 #[test]

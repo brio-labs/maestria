@@ -9,10 +9,9 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 use super::protocol::ClientErrorCode;
-use super::protocol_search_api::{
-    self, SEARCH_API_PROTOCOL, SEARCH_API_VERSION, SEARCH_API_VERSION_2, SearchApiOperation,
-    SearchApiReply, SearchApiRequest, SearchApiResponse,
-};
+use super::protocol_search_api::{self, SearchApiOperation, SearchApiReply, SearchApiResponse};
+#[path = "server_search_api_request.rs"]
+mod request;
 use super::server::{self, ApiContext, InteractiveSearchControl};
 use super::{MAX_REQUEST_BYTES, dispatch_search_api};
 
@@ -22,69 +21,22 @@ pub(super) async fn handle_request(
     context: Arc<ApiContext>,
     value: serde_json::Value,
 ) -> Result<()> {
-    let mut version = 0;
-    if let Some(parsed) = value
-        .get("version")
-        .and_then(serde_json::Value::as_u64)
-        .and_then(|version| u16::try_from(version).ok())
-    {
-        version = parsed;
-    }
-    let matches_protocol =
-        value.get("protocol").and_then(serde_json::Value::as_str) == Some(SEARCH_API_PROTOCOL);
-    let matches_version = matches!(version, SEARCH_API_VERSION | SEARCH_API_VERSION_2);
-    if !matches_protocol || !matches_version {
-        return write_reply_until_shutdown(
-            shutdown,
-            stream,
-            None,
-            Some("unsupported search API protocol or version".to_string()),
-            Some(ClientErrorCode::ProtocolVersionMismatch),
-            SEARCH_API_VERSION_2,
-        )
-        .await;
-    }
-    let request = match serde_json::from_value::<SearchApiRequest>(value) {
-        Ok(request) => request,
+    let parsed = match request::parse(value) {
+        Ok(parsed) => parsed,
         Err(error) => {
             return write_reply_until_shutdown(
                 shutdown,
                 stream,
                 None,
-                Some(format!("invalid search API request: {error}")),
-                Some(ClientErrorCode::InvalidInput),
-                version,
+                Some(error.message),
+                Some(error.error_code),
+                error.version,
             )
             .await;
         }
     };
-    if version == SEARCH_API_VERSION
-        && matches!(
-            &request.operation,
-            SearchApiOperation::IndexingStatus | SearchApiOperation::InteractiveSearch { .. }
-        )
-    {
-        return write_reply_until_shutdown(
-            shutdown,
-            stream,
-            None,
-            Some("this search API operation requires version 2".to_string()),
-            Some(ClientErrorCode::ProtocolVersionMismatch),
-            version,
-        )
-        .await;
-    }
-    if let Err(error) = protocol_search_api::validate_operation(&request.operation) {
-        return write_reply_until_shutdown(
-            shutdown,
-            stream,
-            None,
-            Some(error.message),
-            Some(error.code),
-            version,
-        )
-        .await;
-    }
+    let version = parsed.version;
+    let request = parsed.request;
     // Only register a superseding generation after the grant is authenticated in
     // serve_search; an untrusted request must not cancel another client's work.
     let interactive_control = matches!(

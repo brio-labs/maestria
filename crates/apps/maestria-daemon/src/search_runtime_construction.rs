@@ -1,5 +1,6 @@
 use super::*;
 use maestria_core::{InstanceLayout, InstanceManifest};
+use maestria_domain::KernelState;
 
 /// Construct the one search runtime used by CLI search and explain.
 pub fn prepare_search_runtime(

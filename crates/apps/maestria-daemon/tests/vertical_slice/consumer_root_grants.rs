@@ -160,170 +160,20 @@ async fn consumer_grant_isolates_roots_before_search_and_evidence_io_and_after_r
         AutonomyProfile::ReadOnly,
     ));
     let initial = async {
-        let owner = wait_for_daemon_client(&layout).await?;
-        let unapproved_root = tmp.path().join("not-approved");
-        fs::create_dir_all(&unapproved_root)?;
-        let invalid_grant = owner
-            .request(maestria_daemon::ClientOperation::RealmGrantCreate {
-                consumer_realm: maestria_test_support::realm_id(23)?,
-                access: maestria_daemon::RealmGrantAccess::SearchOnly,
-                max_sensitivity: maestria_daemon::RealmGrantSensitivity::Restricted,
-                max_results: 5,
-                max_evidence_bytes: 2048,
-                expires_in_seconds: 86_400,
-                allowed_roots: vec![unapproved_root.display().to_string()],
-            })
-            .await;
-        assert!(
-            invalid_grant.is_err(),
-            "owner granted an unapproved source root"
-        );
-        let consumer_realm = maestria_test_support::realm_id(22)?;
-        let response = owner
-            .request(maestria_daemon::ClientOperation::RealmGrantCreate {
-                consumer_realm: consumer_realm.clone(),
-                access: maestria_daemon::RealmGrantAccess::SearchAndOpenEvidence,
-                max_sensitivity: maestria_daemon::RealmGrantSensitivity::Restricted,
-                max_results: 5,
-                max_evidence_bytes: 2048,
-                expires_in_seconds: 86_400,
-                allowed_roots: vec![allowed_root.display().to_string()],
-            })
-            .await?;
-        let maestria_daemon::ClientResponse::RealmGrantCreated(created) = response else {
-            return Err("grant creation did not return a credential".into());
-        };
-        assert_eq!(
-            created.grant.allowed_roots,
-            Some(vec![allowed_root.display().to_string()])
-        );
-        let consumer = maestria_daemon::SearchApiClient::consumer(
-            layout.system_dir.join("daemon.sock"),
-            consumer_realm,
-            created.credential.expose().to_string(),
-        )?;
-        let other_realm = maestria_test_support::realm_id(24)?;
-        let other_grant = owner
-            .request(maestria_daemon::ClientOperation::RealmGrantCreate {
-                consumer_realm: other_realm.clone(),
-                access: maestria_daemon::RealmGrantAccess::SearchAndOpenEvidence,
-                max_sensitivity: maestria_daemon::RealmGrantSensitivity::Restricted,
-                max_results: 5,
-                max_evidence_bytes: 2048,
-                expires_in_seconds: 86_400,
-                allowed_roots: vec![denied_root.display().to_string()],
-            })
-            .await?;
-        let maestria_daemon::ClientResponse::RealmGrantCreated(other_grant) = other_grant else {
-            return Err("second root grant did not return a credential".into());
-        };
-        let other_consumer = maestria_daemon::SearchApiClient::consumer(
-            layout.system_dir.join("daemon.sock"),
-            other_realm,
-            other_grant.credential.expose().to_string(),
-        )?;
-        let opened_pdf = other_consumer
-            .request(maestria_daemon::SearchApiOperation::Evidence {
-                evidence_id: denied_pdf_evidence.value(),
-            })
-            .await?;
-        let maestria_daemon::SearchApiResponse::Evidence(opened_pdf) = opened_pdf else {
-            return Err("authorized PDF evidence did not open".into());
-        };
-        assert!(opened_pdf.excerpt.contains("pdfquartz"));
-        assert!(matches!(
-            opened_pdf.source,
-            maestria_daemon::api::EvidenceSourceResponse::Pdf {
-                page_start: 1,
-                path: Some(path),
-                ..
-            } if Path::new(&path).starts_with(&denied_root)
-                && Path::new(&path).ends_with("b-secret-report.pdf")
-        ));
-
-        let shared = search_as_consumer(&consumer, "orchid").await?;
-        assert!(!shared.evidence.is_empty(), "approved passage is missing");
-        assert!(shared.evidence.iter().all(|evidence| {
-            matches!(
-                evidence.preview.as_ref().map(|preview| &preview.location),
-                Some(maestria_daemon::api::EvidenceSourceResponse::File { path, .. })
-                    if Path::new(path).starts_with(&allowed_root)
-            )
-        }));
-        let other_passage = search_as_consumer(&other_consumer, "basalt").await?;
-        assert_eq!(other_passage.evidence.len(), 1);
-        assert!(matches!(
-            other_passage.evidence[0].preview.as_ref().map(|preview| &preview.location),
-            Some(maestria_daemon::api::EvidenceSourceResponse::File { path, .. })
-                if Path::new(path).starts_with(&denied_root)
-        ));
-        let private = search_as_consumer(&consumer, "basalt").await?;
-        assert!(private.evidence.is_empty());
-        assert!(private.path_results.is_empty());
-        assert!(
-            search_as_consumer(&consumer, "pdfquartz")
-                .await?
-                .evidence
-                .is_empty(),
-            "PDF from the other root appeared in A's passage search"
-        );
-        let normal_search = consumer
-            .request(maestria_daemon::SearchApiOperation::Search {
-                query: "basalt".to_string(),
-                limit: 5,
-            })
-            .await?;
-        let maestria_daemon::SearchApiResponse::Search(normal_search) = normal_search else {
-            return Err("unexpected noninteractive search response".into());
-        };
-        assert!(normal_search.evidence.is_empty());
-        let private_filename = search_as_consumer(&consumer, "b-secret-filename").await?;
-        assert!(private_filename.path_results.is_empty());
-        let allowed_filename = search_as_consumer(&consumer, "a-visible-filename").await?;
-        assert_eq!(allowed_filename.path_results.len(), 1);
-        assert!(Path::new(&allowed_filename.path_results[0].path).starts_with(&allowed_root));
-        for evidence_id in [denied_evidence, denied_pdf_evidence] {
-            let denied = match consumer
-                .request(maestria_daemon::SearchApiOperation::Evidence {
-                    evidence_id: evidence_id.value(),
-                })
-                .await
-            {
-                Ok(_) => return Err("a scoped grant opened evidence from another root".into()),
-                Err(error) => error,
-            };
-            assert_eq!(
-                denied.code,
-                maestria_daemon::ClientErrorCode::SourceNotSelected
-            );
-        }
-        assert!(matches!(
-            consumer
-                .request(maestria_daemon::SearchApiOperation::Evidence {
-                    evidence_id: allowed_evidence.value(),
-                })
-                .await?,
-            maestria_daemon::SearchApiResponse::Evidence(_)
-        ));
-
-        let mut scoped_inventory = None;
-        for _ in 0..30 {
-            let result = consumer
-                .request(maestria_daemon::SearchApiOperation::IndexingStatus)
-                .await?;
-            let maestria_daemon::SearchApiResponse::IndexingStatus(status) = result else {
-                return Err("unexpected indexing status response".into());
-            };
-            if status.indexed_file_count == 1 && !status.scanning && status.pending_file_count == 0
-            {
-                scoped_inventory = Some(status);
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        let inventory = scoped_inventory.ok_or("scoped index did not settle")?;
-        assert_eq!(inventory.approved_root_count, 1);
-        assert_eq!(inventory.indexed_file_count, 1);
+        let (consumer, other_consumer) =
+            create_scoped_consumers(&tmp, &layout, &allowed_root, &denied_root).await?;
+        verify_other_consumer_pdf(&other_consumer, &denied_root, denied_pdf_evidence).await?;
+        verify_scoped_search_and_evidence(
+            &consumer,
+            &other_consumer,
+            &allowed_root,
+            &denied_root,
+            allowed_evidence,
+            denied_evidence,
+            denied_pdf_evidence,
+        )
+        .await?;
+        verify_scoped_inventory(&consumer).await?;
 
         Ok::<maestria_daemon::SearchApiClient, Box<dyn std::error::Error>>(consumer)
     }
@@ -386,4 +236,206 @@ async fn consumer_grant_isolates_roots_before_search_and_evidence_io_and_after_r
     restarted_shutdown.cancel();
     restarted_daemon.await??;
     result
+}
+
+async fn create_scoped_consumers(
+    tmp: &TempDir,
+    layout: &InstanceLayout,
+    allowed_root: &Path,
+    denied_root: &Path,
+) -> Result<
+    (
+        maestria_daemon::SearchApiClient,
+        maestria_daemon::SearchApiClient,
+    ),
+    Box<dyn std::error::Error>,
+> {
+    let owner = wait_for_daemon_client(layout).await?;
+    let unapproved_root = tmp.path().join("not-approved");
+    fs::create_dir_all(&unapproved_root)?;
+    let invalid_grant = owner
+        .request(maestria_daemon::ClientOperation::RealmGrantCreate {
+            consumer_realm: maestria_test_support::realm_id(23)?,
+            access: maestria_daemon::RealmGrantAccess::SearchOnly,
+            max_sensitivity: maestria_daemon::RealmGrantSensitivity::Restricted,
+            max_results: 5,
+            max_evidence_bytes: 2048,
+            expires_in_seconds: 86_400,
+            allowed_roots: vec![unapproved_root.display().to_string()],
+        })
+        .await;
+    assert!(
+        invalid_grant.is_err(),
+        "owner granted an unapproved source root"
+    );
+    let consumer_realm = maestria_test_support::realm_id(22)?;
+    let response = owner
+        .request(maestria_daemon::ClientOperation::RealmGrantCreate {
+            consumer_realm: consumer_realm.clone(),
+            access: maestria_daemon::RealmGrantAccess::SearchAndOpenEvidence,
+            max_sensitivity: maestria_daemon::RealmGrantSensitivity::Restricted,
+            max_results: 5,
+            max_evidence_bytes: 2048,
+            expires_in_seconds: 86_400,
+            allowed_roots: vec![allowed_root.display().to_string()],
+        })
+        .await?;
+    let maestria_daemon::ClientResponse::RealmGrantCreated(created) = response else {
+        return Err("grant creation did not return a credential".into());
+    };
+    assert_eq!(
+        created.grant.allowed_roots,
+        Some(vec![allowed_root.display().to_string()])
+    );
+    let consumer = maestria_daemon::SearchApiClient::consumer(
+        layout.system_dir.join("daemon.sock"),
+        consumer_realm,
+        created.credential.expose().to_string(),
+    )?;
+    let other_realm = maestria_test_support::realm_id(24)?;
+    let other_grant = owner
+        .request(maestria_daemon::ClientOperation::RealmGrantCreate {
+            consumer_realm: other_realm.clone(),
+            access: maestria_daemon::RealmGrantAccess::SearchAndOpenEvidence,
+            max_sensitivity: maestria_daemon::RealmGrantSensitivity::Restricted,
+            max_results: 5,
+            max_evidence_bytes: 2048,
+            expires_in_seconds: 86_400,
+            allowed_roots: vec![denied_root.display().to_string()],
+        })
+        .await?;
+    let maestria_daemon::ClientResponse::RealmGrantCreated(other_grant) = other_grant else {
+        return Err("second root grant did not return a credential".into());
+    };
+    let other_consumer = maestria_daemon::SearchApiClient::consumer(
+        layout.system_dir.join("daemon.sock"),
+        other_realm,
+        other_grant.credential.expose().to_string(),
+    )?;
+    Ok((consumer, other_consumer))
+}
+
+async fn verify_other_consumer_pdf(
+    other_consumer: &maestria_daemon::SearchApiClient,
+    denied_root: &Path,
+    denied_pdf_evidence: EvidenceId,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let opened_pdf = other_consumer
+        .request(maestria_daemon::SearchApiOperation::Evidence {
+            evidence_id: denied_pdf_evidence.value(),
+        })
+        .await?;
+    let maestria_daemon::SearchApiResponse::Evidence(opened_pdf) = opened_pdf else {
+        return Err("authorized PDF evidence did not open".into());
+    };
+    assert!(opened_pdf.excerpt.contains("pdfquartz"));
+    assert!(matches!(
+        opened_pdf.source,
+        maestria_daemon::api::EvidenceSourceResponse::Pdf {
+            page_start: 1,
+            path: Some(path),
+            ..
+        } if Path::new(&path).starts_with(denied_root)
+            && Path::new(&path).ends_with("b-secret-report.pdf")
+    ));
+    Ok(())
+}
+
+async fn verify_scoped_search_and_evidence(
+    consumer: &maestria_daemon::SearchApiClient,
+    other_consumer: &maestria_daemon::SearchApiClient,
+    allowed_root: &Path,
+    denied_root: &Path,
+    allowed_evidence: EvidenceId,
+    denied_evidence: EvidenceId,
+    denied_pdf_evidence: EvidenceId,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let shared = search_as_consumer(consumer, "orchid").await?;
+    assert!(!shared.evidence.is_empty(), "approved passage is missing");
+    assert!(shared.evidence.iter().all(|evidence| {
+        matches!(
+            evidence.preview.as_ref().map(|preview| &preview.location),
+            Some(maestria_daemon::api::EvidenceSourceResponse::File { path, .. })
+                if Path::new(path).starts_with(allowed_root)
+        )
+    }));
+    let other_passage = search_as_consumer(other_consumer, "basalt").await?;
+    assert_eq!(other_passage.evidence.len(), 1);
+    assert!(matches!(
+        other_passage.evidence[0].preview.as_ref().map(|preview| &preview.location),
+        Some(maestria_daemon::api::EvidenceSourceResponse::File { path, .. })
+            if Path::new(path).starts_with(denied_root)
+    ));
+    let private = search_as_consumer(consumer, "basalt").await?;
+    assert!(private.evidence.is_empty());
+    assert!(private.path_results.is_empty());
+    assert!(
+        search_as_consumer(consumer, "pdfquartz")
+            .await?
+            .evidence
+            .is_empty(),
+        "PDF from the other root appeared in A's passage search"
+    );
+    let normal_search = consumer
+        .request(maestria_daemon::SearchApiOperation::Search {
+            query: "basalt".to_string(),
+            limit: 5,
+        })
+        .await?;
+    let maestria_daemon::SearchApiResponse::Search(normal_search) = normal_search else {
+        return Err("unexpected noninteractive search response".into());
+    };
+    assert!(normal_search.evidence.is_empty());
+    let private_filename = search_as_consumer(consumer, "b-secret-filename").await?;
+    assert!(private_filename.path_results.is_empty());
+    let allowed_filename = search_as_consumer(consumer, "a-visible-filename").await?;
+    assert_eq!(allowed_filename.path_results.len(), 1);
+    assert!(Path::new(&allowed_filename.path_results[0].path).starts_with(allowed_root));
+    for evidence_id in [denied_evidence, denied_pdf_evidence] {
+        let denied = match consumer
+            .request(maestria_daemon::SearchApiOperation::Evidence {
+                evidence_id: evidence_id.value(),
+            })
+            .await
+        {
+            Ok(_) => return Err("a scoped grant opened evidence from another root".into()),
+            Err(error) => error,
+        };
+        assert_eq!(
+            denied.code,
+            maestria_daemon::ClientErrorCode::SourceNotSelected
+        );
+    }
+    assert!(matches!(
+        consumer
+            .request(maestria_daemon::SearchApiOperation::Evidence {
+                evidence_id: allowed_evidence.value(),
+            })
+            .await?,
+        maestria_daemon::SearchApiResponse::Evidence(_)
+    ));
+    Ok(())
+}
+
+async fn verify_scoped_inventory(
+    consumer: &maestria_daemon::SearchApiClient,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut scoped_inventory = None;
+    for _ in 0..30 {
+        let result = consumer
+            .request(maestria_daemon::SearchApiOperation::IndexingStatus)
+            .await?;
+        let maestria_daemon::SearchApiResponse::IndexingStatus(status) = result else {
+            return Err("unexpected indexing status response".into());
+        };
+        if status.indexed_file_count == 1 && !status.scanning && status.pending_file_count == 0 {
+            scoped_inventory = Some(status);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let inventory = scoped_inventory.ok_or("scoped index did not settle")?;
+    assert_eq!(inventory.approved_root_count, 1);
+    assert_eq!(inventory.indexed_file_count, 1);
+    Ok(())
 }

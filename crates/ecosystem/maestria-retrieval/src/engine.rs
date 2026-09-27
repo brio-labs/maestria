@@ -184,101 +184,13 @@ impl RetrievalEngine {
                 self.learned_sparse_shadow_store.clone(),
             )
         };
-        let active_result = (|| {
-            check_search_cancellation(cancellation.as_ref())?;
-            let active_retrievers = if interactive {
-                self.retrievers
-                    .iter()
-                    .filter(|retriever| {
-                        let descriptor = retriever.descriptor();
-                        descriptor.id == "lexical_chunks"
-                            && descriptor.modality.eq_ignore_ascii_case("text")
-                            && descriptor.generation == plan.index_generation()
-                    })
-                    .cloned()
-                    .collect()
-            } else {
-                self.active_retrievers(plan)
-            };
-            if active_retrievers.is_empty() {
-                return Err(RetrievalError::Internal(if interactive {
-                    "No current text lexical retriever configured".into()
-                } else {
-                    "No retrievers configured".into()
-                }));
-            }
-            let query = engine_pipeline::search_query_for_plan(plan, plan.original_query())?;
-            let (batches, rewrites, web_requests_used, mut execution_usage) =
-                engine_pipeline::collect_initial_batches_with_cancellation(
-                    &active_retrievers,
-                    plan,
-                    &authorization,
-                    source_filter.as_ref(),
-                    cancellation.as_ref(),
-                )?;
-            check_interactive_budget(plan, started, cancellation.as_ref())?;
-            let (outcome, lanes, rerank_trace, diversity_trace) =
-                engine_evaluation::evaluate_batches(engine_evaluation::EvaluationRequest {
-                    engine: self,
-                    plan,
-                    query: &query,
-                    batches: &batches,
-                    started,
-                    execution_usage: &mut execution_usage,
-                    authorization: &authorization,
-                    source_filter: source_filter.as_ref(),
-                })?;
-            check_interactive_budget(plan, started, cancellation.as_ref())?;
-            let mut state = engine_adaptive::AdaptiveSearchState {
-                batches,
-                rewrites,
-                web_requests_used,
-                execution_usage,
-                outcome,
-                lanes,
-                rerank_trace,
-                diversity_trace,
-            };
-            let explicit_stop_reason = if interactive {
-                None
-            } else {
-                engine_adaptive::iterate_until_stop(
-                    self,
-                    plan,
-                    &query,
-                    &authorization,
-                    source_filter.as_ref(),
-                    &mut state,
-                    started,
-                )?
-            };
-            let expansion_enabled = plan
-                .stages()
-                .contains(&maestria_domain::SearchStage::Filtering);
-            let mut trace_policy = self.security_policy.clone();
-            trace_policy.required_scope_id = None;
-            trace_policy.instance_scope_ids = authorization.effective_scopes().cloned();
-            let outcome = ensure_trace(
-                plan,
-                state.outcome,
-                state.lanes,
-                EnsureTraceOptions {
-                    security_policy: trace_policy,
-                    fusion_enabled: self.fusion.is_some(),
-                    expansion_enabled,
-                    source_selection_digest: source_filter
-                        .as_ref()
-                        .map(CandidateSourceFilter::digest),
-                    rerank_trace: state.rerank_trace,
-                    diversity_trace: Some(state.diversity_trace),
-                    rewrites: state.rewrites.trace_records(),
-                    explicit_stop_reason,
-                },
-            )?;
-            check_interactive_budget(plan, started, cancellation.as_ref())?;
-            outcome.verify_compatibility(plan)?;
-            Ok(outcome)
-        })();
+        let active_result = self.run_active_search(
+            plan,
+            started,
+            &authorization,
+            source_filter.as_ref(),
+            cancellation.as_ref(),
+        );
         match active_result {
             Ok(outcome) => {
                 if let Some(shadow_task) = shadow_task {
@@ -288,6 +200,108 @@ impl RetrievalEngine {
             }
             Err(error) => Err(error),
         }
+    }
+
+    fn run_active_search(
+        &self,
+        plan: &SearchPlan,
+        started: crate::MonotonicInstant,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
+        source_filter: Option<&CandidateSourceFilter>,
+        cancellation: Option<&SearchCancellation>,
+    ) -> RetrievalResult<SearchOutcome> {
+        let interactive = cancellation.is_some();
+        check_search_cancellation(cancellation)?;
+        let active_retrievers = if interactive {
+            self.retrievers
+                .iter()
+                .filter(|retriever| {
+                    let descriptor = retriever.descriptor();
+                    descriptor.id == "lexical_chunks"
+                        && descriptor.modality.eq_ignore_ascii_case("text")
+                        && descriptor.generation == plan.index_generation()
+                })
+                .cloned()
+                .collect()
+        } else {
+            self.active_retrievers(plan)
+        };
+        if active_retrievers.is_empty() {
+            return Err(RetrievalError::Internal(if interactive {
+                "No current text lexical retriever configured".into()
+            } else {
+                "No retrievers configured".into()
+            }));
+        }
+        let query = engine_pipeline::search_query_for_plan(plan, plan.original_query())?;
+        let (batches, rewrites, web_requests_used, mut execution_usage) =
+            engine_pipeline::collect_initial_batches_with_cancellation(
+                &active_retrievers,
+                plan,
+                authorization,
+                source_filter,
+                cancellation,
+            )?;
+        check_interactive_budget(plan, started, cancellation)?;
+        let (outcome, lanes, rerank_trace, diversity_trace) =
+            engine_evaluation::evaluate_batches(engine_evaluation::EvaluationRequest {
+                engine: self,
+                plan,
+                query: &query,
+                batches: &batches,
+                started,
+                execution_usage: &mut execution_usage,
+                authorization,
+                source_filter,
+            })?;
+        check_interactive_budget(plan, started, cancellation)?;
+        let mut state = engine_adaptive::AdaptiveSearchState {
+            batches,
+            rewrites,
+            web_requests_used,
+            execution_usage,
+            outcome,
+            lanes,
+            rerank_trace,
+            diversity_trace,
+        };
+        let explicit_stop_reason = if interactive {
+            None
+        } else {
+            engine_adaptive::iterate_until_stop(
+                self,
+                plan,
+                &query,
+                authorization,
+                source_filter,
+                &mut state,
+                started,
+            )?
+        };
+        let expansion_enabled = plan
+            .stages()
+            .contains(&maestria_domain::SearchStage::Filtering);
+        let mut trace_policy = self.security_policy.clone();
+        trace_policy.required_scope_id = None;
+        trace_policy.instance_scope_ids = authorization.effective_scopes().cloned();
+        let outcome = ensure_trace(
+            plan,
+            state.outcome,
+            state.lanes,
+            EnsureTraceOptions {
+                security_policy: trace_policy,
+                fusion_enabled: self.fusion.is_some(),
+                expansion_enabled,
+                source_selection_digest: source_filter.map(CandidateSourceFilter::digest),
+                rerank_trace: state.rerank_trace,
+                diversity_trace: Some(state.diversity_trace),
+                rewrites: state.rewrites.trace_records(),
+                explicit_stop_reason,
+            },
+        )?;
+        check_interactive_budget(plan, started, cancellation)?;
+        outcome.verify_compatibility(plan)?;
+        Ok(outcome)
     }
 }
 fn check_search_cancellation(cancellation: Option<&SearchCancellation>) -> RetrievalResult<()> {

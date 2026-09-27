@@ -5,16 +5,18 @@ use maestria_domain::{
 };
 use maestria_governance::{FederatedGrantDecision, FederatedGrantDenial, authorize_federated_read};
 
-use super::super::federation_previews::{self, RESPONSE_EVIDENCE_RESERVE_BYTES};
-use super::super::protocol::SearchPathResultResponse;
-use super::super::server::{ApiContext, InteractiveSearchControl, RequestPrincipal};
+use super::super::federation_previews::RESPONSE_EVIDENCE_RESERVE_BYTES;
 use super::super::{
     ClientOperation, ClientResponse, FederationCredential, FederationEvidenceResponse,
-    FederationSearchResponse,
 };
 use super::federation_binding::{self, FederationBinding};
 
-const MAX_SEARCH_LIMIT: usize = 100;
+use super::super::server::{ApiContext, InteractiveSearchControl, RequestPrincipal};
+
+#[path = "federation_search_services.rs"]
+mod search;
+#[path = "federation_status_services.rs"]
+mod status_services;
 
 pub(super) async fn install_binding(
     context: &ApiContext,
@@ -52,7 +54,7 @@ pub(super) async fn search(
             consumer_realm,
             credential,
         } => {
-            serve_search(
+            search::serve_search(
                 context,
                 consumer_realm,
                 credential,
@@ -81,7 +83,7 @@ pub(super) async fn interactive_search(
     else {
         return Err(anyhow!("interactive search requires a federation grant"));
     };
-    serve_search(
+    search::serve_search(
         context,
         consumer_realm,
         credential,
@@ -179,201 +181,6 @@ async fn relay_evidence(
     Ok(ClientResponse::FederationEvidence(response))
 }
 
-async fn serve_search(
-    context: &ApiContext,
-    consumer_realm: &RealmId,
-    credential: &FederationCredential,
-    requested_provider_realm: RealmId,
-    query: String,
-    limit: usize,
-    interactive: Option<InteractiveSearchControl>,
-) -> Result<ClientResponse> {
-    if requested_provider_realm != context.realm_id {
-        return denied();
-    }
-    if query.trim().is_empty() || !(1..=MAX_SEARCH_LIMIT).contains(&limit) {
-        return Err(anyhow!("federated search request is invalid"));
-    }
-    let grant = grant_for(context, consumer_realm, credential).await?;
-    let now = unix_time_seconds()?;
-    let (authorization, bounds) = match authorize_federated_read(
-        &context.realm_id,
-        consumer_realm,
-        FederatedReadOperation::Search,
-        &grant,
-        now,
-        &maestria_governance::RetrievalSecurityPolicy::default()
-            .require_read_allowed(true)
-            .allow_unscoped_items(true),
-        &CorpusScope::Restricted(vec![maestria_domain::DEFAULT_INSTANCE_SCOPE_ID]),
-    ) {
-        FederatedGrantDecision::Allowed {
-            authorization,
-            bounds,
-        } => (authorization, bounds),
-        FederatedGrantDecision::Denied(denial) => return Err(grant_denial(denial)),
-    };
-    let approved_roots = context.source_manifest.read().read_roots.clone();
-    let executor = runtime(context)?
-        .search_executor()
-        .ok_or_else(|| anyhow!("daemon-owned search executor is unavailable"))?;
-    let search_runtime = executor
-        .as_any()
-        .and_then(|runtime| runtime.downcast_ref::<crate::SearchRuntime>())
-        .ok_or_else(|| anyhow!("daemon-owned search executor has an unexpected type"))?;
-    let request_runtime = search_runtime
-        .without_graph_expansion()
-        .with_allowed_roots(grant.allowed_roots());
-    let bounded_limit = limit.min(bounds.max_results());
-    // Registration follows grant authentication. Supersession is scoped to this
-    // consumer, while the shared worker semaphore bounds total daemon load.
-    let interactive_request = interactive.as_ref().map(|control| {
-        context
-            .interactive_searches
-            .begin(consumer_realm.clone(), control.clone())
-    });
-    let (plan, outcome) = match interactive.as_ref() {
-        Some(control) => {
-            request_runtime
-                .execute_interactive(
-                    query,
-                    bounded_limit,
-                    authorization.clone(),
-                    control.cancellation.clone(),
-                    control.signal.clone(),
-                )
-                .await?
-        }
-        None => {
-            request_runtime
-                .execute_pre_authorized(query, bounded_limit, authorization.clone())
-                .await?
-        }
-    };
-    let path_candidates = if let Some(control) = interactive.as_ref() {
-        request_runtime
-            .interactive_path_candidates(
-                plan.original_query().to_string(),
-                bounded_limit,
-                authorization.clone(),
-                control.cancellation.clone(),
-                control.signal.clone(),
-            )
-            .await?
-    } else {
-        Vec::new()
-    };
-    let query_id = plan.query_id();
-    let trace_id = outcome.trace;
-
-    let preview_candidates = federation_previews::search_preview_candidates(&outcome.evidence);
-    let mut response = FederationSearchResponse {
-        provider_realm: context.realm_id.clone(),
-        graph_degraded: true,
-        search: super::search_services::search_response(
-            plan.original_query().to_string(),
-            plan.query_id().value(),
-            outcome,
-        ),
-    };
-
-    if !preview_candidates.is_empty() {
-        federation_previews::open_and_attach_search_previews(
-            &context.layout,
-            &mut response,
-            preview_candidates,
-            authorization.clone(),
-            bounds.max_evidence_bytes(),
-            if interactive_request.is_some() {
-                Some(search_runtime.interactive_current_sources()?)
-            } else {
-                None
-            },
-            grant
-                .allowed_roots()
-                .map(|roots| std::sync::Arc::from(roots.to_vec())),
-        )
-        .await;
-    }
-    if interactive_request.is_some() {
-        let original_count = response.search.evidence.len();
-        // The lexical prefilter enforces currently approved source roots. Only
-        // a fresh scoped evidence reopen may release a passage: edits, deletes,
-        // or a symlink/root change cannot leak stale cited metadata.
-        response
-            .search
-            .evidence
-            .retain(|evidence| evidence.preview.is_some());
-        if response.search.evidence.len() != original_count {
-            let valid_versions: std::collections::BTreeSet<_> = response
-                .search
-                .evidence
-                .iter()
-                .map(|evidence| evidence.artifact_version)
-                .collect();
-            response.search.coverage.percent_covered = 0;
-            response.search.coverage.gaps.clear();
-            response.search.coverage.distinct_sources = valid_versions.len();
-            response.search.coverage.distinct_documents = valid_versions.len();
-            response.search.coverage.distinct_sections = response.search.evidence.len();
-            if response.search.evidence.is_empty() {
-                response.search.status = "NoEvidenceFound".to_string();
-            }
-        }
-    }
-    record_access(
-        context,
-        grant.token_digest().clone(),
-        consumer_realm.clone(),
-        FederatedAccessRecord::Search { query_id, trace_id },
-    )
-    .await?;
-    if let Some(control) = interactive.as_ref() {
-        let path_result_limit = bounded_limit.saturating_sub(response.search.evidence.len());
-        let verified_paths = request_runtime
-            .validate_interactive_path_candidates(
-                path_candidates,
-                authorization.clone(),
-                control.cancellation.clone(),
-                control.signal.clone(),
-            )
-            .await?;
-        response.search.path_results = verified_paths
-            .into_iter()
-            .take(path_result_limit)
-            .map(|path| SearchPathResultResponse { path })
-            .collect();
-        federation_previews::fit_search_path_results(&mut response);
-        if response.search.evidence.is_empty() && !response.search.path_results.is_empty() {
-            response.search.status = "PathResultsFound".to_string();
-        }
-    }
-
-    // Re-read the grant after source opens and audit persistence. A revocation
-    // concurrent with any of those awaits must not release a preview response.
-    let current_grant = grant_for(context, consumer_realm, credential).await?;
-    match authorize_federated_read(
-        &context.realm_id,
-        consumer_realm,
-        FederatedReadOperation::Search,
-        &current_grant,
-        unix_time_seconds()?,
-        &maestria_governance::RetrievalSecurityPolicy::default()
-            .require_read_allowed(true)
-            .allow_unscoped_items(true),
-        &CorpusScope::Restricted(vec![maestria_domain::DEFAULT_INSTANCE_SCOPE_ID]),
-    ) {
-        FederatedGrantDecision::Allowed { .. } => {}
-        FederatedGrantDecision::Denied(denial) => return Err(grant_denial(denial)),
-    }
-    if context.source_manifest.read().read_roots != approved_roots {
-        return Err(anyhow!(
-            "provider read roots changed during federated search"
-        ));
-    }
-    Ok(ClientResponse::FederationSearch(response))
-}
-
 async fn serve_evidence(
     context: &ApiContext,
     consumer_realm: &RealmId,
@@ -467,8 +274,7 @@ pub(super) async fn status(
     consumer_realm: &RealmId,
     credential: &FederationCredential,
 ) -> Result<super::super::protocol::RetrievalStatusResponse> {
-    authorized_status_grant(context, consumer_realm, credential).await?;
-    super::search_services::retrieval_status(context).await
+    status_services::status(context, consumer_realm, credential).await
 }
 
 pub(super) async fn indexing_status(
@@ -476,31 +282,7 @@ pub(super) async fn indexing_status(
     consumer_realm: &RealmId,
     credential: &FederationCredential,
 ) -> Result<super::super::protocol::SearchRootsStatusResponse> {
-    let grant = authorized_status_grant(context, consumer_realm, credential).await?;
-    super::search_roots_services::status_for_roots(context, grant.allowed_roots()).await
-}
-
-async fn authorized_status_grant(
-    context: &ApiContext,
-    consumer_realm: &RealmId,
-    credential: &FederationCredential,
-) -> Result<maestria_domain::RealmReadGrant> {
-    let grant = grant_for(context, consumer_realm, credential).await?;
-    let now = unix_time_seconds()?;
-    match authorize_federated_read(
-        &context.realm_id,
-        consumer_realm,
-        FederatedReadOperation::Search,
-        &grant,
-        now,
-        &maestria_governance::RetrievalSecurityPolicy::default()
-            .require_read_allowed(true)
-            .allow_unscoped_items(true),
-        &CorpusScope::Restricted(vec![maestria_domain::DEFAULT_INSTANCE_SCOPE_ID]),
-    ) {
-        FederatedGrantDecision::Allowed { .. } => Ok(grant),
-        FederatedGrantDecision::Denied(denial) => Err(grant_denial(denial)),
-    }
+    status_services::indexing_status(context, consumer_realm, credential).await
 }
 
 async fn grant_for(

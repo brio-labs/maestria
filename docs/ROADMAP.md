@@ -225,8 +225,23 @@ first-run offer, deferral, Preferences, resident reactivation, calculations
 and clipboard; X11 shortcut setup persisted across restart and rejected a
 conflicting grab. Nested Weston exercised startup, offer/deferral, reactivation
 and quit without verifying Wayland passage actions or live portal grants.
-Active-indexing latency, hosted CI and combined-release acceptance remain
-open; the original package directories still contain older artifacts.
+Hosted Ubuntu 24.04 CI [run 36154676323](https://github.com/brio-labs/maestria/actions/runs/36154676323)
+rebuilt, installed and smoke-tested the launcher-only and search-only Debian
+packages, and rebuilt/smoke-tested the launcher AppImage. Its Clippy and
+philosophy jobs failed on the structural gate present at commit `fc748efe`;
+these package jobs do not test later refactors or extension installation.
+Active-indexing latency and combined-release acceptance remain open; the
+original local package directories still contain older artifacts.
+
+After the structural cutover, the local full workspace test command passed
+without editing sources during its repository benchmark; the strict philosophy
+and Clippy gates also passed after a focused PDF-region reopen regression.
+The current source-built search CLI and daemon, with two disposable Markdown
+roots and separate consumer credentials, returned both real cited passages;
+the earlier consumer could not search or open the later-approved root
+(`SourceNotSelected`), while the later consumer reopened its own evidence.
+This smoke did not install rebuilt Ubuntu packages or resolve the intermittent
+Tantivy startup `LockBusy` tracked in [#517](https://github.com/brio-labs/maestria/issues/517).
 
 [Product milestone](https://github.com/brio-labs/maestria/milestone/11).
 
@@ -293,6 +308,12 @@ page citation and passed the verified `file:` URI with numeric `#page=1` to a
 private PDF default handler. This proves the hint was dispatched, not that
 arbitrary installed PDF viewers honor it; the Slint detail remains the exact
 fallback. These were not current Ubuntu Debian payloads or pure-Wayland actions.
+
+After the structural cutover, a separate private X11 run of the freshly built
+Slint launcher exposed its offer and persisted deferral through AT-SPI, accepted
+`2 + 2` as keyboard input, displayed the calculated result, and yielded a
+visually inspected native screenshot. This launcher-only run did not exercise
+fresh passage actions or a live desktop portal.
 
 Complete native Slint pure-Wayland actions, per-consumer root filters, exact
 viewer line/page jumps, native p50/p95/p99, held-out relevance,

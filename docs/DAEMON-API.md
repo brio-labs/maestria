@@ -57,10 +57,14 @@ A provider receives a federated request only through a consumer binding:
     "limit": 10
   }
 }
+```
+
 Instance-token operations are `status`, `retrieval_status`, `search`, `evidence`,
-`task`, `retire_retrieval_events`, `model_agent_propose`, `model_agent_status`,
-`model_agent_resolve`, `realm_grant_create`, `realm_grant_list`, `realm_grant_revoke`,
-`install_federation_binding`, and the notebook/draft operations listed below.
+`search_roots_status`, `search_root_add`, `search_root_remove`, `task`,
+`retire_retrieval_events`, `model_agent_propose`, `model_agent_status`,
+`model_agent_resolve`, `realm_grant_create`, `realm_grant_list`,
+`realm_grant_revoke`, `install_federation_binding`, and the notebook/draft
+operations listed below.
 A federation credential authorizes only `federation_search` and
 `federation_evidence`; it cannot call ordinary local operations, status,
 notebook endpoints, task/model-agent endpoints, or grant administration.
@@ -114,6 +118,26 @@ source-selection digest. Direct evidence opens for an unselected artifact
 return `source_not_selected` without path or excerpt metadata. Saved drafts
 retain frozen citation metadata so they can be reopened after a source changes
 or disappears.
+
+## Approved search roots
+
+The owner-only operations `search_roots_status`, `search_root_add`, and
+`search_root_remove` inspect or change the provider's approved read roots:
+
+```json
+{"type": "search_roots_status"}
+{"type": "search_root_add", "root": "/home/you/Documents"}
+{"type": "search_root_remove", "root": "/home/you/Documents"}
+```
+
+Adding a root requires an existing directory, canonicalizes its path, refuses
+a symbolic link or overlap with another root, and caps approval at 64 roots.
+Removing an approved root requires an absolute path and revokes access even
+when the directory has disappeared. All three return `SearchRootsStatusResponse`
+with bounded per-root indexed-source counts, exclusions, OCR-needed PDFs, and
+watcher scanning/pending/error fields. Only the instance token can administer
+roots; a consumer grant's separate `indexing_status` response is limited to
+its frozen approved roots and never authorizes root changes.
 
 ## Index choice operations
 

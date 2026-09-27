@@ -1,9 +1,12 @@
 use super::*;
+use crate::api::protocol::read_capped_ndjson_line;
 use std::{
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::UnixStream;
+use tokio::time::{Duration, timeout};
 
 static NEXT_TEST_SOCKET: AtomicU64 = AtomicU64::new(0);
 
@@ -30,7 +33,7 @@ async fn partial_request_disconnect_is_reported() -> Result<()> {
     writer.write_all(b"{\"token\":").await?;
     drop(writer);
 
-    let result = read_request_line(&mut reader).await;
+    let result = read_capped_ndjson_line(&mut reader).await;
 
     assert!(
         matches!(result.as_ref(), Err(error) if error.to_string().contains("before end of message")),

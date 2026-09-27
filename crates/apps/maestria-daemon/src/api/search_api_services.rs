@@ -3,8 +3,11 @@ use maestria_domain::RealmId;
 
 use super::super::protocol::{
     ClientResponse, FederationCredential, FederationEvidenceResponse, FederationSearchResponse,
+    SearchRootsStatusResponse,
 };
-use super::super::protocol_search_api::{SearchApiOperation, SearchApiResponse};
+use super::super::protocol_search_api::{
+    SearchApiIndexingStatusResponse, SearchApiOperation, SearchApiResponse,
+};
 use super::super::server::{ApiContext, RequestPrincipal};
 use super::federation_services;
 
@@ -65,35 +68,8 @@ pub(super) async fn dispatch(
         SearchApiOperation::IndexingStatus => {
             let status =
                 federation_services::indexing_status(context, &consumer_realm, &credential).await?;
-            let mut exclusions = std::collections::BTreeMap::new();
-            for root in &status.roots {
-                for (reason, count) in &root.exclusions_by_reason {
-                    *exclusions.entry(reason.clone()).or_default() += *count;
-                }
-            }
             Ok(SearchApiResponse::IndexingStatus(Box::new(
-                super::super::protocol_search_api::SearchApiIndexingStatusResponse {
-                    approved_root_count: status.approved_root_count,
-                    indexed_file_count: status
-                        .roots
-                        .iter()
-                        .map(|root| root.indexed_file_count)
-                        .sum(),
-                    inventory_truncated: status.exclusion_scan_truncated,
-                    ocr_needed_file_count: status.ocr_needed_file_count,
-                    excluded_file_count: status
-                        .roots
-                        .iter()
-                        .map(|root| root.excluded_file_count)
-                        .sum(),
-                    exclusions_by_reason: exclusions,
-                    supported_formats: status.supported_formats,
-                    ignored_by_default: status.ignored_by_default,
-                    scanning: status.indexing.scanning,
-                    pending_file_count: status.indexing.pending_file_count,
-                    last_scan_unix_ms: status.indexing.last_scan_unix_ms,
-                    last_scan_error: status.indexing.last_error.is_some(),
-                },
+                indexing_status_response(status),
             )))
         }
         SearchApiOperation::Evidence { evidence_id } => {
@@ -113,5 +89,36 @@ pub(super) async fn dispatch(
                 )),
             }
         }
+    }
+}
+
+fn indexing_status_response(status: SearchRootsStatusResponse) -> SearchApiIndexingStatusResponse {
+    let mut exclusions = std::collections::BTreeMap::new();
+    for root in &status.roots {
+        for (reason, count) in &root.exclusions_by_reason {
+            *exclusions.entry(reason.clone()).or_default() += *count;
+        }
+    }
+    SearchApiIndexingStatusResponse {
+        approved_root_count: status.approved_root_count,
+        indexed_file_count: status
+            .roots
+            .iter()
+            .map(|root| root.indexed_file_count)
+            .sum(),
+        inventory_truncated: status.exclusion_scan_truncated,
+        ocr_needed_file_count: status.ocr_needed_file_count,
+        excluded_file_count: status
+            .roots
+            .iter()
+            .map(|root| root.excluded_file_count)
+            .sum(),
+        exclusions_by_reason: exclusions,
+        supported_formats: status.supported_formats,
+        ignored_by_default: status.ignored_by_default,
+        scanning: status.indexing.scanning,
+        pending_file_count: status.indexing.pending_file_count,
+        last_scan_unix_ms: status.indexing.last_scan_unix_ms,
+        last_scan_error: status.indexing.last_error.is_some(),
     }
 }

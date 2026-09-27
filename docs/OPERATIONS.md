@@ -162,17 +162,21 @@ private `dbus-run-session` and `xvfb-run`, with an outer timeout so `xvfb-run`
 is not PID 1 of a container. The script enables the private session's
 `org.a11y.Status.IsEnabled` before launching Slint; without that signal
 AccessKit does not expose its AT-SPI tree even when the X11 window is visible.
-The current Ubuntu Debian and AppImage passed this bounded local smoke,
-including first-run offer/deferral and shortcut persistence. This does not
-verify live desktop portal approval, Wayland passage actions or a version
-upgrade.
+The Ubuntu Debian and AppImage passed this bounded local smoke, including
+first-run offer/deferral and shortcut persistence. Hosted Ubuntu 24.04 CI
+[run 36154676323](https://github.com/brio-labs/maestria/actions/runs/36154676323)
+also rebuilt both formats, installed the Debian package and passed its
+window smoke. This does not verify live desktop portal approval, Wayland
+passage actions or a version upgrade.
 
 The launcher-only package smoke requires the launcher Debian to be installed
 at the package version under inspection, checks that neither the separate
 search nor extension-worker package or executable is installed, and uses only
 system paths for all launcher interactions. Run it on a clean launcher-only
 Ubuntu installation; the combined-install smoke has a different purpose.
-The new absence/PATH assertions have not yet been exercised in hosted CI.
+The absence/PATH assertions passed the launcher-native job of hosted Ubuntu
+[run 36154676323](https://github.com/brio-labs/maestria/actions/runs/36154676323)
+at commit `fc748efe`; rebuild and rerun after subsequent code changes.
 The Debian verifier independently checks that no launcher package relationship
 pulls in, conflicts with, or claims the separately optional components.
 
