@@ -380,6 +380,19 @@ namespace protection, share the network, or execute the worker outside
 the sandbox. Unlike local nested Podman, hosted CI verified the real
 JavaScript response, inaccessible host canary and clean worker removal.
 
+An isolated source-built Slint launcher also displayed a real Copy-only
+extension's version, package digest and exact new grant, then approved its
+install. Its first broker invocation stopped before JavaScript: Bubblewrap's
+namespace setup returned `Resource temporarily unavailable`. This desktop had
+1,519 threads under the same UID, above the worker's 1,024-task
+`RLIMIT_NPROC`; an otherwise identical namespaced `/usr/bin/true` preflight
+failed with that limit and passed without it. Linux counts tasks for that
+limit across the real user, not just the worker. The product cannot claim
+extension execution, capability effects or grant revocation on a similarly
+busy desktop from the worker-only CI result. Keep the worker sandbox and
+resource bounds intact; do not run an unisolated fallback or change host
+session permissions to force a passing smoke.
+
 ### Disable, uninstall, and choose local-data retention
 
 Before removing packages, stop their processes explicitly: close active

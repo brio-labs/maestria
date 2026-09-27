@@ -352,10 +352,25 @@ Weston Wayland session with a real keyboard seat, private D-Bus/AT-SPI and
 passage; Return opened its detail; the AT-SPI Copy passage action freshly
 reopened evidence and `wl-paste` read the exact text from Weston's private
 clipboard. This did not touch the host clipboard or test fresh Ubuntu Debian
-payloads. Per-consumer native filters, exact viewer line/page jumps, native
-p50/p95/p99, held-out relevance, portal decisions, active-indexing **native**
-latency and provider-backed paraphrase quality remain unproved. M3 depends on
-M1's Slint command/action shell and M2's search-only API, **not** extensions.
+payloads. Separate source-built checks measured native keyboard-to-citation
+latency, but per-consumer native filters, exact viewer line/page jumps,
+release-scale p50/p95/p99, held-out relevance, portal decisions, provider-backed
+paraphrase quality and installed-artifact latency remain unproved. M3 depends
+on M1's Slint command/action shell and M2's search-only API, **not** extensions.
+
+In a private Xvfb/JWM/D-Bus/XDG session, 200 consecutive Slint searches
+alternated between two distinct authorized Markdown passages. Every observation
+required both the new query text in the focused entry and a citation from the
+new expected file; p50/p95/p99 were 464.53/518.63/546.58 ms, maximum
+560.38 ms, while 650 other Markdown sources were queued for watcher intake
+immediately before the sample. A separate private nested-Weston Wayland
+two-document baseline passed 200/200 such transitions at
+545.09/605.31/653.75 ms, maximum 739.72 ms. Both source-built measurements
+include synthetic keyboard deletion/typing and AT-SPI observation overhead;
+neither isolates search service latency, retains a representative 10,000-file
+corpus, covers edit/deletion classes, uses installed Ubuntu packages, or proves
+the unchanged 100 ms native interactive deadline.
+
 [Product milestone](https://github.com/brio-labs/maestria/milestone/12).
 
 **Scope:** Show applications/commands immediately, then searchable filename,
@@ -449,6 +464,19 @@ binary provenance, isolated user/pid/network namespaces, an inaccessible
 host-filesystem canary, a bounded real JavaScript command with no ambient
 host I/O APIs, and clean worker removal. This does not exercise the real
 broker's capabilities or actual version upgrades and retained grants.
+
+A fresh private X11 source-built launcher installed a Copy-only extension only
+after displaying its exact version, SHA-256 identity and newly granted Copy
+permission in the Slint review. Its first real launcher-broker invocation then
+**failed closed before worker JavaScript ran**: Bubblewrap could not create a
+namespace (`Resource temporarily unavailable`). The host user had 1,519
+threads, above the worker's 1,024-task `RLIMIT_NPROC`. An otherwise identical
+Bubblewrap namespace preflight reproduced the failure with that limit and
+passed without it. The limit was not raised and no unsandboxed worker ran;
+this attempt proves neither the requested denied/allowed broker capability
+effects nor grant revocation. Hosted CI's installed worker-only success does
+not establish usability under this desktop process load or complete the
+launcher-broker release gate.
 
 [Product milestone](https://github.com/brio-labs/maestria/milestone/13).
 
