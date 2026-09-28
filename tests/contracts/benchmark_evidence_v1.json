@@ -36,7 +36,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "dfc82858a2c410d5ce316d8347a3d3157482a53923f2497bb93306fdad6c67ba"
+        "source_hash": "d43f55de53a7550b3e784c6c9d21ae23004e5c0820046a2d4df3dfeea08f79ca"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -96,7 +96,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "dfc82858a2c410d5ce316d8347a3d3157482a53923f2497bb93306fdad6c67ba"
+        "source_hash": "d43f55de53a7550b3e784c6c9d21ae23004e5c0820046a2d4df3dfeea08f79ca"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",

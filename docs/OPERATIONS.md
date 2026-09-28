@@ -89,7 +89,7 @@ tombstone map for explicit operational review.
 
 Sillage is in continuous development with no external release promise.
 
-- The workspace version is pinned at `0.0.0`; `main` is always the current
+- The development workspace version is `0.0.1`; `main` is always the current
   build.
 - Each product milestone in [ROADMAP.md](./ROADMAP.md) requires its own
   observable exit evidence. Historical retrieval reports do not satisfy a
@@ -135,21 +135,22 @@ The CLI is daemon-first and never requires the daemon:
 
 ## 8. Opt-in Linux package onboarding
 
-The current local Debian artifacts are version `0.0.0`, `amd64`, and built on
-Ubuntu 24.04. From the repository root, install the launcher, headless search
-service, or both with `apt` so Ubuntu resolves the declared runtime dependencies:
+Debian artifacts built from this source revision use version `0.0.1` and
+architecture `amd64`; CI builds them on Ubuntu 24.04. From the repository root,
+install the launcher, headless search service, or both with `apt` so Ubuntu
+resolves the declared runtime dependencies:
 
 ```bash
 # Apps only: no search daemon or worker is installed.
-sudo apt install ./target/launcher-packages/maestria-launcher_0.0.0_amd64.deb
+sudo apt install ./target/launcher-packages/maestria-launcher_0.0.1_amd64.deb
 
 # Search only: no launcher or worker is installed.
-sudo apt install ./target/search-packages/maestria-search_0.0.0_amd64.deb
+sudo apt install ./target/search-packages/maestria-search_0.0.1_amd64.deb
 
 # Combined: explicitly select both components.
 sudo apt install \
-  ./target/launcher-packages/maestria-launcher_0.0.0_amd64.deb \
-  ./target/search-packages/maestria-search_0.0.0_amd64.deb
+  ./target/launcher-packages/maestria-launcher_0.0.1_amd64.deb \
+  ./target/search-packages/maestria-search_0.0.1_amd64.deb
 ```
 
 The Debian package IDs are `io-github-briolabs-maestria-launcher` and
@@ -401,7 +402,7 @@ The launcher does not depend on the worker. Install it only when choosing to
 run extensions:
 
 ```bash
-sudo apt install ./target/extension-packages/maestria-extension-worker_0.0.0_amd64.deb
+sudo apt install ./target/extension-packages/maestria-extension-worker_0.0.1_amd64.deb
 ```
 
 Its package ID is `io-github-briolabs-maestria-extension-worker`; it brings
@@ -484,6 +485,36 @@ installed Ubuntu 26.04 KDE portal approval/denial above is a real consent
 decision, but neither Copy AT-SPI nor stock Ubuntu 24.04 portal support.
 Version-different upgrade and installed 10,000-file/reference-hardware
 latency and resource gates also remain open.
+
+### Reproduce release acceptance in isolated CI runners
+
+The `version-upgrade-package` job downloads the successful **0.0.0** launcher,
+search, and worker Debian artifacts from
+[run 36455626998 at `985a8368`](https://github.com/brio-labs/maestria/actions/runs/36455626998)
+and all three **0.0.1** artifacts built from the same new CI checkout.
+`scripts/smoke-version-upgrade.sh` refuses identical upstream versions,
+unchanged installed executable bytes, or a version-only source change. On an
+Ubuntu 24.04 runner, it installs the old packages, creates one private XDG
+launcher/extension/grant/data tree and one private authorized search instance,
+then replaces all three packages. It compares persistent state **before**
+restarting either process, checks authorized evidence and denied roots/consumers
+after restart, removes and reinstalls the new packages without reconstructing
+that state, and checks retention again before explicit revocation. Its Xvfb,
+D-Bus, and clipboard belong to the job; the worker still requires Bubblewrap.
+This is an acceptance procedure, not a claim that the upgrade has passed.
+
+The separate `installed-native-benchmark` job installs the same-run Debian
+launcher and search binaries. It records 200 actual native-window/AT-SPI
+interactions each for cold launcher starts, active queries, edited sources, and
+deleted sources over one approved 10,000-file tree. It retains failures and
+timeouts, exact artifact/process identity, resource samples, screenshots,
+citations, and actual memory/SSD provenance in the
+`installed-native-benchmark-evidence` artifact, even if the gate fails. A runner
+below **16 GiB effective memory** or without confirmed SSD storage cannot pass
+the reference-hardware gate. Keyboard-to-AT-SPI measurements include observer
+overhead and **do not** directly measure or replace the internal 100 ms search
+deadline. Neither job should be run against a user's desktop or package state.
+Their success remains unverified until an exact-source CI run finishes.
 
 ### Disable, uninstall, and choose local-data retention
 

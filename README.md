@@ -58,7 +58,7 @@ cargo build --release -p maestria-cli
 ./target/release/maestria-cli --help
 ```
 
-Sillage has no releases: the workspace version is pinned at `0.0.0` and
+Sillage has no releases: the development workspace version is `0.0.1` and
 `main` is always the current build. Build the CLI and daemon from source.
 
 ### Native Linux launcher

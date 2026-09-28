@@ -700,7 +700,7 @@ export component ExtensionPanel inherits Rectangle {
                             font-size: 12px;
                             accessible-role: text;
                         }
-                        for action in root.actions : Button {
+                        for action in (root.view == "actions" ? root.actions : []) : Button {
                             height: 36px;
                             text: action.id == root.selected-action-id ? "Selected: " + action.label : action.label;
                             enabled: !root.busy;

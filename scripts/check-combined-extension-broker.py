@@ -168,14 +168,14 @@ def activate_copy():
         except (AttributeError, RuntimeError):
             continue
     print(f"INSTALLED_VISIBLE_BUTTON_ACTION_INTERFACES={nearby[:40]!r}", flush=True)
-    # The installed first invocation exposed no AT-SPI action, despite the
-    # showing/enabled button. A private pointer proves the broker, not AT-SPI.
-    subprocess.run(
-        ["xdotool", "mousemove", str(bounds.x + bounds.width // 2),
-         str(bounds.y + bounds.height // 2), "click", "1"],
-        check=True, timeout=5,
-    )
-    print("INSTALLED_COPY_USED_PRIVATE_X11_POINTER_NOT_ATSPI_ACTION", flush=True)
+    if "click" not in action_names:
+        raise RuntimeError(
+            "first-run installed Copy has no client-visible AT-SPI click action "
+            f"(cached={node.get_interfaces()}, server={reply.unpack()[0] if 'reply' in locals() else 'unknown'})"
+        )
+    if not Atspi.Action.do_action(iface, action_names.index("click")):
+        raise RuntimeError("installed Copy AT-SPI click action was rejected")
+    print("INSTALLED_COPY_ATSPI_ACTION_CLICKED", flush=True)
 
 
 def exact_text(label, expected):
