@@ -116,6 +116,15 @@ def click_copy():
         and bounds.height > 0
     ):
         raise RuntimeError("installed Copy button is not visible and enabled")
+    iface = node.get_action_iface()
+    try:
+        count = Atspi.Action.get_n_actions(iface) if iface is not None else 0
+        action_names = [
+            Atspi.Action.get_action_name(iface, index) for index in range(count)
+        ]
+    except (AttributeError, RuntimeError) as error:
+        action_names = [f"query failed: {error!r}"]
+    print(f"INSTALLED_COPY_ATSPI_ACTION_NAMES={action_names!r}", flush=True)
     subprocess.run(
         ["xdotool", "mousemove", str(bounds.x + bounds.width // 2),
          str(bounds.y + bounds.height // 2), "click", "1"],
