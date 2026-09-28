@@ -13,9 +13,10 @@ search, passage detail and Copy passage through its private Wayland clipboard.
 Hosted Ubuntu 24.04 CI now independently builds, installs and smokes launcher,
 search and isolated worker packages at the committed Sillage cutover; the
 Weston/Wayland passage action above used **source-built** binaries instead.
-Installed-artifact native latency, version-different upgrades, installed
-Ubuntu Wayland portal decisions and full combined release acceptance remain
-open. A real **source-built** private KDE portal allow/deny is recorded in M1.
+Installed-artifact native latency, version-different upgrades, stock Ubuntu
+24.04 Wayland shortcut activation and full combined release acceptance remain
+open. The same-run **installed Ubuntu 26.04** private KDE consent pass and
+earlier source-built AT-SPI dialog pass are distinguished in M1.
 None of these packages exits a product milestone.
 [PR #516](https://github.com/brio-labs/maestria/pull/516) remains a draft
 baseline, not a release candidate.
@@ -522,8 +523,8 @@ the authorized Copy action; revocation then removed its executable command.
 The source-built exercise and independently installed worker smoke alone did
 not prove the combined package flow; the separate same-run installed package
 job below does. Neither tested preserved grants across a **version-different**
-upgrade or portal decisions; M1 documents a separate real source-built KDE
-GlobalShortcuts approval/denial.
+upgrade; M1 separately records installed Ubuntu 26.04 KDE GlobalShortcuts
+approval/denial, not stock Ubuntu 24.04 support.
 
 Hosted Ubuntu 24.04
 [`adea9552`](https://github.com/brio-labs/maestria/commit/adea9552d487cf2d58e51daa9c3efe0006b4185b)
@@ -548,10 +549,10 @@ restore the first action in
 [run 36426864440](https://github.com/brio-labs/maestria/actions/runs/36426864440);
 that ineffective duplicate binding was removed; the remaining defect is
 tracked in [#545](https://github.com/brio-labs/maestria/issues/545).
-Ubuntu Copy accessibility, installed Ubuntu Wayland portal decision,
+Ubuntu Copy accessibility, stock Ubuntu 24.04 Wayland shortcut activation,
 version-different upgrade, and installed native 10,000-file/reference-hardware
-latency remain open. M1 documents a separate real source-built private KDE
-portal allow/deny.
+latency remain open. M1 records both the private installed Ubuntu 26.04 KDE
+portal decision and separate source-built AT-SPI dialog proof.
 
 [Product milestone](https://github.com/brio-labs/maestria/milestone/13).
 
@@ -587,11 +588,12 @@ private clipboard, while a deleted path action was explicitly refused.
 lifecycle, disable/uninstall, and user-data choices. A same-version settings
 reinstall passed, but real version-different upgrades and shortcut-portal
 preservation remain unproved. Hosted Ubuntu 24.04 CI at `adea9552` passed the
-same-run **installed** launcher/worker broker lifecycle described above;
-cross-compositor accessibility (including Ubuntu AT-SPI Copy activation),
-**installed** Ubuntu Wayland GlobalShortcuts allow/deny, installed native
+same-run **installed** launcher/worker broker lifecycle described above.
+The private installed Ubuntu 26.04 KDE GlobalShortcuts allow/deny passed
+separately. Cross-compositor accessibility (including Ubuntu AT-SPI Copy
+activation), stock Ubuntu 24.04 compositor activation, installed native
 10,000-file latency and resource acceptance, and provider-backed FR/EN
-passage relevance remain open.
+document and passage relevance remain open.
 Depends on M1, M2, M3 and M4.
 [Product milestone](https://github.com/brio-labs/maestria/milestone/14).
 

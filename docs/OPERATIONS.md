@@ -451,9 +451,9 @@ denial for an ungranted file-search request, and wrote authorized text to the
 private clipboard through the real host broker. After the launcher quit and
 restarted, the same approved command again denied ungranted search and
 completed the authorized Copy action; revocation then made its command
-unavailable. These are developer-build observations, not installed Ubuntu
-combined-flow, version-upgrade or desktop-portal acceptance. Never
-fall back to unisolated worker execution when a sandbox still fails closed.
+unavailable. These developer-build observations alone did not establish the
+installed Ubuntu combined flow, version upgrade or packaged portal consent.
+Never fall back to unisolated worker execution when a sandbox still fails closed.
 
 The separate combined Ubuntu 24.04 package job passed at
 [`adea9552`](https://github.com/brio-labs/maestria/commit/adea9552d487cf2d58e51daa9c3efe0006b4185b)
@@ -479,10 +479,11 @@ Explicitly binding Slint's default action still left the first invocation
 without an AT-SPI action in
 [run 36426864440](https://github.com/brio-labs/maestria/actions/runs/36426864440);
 that ineffective duplicate binding was removed; track the actual defect in
-[#545](https://github.com/brio-labs/maestria/issues/545). The real
-source-built KDE GlobalShortcuts allow/deny above is not installed Ubuntu
-portal acceptance. Version-different upgrade and installed 10,000-file/
-reference-hardware latency and resource gates also remain open.
+[#545](https://github.com/brio-labs/maestria/issues/545). The separate
+installed Ubuntu 26.04 KDE portal approval/denial above is a real consent
+decision, but neither Copy AT-SPI nor stock Ubuntu 24.04 portal support.
+Version-different upgrade and installed 10,000-file/reference-hardware
+latency and resource gates also remain open.
 
 ### Disable, uninstall, and choose local-data retention
 

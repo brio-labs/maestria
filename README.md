@@ -36,10 +36,10 @@ The current build and target product remain intentionally different surfaces:
 | Dense semantic search | Provider-dependent in the CLI/daemon workflow; not a launcher default |
 | Native resident launcher and application catalog | Available in the Slint developer build on X11 and Wayland; Debian and AppImage packages built and native-smoked |
 | Distinctive interface and full Tauri-to-Slint parity | Slint search, Preferences, About attribution, theme and keyboard basics work; parity and release performance measurements remain open |
-| Search-only installable service and scoped third-party client | `maestria-search` is built as a separate headless Debian package; its local Unix-socket API and external-process search/evidence commands work without launcher or model configuration. Search-only grants receive bounded cited previews without evidence-open permission. Ubuntu 24.04 container apt installation and installed-binary smoke passed locally; hosted CI and full product acceptance remain unverified |
+| Search-only installable service and scoped third-party client | `maestria-search` is a separate headless Debian package; local Unix-socket search/evidence works without the launcher or a model. Hosted Ubuntu 24.04 installed-binary smoke passed. Provider-backed relevance and combined release acceptance remain open |
 | X11 global shortcut | Available after user setup in Preferences |
-| Wayland global shortcut | Portal where supported; otherwise bind `maestria-launcher --activate` in the compositor |
-| Extension lifecycle, SDK, isolated workers and capability broker | Planned |
+| Wayland global shortcut | Private installed Ubuntu 26.04 KDE GlobalShortcuts consent passed; stock Ubuntu 24.04 lacks the required host-app Registry, so use a user-created compositor binding for `maestria-launcher --activate` where needed |
+| Extension lifecycle, SDK, isolated workers and capability broker | Opt-in developer build; same-run installed Ubuntu 24.04 launcher/worker Bubblewrap broker smoke passed with a private pointer. First installed extension Copy AT-SPI activation and version-different upgrade remain open |
 
 The existing CLI and daemon quick start below is for the current developer
 build, not launcher onboarding. Notebook, task, and memory workflows remain
@@ -115,8 +115,13 @@ the saved shortcut. A packaged Weston Wayland run with a fake seat verified
 the first-run offer, AT-SPI deferral and search focus, resident reactivation,
 and clean quit. Ubuntu 24.04's Weston 13 has no fake seat; the locally forced
 no-seat package smoke confirmed deferral persistence and reactivation but cannot
-test keyboard focus. Hosted Ubuntu CI and live desktop portal approval/denial,
-chooser, and full screen-reader interactions remain unverified.
+test keyboard focus. [Hosted installed Ubuntu 26.04 KDE consent](https://github.com/brio-labs/maestria/actions/runs/36454007556)
+passed separate private approval and denial with the same-run Ubuntu 24.04-built
+launcher Debian. Its KDE dialog and launcher Setup used a **private pointer,
+not AT-SPI**. Stock Ubuntu 24.04's portal lacks the host-app Registry required
+by this launcher; see the [manual GNOME compositor shortcut fallback](docs/OPERATIONS.md#8-opt-in-linux-package-onboarding).
+Live compositor keypress activation, native Wayland chooser, upgrade retention
+and full screen-reader interactions remain unverified.
 
 Open Preferences with Ctrl+Comma; the shortcut editor receives keyboard focus.
 Set up the X11 shortcut there; the initial suggestion is
@@ -137,8 +142,8 @@ index the selected directory.
 The existing `maestria-launcher` executable, Debian package ID
 `io-github-briolabs-maestria-launcher`, and
 `io.github.briolabs.Maestria.Launcher` desktop/portal identity remain stable
-under the Sillage name. Existing preferences, shortcut grants, and compositor
-bindings continue to work without migrating or resetting user data.
+under the Sillage name. Retention of settings, grants and compositor bindings
+across a version-different upgrade has not yet been verified.
 
 To opt into document results, install `maestria-search` separately and create
 an approved root plus a `search-and-open-evidence` consumer grant as shown
