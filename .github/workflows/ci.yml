@@ -327,6 +327,8 @@ jobs:
           sudo apt-get install --yes --no-install-recommends \
             kwin-wayland kglobalacceld xdg-desktop-portal-kde \
             qt6-qpa-plugins qt6-wayland gir1.2-gtk-3.0 \
+            qml6-module-org-kde-kquickcontrols qml6-module-org-kde-kcmutils \
+            qml6-module-qt5compat-graphicaleffects \
             ./target/launcher-packages/*.deb
       - name: Exercise installed private KDE GlobalShortcuts approval and denial
         run: timeout --kill-after=5s 210s bash scripts/smoke-launcher-portal-package.sh target/launcher-packages
