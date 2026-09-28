@@ -64,10 +64,26 @@ def expect(label, seconds=15):
 
 
 def action(label):
-    node = expect(label)
-    iface = node.get_action_iface()
-    if iface is None or not Atspi.Action.do_action(iface, 0):
-        raise RuntimeError(f"installed Slint rejected action {label!r}")
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        for node in nodes():
+            try:
+                if node.get_name() != label:
+                    continue
+                state = node.get_state_set()
+                if not (
+                    state.contains(Atspi.StateType.SHOWING)
+                    and state.contains(Atspi.StateType.ENABLED)
+                ):
+                    continue
+                iface = node.get_action_iface()
+            except (AttributeError, RuntimeError):
+                continue
+            if iface is None or not Atspi.Action.do_action(iface, 0):
+                raise RuntimeError(f"installed Slint rejected visible action {label!r}")
+            return
+        time.sleep(0.04)
+    raise RuntimeError(f"installed Slint has no enabled visible action {label!r}; visible={labels()[:55]!r}")
 
 
 def exact_text(label, expected):
