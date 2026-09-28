@@ -565,20 +565,28 @@ PY
     cat "$search_root/$phase-ungranted-root.err" >&2
     fail "$phase authorized consumer could not query for a passage from the ungranted root"
   fi
-  python3 - "$search_root/$phase-ungranted-root.json" "$ungranted_root" <<'PY'
+  python3 - "$search_root/$phase-ungranted-root.json" "$ungranted_root" "$fixture" "$ungranted_phrase" <<'PY'
 import json
 import sys
 with open(sys.argv[1], encoding="utf-8") as stream:
     response = json.load(stream)
-if response.get("type") != "search":
+if response.get("type") != "search" or not isinstance(response.get("data"), dict):
     raise SystemExit("ungranted-root query returned an unexpected response")
-data = response.get("data", {})
-if data.get("evidence") != []:
-    raise SystemExit("consumer received content from the ungranted root")
+data = response["data"]
+evidence = data.get("evidence")
+paths = data.get("path_results", [])
+if not isinstance(evidence, list) or not isinstance(paths, list):
+    raise SystemExit("ungranted-root search omitted its evidence/path boundary")
+for item in evidence:
+    preview = item.get("preview") or {}
+    source = preview.get("location") or {}
+    if source.get("path") != sys.argv[3] or sys.argv[4] in preview.get("excerpt", ""):
+        raise SystemExit(f"consumer received an ungranted passage: {item!r}")
 root_prefix = sys.argv[2] + "/"
-for item in data.get("path_results", []):
-    if item.get("path", "").startswith(root_prefix):
-        raise SystemExit("consumer received a path result from the ungranted root")
+for item in paths:
+    path = item.get("path", "")
+    if path == sys.argv[2] or path.startswith(root_prefix):
+        raise SystemExit(f"consumer received a path result from the ungranted root: {item!r}")
 PY
   if search_cli search "${ungranted_args[@]}" --limit 1 "$primary_phrase" >"$search_root/$phase-ungranted-consumer.stdout" 2>"$search_root/$phase-ungranted-consumer.stderr"; then
     fail "$phase unauthorized consumer realm unexpectedly searched the approved passage"

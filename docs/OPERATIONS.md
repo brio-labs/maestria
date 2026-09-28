@@ -483,6 +483,15 @@ that ineffective duplicate binding was removed; track the actual defect in
 [#545](https://github.com/brio-labs/maestria/issues/545). The separate
 installed Ubuntu 26.04 KDE portal approval/denial above is a real consent
 decision, but neither Copy AT-SPI nor stock Ubuntu 24.04 portal support.
+
+At [`f8949aa1` run 36472914403](https://github.com/brio-labs/maestria/actions/runs/36472914403),
+the installed Ubuntu 24.04 combined broker instead **failed closed**: the
+first-run Copy button's direct D-Bus `GetInterfaces` included `Action`, but the
+GI/libatspi client cached only `Accessible` and `Component` and offered no
+`click`. The publisher emitted malformed cache signal argument signatures;
+the installed client did not refresh that interface. Do not count direct
+publisher interfaces or pointer-backed Copy as client-side AT-SPI acceptance.
+
 Version-different upgrade and installed 10,000-file/reference-hardware
 latency and resource gates also remain open.
 
@@ -503,6 +512,13 @@ that state, and checks retention again before explicit revocation. Its Xvfb,
 D-Bus, and clipboard belong to the job; the worker still requires Bubblewrap.
 This is an acceptance procedure, not a claim that the upgrade has passed.
 
+At that same `f8949aa1` run, the old **0.0.0** packages installed, but the
+old-version search check stopped before upgrading. The test rejected all
+passage hits for an ungranted-root phrase, including hits that could cite the
+approved file. The revised boundary assertion checks each result's source path
+and excerpt for unauthorized content; the actual old-to-new package upgrade
+and retention still require a passing installed run.
+
 The separate `installed-native-benchmark` job installs the same-run Debian
 launcher and search binaries. It records 200 actual native-window/AT-SPI
 interactions each for cold launcher starts, active queries, edited sources, and
@@ -515,6 +531,14 @@ the reference-hardware gate. Keyboard-to-AT-SPI measurements include observer
 overhead and **do not** directly measure or replace the internal 100 ms search
 deadline. Neither job should be run against a user's desktop or package state.
 Their success remains unverified until an exact-source CI run finishes.
+
+The `f8949aa1` native benchmark stopped at daemon startup because its private
+Unix socket path under the long CI workspace exceeded `SUN_LEN`. Its artifact
+also measured **15.619 GiB effective memory** and rotational backing devices;
+that runner cannot pass the reference hardware gate even after a shorter
+private socket path permits samples to run. Obtain installed measurements on a
+verified SSD with at least 16 GiB effective memory before claiming release
+latency/resource acceptance.
 
 ### Disable, uninstall, and choose local-data retention
 

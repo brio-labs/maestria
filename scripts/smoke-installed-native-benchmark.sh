@@ -102,7 +102,7 @@ if [[ "$private_session" != true ]]; then
     fail 'at-spi2-registryd is required for native AT-SPI observation'
   [[ -f "$DRIVER" ]] || fail "benchmark driver is missing: $DRIVER"
 
-  private_root="$(mktemp -d "$output_dir/.installed-native-benchmark.XXXXXX")"
+  private_root="$(mktemp -d /tmp/sillage-native-benchmark.XXXXXX)"
   chmod 700 "$private_root"
   mkdir -m 700 "$private_root/tmp"
   cleanup_outer() {
