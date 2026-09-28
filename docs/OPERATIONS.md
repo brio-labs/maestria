@@ -439,10 +439,11 @@ on the second after restart; its broker smoke used a pointer for both.
 Explicitly binding Slint's default action still left the first invocation
 without an AT-SPI action in
 [run 36426864440](https://github.com/brio-labs/maestria/actions/runs/36426864440);
-that ineffective duplicate binding was removed. A real source-built KDE
-GlobalShortcuts allow/deny is described above, not an installed Ubuntu portal
-acceptance. Version-different upgrade and installed 10,000-file/reference-
-hardware latency and resource gates also remain open.
+that ineffective duplicate binding was removed; track the actual defect in
+[#545](https://github.com/brio-labs/maestria/issues/545). The real
+source-built KDE GlobalShortcuts allow/deny above is not installed Ubuntu
+portal acceptance. Version-different upgrade and installed 10,000-file/
+reference-hardware latency and resource gates also remain open.
 
 ### Disable, uninstall, and choose local-data retention
 

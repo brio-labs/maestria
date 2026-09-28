@@ -523,10 +523,12 @@ exposed `click` in
 Explicitly binding the standard Button's accessible default callback did not
 restore the first action in
 [run 36426864440](https://github.com/brio-labs/maestria/actions/runs/36426864440);
-that ineffective duplicate binding was removed. Ubuntu Copy accessibility,
-installed Ubuntu Wayland portal decision, version-different upgrade and
-installed native 10,000-file/reference-hardware latency remain open. M1
-documents a separate real source-built private KDE portal allow/deny.
+that ineffective duplicate binding was removed; the remaining defect is
+tracked in [#545](https://github.com/brio-labs/maestria/issues/545).
+Ubuntu Copy accessibility, installed Ubuntu Wayland portal decision,
+version-different upgrade, and installed native 10,000-file/reference-hardware
+latency remain open. M1 documents a separate real source-built private KDE
+portal allow/deny.
 
 [Product milestone](https://github.com/brio-labs/maestria/milestone/13).
 
