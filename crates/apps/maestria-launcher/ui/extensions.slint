@@ -706,7 +706,6 @@ export component ExtensionPanel inherits Rectangle {
                             enabled: !root.busy;
                             accessible-role: button;
                             accessible-label: "Run action " + action.label;
-                            accessible-action-default => { self.clicked(); }
                             clicked => {
                                 root.selected-action-id = action.id;
                                 root.action-requested(action.id, root.selected-item-id);

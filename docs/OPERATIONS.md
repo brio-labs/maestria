@@ -191,6 +191,21 @@ nonblocking pipe writes and parent acceptance have one 500 ms post-spawn
 deadline and report errors on timeout. The package still does not start a
 search daemon.
 
+A **source-built** Slint launcher exercised the real KDE GlobalShortcuts v2
+portal on a private nested KWin Wayland compositor inside Xvfb, with private
+D-Bus, XDG directories and the launcher's actual desktop-entry identity.
+Selecting “Set Up Shortcut” called `CreateSession` and `BindShortcuts` for
+`activate-launcher` with `CTRL+space` and displayed KDE's real consent dialog.
+In one fresh private session, approving “OK” returned portal response `0`
+with `Ctrl+Space` and persisted `shortcutSetup = "requested"`. In a separate
+fresh session, rejecting “Cancel” returned response `1`, closed the session
+and wrote no shortcut preference. KDE's dialog was activated through AT-SPI;
+the launcher Setup button was clicked in the **private** nested X11 display.
+Neither session used the live desktop or simulated a portal response. This
+does not prove the packaged Ubuntu Wayland shortcut path, permission retention
+across an actual version upgrade or accessibility for the launcher's Copy
+button.
+
 ### Approve a search root and start the daemon
 
 Choose and inspect a narrow, existing directory before approving it. The
@@ -415,13 +430,19 @@ Copy; revocation removed the command. The job then removed only the worker
 and verified that the launcher remained installed. No worker ran outside
 Bubblewrap and no optional daemon was started.
 
-This is **not** Ubuntu Copy-action accessibility acceptance. On the earlier
-private Ubuntu Xvfb [run 36418631504](https://github.com/brio-labs/maestria/actions/runs/36418631504),
-the visible, enabled Copy button rejected AT-SPI `do_action(0)`. The passing
-combined smoke clicked Copy with a real pointer in its **private** X11 session,
-not with AT-SPI. Version-different upgrade, real GlobalShortcuts portal consent
-and installed 10,000-file/reference-hardware latency and resource gates also
-remain open.
+This is **not** Ubuntu Copy-action accessibility acceptance. On private Ubuntu
+Xvfb [run 36418631504](https://github.com/brio-labs/maestria/actions/runs/36418631504),
+the visible, enabled Copy button rejected AT-SPI `do_action(0)`. The installed
+Ubuntu [run 36424740250](https://github.com/brio-labs/maestria/actions/runs/36424740250)
+exposed **zero** AT-SPI actions on the first visible Copy button, but `click`
+on the second after restart; its broker smoke used a pointer for both.
+Explicitly binding Slint's default action still left the first invocation
+without an AT-SPI action in
+[run 36426864440](https://github.com/brio-labs/maestria/actions/runs/36426864440);
+that ineffective duplicate binding was removed. A real source-built KDE
+GlobalShortcuts allow/deny is described above, not an installed Ubuntu portal
+acceptance. Version-different upgrade and installed 10,000-file/reference-
+hardware latency and resource gates also remain open.
 
 ### Disable, uninstall, and choose local-data retention
 

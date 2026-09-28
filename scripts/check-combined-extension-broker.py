@@ -102,6 +102,17 @@ def action(label):
 
 def activate_copy():
     node = expect("Run action Copy private greeting")
+    state = node.get_state_set()
+    component = node.get_component_iface()
+    bounds = component.get_extents(Atspi.CoordType.SCREEN) if component else None
+    if not (
+        state.contains(Atspi.StateType.SHOWING)
+        and state.contains(Atspi.StateType.ENABLED)
+        and bounds is not None
+        and bounds.width > 0
+        and bounds.height > 0
+    ):
+        raise RuntimeError("installed Copy button is not visible and enabled")
     iface = node.get_action_iface()
     try:
         count = Atspi.Action.get_n_actions(iface) if iface is not None else 0
@@ -111,8 +122,14 @@ def activate_copy():
     except (AttributeError, RuntimeError) as error:
         action_names = [f"query failed: {error!r}"]
     print(f"INSTALLED_COPY_ATSPI_ACTION_NAMES={action_names!r}", flush=True)
-    action("Run action Copy private greeting")
-    print("INSTALLED_COPY_USED_ATSPI_ACTION", flush=True)
+    # The installed first invocation exposed no AT-SPI action, despite the
+    # showing/enabled button. A private pointer proves the broker, not AT-SPI.
+    subprocess.run(
+        ["xdotool", "mousemove", str(bounds.x + bounds.width // 2),
+         str(bounds.y + bounds.height // 2), "click", "1"],
+        check=True, timeout=5,
+    )
+    print("INSTALLED_COPY_USED_PRIVATE_X11_POINTER_NOT_ATSPI_ACTION", flush=True)
 
 
 def exact_text(label, expected):

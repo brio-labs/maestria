@@ -13,8 +13,10 @@ search, passage detail and Copy passage through its private Wayland clipboard.
 Hosted Ubuntu 24.04 CI now independently builds, installs and smokes launcher,
 search and isolated worker packages at the committed Sillage cutover; the
 Weston/Wayland passage action above used **source-built** binaries instead.
-Native latency, version-different upgrades, portal decisions and combined
-release proof remain open. None of these packages exits a product milestone.
+Installed-artifact native latency, version-different upgrades, installed
+Ubuntu Wayland portal decisions and full combined release acceptance remain
+open. A real **source-built** private KDE portal allow/deny is recorded in M1.
+None of these packages exits a product milestone.
 [PR #516](https://github.com/brio-labs/maestria/pull/516) remains a draft
 baseline, not a release candidate.
 
@@ -81,8 +83,22 @@ passed a `glibc` ≤2.39 ABI check. Ubuntu apt installation without search
 reached a visible X11 window, but the container first-run AT-SPI offer check
 timed out; X11 and nested Weston smoke passed on the host using these exact
 Ubuntu-built Debian/AppImage payloads, not inside the Ubuntu container.
-Hosted Ubuntu CI, live desktop Wayland portal/chooser acceptance, release
-performance, and legacy-source removal remain open.
+Hosted Ubuntu CI now passes independent and combined package smokes; installed
+Ubuntu Wayland portal/chooser, full cross-compositor accessibility, release
+performance and legacy-source removal remain open.
+
+A separate **source-built** launcher ran on nested KWin Wayland inside owned
+private Xvfb, D-Bus and XDG state with its real desktop-entry identity. Its
+Setup button requested KDE GlobalShortcuts portal v2 `CreateSession` and
+`BindShortcuts` for `activate-launcher` / `CTRL+space`, showing KDE's consent
+dialog. In one fresh session, approving with the dialog's AT-SPI “OK” action
+returned `Response=0`, `Ctrl+Space`, and persisted
+`shortcutSetup = "requested"`. In another fresh session, AT-SPI “Cancel”
+returned `Response=1`, closed the portal session and left settings absent.
+Only the private nested X11 pointer activated the launcher Setup button; the
+desktop dialog used AT-SPI. This is a real Wayland portal decision, not a
+FileChooser proxy or installed Ubuntu package shortcut smoke. No host desktop
+preferences, focus or permissions were changed.
 [Product milestone](https://github.com/brio-labs/maestria/milestone/10).
 
 **Scope:** Decide Slint's distribution license and Linux X11/Wayland backend,
@@ -354,9 +370,10 @@ reopened evidence and `wl-paste` read the exact text from Weston's private
 clipboard. This did not touch the host clipboard or test fresh Ubuntu Debian
 payloads. Separate source-built checks measured native keyboard-to-citation
 latency, but per-consumer native filters, exact viewer line/page jumps,
-release-scale p50/p95/p99, held-out relevance, portal decisions, provider-backed
-paraphrase quality and installed-artifact latency remain unproved. M3 depends
-on M1's Slint command/action shell and M2's search-only API, **not** extensions.
+release-scale p50/p95/p99, held-out relevance, installed-artifact portal
+integration, provider-backed paraphrase quality and installed-artifact latency
+remain unproved. M3 depends on M1's Slint command/action shell and M2's
+search-only API, **not** extensions.
 
 In a private Xvfb/JWM/D-Bus/XDG session, 200 consecutive Slint searches
 alternated between two distinct authorized Markdown passages. Every observation
@@ -481,8 +498,9 @@ launcher quit/restart: the worker again denied ungranted search and completed
 the authorized Copy action; revocation then removed its executable command.
 The source-built exercise and independently installed worker smoke alone did
 not prove the combined package flow; the separate same-run installed package
-job below does. Neither proves preserved grants across a **version-different**
-upgrade or a live GlobalShortcuts portal decision.
+job below does. Neither tested preserved grants across a **version-different**
+upgrade or portal decisions; M1 documents a separate real source-built KDE
+GlobalShortcuts approval/denial.
 
 Hosted Ubuntu 24.04
 [`adea9552`](https://github.com/brio-labs/maestria/commit/adea9552d487cf2d58e51daa9c3efe0006b4185b)
@@ -496,12 +514,19 @@ worker denied ungranted file search and copied through the host broker to
 the private clipboard. The job proved a real launcher quit/restart retained
 the grant and repeated Copy and denial; revocation removed the command, then
 worker removal left the installed launcher intact. Copy was invoked by an
-actual pointer inside **private X11**, not by AT-SPI. On earlier private Ubuntu
+actual pointer inside **private X11**, not by AT-SPI. On private Ubuntu
 [run 36418631504](https://github.com/brio-labs/maestria/actions/runs/36418631504),
-AT-SPI `do_action(0)` returned false for the visible enabled Copy button.
-Ubuntu Copy-action accessibility, a genuine GlobalShortcuts portal decision,
-version-different upgrade and installed native 10,000-file/reference-hardware
-latency remain open.
+AT-SPI `do_action(0)` returned false for the visible enabled Copy button. The
+first installed button exposed zero AT-SPI actions and the post-restart button
+exposed `click` in
+[run 36424740250](https://github.com/brio-labs/maestria/actions/runs/36424740250).
+Explicitly binding the standard Button's accessible default callback did not
+restore the first action in
+[run 36426864440](https://github.com/brio-labs/maestria/actions/runs/36426864440);
+that ineffective duplicate binding was removed. Ubuntu Copy accessibility,
+installed Ubuntu Wayland portal decision, version-different upgrade and
+installed native 10,000-file/reference-hardware latency remain open. M1
+documents a separate real source-built private KDE portal allow/deny.
 
 [Product milestone](https://github.com/brio-labs/maestria/milestone/13).
 
@@ -539,8 +564,9 @@ reinstall passed, but real version-different upgrades and shortcut-portal
 preservation remain unproved. Hosted Ubuntu 24.04 CI at `adea9552` passed the
 same-run **installed** launcher/worker broker lifecycle described above;
 cross-compositor accessibility (including Ubuntu AT-SPI Copy activation),
-genuine GlobalShortcuts allow/deny, installed native 10,000-file latency and
-resource acceptance, and provider-backed FR/EN passage relevance remain open.
+**installed** Ubuntu Wayland GlobalShortcuts allow/deny, installed native
+10,000-file latency and resource acceptance, and provider-backed FR/EN
+passage relevance remain open.
 Depends on M1, M2, M3 and M4.
 [Product milestone](https://github.com/brio-labs/maestria/milestone/14).
 
