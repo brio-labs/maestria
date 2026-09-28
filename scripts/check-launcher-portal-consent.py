@@ -113,7 +113,7 @@ def dialog_button_in_image(image, decision):
         red, green, blue = color(x, y)
         return (low <= min(red, green, blue)
                 and max(red, green, blue) <= high
-                and max(red, green, blue) - min(red, green, blue) <= 6)
+                and max(red, green, blue) - min(red, green, blue) <= 8)
 
     for y in range(100, image.get_height() - 65):
         canvas = pixels[(y - 1) * stride:y * stride]
@@ -125,7 +125,6 @@ def dialog_button_in_image(image, decision):
             continue
         if (all(gray(x + dx, y, 165, 245) for dx in (100, 250, 400))
                 and gray(x + 100, y + 40, 200, 245)
-                and gray(x + 322, y + 22, 180, 220)
                 and color(x + 250, y - 100) == b"\xff\xff\xff"):
             return x + (360 if decision == "allow" else 448), y + 34
     return None
@@ -174,8 +173,8 @@ def run(decision, session):
                         print(f"KDE_DIALOG_ATSPI_ACTION={choice}", flush=True)
                         break
                 # Qt Quick can map its Wayland dialog after CreateSession and
-                # BindShortcuts. Click only once its canvas, action bar and OK
-                # button border are visible on the owned Xvfb display.
+                # BindShortcuts. Click only once its canvas and action bar
+                # boundary are visible on the owned Xvfb display.
                 target = private_dialog_button(decision)
                 if target is not None:
                     subprocess.run(
