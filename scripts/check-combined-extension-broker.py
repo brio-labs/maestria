@@ -122,6 +122,30 @@ def activate_copy():
     except (AttributeError, RuntimeError) as error:
         action_names = [f"query failed: {error!r}"]
     print(f"INSTALLED_COPY_ATSPI_ACTION_NAMES={action_names!r}", flush=True)
+    candidates = []
+    for candidate in nodes():
+        try:
+            if candidate.get_name() != "Run action Copy private greeting":
+                continue
+            states = candidate.get_state_set()
+            candidate_iface = candidate.get_action_iface()
+            candidate_bounds = candidate.get_component_iface()
+            candidate_bounds = candidate_bounds.get_extents(Atspi.CoordType.SCREEN) if candidate_bounds else None
+            candidates.append({
+                "role": candidate.get_role_name(),
+                "parent": candidate.get_parent().get_name(),
+                "showing": states.contains(Atspi.StateType.SHOWING),
+                "enabled": states.contains(Atspi.StateType.ENABLED),
+                "actions": [
+                    Atspi.Action.get_action_name(candidate_iface, index)
+                    for index in range(Atspi.Action.get_n_actions(candidate_iface))
+                ] if candidate_iface else [],
+                "bounds": (candidate_bounds.x, candidate_bounds.y,
+                           candidate_bounds.width, candidate_bounds.height) if candidate_bounds else None,
+            })
+        except (AttributeError, RuntimeError):
+            continue
+    print(f"INSTALLED_COPY_ATSPI_CANDIDATES={candidates!r}", flush=True)
     # The installed first invocation exposed no AT-SPI action, despite the
     # showing/enabled button. A private pointer proves the broker, not AT-SPI.
     subprocess.run(
