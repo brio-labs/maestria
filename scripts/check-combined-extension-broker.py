@@ -65,6 +65,7 @@ def expect(label, seconds=15):
 
 def action(label):
     deadline = time.monotonic() + 15
+    rejected = set()
     while time.monotonic() < deadline:
         for node in nodes():
             try:
@@ -79,11 +80,21 @@ def action(label):
                 iface = node.get_action_iface()
             except (AttributeError, RuntimeError):
                 continue
-            if iface is None or not Atspi.Action.do_action(iface, 0):
-                raise RuntimeError(f"installed Slint rejected visible action {label!r}")
-            return
+            if iface is not None and Atspi.Action.do_action(iface, 0):
+                return
+            if len(rejected) < 8:
+                try:
+                    component = node.get_component_iface()
+                    bounds = component.get_extents(Atspi.CoordType.SCREEN) if component else None
+                    parent = node.get_parent()
+                    rejected.add(f"bounds={bounds}, parent={parent.get_name() if parent else None}")
+                except (AttributeError, RuntimeError):
+                    rejected.add("candidate bounds unavailable")
         time.sleep(0.04)
-    raise RuntimeError(f"installed Slint has no enabled visible action {label!r}; visible={labels()[:55]!r}")
+    raise RuntimeError(
+        f"installed Slint has no activatable showing action {label!r}; "
+        f"rejected={sorted(rejected)!r}; visible={labels()[:55]!r}"
+    )
 
 
 def exact_text(label, expected):
@@ -217,3 +228,8 @@ action("Review permissions and details for Private Broker 1.0.0")
 if named("Run command Greetings") is not None:
     raise RuntimeError("revoked installed extension still exposes an executable command")
 print("INSTALLED_BROKER_REVOKED_COMMAND_UNAVAILABLE", flush=True)
+subprocess.run(
+    ["/usr/bin/maestria-launcher", "--quit"], check=True, capture_output=True, timeout=10
+)
+if restarted.wait(timeout=10) != 0:
+    raise RuntimeError(f"installed launcher exited abnormally after revoke: {restarted.returncode}")
