@@ -431,13 +431,11 @@ after deletion, then stopped the daemon and removed search while retaining
 the launcher and user instance. Host X11 then ran launcher/search executables
 byte-identical to those Debian payloads: Slint rendered a filename-only row
 and a cited body-only Markdown passage, copied authorized path and reopened
-excerpt, and explicitly denied Copy Path after deletion. This does not prove
-an Ubuntu-container native UI, extension-enabled packaged UI, or combined
-release. Hosted CI now proves the independent installed worker smoke, not a
-real launcher broker, preserved app grants, a portal decision, a
-version-different upgrade, cross-compositor accessibility/isolation or native
-active-indexing latency. The source-built Wayland Copy passage proof above is
-not a packaged extension-enabled UI or combined release.
+excerpt, and explicitly denied Copy Path after deletion. That earlier
+launcher/search result alone did not exercise the installed extension broker
+or Ubuntu-native passage actions. A separate hosted combined installed
+launcher/worker broker smoke is documented below; neither the source-built
+Wayland Copy passage proof nor it certifies all combined release criteria.
 
 The launcher Debian verifier rejects declared relationships that force or
 prevent co-installation with optional search/worker packages. Hosted Ubuntu
@@ -481,9 +479,29 @@ file-search request from the actual sandboxed worker and copied the exact text
 through the host broker to the private clipboard. The grant survived a real
 launcher quit/restart: the worker again denied ungranted search and completed
 the authorized Copy action; revocation then removed its executable command.
-Neither this source-built exercise nor the hosted installed-worker-only
-smoke proves a combined installed package flow,
-preserved grants across a version-different upgrade, or a live portal decision.
+The source-built exercise and independently installed worker smoke alone did
+not prove the combined package flow; the separate same-run installed package
+job below does. Neither proves preserved grants across a **version-different**
+upgrade or a live GlobalShortcuts portal decision.
+
+Hosted Ubuntu 24.04
+[`adea9552`](https://github.com/brio-labs/maestria/commit/adea9552d487cf2d58e51daa9c3efe0006b4185b)
+([CI run 36421328686](https://github.com/brio-labs/maestria/actions/runs/36421328686))
+passed the separate `combined-extension-package` job. It apt-installed the
+exact same-run launcher and optional worker Debian artifacts, verified package
+ownership and absence of optional search, and launched the installed Slint UI
+in private Xvfb, D-Bus and XDG directories. A Copy-only extension exposed its
+version, digest and exact grant for native review; its Bubblewrap-isolated
+worker denied ungranted file search and copied through the host broker to
+the private clipboard. The job proved a real launcher quit/restart retained
+the grant and repeated Copy and denial; revocation removed the command, then
+worker removal left the installed launcher intact. Copy was invoked by an
+actual pointer inside **private X11**, not by AT-SPI. On earlier private Ubuntu
+[run 36418631504](https://github.com/brio-labs/maestria/actions/runs/36418631504),
+AT-SPI `do_action(0)` returned false for the visible enabled Copy button.
+Ubuntu Copy-action accessibility, a genuine GlobalShortcuts portal decision,
+version-different upgrade and installed native 10,000-file/reference-hardware
+latency remain open.
 
 [Product milestone](https://github.com/brio-labs/maestria/milestone/13).
 
@@ -506,7 +524,7 @@ update preserves the previous working version.
 
 ## Milestone 5: First Combined Product Release
 
-**Status:** In progress locally. Ubuntu 24.04 apt installation accepted
+**Status:** In progress. Ubuntu 24.04 apt installation accepted
 launcher-only, search-only, combined, and separately opted-in worker packages;
 the refreshed combined launcher/search Debian install served a filename-only
 approved result through the installed independent client, denied the deleted
@@ -517,9 +535,12 @@ in Slint; Copy Path and Copy Passage wrote freshly authorized content to the
 private clipboard, while a deleted path action was explicitly refused.
 `docs/OPERATIONS.md` documents root consent, grants, explicit daemon
 lifecycle, disable/uninstall, and user-data choices. A same-version settings
-reinstall passed, but real upgrades/shortcut-portal preservation,
-Ubuntu-container native UI, hosted CI, full compositor and accessibility
-matrix, and shipped-artifact latency/resource acceptance remain unproved.
+reinstall passed, but real version-different upgrades and shortcut-portal
+preservation remain unproved. Hosted Ubuntu 24.04 CI at `adea9552` passed the
+same-run **installed** launcher/worker broker lifecycle described above;
+cross-compositor accessibility (including Ubuntu AT-SPI Copy activation),
+genuine GlobalShortcuts allow/deny, installed native 10,000-file latency and
+resource acceptance, and provider-backed FR/EN passage relevance remain open.
 Depends on M1, M2, M3 and M4.
 [Product milestone](https://github.com/brio-labs/maestria/milestone/14).
 

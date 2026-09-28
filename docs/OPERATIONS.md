@@ -401,6 +401,28 @@ unavailable. These are developer-build observations, not installed Ubuntu
 combined-flow, version-upgrade or desktop-portal acceptance. Never
 fall back to unisolated worker execution when a sandbox still fails closed.
 
+The separate combined Ubuntu 24.04 package job passed at
+[`adea9552`](https://github.com/brio-labs/maestria/commit/adea9552d487cf2d58e51daa9c3efe0006b4185b)
+([CI run 36421328686](https://github.com/brio-labs/maestria/actions/runs/36421328686)).
+It installed the **same-run** launcher and optional worker Debian artifacts,
+verified their package ownership and the absence of optional search, and used
+the actual installed Slint launcher with a private Xvfb, D-Bus, XDG home and
+clipboard. The Copy-only extension's exact version, digest and permission
+were reviewed before approval; its Bubblewrap-isolated worker was denied
+ungranted file search and copied authorized text via the host broker. A real
+launcher quit/restart retained the grant and repeated the denied search and
+Copy; revocation removed the command. The job then removed only the worker
+and verified that the launcher remained installed. No worker ran outside
+Bubblewrap and no optional daemon was started.
+
+This is **not** Ubuntu Copy-action accessibility acceptance. On the earlier
+private Ubuntu Xvfb [run 36418631504](https://github.com/brio-labs/maestria/actions/runs/36418631504),
+the visible, enabled Copy button rejected AT-SPI `do_action(0)`. The passing
+combined smoke clicked Copy with a real pointer in its **private** X11 session,
+not with AT-SPI. Version-different upgrade, real GlobalShortcuts portal consent
+and installed 10,000-file/reference-hardware latency and resource gates also
+remain open.
+
 ### Disable, uninstall, and choose local-data retention
 
 Before removing packages, stop their processes explicitly: close active
