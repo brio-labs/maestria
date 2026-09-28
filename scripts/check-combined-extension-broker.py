@@ -117,7 +117,7 @@ def click_copy():
     ):
         raise RuntimeError("installed Copy button is not visible and enabled")
     subprocess.run(
-        ["xdotool", "mousemove", "--sync", str(bounds.x + bounds.width // 2),
+        ["xdotool", "mousemove", str(bounds.x + bounds.width // 2),
          str(bounds.y + bounds.height // 2), "click", "1"],
         check=True, timeout=5,
     )
