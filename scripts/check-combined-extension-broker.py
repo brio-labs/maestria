@@ -114,13 +114,21 @@ exact_text("Local extension package path", str(root / "package"))
 action("Install extension from the entered local package path")
 expect("Extension installation permission review")
 expect("Private Broker 1.0.0")
-review = expect("Exact extension version, content identity and requested permissions")
-review_text = review.get_text_iface()
-if review_text is None:
-    raise RuntimeError("installed Slint consent detail has no accessible text")
-description = Atspi.Text.get_text(
-    review_text, 0, Atspi.Text.get_character_count(review_text)
-)
+description = None
+for attempt in range(100):
+    for node in nodes():
+        try:
+            name = node.get_name()
+        except (AttributeError, RuntimeError):
+            continue
+        if name and name.startswith("New installation\nExtension ID: dev.sillage.private-broker\n"):
+            description = name
+            break
+    if description is not None:
+        break
+    time.sleep(0.04)
+if description is None:
+    raise RuntimeError(f"installed Slint did not expose its consent details; visible={labels()[:55]!r}")
 if (
     "Extension ID: dev.sillage.private-broker\nVersion: 1.0.0" not in description
     or not re.search(r"SHA-256 package identity: [0-9a-f]{64}\b", description)
