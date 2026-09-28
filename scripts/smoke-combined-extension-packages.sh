@@ -115,4 +115,9 @@ for attempt in {1..100}; do
 done
 [[ -n "$window" ]] || fail 'installed launcher did not show a private Slint window'
 xdotool windowactivate --sync "$window"
-python3 scripts/check-combined-extension-broker.py "$root" "$window"
+if ! python3 scripts/check-combined-extension-broker.py "$root" "$window"; then
+  mkdir -p target/combined-extension-diagnostics
+  python3 launcher/tests/native/capture.py "$window" \
+    target/combined-extension-diagnostics/native-broker-failure.png || true
+  fail 'installed native broker lifecycle did not complete'
+fi

@@ -87,7 +87,10 @@ def action(label):
                     component = node.get_component_iface()
                     bounds = component.get_extents(Atspi.CoordType.SCREEN) if component else None
                     parent = node.get_parent()
-                    rejected.add(f"bounds={bounds}, parent={parent.get_name() if parent else None}")
+                    rejected.add(
+                        f"bounds={(bounds.x, bounds.y, bounds.width, bounds.height) if bounds else None}, "
+                        f"parent={parent.get_name() if parent else None}"
+                    )
                 except (AttributeError, RuntimeError):
                     rejected.add("candidate bounds unavailable")
         time.sleep(0.04)

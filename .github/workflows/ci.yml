@@ -398,7 +398,7 @@ jobs:
           path: target/extension-packages
       - name: Install exact same-run launcher and worker Debian packages
         run: |
-          sudo apt-get install --yes --no-install-recommends xclip \
+          sudo apt-get install --yes --no-install-recommends xclip gir1.2-gtk-3.0 \
             ./target/launcher-packages/*.deb ./target/extension-packages/*.deb
       - name: Allow Bubblewrap namespace setup with Ubuntu's scoped AppArmor profile
         run: |
@@ -412,6 +412,14 @@ jobs:
           test "$(dpkg-query --show --showformat='${Status}' io-github-briolabs-maestria-launcher)" = 'install ok installed'
           test -x /usr/bin/maestria-launcher
           test ! -e /usr/bin/maestria-extension-worker
+      - name: Retain private native broker screenshot after failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: combined-extension-native-diagnostics
+          path: target/combined-extension-diagnostics/
+          if-no-files-found: ignore
+
 
   golden-gate:
     needs: [changes]
