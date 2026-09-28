@@ -19,7 +19,7 @@ for component in maestria-search maestria-extension-worker; do
   status="$(dpkg-query --show --showformat='${Status}' "io-github-briolabs-$component" 2>/dev/null || true)"
   [[ "$status" != 'install ok installed' ]] || fail "optional $component package must not be installed"
 done
-for tool in kwin_wayland xvfb-run dbus-run-session xdotool gdbus; do
+for tool in kwin_wayland xvfb-run dbus-run-session dbus-update-activation-environment xdotool gdbus; do
   command -v "$tool" >/dev/null || fail "required private display tool unavailable: $tool"
 done
 

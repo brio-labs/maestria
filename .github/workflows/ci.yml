@@ -326,10 +326,10 @@ jobs:
         run: |
           sudo apt-get install --yes --no-install-recommends \
             kwin-wayland kglobalacceld xdg-desktop-portal-kde \
-            qt6-qpa-plugins qt6-wayland gir1.2-gtk-3.0 gdb \
+            qt6-qpa-plugins qt6-wayland gir1.2-gtk-3.0 \
             ./target/launcher-packages/*.deb
       - name: Exercise installed private KDE GlobalShortcuts approval and denial
-        run: SILLAGE_KWIN_GDB=1 timeout --kill-after=5s 210s bash scripts/smoke-launcher-portal-package.sh target/launcher-packages
+        run: timeout --kill-after=5s 210s bash scripts/smoke-launcher-portal-package.sh target/launcher-packages
       - name: Retain private portal screenshots after failure
         if: failure()
         uses: actions/upload-artifact@v4

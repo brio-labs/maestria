@@ -121,8 +121,8 @@ def run(decision, session):
                 # an AT-SPI application. These coordinates address only our
                 # owned 1280x800 Xvfb display, not the host desktop.
                 time.sleep(1)
-                x = "355" if decision == "allow" else "445"
-                subprocess.run(["xdotool", "mousemove", x, "507", "click", "1"], check=True)
+                x = "617" if decision == "allow" else "707"
+                subprocess.run(["xdotool", "mousemove", x, "652", "click", "1"], check=True)
                 print(f"KDE_DIALOG_USED_PRIVATE_X11_POINTER_NOT_ATSPI={choice}", flush=True)
                 break
             time.sleep(.1)

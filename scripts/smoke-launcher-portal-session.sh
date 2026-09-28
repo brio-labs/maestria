@@ -44,15 +44,11 @@ stdbuf -oL dbus-monitor --session "type='method_call',destination='org.freedeskt
   "type='error'" \
   >"$session/portal-dbus.log" 2>&1 & monitor_pid=$!
 
-if [[ "${SILLAGE_KWIN_GDB:-0}" == 1 ]]; then
-  env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb gdb --quiet --batch \
-    -ex 'set pagination off' -ex run -ex 'thread apply all bt 10' \
-    --args kwin_wayland --x11-display "$outer_display" --no-lockscreen \
-    --socket="$WAYLAND_DISPLAY" --width 1024 --height 768 >"$session/kwin.log" 2>&1 & kwin_pid=$!
-else
-  env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb kwin_wayland --x11-display "$outer_display" --no-lockscreen \
-    --socket="$WAYLAND_DISPLAY" --width 1024 --height 768 >"$session/kwin.log" 2>&1 & kwin_pid=$!
-fi
+# Qt 6.10's KDE theme reacts to an early portal ThemeChanged during KWin
+# construction and crashes; only the private compositor uses the generic theme.
+env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb QT_QPA_PLATFORMTHEME=generic \
+  kwin_wayland --x11-display "$outer_display" --no-lockscreen \
+  --socket="$WAYLAND_DISPLAY" --width 1024 --height 768 >"$session/kwin.log" 2>&1 & kwin_pid=$!
 for attempt in {1..100}; do
   [[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]] && break
   if ! kill -0 "$kwin_pid" 2>/dev/null; then
@@ -63,6 +59,10 @@ done
 [[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]] || {
   echo 'private KWin Wayland socket did not become ready' >&2; exit 1;
 }
+# D-Bus activation inherited no Wayland socket when this private bus started.
+# Publish it only after KWin is ready so the KDE portal joins this compositor.
+dbus-update-activation-environment WAYLAND_DISPLAY QT_QPA_PLATFORM XDG_CURRENT_DESKTOP \
+  XDG_SESSION_TYPE KDE_FULL_SESSION KDE_SESSION_VERSION QT_LINUX_ACCESSIBILITY_ALWAYS_ON
 python3 scripts/check-launcher-portal-consent.py "$decision" "$session"
 settings="$session/config/io.github.briolabs.Maestria.Launcher/launcher.toml"
 if [[ "$decision" == allow ]]; then
