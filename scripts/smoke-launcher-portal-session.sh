@@ -57,3 +57,9 @@ done
   echo 'private KWin Wayland socket did not become ready' >&2; exit 1;
 }
 python3 scripts/check-launcher-portal-consent.py "$decision" "$session"
+settings="$session/config/io.github.briolabs.Maestria.Launcher/launcher.toml"
+if [[ "$decision" == allow ]]; then
+  [[ -f "$settings" ]] || { echo 'approved shortcut preference vanished after launcher quit' >&2; exit 1; }
+else
+  [[ ! -e "$settings" ]] || { echo 'denied shortcut preference appeared after launcher quit' >&2; exit 1; }
+fi

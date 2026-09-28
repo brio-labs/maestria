@@ -61,12 +61,19 @@ def portal_evidence(path):
     log = path.read_text(errors="replace")
     blocks = re.split(r"(?=^(?:signal|method call|method return|error) time=)", log, flags=re.M)
     responses = []
+    binding_handle = None
     for block in blocks:
+        if "interface=org.freedesktop.portal.GlobalShortcuts; member=BindShortcuts" in block:
+            if 'string "activate-launcher"' not in block or 'string "CTRL+space"' not in block:
+                raise AssertionError(f"wrong shortcut requested by installed launcher: {block}")
+            handle = re.search(r'string "handle_token"\s+variant\s+string "([^"]+)"', block)
+            if handle is not None:
+                binding_handle = handle.group(1)
         if "interface=org.freedesktop.portal.Request; member=Response" in block:
             code = re.search(r"^\s+uint32 ([0-9]+)$", block, flags=re.M)
             if code is not None:
                 responses.append((int(code.group(1)), block))
-    return log, responses
+    return log, responses, binding_handle
 
 
 def run(decision, session):
@@ -97,11 +104,11 @@ def run(decision, session):
         deadline = time.monotonic() + 30
         choice = "OK" if decision == "allow" else "Cancel"
         while time.monotonic() < deadline:
-            log, responses = portal_evidence(monitor)
+            log, responses, binding_handle = portal_evidence(monitor)
             if launcher.poll() is not None:
                 raise AssertionError(f"launcher exited before KDE consent: {launcher.returncode}")
             created = ("interface=org.freedesktop.portal.GlobalShortcuts; member=CreateSession" in log
-                       and "interface=org.freedesktop.portal.GlobalShortcuts; member=BindShortcuts" in log
+                       and binding_handle is not None
                        and any(code == 0 and 'string "session_handle"' in block for code, block in responses))
             if created:
                 button = visible_button(choice)
@@ -124,15 +131,19 @@ def run(decision, session):
 
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
-            log, responses = portal_evidence(monitor)
-            completed = [(code, block) for code, block in responses if 'string "session_handle"' not in block]
+            log, responses, binding_handle = portal_evidence(monitor)
+            completed = [(code, block) for code, block in responses
+                         if binding_handle is not None
+                         and f"/{binding_handle};" in block.splitlines()[0]]
             if completed:
                 code, block = completed[-1]
                 expected = 0 if decision == "allow" else 1
                 if code != expected:
                     raise AssertionError(f"KDE {decision} returned portal response {code}, expected {expected}")
                 if decision == "allow":
-                    if 'string "shortcuts"' not in block or 'string "activate-launcher"' not in block:
+                    if ('string "shortcuts"' not in block
+                            or 'string "activate-launcher"' not in block
+                            or 'string "Ctrl+Space"' not in block):
                         raise AssertionError(f"KDE did not grant activate-launcher: {block}")
                     if settings.is_file() and 'shortcutSetup = "requested"' in settings.read_text():
                         print("INSTALLED_PORTAL_CREATE_SESSION_RESPONSE=0_BIND_RESPONSE=0_APPROVED_AND_PERSISTED", flush=True)
