@@ -487,7 +487,7 @@ TOML
 python3 "$DRIVER" wait-index \
   --search-binary "$SEARCH_BINARY" --socket-path "$socket_path" \
   --consumer-realm "$consumer_realm" --credential-file "$credential_file" \
-  --expected-files 10000 --timeout-seconds 900 --output-dir "$output_dir"
+  --expected-files 10000 --timeout-seconds 1800 --output-dir "$output_dir"
 python3 "$DRIVER" drive \
   --manifest "$output_dir/fixture.json" --output-dir "$output_dir" \
   --launcher-binary "$LAUNCHER_BINARY" --search-binary "$SEARCH_BINARY" \

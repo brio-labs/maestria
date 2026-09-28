@@ -492,6 +492,16 @@ GI/libatspi client cached only `Accessible` and `Component` and offered no
 the installed client did not refresh that interface. Do not count direct
 publisher interfaces or pointer-backed Copy as client-side AT-SPI acceptance.
 
+The locked AccessKit Unix AT-SPI cache signal body was corrected at `fbf52260`.
+In [run 36475736114's installed Ubuntu 24.04 combined job](https://github.com/brio-labs/maestria/actions/runs/36475736114/job/109110091717),
+the **first** visible Copy action appeared as GI/libatspi `click`, and
+`Atspi.Action.do_action(0)` activated it without a pointer. The installed
+Bubblewrap worker denied ungranted search, copied the exact private-Xvfb
+clipboard text, retained the grant after launcher restart, and lost the
+command after revocation. [#545](https://github.com/brio-labs/maestria/issues/545)
+is closed on that exact installed proof; it does not prove upgrade retention
+or reference-hardware performance.
+
 Version-different upgrade and installed 10,000-file/reference-hardware
 latency and resource gates also remain open.
 
@@ -519,6 +529,13 @@ approved file. The revised boundary assertion checks each result's source path
 and excerpt for unauthorized content; the actual old-to-new package upgrade
 and retention still require a passing installed run.
 
+At `fbf52260`, old-package search and the installed 0.0.0 Bubblewrap
+extension's AT-SPI Copy completed before the upgrade; the job then stopped
+because its storage snapshot expected a file directly under the extension's
+data directory. The old broker actually creates a second extension-ID
+subdirectory beneath it. No new packages were installed in that run; the
+corrected snapshot must prove the old value survives the **real** upgrade.
+
 The separate `installed-native-benchmark` job installs the same-run Debian
 launcher and search binaries. It records 200 actual native-window/AT-SPI
 interactions each for cold launcher starts, active queries, edited sources, and
@@ -539,6 +556,14 @@ that runner cannot pass the reference hardware gate even after a shorter
 private socket path permits samples to run. Obtain installed measurements on a
 verified SSD with at least 16 GiB effective memory before claiming release
 latency/resource acceptance.
+
+At `fbf52260`, the shorter socket let the installed search daemon run. The
+10,000-file watcher reported **7,200 indexed, 2,800 pending** after 900 seconds
+with no last scan error. Resource evidence recorded about 8.26 GB of daemon
+disk writes and a 461 MB resident high-water mark; UI samples never started.
+The indexing settle allowance is now 1,800 seconds without changing the
+10,000-file requirement or the 100 ms internal interactive-search deadline.
+This runner still lacks the required effective memory and verified SSD.
 
 ### Disable, uninstall, and choose local-data retention
 

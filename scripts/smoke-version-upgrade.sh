@@ -127,7 +127,13 @@ else
   umask 077
   root="$(mktemp -d "${TMPDIR:-/tmp}/maestria-version-upgrade.XXXXXX")"
   chmod 700 "$root"
-  cleanup_outer() { rm -rf -- "$root"; }
+  cleanup_outer() {
+    # Installed extension bundles seal package directories read-only; after the
+    # private launcher exits, restore owner write access only inside this root.
+    local sealed="$root/data/io.github.briolabs.Maestria.Launcher/extensions/packages"
+    if [[ -d "$sealed" && ! -L "$sealed" ]]; then chmod -R u+w -- "$sealed"; fi
+    rm -rf -- "$root"
+  }
   trap cleanup_outer EXIT
   mkdir -m 700 "$root/home" "$root/config" "$root/cache" "$root/data" "$root/state" "$root/runtime"
   export HOME="$root/home" XDG_CONFIG_HOME="$root/config" XDG_CACHE_HOME="$root/cache"
@@ -624,7 +630,10 @@ PY
 }
 extension_store="$root/data/io.github.briolabs.Maestria.Launcher/extensions"
 state_key_hex="$(printf '%s' upgrade-proof | od -An -tx1 | tr -d ' \n')"
-extension_data_file="$extension_store/data/dev.sillage.version-upgrade/$state_key_hex"
+# ActiveBundle supplies its per-extension data directory to the broker, which
+# creates a second extension-scoped subdirectory. Read the old package's actual
+# durable path so an upgrade must retain its value, not silently migrate it.
+extension_data_file="$extension_store/data/dev.sillage.version-upgrade/dev.sillage.version-upgrade/$state_key_hex"
 
 snapshot_private_state() {
   local label="$1"
