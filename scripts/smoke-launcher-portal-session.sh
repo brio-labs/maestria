@@ -44,8 +44,15 @@ stdbuf -oL dbus-monitor --session "type='method_call',destination='org.freedeskt
   "type='error'" \
   >"$session/portal-dbus.log" 2>&1 & monitor_pid=$!
 
-env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb kwin_wayland --x11-display "$outer_display" --no-lockscreen \
-  --socket="$WAYLAND_DISPLAY" --width 1024 --height 768 >"$session/kwin.log" 2>&1 & kwin_pid=$!
+if [[ "${SILLAGE_KWIN_GDB:-0}" == 1 ]]; then
+  env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb gdb --quiet --batch \
+    -ex 'set pagination off' -ex run -ex 'thread apply all bt 10' \
+    --args kwin_wayland --x11-display "$outer_display" --no-lockscreen \
+    --socket="$WAYLAND_DISPLAY" --width 1024 --height 768 >"$session/kwin.log" 2>&1 & kwin_pid=$!
+else
+  env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb kwin_wayland --x11-display "$outer_display" --no-lockscreen \
+    --socket="$WAYLAND_DISPLAY" --width 1024 --height 768 >"$session/kwin.log" 2>&1 & kwin_pid=$!
+fi
 for attempt in {1..100}; do
   [[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]] && break
   if ! kill -0 "$kwin_pid" 2>/dev/null; then
