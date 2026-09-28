@@ -76,10 +76,36 @@ def portal_evidence(path):
     return log, responses, binding_handle
 
 
+def private_dialog_ready():
+    # Wayland surfaces have no X11 window title in the outer Xvfb display.
+    # In this owned 1280x800 display, KDE's mapped consent window replaces
+    # the launcher's off-white (300,300) and white (800,500) with white canvas
+    # and black backdrop respectively. Both Qt Quick themes render this way.
+    previous_backend = os.environ.get("GDK_BACKEND")
+    os.environ["GDK_BACKEND"] = "x11"
+    try:
+        gi.require_version("Gdk", "3.0")
+        from gi.repository import Gdk
+        Gdk.init([])
+    finally:
+        if previous_backend is None:
+            os.environ.pop("GDK_BACKEND", None)
+        else:
+            os.environ["GDK_BACKEND"] = previous_backend
+    screen = Gdk.Screen.get_default()
+    root = screen.get_root_window()
+
+    def rgb(x, y):
+        pixel = Gdk.pixbuf_get_from_window(root, x, y, 1, 1)
+        return tuple(pixel.get_pixels()[:3]) if pixel is not None else None
+    return rgb(300, 300) == (255, 255, 255) and rgb(800, 500) == (0, 0, 0)
+
+
 def run(decision, session):
     Atspi.init()
     monitor = session / "portal-dbus.log"
     binary = os.environ.get("SILLAGE_LOCAL_PORTAL_LAUNCHER", "/usr/bin/maestria-launcher")
+    provenance = "SOURCE_BUILT" if os.environ.get("SILLAGE_LOCAL_PORTAL_LAUNCHER") else "INSTALLED"
     settings = session / "config/io.github.briolabs.Maestria.Launcher/launcher.toml"
     launcher_log = (session / "launcher.log").open("w")
     launcher = subprocess.Popen([binary, "--activate"], stdout=launcher_log, stderr=subprocess.STDOUT)
@@ -117,14 +143,14 @@ def run(decision, session):
                     if action is not None and Atspi.Action.do_action(action, 0):
                         print(f"KDE_DIALOG_ATSPI_ACTION={choice}", flush=True)
                         break
-                # Some nested KDE portals render their Wayland dialog without
-                # an AT-SPI application. These coordinates address only our
-                # owned 1280x800 Xvfb display, not the host desktop.
-                time.sleep(1)
-                x = "617" if decision == "allow" else "707"
-                subprocess.run(["xdotool", "mousemove", x, "652", "click", "1"], check=True)
-                print(f"KDE_DIALOG_USED_PRIVATE_X11_POINTER_NOT_ATSPI={choice}", flush=True)
-                break
+                # Qt Quick can map its Wayland dialog after CreateSession and
+                # BindShortcuts have been observed. Click only once its canvas
+                # and backdrop are visible on the private Xvfb display.
+                if private_dialog_ready():
+                    x = "617" if decision == "allow" else "707"
+                    subprocess.run(["xdotool", "mousemove", x, "652", "click", "1"], check=True)
+                    print(f"KDE_DIALOG_USED_PRIVATE_X11_POINTER_NOT_ATSPI={choice}", flush=True)
+                    break
             time.sleep(.1)
         else:
             raise AssertionError(f"KDE {choice} consent request did not reach the private portal: {log[-2600:]}")
@@ -146,10 +172,10 @@ def run(decision, session):
                             or 'string "Ctrl+Space"' not in block):
                         raise AssertionError(f"KDE did not grant activate-launcher: {block}")
                     if settings.is_file() and 'shortcutSetup = "requested"' in settings.read_text():
-                        print("INSTALLED_PORTAL_CREATE_SESSION_RESPONSE=0_BIND_RESPONSE=0_APPROVED_AND_PERSISTED", flush=True)
+                        print(f"{provenance}_PORTAL_CREATE_SESSION_RESPONSE=0_BIND_RESPONSE=0_APPROVED_AND_PERSISTED", flush=True)
                         return
                 elif not settings.exists():
-                    print("INSTALLED_PORTAL_CREATE_SESSION_RESPONSE=0_BIND_RESPONSE=1_DENIED_WITHOUT_SETTINGS", flush=True)
+                    print(f"{provenance}_PORTAL_CREATE_SESSION_RESPONSE=0_BIND_RESPONSE=1_DENIED_WITHOUT_SETTINGS", flush=True)
                     return
             time.sleep(.1)
         raise AssertionError(f"{decision} response did not produce expected launcher settings: {responses!r}")
