@@ -472,11 +472,18 @@ permission in the Slint review. Its first real launcher-broker invocation then
 namespace (`Resource temporarily unavailable`). The host user had 1,519
 threads, above the worker's 1,024-task `RLIMIT_NPROC`. An otherwise identical
 Bubblewrap namespace preflight reproduced the failure with that limit and
-passed without it. The limit was not raised and no unsandboxed worker ran;
-this attempt proves neither the requested denied/allowed broker capability
-effects nor grant revocation. Hosted CI's installed worker-only success does
-not establish usability under this desktop process load or complete the
-launcher-broker release gate.
+passed without it. The source-built launcher now retains the process limit at
+4,096 UID-wide tasks while preserving user/pid/network isolation and the
+512 MiB address-space, 32-second CPU, and other worker bounds. An otherwise
+identical namespaced preflight passed under the new limit. A fresh private X11
+Slint session then reviewed the exact Copy-only package, denied an ungranted
+file-search request from the actual sandboxed worker and copied the exact text
+through the host broker to the private clipboard. The grant survived a real
+launcher quit/restart: the worker again denied ungranted search and completed
+the authorized Copy action; revocation then removed its executable command.
+Neither this source-built exercise nor the hosted installed-worker-only
+smoke proves a combined installed package flow,
+preserved grants across a version-different upgrade, or a live portal decision.
 
 [Product milestone](https://github.com/brio-labs/maestria/milestone/13).
 

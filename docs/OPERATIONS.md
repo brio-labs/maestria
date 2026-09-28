@@ -387,11 +387,19 @@ namespace setup returned `Resource temporarily unavailable`. This desktop had
 1,519 threads under the same UID, above the worker's 1,024-task
 `RLIMIT_NPROC`; an otherwise identical namespaced `/usr/bin/true` preflight
 failed with that limit and passed without it. Linux counts tasks for that
-limit across the real user, not just the worker. The product cannot claim
-extension execution, capability effects or grant revocation on a similarly
-busy desktop from the worker-only CI result. Keep the worker sandbox and
-resource bounds intact; do not run an unisolated fallback or change host
-session permissions to force a passing smoke.
+limit across the real user, not just the worker. The worker now keeps a bounded
+4,096-task UID-wide ceiling, with its separate user/pid/network namespaces,
+512 MiB address-space cap, 32-second CPU cap, file and descriptor caps
+unchanged. A namespaced preflight passed with the new ceiling on that desktop.
+In a fresh private X11 session the source-built launcher then installed the
+reviewed Copy-only extension, ran its Bubblewrap-isolated worker, received a
+denial for an ungranted file-search request, and wrote authorized text to the
+private clipboard through the real host broker. After the launcher quit and
+restarted, the same approved command again denied ungranted search and
+completed the authorized Copy action; revocation then made its command
+unavailable. These are developer-build observations, not installed Ubuntu
+combined-flow, version-upgrade or desktop-portal acceptance. Never
+fall back to unisolated worker execution when a sandbox still fails closed.
 
 ### Disable, uninstall, and choose local-data retention
 

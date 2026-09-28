@@ -90,7 +90,8 @@ fn apply_resource_limits(command: &mut Command) {
             for (resource, cap) in [
                 (libc::RLIMIT_AS, 512 * 1024 * 1024_u64),
                 (libc::RLIMIT_CPU, 32_u64),
-                (libc::RLIMIT_NPROC, 1024_u64),
+                // Linux charges this limit to the whole desktop UID, not just this worker.
+                (libc::RLIMIT_NPROC, 4096_u64),
                 (libc::RLIMIT_NOFILE, 64_u64),
                 (libc::RLIMIT_FSIZE, 16 * 1024 * 1024_u64),
                 (libc::RLIMIT_CORE, 0_u64),
