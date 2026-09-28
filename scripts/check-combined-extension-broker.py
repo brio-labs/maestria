@@ -129,6 +129,7 @@ def activate_copy():
                 continue
             states = candidate.get_state_set()
             candidate_iface = candidate.get_action_iface()
+            candidate_interfaces = candidate.get_interfaces()
             candidate_bounds = candidate.get_component_iface()
             candidate_bounds = candidate_bounds.get_extents(Atspi.CoordType.SCREEN) if candidate_bounds else None
             candidates.append({
@@ -136,6 +137,8 @@ def activate_copy():
                 "parent": candidate.get_parent().get_name(),
                 "showing": states.contains(Atspi.StateType.SHOWING),
                 "enabled": states.contains(Atspi.StateType.ENABLED),
+                "action_interface": candidate_iface is not None,
+                "interfaces": str(candidate_interfaces),
                 "actions": [
                     Atspi.Action.get_action_name(candidate_iface, index)
                     for index in range(Atspi.Action.get_n_actions(candidate_iface))
@@ -146,6 +149,16 @@ def activate_copy():
         except (AttributeError, RuntimeError):
             continue
     print(f"INSTALLED_COPY_ATSPI_CANDIDATES={candidates!r}", flush=True)
+    nearby = []
+    for candidate in nodes():
+        try:
+            state = candidate.get_state_set()
+            if candidate.get_role() != Atspi.Role.PUSH_BUTTON or not state.contains(Atspi.StateType.SHOWING):
+                continue
+            nearby.append((candidate.get_name(), candidate.get_action_iface() is not None))
+        except (AttributeError, RuntimeError):
+            continue
+    print(f"INSTALLED_VISIBLE_BUTTON_ACTION_INTERFACES={nearby[:40]!r}", flush=True)
     # The installed first invocation exposed no AT-SPI action, despite the
     # showing/enabled button. A private pointer proves the broker, not AT-SPI.
     subprocess.run(
