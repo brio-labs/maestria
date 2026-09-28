@@ -100,6 +100,30 @@ def action(label):
     )
 
 
+def click_copy():
+    # Ubuntu's AT-SPI exposes this dynamic button but rejected do_action(0) in
+    # the installed smoke. Exercise the real private X11 surface for broker
+    # proof; this does not certify the separate accessibility acceptance gate.
+    node = expect("Run action Copy private greeting")
+    state = node.get_state_set()
+    component = node.get_component_iface()
+    bounds = component.get_extents(Atspi.CoordType.SCREEN) if component else None
+    if not (
+        state.contains(Atspi.StateType.SHOWING)
+        and state.contains(Atspi.StateType.ENABLED)
+        and bounds is not None
+        and bounds.width > 0
+        and bounds.height > 0
+    ):
+        raise RuntimeError("installed Copy button is not visible and enabled")
+    subprocess.run(
+        ["xdotool", "mousemove", "--sync", str(bounds.x + bounds.width // 2),
+         str(bounds.y + bounds.height // 2), "click", "1"],
+        check=True, timeout=5,
+    )
+    print("INSTALLED_COPY_USED_PRIVATE_X11_POINTER_NOT_ATSPI_ACTION", flush=True)
+
+
 def exact_text(label, expected):
     for attempt in range(50):
         node = named(label)
@@ -172,7 +196,7 @@ action("Review permissions and details for Private Broker 1.0.0")
 action("Run command Greetings")
 expect("Private Broker denied ungranted file search")
 action("Select Private greeting")
-action("Run action Copy private greeting")
+click_copy()
 expect("Broker authorized copy")
 clipboard = subprocess.run(
     ["xclip", "-selection", "clipboard", "-o"],
@@ -215,7 +239,7 @@ action("Review permissions and details for Private Broker 1.0.0")
 action("Run command Greetings")
 expect("Private Broker denied ungranted file search")
 action("Select Private greeting")
-action("Run action Copy private greeting")
+click_copy()
 expect("Broker authorized copy")
 clipboard = subprocess.run(
     ["xclip", "-selection", "clipboard", "-o"],
