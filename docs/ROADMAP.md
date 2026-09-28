@@ -83,8 +83,10 @@ passed a `glibc` ≤2.39 ABI check. Ubuntu apt installation without search
 reached a visible X11 window, but the container first-run AT-SPI offer check
 timed out; X11 and nested Weston smoke passed on the host using these exact
 Ubuntu-built Debian/AppImage payloads, not inside the Ubuntu container.
-Hosted Ubuntu CI now passes independent and combined package smokes; installed
-Ubuntu Wayland portal/chooser, full cross-compositor accessibility, release
+Hosted Ubuntu CI now passes independent and combined package smokes plus a
+same-run installed launcher Debian's private Ubuntu 26.04 KDE Wayland
+GlobalShortcuts approval and denial. Stock Ubuntu 24.04 compositor fallback,
+installed Wayland FileChooser, full cross-compositor accessibility, release
 performance and legacy-source removal remain open.
 
 A separate **source-built** launcher ran on nested KWin Wayland inside owned
@@ -99,6 +101,27 @@ Only the private nested X11 pointer activated the launcher Setup button; the
 desktop dialog used AT-SPI. This is a real Wayland portal decision, not a
 FileChooser proxy or installed Ubuntu package shortcut smoke. No host desktop
 preferences, focus or permissions were changed.
+
+Stock Ubuntu 24.04's `xdg-desktop-portal` 1.18.4 predates host
+`Registry` (added in 1.19.4); the launcher registers its unsandboxed
+application ID before requesting GlobalShortcuts. KDE 5.27 advertises
+the shortcut backend, but skipping host registration to reach it would
+discard per-app identity. In [run 36454007556 at `4962a0d7`](https://github.com/brio-labs/maestria/actions/runs/36454007556),
+the same-run Ubuntu 24.04-built launcher Debian installed on Ubuntu 26.04
+passed fresh KDE Wayland `CreateSession` / `BindShortcuts` sessions with the
+registered launcher ID. Approval returned Bind response `0`, `Ctrl+Space`
+and a persisted preference after quit; denial returned `1` with no
+preference. Both KDE dialog decisions used only a private Xvfb pointer,
+**not AT-SPI**, and neither optional search nor worker was installed.
+This does not establish stock Ubuntu 24.04 Wayland shortcuts. Actual
+version-upgrade and first Ubuntu Copy AT-SPI activation remain separate gates.
+
+The stock Ubuntu GNOME fallback is a user-created compositor shortcut for
+`maestria-launcher --activate` ([instructions](OPERATIONS.md#8-opt-in-linux-package-onboarding));
+the launcher does not register or remove that binding. Documentation of this
+manual route does not prove a packaged compositor activation or retention
+across a version-different upgrade.
+
 [Product milestone](https://github.com/brio-labs/maestria/milestone/10).
 
 **Scope:** Decide Slint's distribution license and Linux X11/Wayland backend,

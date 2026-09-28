@@ -202,9 +202,48 @@ fresh session, rejecting “Cancel” returned response `1`, closed the session
 and wrote no shortcut preference. KDE's dialog was activated through AT-SPI;
 the launcher Setup button was clicked in the **private** nested X11 display.
 Neither session used the live desktop or simulated a portal response. This
-does not prove the packaged Ubuntu Wayland shortcut path, permission retention
-across an actual version upgrade or accessibility for the launcher's Copy
-button.
+source-built evidence alone did not prove the packaged Ubuntu Wayland shortcut
+path, permission retention across an actual version upgrade, or accessibility
+for the launcher's Copy button.
+
+On [run 36454007556 at `4962a0d7`](https://github.com/brio-labs/maestria/actions/runs/36454007556),
+the **same-run Ubuntu 24.04-built launcher Debian** installed on Ubuntu
+26.04 passed separate fresh, private KDE Wayland consent sessions without
+installing search or the extension worker. The real KDE backend received
+`CreateSession` and `BindShortcuts` for the registered
+`io.github.briolabs.Maestria.Launcher` identity and `activate-launcher` /
+`CTRL+space`. Approval returned the matching Bind response `0` with
+`Ctrl+Space` and retained `shortcutSetup = "requested"` after launcher quit;
+denial returned `1` and left settings absent. The launcher Setup and KDE
+dialog were both activated by the **private Xvfb pointer, not AT-SPI**.
+This installed Ubuntu 26.04 decision does not prove stock Ubuntu 24.04 portal
+support, compositor activation, version-upgrade retention or the first
+installed extension Copy AT-SPI action.
+
+Stock Ubuntu 24.04 cannot run this unsandboxed launcher's per-app Wayland
+shortcut setup unchanged: it ships
+[`xdg-desktop-portal` 1.18.4](https://packages.ubuntu.com/noble/amd64/xdg-desktop-portal),
+while the host application
+[`Registry`](https://github.com/flatpak/xdg-desktop-portal/blob/main/NEWS.md#changes-in-1194)
+needed by `ashpd::register_host_app` first appeared in 1.19.4.
+[KDE 5.27's backend advertises GlobalShortcuts](https://raw.githubusercontent.com/KDE/xdg-desktop-portal-kde/Plasma/5.27/data/kde.portal),
+but the launcher requires host registration **before** `CreateSession`; do not
+skip registration and silently lose its application identity. Ubuntu 26.04
+provides a newer portal and KDE backend. The installed Ubuntu 26.04 approval
+and denial proved above cannot establish shortcut availability on stock Ubuntu
+24.04.
+
+On stock Ubuntu 24.04, do not skip host registration to make the portal
+request appear to work. Instead, if you want a global keybinding, explicitly
+add a **compositor-owned** shortcut for `maestria-launcher --activate` in your
+desktop's keyboard shortcut settings. On Ubuntu GNOME, use
+[Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts → Add Shortcut](https://help.ubuntu.com/stable/ubuntu-help/keyboard-shortcuts-set.html.en#custom-shortcuts).
+Choose an unclaimed key combination; do not install a second binding for the
+same key. The launcher's Preferences → Copy activation command supplies the
+command to paste, but does not configure the compositor. Remove the shortcut
+through the desktop settings if no longer wanted; package removal does not
+remove a compositor-owned binding. This is a manual activation fallback, not
+a portal grant or proof of upgrade retention.
 
 ### Approve a search root and start the daemon
 
