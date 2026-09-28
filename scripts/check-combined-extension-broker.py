@@ -10,7 +10,7 @@ import time
 import gi
 
 gi.require_version("Atspi", "2.0")
-from gi.repository import Atspi
+from gi.repository import Atspi, Gio, GLib
 
 root, window = Path(sys.argv[1]), sys.argv[2]
 Atspi.init()
@@ -122,6 +122,15 @@ def activate_copy():
     except (AttributeError, RuntimeError) as error:
         action_names = [f"query failed: {error!r}"]
     print(f"INSTALLED_COPY_ATSPI_ACTION_NAMES={action_names!r}", flush=True)
+    try:
+        reply = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
+            node.app.bus_name, node.path, "org.a11y.atspi.Accessible",
+            "GetInterfaces", None, GLib.VariantType("(as)"),
+            Gio.DBusCallFlags.NONE, 2000, None,
+        )
+        print(f"INSTALLED_COPY_SERVER_INTERFACES={reply.unpack()[0]!r}", flush=True)
+    except (AttributeError, GLib.Error) as error:
+        print(f"INSTALLED_COPY_SERVER_INTERFACES_QUERY_FAILED={error!r}", flush=True)
     candidates = []
     for candidate in nodes():
         try:

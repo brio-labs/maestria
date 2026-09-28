@@ -76,11 +76,10 @@ def portal_evidence(path):
     return log, responses, binding_handle
 
 
-def private_dialog_ready():
-    # Wayland surfaces have no X11 window title in the outer Xvfb display.
-    # In this owned 1280x800 display, KDE's mapped consent window replaces
-    # the launcher's off-white (300,300) and white (800,500) with white canvas
-    # and black backdrop respectively. Both Qt Quick themes render this way.
+def private_dialog_button(decision):
+    # KDE's Wayland dialog has no separate outer X11 window. Find its rendered
+    # white canvas / gray action-bar boundary on our owned 1280x800 Xvfb
+    # display instead of assuming where KWin placed the inner Wayland window.
     previous_backend = os.environ.get("GDK_BACKEND")
     os.environ["GDK_BACKEND"] = "x11"
     try:
@@ -94,11 +93,42 @@ def private_dialog_ready():
             os.environ["GDK_BACKEND"] = previous_backend
     screen = Gdk.Screen.get_default()
     root = screen.get_root_window()
+    image = Gdk.pixbuf_get_from_window(root, 0, 0, root.get_width(), root.get_height())
+    return dialog_button_in_image(image, decision)
 
-    def rgb(x, y):
-        pixel = Gdk.pixbuf_get_from_window(root, x, y, 1, 1)
-        return tuple(pixel.get_pixels()[:3]) if pixel is not None else None
-    return rgb(300, 300) == (255, 255, 255) and rgb(800, 500) == (0, 0, 0)
+
+def dialog_button_in_image(image, decision):
+    if image is None or image.get_n_channels() != 3:
+        return None
+    pixels = bytes(image.get_pixels())
+    stride = image.get_rowstride()
+    channels = image.get_n_channels()
+    white_canvas = b"\xff\xff\xff" * 450
+
+    def color(x, y):
+        offset = y * stride + x * channels
+        return pixels[offset:offset + 3]
+
+    def gray(x, y, low, high):
+        red, green, blue = color(x, y)
+        return (low <= min(red, green, blue)
+                and max(red, green, blue) <= high
+                and max(red, green, blue) - min(red, green, blue) <= 6)
+
+    for y in range(100, image.get_height() - 65):
+        canvas = pixels[(y - 1) * stride:y * stride]
+        offset = canvas.find(white_canvas)
+        if offset < 0:
+            continue
+        x = offset // channels
+        if x + 500 >= image.get_width():
+            continue
+        if (all(gray(x + dx, y, 165, 245) for dx in (100, 250, 400))
+                and gray(x + 100, y + 40, 200, 245)
+                and gray(x + 322, y + 22, 180, 220)
+                and color(x + 250, y - 100) == b"\xff\xff\xff"):
+            return x + (360 if decision == "allow" else 448), y + 34
+    return None
 
 
 def run(decision, session):
@@ -144,12 +174,15 @@ def run(decision, session):
                         print(f"KDE_DIALOG_ATSPI_ACTION={choice}", flush=True)
                         break
                 # Qt Quick can map its Wayland dialog after CreateSession and
-                # BindShortcuts have been observed. Click only once its canvas
-                # and backdrop are visible on the private Xvfb display.
-                if private_dialog_ready():
-                    x = "617" if decision == "allow" else "707"
-                    subprocess.run(["xdotool", "mousemove", x, "652", "click", "1"], check=True)
-                    print(f"KDE_DIALOG_USED_PRIVATE_X11_POINTER_NOT_ATSPI={choice}", flush=True)
+                # BindShortcuts. Click only once its canvas, action bar and OK
+                # button border are visible on the owned Xvfb display.
+                target = private_dialog_button(decision)
+                if target is not None:
+                    subprocess.run(
+                        ["xdotool", "mousemove", str(target[0]), str(target[1]), "click", "1"],
+                        check=True,
+                    )
+                    print(f"KDE_DIALOG_USED_PRIVATE_X11_POINTER_NOT_ATSPI={choice}={target}", flush=True)
                     break
             time.sleep(.1)
         else:
