@@ -50,6 +50,7 @@ jobs:
               - 'scripts/*'
               - '!scripts/*.py'
               - 'scripts/verify-search-packages.py'
+              - 'scripts/check-combined-extension-broker.py'
               - 'web/**'
               - 'launcher/**'
               - 'vendor/**'
@@ -377,6 +378,40 @@ jobs:
           name: extension-worker-debian-package
           path: target/extension-packages/
           if-no-files-found: error
+
+  combined-extension-package:
+    needs: [changes, launcher-native, extension-worker-package]
+    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-system-dependencies
+        with:
+          native-test: 'true'
+      - uses: actions/download-artifact@v4
+        with:
+          name: launcher-native-packages
+          path: target/launcher-packages
+      - uses: actions/download-artifact@v4
+        with:
+          name: extension-worker-debian-package
+          path: target/extension-packages
+      - name: Install exact same-run launcher and worker Debian packages
+        run: |
+          sudo apt-get install --yes --no-install-recommends xclip \
+            ./target/launcher-packages/*.deb ./target/extension-packages/*.deb
+      - name: Allow Bubblewrap namespace setup with Ubuntu's scoped AppArmor profile
+        run: |
+          sudo apt-get install --yes --no-install-recommends apparmor apparmor-profiles
+          sudo apparmor_parser -r /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+      - name: Exercise installed launcher broker and retained/revoked extension grants
+        run: timeout --kill-after=5s 180s bash scripts/smoke-combined-extension-packages.sh target/launcher-packages target/extension-packages
+      - name: Remove only optional worker and retain installed launcher
+        run: |
+          sudo apt-get remove --yes --no-install-recommends io-github-briolabs-maestria-extension-worker
+          test "$(dpkg-query --show --showformat='${Status}' io-github-briolabs-maestria-launcher)" = 'install ok installed'
+          test -x /usr/bin/maestria-launcher
+          test ! -e /usr/bin/maestria-extension-worker
 
   golden-gate:
     needs: [changes]

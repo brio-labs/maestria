@@ -292,7 +292,7 @@ def limits() -> None:
     for limit, cap in (
         (resource.RLIMIT_AS, 512 * 1024 * 1024),
         (resource.RLIMIT_CPU, 32),
-        (resource.RLIMIT_NPROC, 1024),
+        (resource.RLIMIT_NPROC, 4096),
         (resource.RLIMIT_NOFILE, 64),
         (resource.RLIMIT_FSIZE, 16 * 1024 * 1024),
         (resource.RLIMIT_CORE, 0),
