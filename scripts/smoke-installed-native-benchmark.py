@@ -1115,7 +1115,7 @@ class NativeUi:
             (
                 node
                 for node in snapshot["nodes"]
-                if read_role(node, self.atspi) == self.atspi.Role.LIST
+                if read_role(node, self.atspi) == self.atspi.Role.LIST_BOX
                 and read_name(node) == "Launcher results"
             ),
             None,
@@ -1164,6 +1164,12 @@ class NativeUi:
         raise TimeoutError(f"keyboard Return did not open a cited passage detail for {expected_path}")
 
     def press_escape(self) -> None:
+        snapshot = self.snapshot()
+        if (
+            "Return to launcher results" not in {name for _node, name in self.buttons(snapshot)}
+            and self._query_is_focused()
+        ):
+            return
         run_capture(["xdotool", "key", "--clearmodifiers", "Escape"], timeout=5.0)
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:

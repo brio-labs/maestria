@@ -502,8 +502,8 @@ command after revocation. [#545](https://github.com/brio-labs/maestria/issues/54
 is closed on that exact installed proof; it does not prove upgrade retention
 or reference-hardware performance.
 
-Version-different upgrade and installed 10,000-file/reference-hardware
-latency and resource gates also remain open.
+The installed version-different upgrade passed at `0965269c`. The separate
+10,000-file/reference-hardware latency and resource gates remain open.
 
 ### Reproduce release acceptance in isolated CI runners
 
@@ -520,34 +520,45 @@ restarting either process, checks authorized evidence and denied roots/consumers
 after restart, removes and reinstalls the new packages without reconstructing
 that state, and checks retention again before explicit revocation. Its Xvfb,
 D-Bus, and clipboard belong to the job; the worker still requires Bubblewrap.
-This is an acceptance procedure, not a claim that the upgrade has passed.
+The procedure alone does not establish that an upgrade has passed.
 
 At that same `f8949aa1` run, the old **0.0.0** packages installed, but the
 old-version search check stopped before upgrading. The test rejected all
 passage hits for an ungranted-root phrase, including hits that could cite the
 approved file. The revised boundary assertion checks each result's source path
-and excerpt for unauthorized content; the actual old-to-new package upgrade
-and retention still require a passing installed run.
+and excerpt for unauthorized content; this run did not perform an upgrade.
 
 At `fbf52260`, old-package search and the installed 0.0.0 Bubblewrap
 extension's AT-SPI Copy completed before the upgrade; the job then stopped
 because its storage snapshot expected a file directly under the extension's
 data directory. The old broker actually creates a second extension-ID
 subdirectory beneath it. No new packages were installed in that run; the
-corrected snapshot must prove the old value survives the **real** upgrade.
+corrected snapshot was exercised by the next installed run.
+
+At [`0965269c` run 36478888264](https://github.com/brio-labs/maestria/actions/runs/36478888264/job/109120534027),
+the Ubuntu 24.04 `version-upgrade-package` job **passed**. It installed
+different upstream versions (all three `0.0.0` packages, then the same-run
+`0.0.1` packages), verified changed product code and installed binary hashes,
+restarted the private search daemon/launcher with the same settings,
+root-scoped search credential, and Bubblewrap extension storage/grants, then
+removed and reinstalled the packages while retaining that state. The final
+checks explicitly revoked search and extension access. This is installed
+upgrade/retention evidence, not a same-version reinstall or source-built test.
 
 The separate `installed-native-benchmark` job installs the same-run Debian
 launcher and search binaries. It records 200 actual native-window/AT-SPI
 interactions each for cold launcher starts, active queries, edited sources, and
 deleted sources over one approved 10,000-file tree. It retains failures and
-timeouts, exact artifact/process identity, resource samples, screenshots,
-citations, and actual memory/SSD provenance in the
+timeouts, exact artifact/process identity, resource samples, screenshots when
+captured, citations, and actual memory/SSD provenance in the
 `installed-native-benchmark-evidence` artifact, even if the gate fails. A runner
 below **16 GiB effective memory** or without confirmed SSD storage cannot pass
 the reference-hardware gate. Keyboard-to-AT-SPI measurements include observer
 overhead and **do not** directly measure or replace the internal 100 ms search
 deadline. Neither job should be run against a user's desktop or package state.
-Their success remains unverified until an exact-source CI run finishes.
+
+The installed native benchmark has not passed; successful installed samples
+on qualifying reference hardware are still required.
 
 The `f8949aa1` native benchmark stopped at daemon startup because its private
 Unix socket path under the long CI workspace exceeded `SUN_LEN`. Its artifact
@@ -564,6 +575,21 @@ disk writes and a 461 MB resident high-water mark; UI samples never started.
 The indexing settle allowance is now 1,800 seconds without changing the
 10,000-file requirement or the 100 ms internal interactive-search deadline.
 This runner still lacks the required effective memory and verified SSD.
+
+At `0965269c`, the installed benchmark settled all **10,000 approved files**
+with zero pending and no last scan error after about 1,250 seconds. It recorded
+200 observations in each of the four classes, but **all 800 failed**: cold
+and active samples found the result button but could not find its enclosing
+`Launcher results` list; the first edit/delete precondition failed likewise,
+and subsequent edit/delete attempts could not focus the hidden window after
+Escape. These are failure-inclusive timings, not successful-result latency.
+An isolated source-built Slint/AT-SPI diagnostic exposed the named list as
+`LIST_BOX`, while the installed driver's predicate required `LIST`. The
+driver now matches the observed role and avoids hiding an already-focused
+results view; a private source-built two-query UI smoke exercised that change,
+not the installed 10,000-file gate. The hosted runner also remained below
+16 GiB effective memory with rotational storage, so it cannot establish
+reference-hardware acceptance even if the corrected UI samples pass.
 
 ### Disable, uninstall, and choose local-data retention
 
