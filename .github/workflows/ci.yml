@@ -309,6 +309,34 @@ jobs:
           path: target/launcher-packages/
           if-no-files-found: error
 
+  launcher-portal-package:
+    needs: [changes, launcher-native]
+    runs-on: ubuntu-26.04
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-system-dependencies
+        with:
+          native-test: 'true'
+      - uses: actions/download-artifact@v4
+        with:
+          name: launcher-native-packages
+          path: target/launcher-packages
+      - name: Install same-run Ubuntu 24.04-built launcher and private KDE Wayland portal
+        run: |
+          sudo apt-get install --yes --no-install-recommends \
+            kwin-wayland xdg-desktop-portal-kde qt6-wayland gir1.2-gtk-3.0 \
+            ./target/launcher-packages/*.deb
+      - name: Exercise installed private KDE GlobalShortcuts approval and denial
+        run: timeout --kill-after=5s 210s bash scripts/smoke-launcher-portal-package.sh target/launcher-packages
+      - name: Retain private portal screenshots after failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-portal-package-diagnostics
+          path: target/launcher-portal-diagnostics/
+          if-no-files-found: ignore
+
   search-package:
     needs: [changes]
     runs-on: ubuntu-24.04
