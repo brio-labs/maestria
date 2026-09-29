@@ -1748,7 +1748,7 @@ def drive(arguments: argparse.Namespace) -> None:
                 record["precondition_excerpt"] = old["excerpt"]
                 if old["citation"] != sample["expected_citation"] or sample["old_query"] not in old["excerpt"]:
                     raise RuntimeError("pre-edit UI result was not freshly authorized with its original cited passage")
-                old_clipboard = old["citation"]
+                old_clipboard = old["excerpt"]
                 mutation_ns = time.monotonic_ns()
                 content = (sample["expected_content"] + "\n").encode("utf-8")
                 record["source_change"] = {
@@ -1963,7 +1963,7 @@ def drive(arguments: argparse.Namespace) -> None:
                 record["precondition_excerpt"] = old["excerpt"]
                 if old["citation"] != sample["expected_citation"] or sample["query"] not in old["excerpt"]:
                     raise RuntimeError("pre-delete UI result was not freshly authorized with its original cited passage")
-                old_clipboard = old["citation"]
+                old_clipboard = old["excerpt"]
                 mutation_ns = time.monotonic_ns()
                 record["source_change"] = {
                     "operation": "unlink",

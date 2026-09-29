@@ -391,6 +391,11 @@ fn update_catalog_status(
         crate::model::SearchStatusKind::Ready | crate::model::SearchStatusKind::Error
     );
     if ready && snapshot.revision != timer.last_catalog_revision {
+        // Preserve an open evidence view; the pending revision refreshes once
+        // the user returns to results instead of invalidating its Copy controls.
+        if ui.get_passage_view_open() {
+            return;
+        }
         timer.last_catalog_revision = snapshot.revision;
         let query = lock(&frontend.model).query.clone();
         start_search(state, frontend, runtime.clone(), ui.as_weak(), query);

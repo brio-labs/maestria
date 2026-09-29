@@ -631,6 +631,37 @@ resource monitor discards a `/proc` permission race only if the exact
 registered process has exited or been replaced; a live target's permission
 failure remains fatal.
 
+At [`07709545` run 36510002235](https://github.com/brio-labs/maestria/actions/runs/36510002235/job/109220406839),
+the installed binaries settled **10,000 approved files** with zero pending and
+recorded all **200 observations per class**. Cold Copy passed 198/200; two
+cold queries reported “Document search unavailable.” Active Copy passed
+18/200; sample 18 timed out waiting for its Copy notice, and subsequent typed
+queries retained the old text and timed out. In a separate private **source**
+reproduction, a catalog revision refresh closed an open detail without
+restoring search-entry focus. All edit/delete interactions failed or timed
+out before reaching a fresh result: whenever their precondition Copy succeeded,
+it left the private clipboard containing the excerpt, but the benchmark
+compared it with the preceding citation and falsely reported that
+stale-evidence denial changed the clipboard.
+The durable source edits/unlinks and denied stale-action notices did **not**
+establish an unauthorized copy. All 800 durations include failures; the
+active/edit/delete p95 values are not successful latency evidence, and no
+edit/delete sample reached fresh-result observation. Resource telemetry passed
+with **44,018 samples** and no sampler error. This runner had **15.615 GiB**
+effective memory and could not establish SSD backing from `lsblk`;
+reference-hardware acceptance remains open.
+
+The driver now compares the stale-action clipboard with the **last actual
+pre-mutation Copy**, the excerpt, without weakening denial or fresh-source
+checks. The launcher defers an unrelated catalog-revision re-search while a
+passage detail is open, preserving its accessible Copy and Return controls;
+the pending revision is applied after returning to results. A separate private
+**source-built** Xvfb/D-Bus run on 202 generated approved files completed
+**200 consecutive** genuine keyboard-open, exact citation/excerpt Copy, and
+accessible Return interactions, followed by one edited and one unlinked
+stale-evidence action denied with the unchanged private clipboard. This is
+not a changed-commit installed 10,000-file acceptance run.
+
 ### Disable, uninstall, and choose local-data retention
 
 Before removing packages, stop their processes explicitly: close active
