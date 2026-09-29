@@ -162,6 +162,17 @@ impl crate::SqliteStore {
     /// task, or agent history on each watched edit. The partial source-revision
     /// index orders these same three event kinds by append-only event ID.
     pub fn scan_searchable_source_events(&self) -> Result<Vec<DomainEventEnvelope>, PortError> {
+        self.scan_searchable_source_events_between(i64::MIN, i64::MAX)
+    }
+
+    /// Replay only the source events between two observed revisions. The
+    /// upper bound keeps a concurrent append out of a request's snapshot;
+    /// callers recheck the revision before publishing the rebuilt cache.
+    pub fn scan_searchable_source_events_between(
+        &self,
+        after_revision: i64,
+        through_revision: i64,
+    ) -> Result<Vec<DomainEventEnvelope>, PortError> {
         let connection = self.lock()?;
         let mut statement = connection
             .prepare_cached(
@@ -169,10 +180,12 @@ impl crate::SqliteStore {
                  FROM domain_events \
                  WHERE event_kind IN (
                      'parser_started', 'document_tree_captured', 'source_became_stale'
-                 ) ORDER BY id ASC",
+                 ) AND id > ?1 AND id <= ?2 ORDER BY id ASC",
             )
             .map_err(to_port_error)?;
-        let mut rows = statement.query([]).map_err(to_port_error)?;
+        let mut rows = statement
+            .query((after_revision, through_revision))
+            .map_err(to_port_error)?;
         let mut events = Vec::new();
         while let Some(row) = rows.next().map_err(to_port_error)? {
             let (event, _) = read_stored_event(row)?.into_domain_with_trace_remap()?;

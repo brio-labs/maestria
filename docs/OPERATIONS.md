@@ -704,6 +704,27 @@ unavailable at the first immediate query. It does **not** explain the many
 establish when each changed file became searchable. Do not turn their failed
 observations into passing latency measurements.
 
+An additional **diagnostic**, not a release benchmark, isolated the service
+error behind some mutation failures. Its attempted 10,000-file fixture was
+interrupted; cleanup removed 1,527 generated files, so only **8,473** remained
+approved and indexed. With the installed `59079579` search binary, 40/40
+unchanged-file direct queries found their passages. After eight separate
+durable edits, each first fresh query **after indexing settled** returned
+`DaemonUnavailable: search service request timed out` at 103–104 ms of CLI
+wall time. A subsequent diagnostic query found each fresh passage, while
+the old term stayed absent. This distinguishes post-revision rebuild timeouts
+from the separate pre-index `NoEvidenceFound` response.
+
+The source runtime now replays only source events added since the cached
+revision, preserving the same active-version/stale-source projection and the
+unchanged 100 ms server timeout. A rebuilt, optimized **source** search binary
+on the retained private 8,473-file instance found fresh evidence on the first
+post-index query after eight different edits (41–52 ms CLI wall time); all
+eight old terms stayed absent. Immediate pre-index fresh queries still returned
+`NoEvidenceFound`. This is not installed 10,000-file/200-per-class UI
+acceptance, does not retroactively repair failed observations, and does not
+establish a fresh-result p95 for the qualifying installed release gate.
+
 ### Disable, uninstall, and choose local-data retention
 
 Before removing packages, stop their processes explicitly: close active

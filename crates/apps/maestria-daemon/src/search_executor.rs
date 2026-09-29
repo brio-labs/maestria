@@ -70,6 +70,7 @@ pub(crate) struct InteractiveSnapshot {
     revision: i64,
     engine: Arc<maestria_retrieval::RetrievalEngine>,
     sources: Arc<ActiveSourceVersions>,
+    projection: Option<Arc<maestria_domain::SourceProjection>>,
     approved: InteractiveApprovedCache,
 }
 pub(crate) type InteractiveCache = Arc<RwLock<Option<InteractiveSnapshot>>>;
@@ -202,27 +203,51 @@ impl SearchRuntime {
     /// append events too, but cannot change the lexical source snapshot.
     pub(crate) fn interactive_snapshot(&self) -> Result<InteractiveSnapshot> {
         let revision = self.event_log.searchable_source_revision()?;
-        if let Some(snapshot) = self.interactive_cache.read().as_ref()
+        let cached = self.interactive_cache.read().clone();
+        if let Some(snapshot) = &cached
             && snapshot.revision == revision
         {
             return Ok(snapshot.clone());
         }
-        let events = if self.repository_code_index.is_some() {
+        let (events, sources, projection) = if self.repository_code_index.is_some() {
             // The code security resolver projects additional event families.
-            self.domain_events()?
+            let events = self.domain_events()?;
+            let sources = Arc::new(maestria_domain::active_source_versions(&events));
+            (events, sources, None)
+        } else if let Some(previous) = cached
+            .as_ref()
+            .filter(|snapshot| snapshot.revision < revision && snapshot.projection.is_some())
+        {
+            let events = self
+                .event_log
+                .scan_searchable_source_events_between(previous.revision, revision)
+                .map_err(|error| anyhow!("scan new source events for retrieval: {error}"))?;
+            let mut projection = previous
+                .projection
+                .as_deref()
+                .expect("filtered above")
+                .clone();
+            projection.apply(&events);
+            let sources = projection.sources();
+            (events, sources, Some(Arc::new(projection)))
         } else {
-            self.event_log
+            let events = self
+                .event_log
                 .scan_searchable_source_events()
-                .map_err(|error| anyhow!("scan source history for retrieval: {error}"))?
+                .map_err(|error| anyhow!("scan source history for retrieval: {error}"))?;
+            let mut projection = maestria_domain::SourceProjection::default();
+            projection.apply(&events);
+            let sources = projection.sources();
+            (events, sources, Some(Arc::new(projection)))
         };
-        let sources = maestria_domain::active_source_versions(&events);
         let mut runtime = self.clone();
         runtime.graph_index = None;
         runtime.persist_learned_sparse_observations = false;
         let snapshot = InteractiveSnapshot {
             revision,
             engine: Arc::new(runtime.retrieval_engine_from_snapshot(&events, &sources)?),
-            sources: Arc::new(sources),
+            sources,
+            projection,
             approved: Arc::new(RwLock::new(None)),
         };
         if self.event_log.searchable_source_revision()? == revision {

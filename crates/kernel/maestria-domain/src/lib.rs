@@ -78,7 +78,8 @@ pub use crate::entities::{
 };
 pub use crate::errors::DomainError;
 pub use crate::events::{
-    ActiveSourceVersions, DomainEvent, DomainEventEnvelope, active_source_versions,
+    ActiveSourceVersions, DomainEvent, DomainEventEnvelope, SourceProjection,
+    active_source_versions,
 };
 pub use crate::evidence_pack::{
     ClaimCoverageStatusRecord, ClaimEvidenceCoverageRecord, EvidenceFreshnessRecord,

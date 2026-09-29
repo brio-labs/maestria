@@ -12,6 +12,7 @@ use crate::security::SecurityMetadata;
 use crate::task_status::TaskStatus;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DomainEventEnvelope {
@@ -346,6 +347,32 @@ impl DomainEvent {
 /// Currently active indexed versions, keyed by canonical source path.
 pub type ActiveSourceVersions = BTreeMap<PathBuf, (ArtifactId, ArtifactVersionId, ContentHash)>;
 
+/// Replay state for source events. Keep historical captures so reapproving
+/// identical bytes restores their content-addressed version after a stale event.
+#[derive(Clone, Default)]
+pub struct SourceProjection {
+    sources: Arc<ActiveSourceVersions>,
+    path_by_artifact: BTreeMap<ArtifactId, String>,
+    captured_versions: BTreeMap<ArtifactId, BTreeMap<ContentHash, ArtifactVersionId>>,
+}
+
+impl SourceProjection {
+    pub fn sources(&self) -> Arc<ActiveSourceVersions> {
+        self.sources.clone()
+    }
+
+    /// Apply all source-version events since the previous batch in ID order;
+    /// unrelated audit event IDs may be skipped.
+    pub fn apply(&mut self, events: &[DomainEventEnvelope]) {
+        project_source_events(
+            Arc::make_mut(&mut self.sources),
+            &mut self.path_by_artifact,
+            &mut self.captured_versions,
+            events,
+        );
+    }
+}
+
 /// Projects the currently active source versions from the append-only event
 /// log, keyed by canonical source path.
 ///
@@ -357,9 +384,21 @@ pub type ActiveSourceVersions = BTreeMap<PathBuf, (ArtifactId, ArtifactVersionId
 /// share this projection so stale versions never surface in retrieval.
 pub fn active_source_versions(events: &[DomainEventEnvelope]) -> ActiveSourceVersions {
     let mut active = BTreeMap::new();
-    let mut path_by_artifact = BTreeMap::new();
-    let mut captured_versions: BTreeMap<ArtifactId, BTreeMap<ContentHash, ArtifactVersionId>> =
-        BTreeMap::new();
+    project_source_events(
+        &mut active,
+        &mut BTreeMap::new(),
+        &mut BTreeMap::new(),
+        events,
+    );
+    active
+}
+
+fn project_source_events(
+    active: &mut ActiveSourceVersions,
+    path_by_artifact: &mut BTreeMap<ArtifactId, String>,
+    captured_versions: &mut BTreeMap<ArtifactId, BTreeMap<ContentHash, ArtifactVersionId>>,
+    events: &[DomainEventEnvelope],
+) {
     for envelope in events {
         match &envelope.event {
             DomainEvent::ParserStarted {
@@ -418,5 +457,97 @@ pub fn active_source_versions(events: &[DomainEventEnvelope]) -> ActiveSourceVer
             _ => {}
         }
     }
-    active
+}
+
+#[cfg(test)]
+mod source_projection_tests {
+    use super::*;
+
+    #[test]
+    fn incremental_replay_matches_full_history_across_reapproval_and_replacement()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let path = "/approved/source.md".to_string();
+        let first_hash = ContentHash::new(crate::provenance::content_hash(b"first bytes"))?;
+        let second_hash = ContentHash::new(crate::provenance::content_hash(b"second bytes"))?;
+        let first = ArtifactId::new(7);
+        let second = ArtifactId::new(8);
+        let first_version = ArtifactVersionId::new(71);
+        let second_version = ArtifactVersionId::new(81);
+        let started = |id: u64, artifact_id, content_hash: ContentHash| DomainEventEnvelope {
+            id: EventId::new(id),
+            event: DomainEvent::ParserStarted {
+                artifact_id,
+                title: "source.md".to_string(),
+                source_path: path.clone(),
+                content_hash,
+                blob_id: BlobId::new(id),
+            },
+        };
+        let stale = |id: u64, artifact_id, content_hash: ContentHash| DomainEventEnvelope {
+            id: EventId::new(id),
+            event: DomainEvent::SourceBecameStale {
+                artifact_id,
+                source_path: path.clone(),
+                content_hash,
+            },
+        };
+        let captured = |id: u64, artifact_id, artifact_version_id, content_hash: ContentHash| {
+            DomainEventEnvelope {
+                id: EventId::new(id),
+                event: DomainEvent::DocumentTreeCaptured {
+                    artifact_id,
+                    artifact_version_id,
+                    content_hash,
+                    root_id: StructureNodeId::new(id),
+                    nodes: Vec::new(),
+                },
+            }
+        };
+        let history = [
+            started(1, first, first_hash.clone()),
+            captured(2, first, first_version, first_hash.clone()),
+            stale(3, first, first_hash.clone()),
+            started(4, first, first_hash.clone()),
+            started(5, second, second_hash.clone()),
+            stale(6, first, first_hash.clone()),
+            captured(7, second, second_version, second_hash.clone()),
+            stale(8, second, second_hash),
+            started(9, first, first_hash.clone()),
+        ];
+        let mut projection = SourceProjection::default();
+        let mut cursor = 0;
+        let mut retained_before_stale = None;
+        for boundary in [2, 3, 4, 6, 8, 9] {
+            projection.apply(&history[cursor..boundary]);
+            assert_eq!(
+                projection.sources().as_ref(),
+                &active_source_versions(&history[..boundary]),
+                "incremental source replay diverged at event {boundary}"
+            );
+            if boundary == 2 {
+                retained_before_stale = Some(projection.sources());
+            }
+            if boundary == 3 {
+                assert!(projection.sources().get(Path::new(&path)).is_none());
+                assert_eq!(
+                    retained_before_stale.as_ref().and_then(
+                        |sources: &Arc<ActiveSourceVersions>| {
+                            sources
+                                .get(Path::new(&path))
+                                .map(|(_, version, _)| *version)
+                        }
+                    ),
+                    Some(first_version),
+                    "a concurrent old snapshot must remain immutable until its own revision check"
+                );
+            }
+            cursor = boundary;
+        }
+        assert_eq!(
+            projection.sources().get(Path::new(&path)),
+            Some(&(first, first_version, first_hash)),
+            "identical bytes must restore the original captured version"
+        );
+        Ok(())
+    }
 }

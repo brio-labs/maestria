@@ -231,6 +231,24 @@ fn source_event_scan_preserves_stale_and_restored_content_versions_without_audit
         [1, 3, 4, 5]
     );
     assert_eq!(store.searchable_source_revision()?, 5);
+    let between = store.scan_searchable_source_events_between(1, 4)?;
+    assert_eq!(
+        between
+            .iter()
+            .map(|event| event.id.value())
+            .collect::<Vec<_>>(),
+        [3, 4],
+        "bounded replay must omit audit rows and events newer than its observed revision"
+    );
+    assert_eq!(
+        store
+            .scan_searchable_source_events_between(4, 5)?
+            .iter()
+            .map(|event| event.id.value())
+            .collect::<Vec<_>>(),
+        [5],
+        "reapproved bytes must be replayed after stale removal"
+    );
     let active = active_source_versions(&source_events);
     assert_eq!(
         active,
