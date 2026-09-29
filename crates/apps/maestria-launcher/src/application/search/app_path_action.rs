@@ -39,18 +39,19 @@ pub(in crate::application) fn activate_path_action(
         show_notice(&ui, error.message);
         return;
     }
-    let config = state
+    if state
         .settings()
         .ok()
-        .and_then(|settings| settings.search_service());
-    let Some(config) = config else {
+        .and_then(|settings| settings.search_service())
+        .is_none()
+    {
         state.finish_action();
         show_notice(&ui, "Document search is not configured.".to_string());
         return;
-    };
+    }
 
     runtime.spawn(async move {
-        let fresh = super::super::passages::search(config, &query)
+        let fresh = super::search_passages(&frontend, &state, generation, &query)
             .await
             .is_some_and(|result| result.paths.iter().any(|entry| entry.path == path));
         let failed_delivery_state = Arc::clone(&state);

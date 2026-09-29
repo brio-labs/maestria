@@ -68,8 +68,12 @@ fn run_primary(
     let runtime_handle = runtime.handle().clone();
     let (activation_sender, activation_receiver) = mpsc::sync_channel(8);
     let shortcuts = Arc::new(Shortcuts::new(activation_sender));
+    let (generation_updates, _) = tokio::sync::watch::channel(0);
     let frontend = Arc::new(Frontend {
         generation: std::sync::atomic::AtomicU64::new(0),
+        active_search: std::sync::atomic::AtomicU64::new(0),
+        generation_updates,
+        interactive_search: tokio::sync::Mutex::new(()),
         model: std::sync::Mutex::new(FrontendModel {
             query: String::new(),
             pending_ticks: None,

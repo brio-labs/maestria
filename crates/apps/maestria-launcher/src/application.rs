@@ -78,6 +78,9 @@ pub(super) struct FrontendModel {
 
 pub(super) struct Frontend {
     generation: AtomicU64,
+    active_search: AtomicU64,
+    generation_updates: tokio::sync::watch::Sender<u64>,
+    interactive_search: tokio::sync::Mutex<()>,
     model: Mutex<FrontendModel>,
 }
 

@@ -799,6 +799,65 @@ effective memory, real Btrfs for both fixture/output, and the NVMe → LVM
 preflight**, not in the earlier 800-interaction run. The new launcher behavior
 remains **source-built smoke, not installed 10,000-file acceptance**.
 
+At [`d4eccf7b` run 36550481561](https://github.com/brio-labs/maestria/actions/runs/36550481561/job/109348121080),
+the repaired, same-run installed Ubuntu 24 packages settled all 10,000 files
+and recorded all 800 observations. Hosted cold, active, edit, and delete
+passed **200/200**, **200/200**, **195/200**, and **200/200** respectively:
+five edit observations timed out. Hosted effective memory was **15.614 GiB**
+and SSD provenance could not be established, independently failing the
+reference-hardware gate. Its complete artifact is retained at
+`target/benchmark-d4eccf7b-ci/`.
+
+An independent installed run of those **same-run** Debian artifacts in the
+private Ubuntu 24 rootfs used the corrected Btrfs fixture/output and
+read-only NVMe/LVM mapper and udev device evidence. Both exact package
+payload hashes matched the installed binaries; the hardware gate passed
+with **30.854 GiB** effective memory and confirmed SSD backing. The indexing
+preflight settled 10,000 files with none pending and no scan error. All 800
+interactions completed: cold **199/200**, active **199/200**, edit **175/200**,
+delete **192/200**. The **35** timeouts mostly showed “Document search
+unavailable” instead of the expected cited result or no-match status. All
+failure-inclusive durations and telemetry remain at
+`target/ubuntu24-private/rootfs/bench/current-head-d4eccf7b-first-valid/`;
+the preceding package/hardware-only check is separate at
+`target/ubuntu24-private/rootfs/bench/hardware-preflight-d4eccf7b/`.
+**Neither installed run passes** the release gate. The failed workload is
+not rerun to seek a pass, and its right-censored timeout durations are not
+reported as successful-result latency.
+
+The same `d4eccf7b` installed Ubuntu 24 launcher binary
+(`44236221e9559ca1b95130445c7220a43a0f7950ddd3377755b954640697e25a`)
+also completed a separate **native Open File selection** under rootless,
+read-only Ubuntu 24 Bubblewrap in a private headless Cage Wayland session.
+The **Arch GTK portal**, on an isolated session bus, returned
+`org.freedesktop.portal.Request.Response` with success code `0` and the
+approved throwaway `file:///tmp/sillage-cage.6nqsMm/only-approved-chooser-file.txt`;
+the installed Slint launcher displayed that exact selected-file path. The
+private result, screenshot, and verbatim successful portal response are retained
+at `target/wayland-chooser-smoke/evidence-sillage-cage.6nqsMm.json`,
+`target/wayland-chooser-smoke/selected-file-sillage-cage.6nqsMm.png`, and
+`target/wayland-chooser-smoke/installed-portal-response-sillage-cage.6nqsMm.txt`.
+This proves installed launcher selection with **Arch GTK**, not stock Ubuntu
+24 GNOME's chooser or compositor-owned shortcut; it does not change the
+failed installed performance gate above. The subsequently coordinated
+launcher searches are source changes and are **not** present in that package.
+
+The subsequent source-built launcher change serializes interactive searches
+for one consumer realm across foreground queries, indexed-source refreshes,
+and fresh path verification. A newer foreground generation cancels its
+predecessor; source refresh waits until the foreground result has applied.
+An optimized **source-built**, private two-file Cage/AT-SPI smoke observed a
+real approved source revision **19 → 34**, returned the fresh citation from
+`source-two.md` for a new foreground query, and kept that query and result
+visible over the next two seconds of refresh ticks. Its evidence and private
+screenshot are retained at
+`target/wayland-chooser-smoke/evidence-search-sillage-search-ui.jySQUI.json`
+and `target/wayland-chooser-smoke/selected-search-sillage-search-ui.jySQUI.png`.
+The smoke did not force a deterministic request collision and does **not**
+attribute all 35 installed timeouts to that race. The daemon's **100 ms**
+interactive deadline and every installed benchmark gate remain unchanged;
+the revised code needs fresh exact-head installed measurement.
+
 ### Disable, uninstall, and choose local-data retention
 
 Before removing packages, stop their processes explicitly: close active

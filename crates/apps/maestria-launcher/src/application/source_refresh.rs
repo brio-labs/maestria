@@ -60,12 +60,17 @@ impl SourceRefresh {
 
         let query = {
             let model = lock(&frontend.model);
-            self.should_refresh(
-                &model.query,
-                model.pending_ticks.is_some(),
-                ui.get_passage_view_open() || model.selected_file.is_some(),
-            )
-            .then(|| model.query.clone())
+            // Leave the source revision pending until the foreground query applies.
+            if frontend.active_search.load(Ordering::Acquire) != 0 {
+                None
+            } else {
+                self.should_refresh(
+                    &model.query,
+                    model.pending_ticks.is_some(),
+                    ui.get_passage_view_open() || model.selected_file.is_some(),
+                )
+                .then(|| model.query.clone())
+            }
         };
         if let Some(query) = query {
             self.refresh_passages(ui, state, frontend, runtime, query);
@@ -102,13 +107,14 @@ impl SourceRefresh {
         runtime: &tokio::runtime::Handle,
         query: String,
     ) {
-        let Some(config) = state
+        if state
             .settings()
             .ok()
             .and_then(|settings| settings.search_service())
-        else {
+            .is_none()
+        {
             return;
-        };
+        }
         let generation = frontend.generation.load(Ordering::Acquire);
         let serial = self
             .latest_refresh
@@ -117,9 +123,11 @@ impl SourceRefresh {
         let latest_refresh = Arc::clone(&self.latest_refresh);
         let deferred = Arc::clone(&self.deferred);
         let frontend = Arc::clone(frontend);
+        let state = Arc::clone(state);
         let ui = ui.as_weak();
         runtime.spawn(async move {
-            let result = super::passages::search(config, &query).await;
+            let result =
+                super::search::search_passages(&frontend, &state, generation, &query).await;
             let _ = slint::invoke_from_event_loop(move || {
                 if latest_refresh.load(Ordering::Acquire) != serial
                     || frontend.generation.load(Ordering::Acquire) != generation

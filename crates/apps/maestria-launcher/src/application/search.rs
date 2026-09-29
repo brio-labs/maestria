@@ -65,6 +65,32 @@ fn reset_search_state(frontend: &Frontend, ui: &UiWeak, query: &str, has_search_
         window.set_status_message("Searching…".into());
     }
 }
+
+/// Serialize shared-realm searches and cancel requests when a newer UI search starts.
+pub(super) async fn search_passages(
+    frontend: &Frontend,
+    state: &LauncherState,
+    generation: u64,
+    query: &str,
+) -> Option<super::passages::PassageSearchResult> {
+    let mut generation_updates = frontend.generation_updates.subscribe();
+    let _interactive_search = frontend.interactive_search.lock().await;
+    if frontend.generation.load(Ordering::Acquire) != generation {
+        return None;
+    }
+
+    // Resolve the authorized service after waiting for the shared request slot.
+    let config = state
+        .settings()
+        .ok()
+        .and_then(|settings| settings.search_service())?;
+    tokio::select! {
+        biased;
+        _ = generation_updates.changed() => None,
+        result = super::passages::search(config, query) => result,
+    }
+}
+
 pub(super) fn start_search(
     state: Arc<LauncherState>,
     frontend: Arc<Frontend>,
@@ -88,6 +114,9 @@ pub(super) fn start_search(
             return;
         }
     };
+    frontend.active_search.store(generation, Ordering::Release);
+    frontend.generation_updates.send_replace(generation);
+
     let search_service = state
         .settings()
         .ok()
@@ -127,13 +156,12 @@ pub(super) fn start_search(
             return;
         }
 
-        if let Some(config) = search_service
-            && !query.is_empty()
-        {
-            let search_result = super::passages::search(config, &query).await;
+        if search_service.is_some() && !query.is_empty() {
+            let search_result = search_passages(&frontend, &state, generation, &query).await;
             let merge_frontend = Arc::clone(&frontend);
             let merge_ui = ui.clone();
             let merge_query = query.clone();
+            let (passages_applied, wait_for_passages) = tokio::sync::oneshot::channel::<()>();
             let _ = slint::invoke_from_event_loop(move || {
                 if merge_frontend.generation.load(Ordering::Acquire) != generation {
                     return;
@@ -152,8 +180,16 @@ pub(super) fn start_search(
                         window.set_index_status("Document search unavailable".into());
                     }
                 }
+                drop(passages_applied);
             });
+            let _ = wait_for_passages.await;
         }
+        let _ = frontend.active_search.compare_exchange(
+            generation,
+            0,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
     });
 }
 
