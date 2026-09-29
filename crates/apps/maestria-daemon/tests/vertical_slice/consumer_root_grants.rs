@@ -163,9 +163,12 @@ async fn verify_source_revision_grant(
     consumer: &maestria_daemon::SearchApiClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let revision = source_revision_as_consumer(consumer).await?;
+    let source_revision =
+        maestria_storage_sqlite::SqliteStore::open_read_only(&layout.database_path)?
+            .searchable_source_revision()?;
     assert!(
-        revision > 0,
-        "the fixture must contain committed source events"
+        revision > source_revision,
+        "indexed source publication must advance the consumer clock beyond tree capture"
     );
     let invalid_credential = maestria_daemon::SearchApiClient::consumer(
         layout.system_dir.join("daemon.sock"),

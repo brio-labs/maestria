@@ -423,9 +423,126 @@ fn malformed_first_parse_does_not_commit_partial_state() -> Result<(), Box<dyn s
 
     assert!(matches!(
         error,
-        DomainError::InternalInvariantViolation { detail }
-            if detail.contains("missing document tree node")
+        DomainError::InternalInvariantViolation { .. }
     ));
     assert_eq!(state, before);
+    Ok(())
+}
+
+#[test]
+fn tree_validation_distinguishes_completed_chains_from_late_cycles()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root_id = StructureNodeId::new(1);
+    let mut nodes = (1..=512)
+        .map(|id| {
+            let mut node = fixtures::tree_root_node(StructureNodeId::new(id))?;
+            if id != 1 {
+                node.parent_id = Some(root_id);
+                node.sibling_id = (id != 512).then_some(StructureNodeId::new(id + 1));
+            }
+            Ok(node)
+        })
+        .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+    nodes.rotate_left(256);
+    assert_eq!(validate_structure_tree(root_id, &nodes), Ok(()));
+
+    let last = nodes
+        .iter_mut()
+        .find(|node| node.id == StructureNodeId::new(512))
+        .ok_or("last sibling missing")?;
+    last.sibling_id = Some(StructureNodeId::new(400));
+    assert_eq!(
+        validate_structure_tree(root_id, &nodes),
+        Err(StructureTreeError::SiblingCycle)
+    );
+
+    for node in &mut nodes {
+        if node.id == StructureNodeId::new(400) {
+            node.parent_id = Some(StructureNodeId::new(401));
+        } else if node.id == StructureNodeId::new(401) {
+            node.parent_id = Some(StructureNodeId::new(400));
+        } else if node.id == StructureNodeId::new(512) {
+            node.sibling_id = None;
+        }
+    }
+    assert_eq!(
+        validate_structure_tree(root_id, &nodes),
+        Err(StructureTreeError::ParentCycle)
+    );
+    let last = nodes
+        .iter_mut()
+        .find(|node| node.id == StructureNodeId::new(512))
+        .ok_or("last sibling missing")?;
+    last.sibling_id = Some(StructureNodeId::new(999));
+    assert_eq!(
+        validate_structure_tree(root_id, &nodes),
+        Err(StructureTreeError::DanglingLink)
+    );
+    Ok(())
+}
+
+#[test]
+fn cyclic_first_parse_rolls_back_registered_chunks_cards_and_lifecycle()
+-> Result<(), Box<dyn std::error::Error>> {
+    for parent_cycle in [false, true] {
+        let mut state = KernelState::new();
+        let artifact_id = ArtifactId::new(91);
+        let source_bytes = b"synthetic parsed source".to_vec();
+        let content_hash = ContentHash::new(maestria_domain::content_hash(&source_bytes))?;
+        state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+            artifact_id,
+            title: "pending.md".to_string(),
+            source_path: "/tmp/pending.md".to_string(),
+            source_bytes,
+            content_hash: content_hash.clone(),
+        }))?;
+        let before = state.clone();
+        let root_id = StructureNodeId::new(910);
+        let mut nodes = vec![fixtures::tree_root_node(root_id)?];
+        for (id, next) in [(911, 912), (912, 911)] {
+            let mut node = fixtures::tree_root_node(StructureNodeId::new(id))?;
+            node.parent_id = Some(if parent_cycle {
+                StructureNodeId::new(next)
+            } else {
+                root_id
+            });
+            node.sibling_id = (!parent_cycle).then_some(StructureNodeId::new(next));
+            nodes.push(node);
+        }
+        let error = require_error(
+            state.apply_input(DomainInput::ParserCompleted(ParserResult {
+                status: ParseStatus::Parsed,
+                artifact_id,
+                artifact_version_id: ArtifactVersionId::new(91),
+                content_hash,
+                tree_root_id: Some(root_id),
+                tree_nodes: nodes,
+                chunks: vec![RegisterChunkInput {
+                    chunk_id: ChunkId::new(911),
+                    artifact_id,
+                    node_id: StructureNodeId::new(911),
+                    source_span: SourceSpan::text_span(1, 1)?,
+                    representations: Vec::new(),
+                    order: 0,
+                    text: "registered before tree validation".to_string(),
+                }],
+                cards: vec![CreateCardInput {
+                    card_id: CardId::new(912),
+                    artifact_id,
+                    node_id: StructureNodeId::new(912),
+                    source_span: SourceSpan::text_span(1, 1)?,
+                    title: "Synthetic summary".to_string(),
+                    body: "registered before tree validation".to_string(),
+                    security: None,
+                }],
+            })),
+            "cyclic first parse must fail",
+        )?;
+        assert!(matches!(
+            error,
+            DomainError::InternalInvariantViolation { .. }
+        ));
+        assert_eq!(state, before);
+    }
     Ok(())
 }

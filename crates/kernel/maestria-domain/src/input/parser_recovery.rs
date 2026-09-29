@@ -1,10 +1,10 @@
 use crate::security::SecurityMetadata;
-use std::collections::{BTreeSet, btree_map::Entry};
+use std::collections::btree_map::Entry;
 use std::sync::Arc;
 
 use crate::types::*;
 
-use crate::search::StructureNode;
+use crate::validate_structure_tree;
 
 impl KernelState {
     /// First-time commit from fresh detection.
@@ -156,28 +156,7 @@ impl KernelState {
         generated: &mut Vec<DomainEventEnvelope>,
     ) -> Result<(), DomainError> {
         if let Some(tree_root_id) = input.tree_root_id {
-            let node_ids: BTreeSet<_> = input.tree_nodes.iter().map(|node| node.id).collect();
-            let structurally_valid = node_ids.len() == input.tree_nodes.len()
-                && input
-                    .tree_nodes
-                    .iter()
-                    .filter(|node| node.parent_id.is_none())
-                    .count()
-                    == 1
-                && input
-                    .tree_nodes
-                    .iter()
-                    .any(|node| node.id == tree_root_id && node.parent_id.is_none())
-                && input.tree_nodes.iter().all(|node| {
-                    node.parent_id
-                        .is_none_or(|parent| node_ids.contains(&parent))
-                        && node
-                            .sibling_id
-                            .is_none_or(|sibling| node_ids.contains(&sibling))
-                })
-                && !has_link_cycles(&input.tree_nodes, |node| node.parent_id)
-                && !has_link_cycles(&input.tree_nodes, |node| node.sibling_id);
-            if !structurally_valid {
+            if validate_structure_tree(tree_root_id, &input.tree_nodes).is_err() {
                 return Err(DomainError::InternalInvariantViolation {
                     detail: "parser document tree failed structural validation",
                 });
@@ -212,24 +191,4 @@ impl KernelState {
         }
         Ok(())
     }
-}
-
-fn has_link_cycles(
-    nodes: &[StructureNode],
-    next: fn(&StructureNode) -> Option<StructureNodeId>,
-) -> bool {
-    for node in nodes {
-        let mut current = node.id;
-        let mut visited = BTreeSet::new();
-        while let Some(candidate) = nodes.iter().find(|candidate| candidate.id == current) {
-            if !visited.insert(current) {
-                return true;
-            }
-            let Some(next_id) = next(candidate) else {
-                break;
-            };
-            current = next_id;
-        }
-    }
-    false
 }

@@ -171,6 +171,12 @@ static BASE_SCHEMA_SQL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|
      CREATE INDEX IF NOT EXISTS idx_domain_events_source_revision
          ON domain_events(id)
          WHERE event_kind IN ('parser_started', 'document_tree_captured', 'source_became_stale');
+     CREATE INDEX IF NOT EXISTS idx_domain_events_consumer_source_revision
+         ON domain_events(id)
+         WHERE event_kind IN (
+             'parser_started', 'document_tree_captured', 'source_became_stale',
+             'full_text_indexed', 'artifact_indexed'
+         );
 {realm_read_grants}
      CREATE TABLE IF NOT EXISTS id_counters (
          namespace TEXT PRIMARY KEY,

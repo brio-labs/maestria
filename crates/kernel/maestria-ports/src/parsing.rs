@@ -1,8 +1,6 @@
-use std::collections::BTreeSet;
-
 use maestria_domain::{
     ArtifactId, ArtifactVersionId, ChunkId, ContentHash, CreateCardInput, StructureNode,
-    StructureNodeId,
+    StructureNodeId, StructureTreeError, validate_structure_tree,
 };
 
 use super::traits::{FileHandle, FileMetadata, PortError};
@@ -96,69 +94,34 @@ impl DocumentTree {
     }
 
     pub fn new(root_id: StructureNodeId, nodes: Vec<StructureNode>) -> Result<Self, PortError> {
-        let mut ids = BTreeSet::new();
-        for node in &nodes {
-            if !ids.insert(node.id) {
-                return Err(PortError::InvalidInputContext {
-                    context: "document tree contains duplicate node IDs",
-                    source: "node identifiers must be unique".to_string(),
-                });
+        validate_structure_tree(root_id, &nodes).map_err(|error| {
+            let (context, source) = match error {
+                StructureTreeError::DuplicateNodeIds => (
+                    "document tree contains duplicate node IDs",
+                    "node identifiers must be unique",
+                ),
+                StructureTreeError::InvalidRoot => (
+                    "document tree root is invalid",
+                    "tree must have one declared root matching root_id",
+                ),
+                StructureTreeError::DanglingLink => (
+                    "document tree contains a dangling link",
+                    "parent or sibling link targets an unknown node",
+                ),
+                StructureTreeError::ParentCycle => (
+                    "document tree contains a parent cycle",
+                    "parent links must terminate at the root",
+                ),
+                StructureTreeError::SiblingCycle => (
+                    "document tree contains a sibling cycle",
+                    "sibling links must terminate at a null link",
+                ),
+            };
+            PortError::InvalidInputContext {
+                context,
+                source: source.to_string(),
             }
-        }
-        let roots: Vec<_> = nodes
-            .iter()
-            .filter(|node| node.parent_id.is_none())
-            .collect();
-        if roots.len() != 1 || roots[0].id != root_id {
-            return Err(PortError::InvalidInputContext {
-                context: "document tree root is invalid",
-                source: "tree must have one declared root matching root_id".to_string(),
-            });
-        }
-        for node in &nodes {
-            if node.parent_id.is_some_and(|parent| !ids.contains(&parent))
-                || node
-                    .sibling_id
-                    .is_some_and(|sibling| !ids.contains(&sibling))
-            {
-                return Err(PortError::InvalidInputContext {
-                    context: "document tree contains a dangling link",
-                    source: "parent or sibling link targets an unknown node".to_string(),
-                });
-            }
-        }
-        for node in &nodes {
-            let mut current = node.id;
-            let mut visited = BTreeSet::new();
-            while let Some(parent) = nodes.iter().find(|candidate| candidate.id == current) {
-                if !visited.insert(current) {
-                    return Err(PortError::InvalidInputContext {
-                        context: "document tree contains a parent cycle",
-                        source: "parent links must terminate at the root".to_string(),
-                    });
-                }
-                match parent.parent_id {
-                    Some(next) => current = next,
-                    None => break,
-                }
-            }
-        }
-        for node in &nodes {
-            let mut current = node.id;
-            let mut visited = BTreeSet::new();
-            while let Some(current_node) = nodes.iter().find(|candidate| candidate.id == current) {
-                if !visited.insert(current) {
-                    return Err(PortError::InvalidInputContext {
-                        context: "document tree contains a sibling cycle",
-                        source: "sibling links must terminate at a null link".to_string(),
-                    });
-                }
-                match current_node.sibling_id {
-                    Some(next) => current = next,
-                    None => break,
-                }
-            }
-        }
+        })?;
         Ok(Self { root_id, nodes })
     }
 }

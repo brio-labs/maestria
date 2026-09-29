@@ -855,8 +855,52 @@ screenshot are retained at
 and `target/wayland-chooser-smoke/selected-search-sillage-search-ui.jySQUI.png`.
 The smoke did not force a deterministic request collision and does **not**
 attribute all 35 installed timeouts to that race. The daemon's **100 ms**
-interactive deadline and every installed benchmark gate remain unchanged;
-the revised code needs fresh exact-head installed measurement.
+interactive deadline and every installed benchmark gate remain unchanged.
+
+At [`698fa6eb` run 36572828874](https://github.com/brio-labs/maestria/actions/runs/36572828874/job/109421722057),
+same-run installed Ubuntu 24 launcher and search packages completed all
+**800** hosted observations after this coordination change: cold **198/200**,
+active **200/200**, edit **197/200**, delete **200/200**. Two cold and two
+edit queries timed out with “Document search unavailable”; a third edit
+observation could not open its precondition citation. All five remain
+failures, not successful latency measurements. Package ownership and payload
+hashes matched the installed binaries; the hosted machine independently
+failed reference hardware at **15.614 GiB** effective memory, despite
+established SSD backing. The complete failure-inclusive artifact is at
+`target/benchmark-698fa6eb-ci/`, with exact same-run Debian packages at
+`target/ubuntu24-private/current-head-698fa6eb/`. This head **fails the
+interaction and hardware gates**; a local replay of its failed installed
+workload is not performed to seek a pass. “Document search unavailable”
+still conflates process, parsing, supersession, and daemon-timeout failures;
+this run did not capture a per-stage cause.
+
+A subsequent bounded **installed `698fa6eb`** native edit diagnostic recovered
+three unchanged queries after indexing, but a one-MiB synthetic edit remained at
+`parser_started` for 60 seconds. An isolated **source-built** reproduction
+attributed **92.41%** of CPU-core cycle samples to `DocumentTree::new`: its
+validator repeatedly traversed each link chain and linearly searched the node
+array at every hop. The public and domain completion paths now share indexed,
+memoized tree validation. Duplicate IDs, invalid roots, dangling links, both
+cycle kinds, and atomic rejection of parser records remain enforced.
+
+Removing that stall exposed a separate publication-clock failure. With the
+installed launcher and a source-built repaired daemon, a one-MiB edit reached
+durable `artifact_indexed`, but the unchanged query remained `NoEvidenceFound`
+through three later clock replies: each still reported tree-capture revision
+**6449**. The authorized consumer endpoint now advances on durable
+`full_text_indexed`, emitted after index commit/reload, and final
+`artifact_indexed` readiness, as well as source changes. The source-snapshot
+clock remains source-only; publication and query audits do not rebuild source
+projections or cause self-refresh loops.
+A distinct one-MiB native case then showed the fresh `note-06.md:1-3` citation
+without retyping, with the exact query retained after completed indexing.
+These are private stock-GNOME/AT-SPI diagnostics using the **installed
+`698fa6eb` launcher plus a source-built daemon with Arch libraries**, not
+installed Ubuntu end-to-end acceptance. Transient typed deadline errors during
+incomplete indexing remain observed; neither repair attributes the historical
+CI failures or identifies the historical `LockBusy` writer. Authorization,
+fresh evidence reopening, durable audit, Bubblewrap isolation, the **100 ms**
+deadline, and all release gates remain unchanged.
 
 ### Disable, uninstall, and choose local-data retention
 

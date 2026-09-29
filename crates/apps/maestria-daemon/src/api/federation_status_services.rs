@@ -24,8 +24,8 @@ pub(super) async fn indexing_status(
     let grant = authorized_status_grant(context, consumer_realm, credential).await?;
     super::super::search_roots_services::status_for_roots(context, grant.allowed_roots()).await
 }
-/// Source-version clock for already authorized search consumers. Only the
-/// append-only event index is read; no source contents or watcher inventories.
+/// Source-version and lexical-publication clock for authorized consumers.
+/// Only the append-only event index is read; no source contents or inventories.
 pub(super) async fn source_revision(
     context: &ApiContext,
     consumer_realm: &RealmId,
@@ -35,7 +35,7 @@ pub(super) async fn source_revision(
     let database_path = context.layout.database_path.clone();
     tokio::task::spawn_blocking(move || {
         let store = SqliteStore::open_read_only(&database_path)?;
-        Ok(store.searchable_source_revision()?)
+        Ok(store.consumer_source_revision()?)
     })
     .await?
 }

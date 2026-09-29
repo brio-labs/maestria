@@ -95,8 +95,8 @@ impl SqliteStore {
             .map_err(to_port_error)
     }
 
-    /// Latest source-version change; federated read audits do not invalidate
-    /// the cached interactive lexical snapshot.
+    /// Latest source-version change; publication and federated read audits
+    /// do not invalidate the cached interactive source snapshot.
     pub fn searchable_source_revision(&self) -> Result<i64, PortError> {
         let connection = self.lock()?;
         connection
@@ -104,6 +104,23 @@ impl SqliteStore {
                 "SELECT COALESCE(MAX(id), 0) FROM domain_events
                  WHERE event_kind IN (
                      'parser_started', 'document_tree_captured', 'source_became_stale'
+                 )",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(to_port_error)
+    }
+
+    /// Consumer refresh clock: source changes, lexical publication and readiness.
+    /// Full-text completion follows commit/reload; query audits cannot advance it.
+    pub fn consumer_source_revision(&self) -> Result<i64, PortError> {
+        let connection = self.lock()?;
+        connection
+            .query_row(
+                "SELECT COALESCE(MAX(id), 0) FROM domain_events
+                 WHERE event_kind IN (
+                     'parser_started', 'document_tree_captured',
+                     'source_became_stale', 'full_text_indexed', 'artifact_indexed'
                  )",
                 [],
                 |row| row.get(0),

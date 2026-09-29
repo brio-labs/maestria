@@ -60,6 +60,7 @@ mod security;
 mod security_snapshot;
 mod source_projection;
 mod sparse_namespace;
+mod structure_tree;
 mod task_status;
 mod types;
 
@@ -174,4 +175,5 @@ pub use crate::source_projection::{
     ActiveSourceVersions, SourceProjection, active_source_versions,
 };
 pub use crate::sparse_namespace::{SparseNamespace, SparseNamespaceError};
+pub use crate::structure_tree::{StructureTreeError, validate_structure_tree};
 pub use crate::task_status::TaskStatus;
