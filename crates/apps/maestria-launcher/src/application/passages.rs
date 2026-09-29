@@ -187,6 +187,20 @@ pub(super) async fn search(
     let output = run_command(command, SEARCH_TIMEOUT).await?;
     evidence::parse_search(&output, query)
 }
+#[derive(serde::Deserialize)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+enum SourceRevisionReply {
+    SourceRevision { revision: i64 },
+}
+
+/// A grant-checked, indexed event clock; no source content is read here.
+pub(super) async fn source_revision(config: SearchServiceConfig) -> Option<i64> {
+    let output = run_command(base_command(&config, "source-revision"), SEARCH_TIMEOUT).await?;
+    match serde_json::from_slice::<SourceRevisionReply>(&output).ok()? {
+        SourceRevisionReply::SourceRevision { revision } if revision >= 0 => Some(revision),
+        _ => None,
+    }
+}
 
 fn safe_status(status: String) -> Option<String> {
     let status = status.trim();

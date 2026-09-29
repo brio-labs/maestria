@@ -68,6 +68,11 @@ enum Commands {
         #[command(flatten)]
         consumer: ConsumerApiArgs,
     },
+    /// Read the durable source-index revision through a search-scoped grant.
+    SourceRevision {
+        #[command(flatten)]
+        consumer: ConsumerApiArgs,
+    },
     /// Open bounded evidence through an evidence-scoped grant.
     OpenEvidence {
         #[command(flatten)]
@@ -215,6 +220,9 @@ async fn dispatch(command: Commands) -> Result<()> {
         }
         Commands::IndexingStatus { consumer } => {
             consumer::run_consumer_request(consumer, SearchApiOperation::IndexingStatus).await
+        }
+        Commands::SourceRevision { consumer } => {
+            consumer::run_consumer_request(consumer, SearchApiOperation::SourceRevision).await
         }
         Commands::OpenEvidence {
             consumer,

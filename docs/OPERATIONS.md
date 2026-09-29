@@ -725,6 +725,38 @@ eight old terms stayed absent. Immediate pre-index fresh queries still returned
 acceptance, does not retroactively repair failed observations, and does not
 establish a fresh-result p95 for the qualifying installed release gate.
 
+At [`5c28e044` run 36533424795](https://github.com/brio-labs/maestria/actions/runs/36533424795/job/109292924732),
+the **installed** launcher and search packages settled 10,000 approved
+files and recorded all 800 fixed interactions. Cold passed **199/200**,
+active **200/200**, edit **96/200**, and delete **200/200**. The **105**
+failed/time-out observations include one cold and 104 edit attempts. Of the
+104 edit failures, 101 reached durable mutation, denied reopening the stale
+evidence, and issued the single fresh UI query; **100** edit errors contained
+the AT-SPI no-matching-passages status, while four contained “Document search
+unavailable”. The launcher had no source-event-triggered re-search: a
+`NoEvidenceFound` display persisted until another user/catalog change.
+The edit class's failure-inclusive query-to-observation p95 was
+5,081 ms, **not** successful-result latency; the 96 observed fresh results'
+source-change p95 was 4,214 ms. Resource telemetry passed (28,834 samples),
+but effective hosted memory was **15.615 GiB**, below 16 GiB. The installed
+benchmark and hardware release gates still fail; neither the source-built
+8,473-file diagnostic nor this installed failure establishes acceptance.
+
+The native launcher now observes a **search-grant-authorized**, lightweight
+durable source-event clock while visible. Only an observed source-version
+advance redispatches the current query; an unchanged no-match response is not
+retried on a timer. It defers the refresh while a passage detail is open or a
+new query is being debounced, and displays the normal “Searching document
+index…” state during refresh. The server's **100 ms internal interactive
+search deadline is unchanged**. An optimized **source-built** launcher and
+search binary in private Xvfb/D-Bus/XDG rendered a no-match result for one
+unchanged query, then, after a durable edit in one approved Markdown file,
+automatically displayed the fresh cited passage on the same query through
+AT-SPI in **907 ms** from the edit; the old term returned no match. The
+authorized clock moved from revision 11 to 24. This is a single-file
+source-built native UI smoke, not an installed 10,000-file performance pass,
+and does not erase any earlier failed observation.
+
 ### Disable, uninstall, and choose local-data retention
 
 Before removing packages, stop their processes explicitly: close active

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use maestria_domain::{CorpusScope, FederatedReadOperation, RealmId, RealmReadGrant};
 use maestria_governance::{FederatedGrantDecision, authorize_federated_read};
+use maestria_storage_sqlite::SqliteStore;
 
 use super::super::super::FederationCredential;
 use super::super::super::protocol::{RetrievalStatusResponse, SearchRootsStatusResponse};
@@ -22,6 +23,21 @@ pub(super) async fn indexing_status(
 ) -> Result<SearchRootsStatusResponse> {
     let grant = authorized_status_grant(context, consumer_realm, credential).await?;
     super::super::search_roots_services::status_for_roots(context, grant.allowed_roots()).await
+}
+/// Source-version clock for already authorized search consumers. Only the
+/// append-only event index is read; no source contents or watcher inventories.
+pub(super) async fn source_revision(
+    context: &ApiContext,
+    consumer_realm: &RealmId,
+    credential: &FederationCredential,
+) -> Result<i64> {
+    authorized_status_grant(context, consumer_realm, credential).await?;
+    let database_path = context.layout.database_path.clone();
+    tokio::task::spawn_blocking(move || {
+        let store = SqliteStore::open_read_only(&database_path)?;
+        Ok(store.searchable_source_revision()?)
+    })
+    .await?
 }
 
 async fn authorized_status_grant(

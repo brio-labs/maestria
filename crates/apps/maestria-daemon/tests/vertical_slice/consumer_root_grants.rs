@@ -146,6 +146,47 @@ async fn search_as_consumer(
     };
     Ok(response)
 }
+async fn source_revision_as_consumer(
+    client: &maestria_daemon::SearchApiClient,
+) -> Result<i64, Box<dyn std::error::Error>> {
+    let response = client
+        .request(maestria_daemon::SearchApiOperation::SourceRevision)
+        .await?;
+    let maestria_daemon::SearchApiResponse::SourceRevision { revision } = response else {
+        return Err("unexpected source revision response".into());
+    };
+    Ok(revision)
+}
+
+async fn verify_source_revision_grant(
+    layout: &InstanceLayout,
+    consumer: &maestria_daemon::SearchApiClient,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let revision = source_revision_as_consumer(consumer).await?;
+    assert!(
+        revision > 0,
+        "the fixture must contain committed source events"
+    );
+    let invalid_credential = maestria_daemon::SearchApiClient::consumer(
+        layout.system_dir.join("daemon.sock"),
+        maestria_test_support::realm_id(22)?,
+        "f".repeat(64),
+    )?;
+    assert!(
+        invalid_credential
+            .request(maestria_daemon::SearchApiOperation::SourceRevision)
+            .await
+            .is_err(),
+        "source revision must require the same valid search grant as indexing status"
+    );
+    search_as_consumer(consumer, "orchid").await?;
+    assert_eq!(
+        source_revision_as_consumer(consumer).await?,
+        revision,
+        "search audit events must not trigger a spurious UI refresh"
+    );
+    Ok(())
+}
 
 #[tokio::test]
 async fn consumer_grant_isolates_roots_before_search_and_evidence_io_and_after_restart()
@@ -174,6 +215,7 @@ async fn consumer_grant_isolates_roots_before_search_and_evidence_io_and_after_r
         )
         .await?;
         verify_scoped_inventory(&consumer).await?;
+        verify_source_revision_grant(&layout, &consumer).await?;
 
         Ok::<maestria_daemon::SearchApiClient, Box<dyn std::error::Error>>(consumer)
     }

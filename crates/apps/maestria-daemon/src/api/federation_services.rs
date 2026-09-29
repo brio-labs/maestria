@@ -284,6 +284,13 @@ pub(super) async fn indexing_status(
 ) -> Result<super::super::protocol::SearchRootsStatusResponse> {
     status_services::indexing_status(context, consumer_realm, credential).await
 }
+pub(super) async fn source_revision(
+    context: &ApiContext,
+    consumer_realm: &RealmId,
+    credential: &FederationCredential,
+) -> Result<i64> {
+    status_services::source_revision(context, consumer_realm, credential).await
+}
 
 async fn grant_for(
     context: &ApiContext,

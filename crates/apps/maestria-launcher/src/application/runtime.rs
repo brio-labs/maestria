@@ -9,6 +9,7 @@ use slint::{ComponentHandle, Timer, TimerMode};
 use super::platform::{config_dir, system_dark_mode};
 use super::preferences::{configure_saved_shortcut, sync_preferences};
 use super::search::start_search;
+use super::source_refresh::SourceRefresh;
 use super::window::{activate_launcher, quit_launcher, shortcut_label};
 use super::{
     CATALOG_REFRESH_TICKS, Frontend, FrontendModel, LauncherWindow, RuntimeMessage, UI_TICK,
@@ -21,6 +22,7 @@ struct TimerState {
     initialized: bool,
     last_catalog_revision: u64,
     last_shortcut_label: String,
+    source_refresh: SourceRefresh,
 }
 
 struct TimerContext {
@@ -203,6 +205,7 @@ fn install_timer(
         initialized: false,
         last_catalog_revision: 0,
         last_shortcut_label: String::new(),
+        source_refresh: SourceRefresh::default(),
     };
     let context = TimerContext {
         ui_weak: ui,
@@ -261,6 +264,9 @@ fn on_timer_tick(timer: &mut TimerState, context: &TimerContext) {
 
     if timer.initialized {
         refresh_catalog_if_due(&ui, &context.state, &context.frontend);
+        timer
+            .source_refresh
+            .tick(&ui, &context.state, &context.frontend, &context.runtime);
         update_catalog_status(
             timer,
             &ui,

@@ -46,6 +46,7 @@ pub(super) fn parse(value: serde_json::Value) -> Result<ParsedSearchRequest, Inv
             &request.operation,
             super::super::protocol_search_api::SearchApiOperation::IndexingStatus
                 | super::super::protocol_search_api::SearchApiOperation::InteractiveSearch { .. }
+                | super::super::protocol_search_api::SearchApiOperation::SourceRevision
         )
     {
         return Err(InvalidSearchRequest {

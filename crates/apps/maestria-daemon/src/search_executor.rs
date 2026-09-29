@@ -216,17 +216,14 @@ impl SearchRuntime {
             (events, sources, None)
         } else if let Some(previous) = cached
             .as_ref()
-            .filter(|snapshot| snapshot.revision < revision && snapshot.projection.is_some())
+            .filter(|snapshot| snapshot.revision < revision)
+            && let Some(projection) = previous.projection.as_deref()
         {
             let events = self
                 .event_log
                 .scan_searchable_source_events_between(previous.revision, revision)
                 .map_err(|error| anyhow!("scan new source events for retrieval: {error}"))?;
-            let mut projection = previous
-                .projection
-                .as_deref()
-                .expect("filtered above")
-                .clone();
+            let mut projection = projection.clone();
             projection.apply(&events);
             let sources = projection.sources();
             (events, sources, Some(Arc::new(projection)))

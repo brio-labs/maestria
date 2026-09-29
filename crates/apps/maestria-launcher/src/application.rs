@@ -10,6 +10,7 @@ use crate::{ActionRow, LauncherWindow, ResultRow};
 const UI_TICK: Duration = Duration::from_millis(50);
 const SEARCH_DEBOUNCE_TICKS: u8 = 2;
 const CATALOG_REFRESH_TICKS: u16 = 600;
+const SOURCE_REFRESH_TICKS: u8 = 20;
 
 mod callbacks;
 mod dispatch;
@@ -19,6 +20,7 @@ mod platform;
 mod preferences;
 mod runtime;
 mod search;
+mod source_refresh;
 mod window;
 
 pub use runtime::run;

@@ -47,6 +47,7 @@ mod notebook_inputs;
 /// - `search`: module responsibility.
 /// - `security`: module responsibility.
 /// - `security_snapshot`: authorization and integrity security snapshots.
+/// - `source_projection`: immutable active source/version snapshots from ordered source events.
 /// - `sparse_namespace`: learned-sparse instance and trust-zone identity.
 /// - `task_status`: task status enum and transition policy.
 /// - `types`: module responsibility.
@@ -57,6 +58,7 @@ mod replay;
 mod search;
 mod security;
 mod security_snapshot;
+mod source_projection;
 mod sparse_namespace;
 mod task_status;
 mod types;
@@ -77,10 +79,7 @@ pub use crate::entities::{
     RelationEndpoint, RelationKind, Task, TaskPriority, TestStatus, ValidationReportRecord,
 };
 pub use crate::errors::DomainError;
-pub use crate::events::{
-    ActiveSourceVersions, DomainEvent, DomainEventEnvelope, SourceProjection,
-    active_source_versions,
-};
+pub use crate::events::{DomainEvent, DomainEventEnvelope};
 pub use crate::evidence_pack::{
     ClaimCoverageStatusRecord, ClaimEvidenceCoverageRecord, EvidenceFreshnessRecord,
     EvidencePackCompressionRecord, EvidencePackMetadataRecord, EvidencePackReplayKeyRecord,
@@ -171,5 +170,8 @@ pub use crate::security::{
     Authority, IntegrityState, ReviewStatus, SecurityMetadata, Sensitivity, TrustZone,
 };
 pub use crate::security_snapshot::{RetrievalPolicySnapshot, RetrievalPolicySnapshotError};
+pub use crate::source_projection::{
+    ActiveSourceVersions, SourceProjection, active_source_versions,
+};
 pub use crate::sparse_namespace::{SparseNamespace, SparseNamespaceError};
 pub use crate::task_status::TaskStatus;

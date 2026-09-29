@@ -72,6 +72,11 @@ pub(super) async fn dispatch(
                 indexing_status_response(status),
             )))
         }
+        SearchApiOperation::SourceRevision => {
+            let revision =
+                federation_services::source_revision(context, &consumer_realm, &credential).await?;
+            Ok(SearchApiResponse::SourceRevision { revision })
+        }
         SearchApiOperation::Evidence { evidence_id } => {
             match federation_services::evidence(
                 context,

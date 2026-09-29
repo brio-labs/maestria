@@ -32,6 +32,8 @@ pub enum SearchApiOperation {
         evidence_id: u64,
     },
     IndexingStatus,
+    /// Latest durable source-version event, after search-grant authorization.
+    SourceRevision,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +43,7 @@ pub enum SearchApiResponse {
     Status(Box<RetrievalStatusResponse>),
     Evidence(EvidenceResponse),
     IndexingStatus(Box<SearchApiIndexingStatusResponse>),
+    SourceRevision { revision: i64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,9 +129,9 @@ impl SearchApiClient {
     ) -> std::result::Result<SearchApiResponse, DaemonRequestError> {
         validate_operation(&operation)?;
         let version = match &operation {
-            SearchApiOperation::IndexingStatus | SearchApiOperation::InteractiveSearch { .. } => {
-                SEARCH_API_VERSION_2
-            }
+            SearchApiOperation::IndexingStatus
+            | SearchApiOperation::InteractiveSearch { .. }
+            | SearchApiOperation::SourceRevision => SEARCH_API_VERSION_2,
             _ => SEARCH_API_VERSION,
         };
         let mut stream = UnixStream::connect(&self.socket_path)
