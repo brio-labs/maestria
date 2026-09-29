@@ -757,7 +757,16 @@ desktop portal, not by the Debian package; package removal does not revoke it.
 Use the desktop's shortcut/application-permissions UI if the grant itself should
 be revoked. When a later artifact for a component is available, install it in
 place with `apt install ./path/to/new.deb` under the same package ID rather than
-removing or purging first. A same-version Ubuntu apt reinstall preserved an
-existing schema-1 `launcher.toml`, but this does not establish behavior across a
-version upgrade or prove live desktop portal-grant persistence; check grants in
-the desktop UI after an actual upgrade.
+removing or purging first. The [exact-`59079579` Ubuntu 24.04 upgrade
+job](https://github.com/brio-labs/maestria/actions/runs/36520546866/job/109252866382)
+installed the independently built launcher, search, and extension-worker
+`0.0.0` Debian artifacts, then upgraded each with `apt` to `0.0.1`.
+The installed binaries preserved the private launcher settings, extension
+permissions and data, search instance, root-scoped consumer grant and credential
+through restart; the same state survived removal and reinstall without purge.
+Authorized passage search and evidence reopen retained the original evidence
+ID, ungranted roots remained excluded, and explicit grant revocations were
+enforced. The job used private Xvfb/D-Bus, **not** a stock Wayland compositor;
+it does not prove desktop portal-shortcut grant retention through a real
+compositor upgrade. Check that grant in the desktop's shortcut/application
+permissions UI after upgrading.
