@@ -54,6 +54,7 @@ pub(in crate::application) fn open_passage_view(
     window.set_passage_view_results(ModelRc::new(VecModel::from(rows)));
     window.set_passage_view_open(true);
     window.set_actions_open(false);
+    window.invoke_focus_detail();
 }
 
 pub(super) fn show_reopened_passage(
@@ -83,6 +84,7 @@ pub(super) fn show_reopened_passage(
     window.set_passage_view_results(ModelRc::new(VecModel::from(vec![row])));
     window.set_passage_view_open(true);
     window.set_actions_open(false);
+    window.invoke_focus_detail();
 }
 
 fn reopened_passage_row(accepted: &AcceptedPassage, citation: &str, excerpt: &str) -> ResultRow {

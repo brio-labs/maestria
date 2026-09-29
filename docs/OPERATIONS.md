@@ -621,10 +621,15 @@ path; the same-ID replacement regression passed. A rebuilt **source**
 launcher completed eight authorized passage-detail opens, exact citation and
 excerpt Copies, accessible returns, and subsequent typed queries in one
 private Xvfb/D-Bus session; this does **not** replace an installed benchmark
-run. The benchmark now uses the accessible Return button rather than the
-nonfunctional keyboard Escape to navigate after Copy. The resource monitor
-discards a `/proc` permission race only if the exact registered process has
-exited or been replaced; a live target's permission failure remains fatal.
+run. The benchmark uses the accessible Return button for navigation after
+Copy. The separately reproduced keyboard Escape failure arose when opening
+detail hid the focused query entry. Explicitly focusing the native
+`FocusScope` on open restored **actual keyboard Escape** before and after
+exact authorized Copy, plus the next typed query, in another private
+source-built Xvfb/D-Bus smoke; installed verification remains open. The
+resource monitor discards a `/proc` permission race only if the exact
+registered process has exited or been replaced; a live target's permission
+failure remains fatal.
 
 ### Disable, uninstall, and choose local-data retention
 

@@ -586,14 +586,18 @@ in Slint; Copy Path and Copy Passage wrote freshly authorized content to the
 private clipboard, while a deleted path action was explicitly refused.
 `docs/OPERATIONS.md` documents root consent, grants, explicit daemon
 lifecycle, disable/uninstall, and user-data choices. A same-version settings
-reinstall passed, but real version-different upgrades and shortcut-portal
-preservation remain unproved. Hosted Ubuntu 24.04 CI at `adea9552` passed the
-same-run **installed** launcher/worker broker lifecycle described above.
-The private installed Ubuntu 26.04 KDE GlobalShortcuts allow/deny passed
-separately. Cross-compositor accessibility (including Ubuntu AT-SPI Copy
-activation), stock Ubuntu 24.04 compositor activation, installed native
-10,000-file latency and resource acceptance, and provider-backed FR/EN
-document and passage relevance remain open.
+reinstall and the installed **`0.0.0 → 0.0.1` three-package upgrade** passed
+on Ubuntu 24.04 at `0965269c`, retaining settings, private search grants,
+extension storage, and sandboxed Copy across the actual package replacement.
+The hosted `e81d44f3` installed run also passed first-run AT-SPI Copy,
+installed upgrade, and private Ubuntu 26.04 KDE GlobalShortcuts approval and
+denial, but **all 800 installed native benchmark interactions timed out**.
+The subsequent source-built private Slint accessibility and keyboard smoke
+does not establish installed acceptance. Remaining cross-compositor Wayland
+chooser checks, stock Ubuntu 24.04 compositor-owned shortcut activation,
+installed native 10,000-file latency/resource acceptance on qualifying
+hardware, and provider-backed FR/EN document and passage relevance remain
+open.
 Depends on M1, M2, M3 and M4.
 [Product milestone](https://github.com/brio-labs/maestria/milestone/14).
 
