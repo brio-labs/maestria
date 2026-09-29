@@ -19,6 +19,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+BTRFS_SYSFS_ROOT = Path("/sys/fs/btrfs")
+
 TEXT_FILE_COUNT = 10_000
 TEXT_FILE_CAP_BYTES = 100 * 1024 * 1024
 DESKTOP_ENTRY_COUNT = 500
@@ -224,6 +226,22 @@ def flatten_lsblk(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return flattened
 
 
+def verified_single_btrfs_device(majmin: str) -> bool:
+    """Require the kernel's mounted Btrfs member list, not just blkid sources."""
+    try:
+        matching_filesystems = []
+        for filesystem in BTRFS_SYSFS_ROOT.iterdir():
+            members = [
+                member.read_text(encoding="ascii").strip()
+                for member in (filesystem / "devices").glob("*/dev")
+            ]
+            if majmin in members:
+                matching_filesystems.append(members)
+        return len(matching_filesystems) == 1 and len(matching_filesystems[0]) == 1
+    except OSError:
+        return False
+
+
 def storage_provenance(path: Path) -> dict[str, Any]:
     record: dict[str, Any] = {"path": str(path), "resolved": False}
     try:
@@ -234,7 +252,7 @@ def storage_provenance(path: Path) -> dict[str, Any]:
                 "--target",
                 str(path),
                 "--output",
-                "TARGET,SOURCE,FSTYPE,OPTIONS,MAJ:MIN",
+                "TARGET,SOURCE,SOURCES,FSTYPE,OPTIONS,MAJ:MIN",
             ]
         )
         record["findmnt"] = json.loads(raw_mount)
@@ -262,7 +280,6 @@ def storage_provenance(path: Path) -> dict[str, Any]:
         record["resolution_error"] = "findmnt did not identify exactly one backing mount"
         return record
     mount = mounts[0]
-    record["mount"] = mount
     mount_majmin = mount.get("maj:min") or mount.get("maj:MIN")
     current = next(
         (
@@ -272,9 +289,28 @@ def storage_provenance(path: Path) -> dict[str, Any]:
         ),
         None,
     )
+    if current is None and mount.get("fstype") == "btrfs":
+        # Btrfs mount IDs are virtual (e.g. 0:29), not the block ID in lsblk.
+        # findmnt SOURCES uses blkid scans, which may omit mounted devices in
+        # rootless sessions. Verify the source against the kernel's complete
+        # Btrfs filesystem device list; reject mixed or unknown backing.
+        sources = mount.get("sources") or []
+        if len(sources) == 1 and isinstance(sources[0], str):
+            source_path = sources[0].split("[", 1)[0]
+            candidate = next(
+                (device for device in all_devices if device.get("path") == source_path),
+                None,
+            )
+            if candidate is not None:
+                source_majmin = candidate.get("maj:min") or candidate.get("maj:MIN")
+                if isinstance(source_majmin, str) and verified_single_btrfs_device(source_majmin):
+                    current = candidate
+                    record["btrfs_single_device_source"] = source_path
+                    record["btrfs_kernel_device_majmin"] = source_majmin
     if current is None:
         record["resolution_error"] = (
-            f"mount source {mount.get('source')} ({mount_majmin}) is not mapped by lsblk"
+            f"mount source {mount.get('source')} ({mount_majmin}) is not verified as a "
+            "single lsblk-mapped physical source"
         )
         return record
     by_name = {str(device.get("name")): device for device in all_devices}

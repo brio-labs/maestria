@@ -662,6 +662,48 @@ accessible Return interactions, followed by one edited and one unlinked
 stale-evidence action denied with the unchanged private clipboard. This is
 not a changed-commit installed 10,000-file acceptance run.
 
+At [`59079579` run 36520546866](https://github.com/brio-labs/maestria/actions/runs/36520546866/job/109252741236),
+the exact same-run installed launcher/search binaries settled **10,000 approved
+files**, zero pending, and recorded all 800 interactions. Cold Copy passed
+195/200, active Copy 198/200, edit 3/200, and delete 77/200. The **327**
+failed observations include five cold and two active queries returning
+“Document search unavailable”; after durable edits, stale evidence was denied
+but most fresh queries timed out with unavailable search or no fresh result.
+Delete failures likewise include unavailable search before or after unlink.
+No failed or timed-out duration is successful-result latency. Resource telemetry
+passed with **39,054 samples**, but the hosted runner had only **15.615 GiB**
+effective memory; its SSD gate passed. This installed run failed both the
+interaction and reference-hardware gates.
+
+The same `59079579` Debian artifacts were independently installed by `apt`
+inside a private Ubuntu 24.04.5 rootless namespace on local NVMe-backed
+storage. Both `/usr/bin` executables matched their `.deb` hashes and `dpkg`
+owners; nested Bubblewrap user/PID/network isolation passed. The private
+Xvfb/D-Bus run settled **10,000 approved files** and recorded 200 observations
+per class: cold Copy passed 199, active Copy 200, edit 17, delete 91.
+Its **293** failures/timeouts again concentrated on unavailable document search
+or fresh edit results after durable mutation; stale edit/delete evidence was
+denied. The **30.854 GiB effective memory**, single-device Btrfs filesystem
+backed by an `lsblk`-verified NVMe disk, and **36,405** valid resource samples
+passed the local hardware/telemetry gates. Local execution used a worktree
+benchmark driver with Btrfs source resolution; it is **not** an exact-head CI
+script run, and its failed interactions do not establish installed release
+latency acceptance. The Btrfs resolver now also requires the kernel's
+`/sys/fs/btrfs` member list to confirm exactly one backing device, because
+`findmnt SOURCES` alone can omit members in a rootless namespace; a separate
+post-change installed-package hardware probe passed without repeating the
+10,000-file workload. Keep the native performance release gate open.
+
+A separate private installed-daemon **diagnostic**, not a release benchmark,
+settled 2,000 authorized files and durably edited 90 of them. All 90 immediate
+direct searches for the old term and all 90 for the new term returned typed
+`NoEvidenceFound`, without CLI errors; the pre-edit warmup did find its
+authorized passage. This confirms asynchronous indexing can leave a new term
+unavailable at the first immediate query. It does **not** explain the many
+“Document search unavailable” responses in either 10,000-file run or
+establish when each changed file became searchable. Do not turn their failed
+observations into passing latency measurements.
+
 ### Disable, uninstall, and choose local-data retention
 
 Before removing packages, stop their processes explicitly: close active
