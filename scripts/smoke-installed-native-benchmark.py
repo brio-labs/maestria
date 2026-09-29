@@ -682,6 +682,18 @@ def proc_snapshot(targets_path: Path) -> dict[str, Any]:
             )
         except (FileNotFoundError, ProcessLookupError):
             continue
+        except PermissionError:
+            # A launcher can exit after its identity checks but before /proc/PID/io
+            # is read. Only discard the sample if that exact process is now gone.
+            try:
+                current_stat = (entry / "stat").read_text(encoding="ascii")
+                current_fields = current_stat[current_stat.rfind(")") + 2 :].split()
+                if int(current_fields[19]) != int(target["start_ticks"]):
+                    continue
+                os.readlink(entry / "exe")
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            raise
     return {
         "monotonic_ns": time.monotonic_ns(),
         "wall_time_unix_ns": time.time_ns(),
@@ -1163,23 +1175,23 @@ class NativeUi:
                 return (time.monotonic_ns() - before) / 1_000_000.0
         raise TimeoutError(f"keyboard Return did not open a cited passage detail for {expected_path}")
 
-    def press_escape(self) -> None:
+    def return_to_results(self) -> None:
         snapshot = self.snapshot()
-        if (
-            "Return to launcher results" not in {name for _node, name in self.buttons(snapshot)}
-            and self._query_is_focused()
-        ):
+        label = "Return to launcher results"
+        if label in {name for _node, name in self.buttons(snapshot)}:
+            self.invoke_button(label)
+        elif self._query_is_focused():
             return
-        run_capture(["xdotool", "key", "--clearmodifiers", "Escape"], timeout=5.0)
+        else:
+            raise RuntimeError("native search entry is unfocused and the accessible Return to results control is absent")
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
             snapshot = self.snapshot()
-            names = [name for _node, name in self.buttons(snapshot)]
-            if "Return to launcher results" not in names and snapshot.get("query") is not None:
-                if self._query_is_focused():
-                    return
+            names = {name for _node, name in self.buttons(snapshot)}
+            if label not in names and snapshot.get("query") is not None and self._query_is_focused():
+                return
             time.sleep(0.02)
-        raise TimeoutError("Escape did not return focus to the native launcher search entry")
+        raise TimeoutError("AT-SPI Return to results did not restore focus to the native launcher search entry")
 
     def invoke_button(self, label: str) -> None:
         snapshot = self.snapshot()
@@ -1564,7 +1576,7 @@ def drive(arguments: argparse.Namespace) -> None:
                 record["outcome"] = "passed" if record["fresh_citation_verified"] and record["fresh_excerpt_verified"] else "failed"
                 if not (output_dir / "native-cold-first-result.xwd").exists():
                     capture_window_evidence(driver, output_dir, ui_evidence)
-                driver.press_escape()
+                driver.return_to_results()
             except Exception as error:
                 record["outcome"] = "timeout" if is_timeout_error(error) else "failed"
                 record["error"] = f"{type(error).__name__}: {error}"
@@ -1646,7 +1658,7 @@ def drive(arguments: argparse.Namespace) -> None:
                 record["fresh_citation_verified"] = fresh["citation"] == sample["expected_citation"]
                 record["fresh_excerpt_verified"] = sample["query"] in fresh["excerpt"]
                 record["outcome"] = "passed" if record["fresh_citation_verified"] and record["fresh_excerpt_verified"] else "failed"
-                driver.press_escape()
+                driver.return_to_results()
             except Exception as error:
                 record["outcome"] = "timeout" if is_timeout_error(error) else "failed"
                 record["error"] = f"{type(error).__name__}: {error}"
@@ -1771,7 +1783,7 @@ def drive(arguments: argparse.Namespace) -> None:
                     time.monotonic_ns() - mutation_ns
                 ) / 1_000_000.0
                 record["atspi_error_text"] = stale["denial_message"]
-                driver.press_escape()
+                driver.return_to_results()
                 driver.last_query_started_ns = None
                 record["fresh_query_attempted"] = True
                 result = driver.type_query(sample["query"], expected_path=sample["path"])
@@ -1797,7 +1809,7 @@ def drive(arguments: argparse.Namespace) -> None:
                 record["fresh_excerpt_verified"] = (
                     sample["query"] in fresh["excerpt"] and sample["old_query"] not in fresh["excerpt"]
                 )
-                driver.press_escape()
+                driver.return_to_results()
                 driver.last_query_started_ns = None
                 record["old_query_absence_attempted"] = True
                 try:
@@ -1816,7 +1828,7 @@ def drive(arguments: argparse.Namespace) -> None:
                     and record["post_change_old_query_absent"]
                     else "failed"
                 )
-                driver.press_escape()
+                driver.return_to_results()
             except Exception as error:
                 record["outcome"] = "timeout" if is_timeout_error(error) else "failed"
                 record["error"] = f"{type(error).__name__}: {error}"
@@ -1899,7 +1911,7 @@ def drive(arguments: argparse.Namespace) -> None:
                 class_records["edit"].append(record)
                 if driver.launcher is not None and driver.launcher.poll() is None:
                     try:
-                        driver.press_escape()
+                        driver.return_to_results()
                     except Exception:
                         pass
         driver.close()
@@ -1980,7 +1992,7 @@ def drive(arguments: argparse.Namespace) -> None:
                     time.monotonic_ns() - mutation_ns
                 ) / 1_000_000.0
                 record["atspi_error_text"] = stale["denial_message"]
-                driver.press_escape()
+                driver.return_to_results()
                 driver.last_query_started_ns = None
                 record["fresh_query_attempted"] = True
                 result = driver.type_query(sample["query"], expect_no_match=True)
@@ -1998,7 +2010,7 @@ def drive(arguments: argparse.Namespace) -> None:
                     if record["stale_evidence_denied"] and record["post_change_old_query_absent"]
                     else "failed"
                 )
-                driver.press_escape()
+                driver.return_to_results()
             except Exception as error:
                 record["outcome"] = "timeout" if is_timeout_error(error) else "failed"
                 record["error"] = f"{type(error).__name__}: {error}"
@@ -2068,7 +2080,7 @@ def drive(arguments: argparse.Namespace) -> None:
                 class_records["delete"].append(record)
                 if driver.launcher is not None and driver.launcher.poll() is None:
                     try:
-                        driver.press_escape()
+                        driver.return_to_results()
                     except Exception:
                         pass
         driver.close()

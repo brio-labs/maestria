@@ -4,10 +4,12 @@
 // the LICENSE-MIT file), at your option.
 
 use accesskit::{ActivationHandler, DeactivationHandler};
-use accesskit_atspi_common::{Adapter as AdapterImpl, AppContext, Event};
+use accesskit_atspi_common::{
+    Adapter as AdapterImpl, AppContext, Event, NodeId, NodeIdOrRoot, ObjectEvent, PlatformNode,
+};
 #[cfg(not(feature = "tokio"))]
 use async_channel::{Receiver, Sender};
-use atspi::proxy::bus::StatusProxy;
+use atspi::{InterfaceSet, State, proxy::bus::StatusProxy};
 #[cfg(not(feature = "tokio"))]
 use futures_util::{StreamExt, pin_mut as pin, select};
 use std::{
@@ -166,6 +168,85 @@ fn sync_adapters(adapters: &mut [AdapterEntry], atspi_bus: &Option<Bus>) {
     }
 }
 
+// Slint can recycle NodeIds before callback messages reach the bus thread.
+// Reconcile lifecycle messages against the current filtered tree so an old
+// component cannot tear down a new object at the same AT-SPI path.
+fn current_accessible_node(
+    adapters: &[AdapterEntry],
+    adapter_id: usize,
+    node_id: NodeId,
+) -> Option<(PlatformNode, InterfaceSet)> {
+    let index = adapters
+        .binary_search_by(|entry| entry.id.cmp(&adapter_id))
+        .ok()?;
+    let state = adapters[index].state.lock().unwrap();
+    let AdapterState::Active(adapter) = &*state else {
+        return None;
+    };
+
+    let node = adapter.platform_node(node_id);
+    if !node.state().contains(State::Visible) {
+        return None;
+    }
+    let interfaces = node.interfaces().ok()?;
+    Some((node, interfaces))
+}
+
+fn interfaces_to_unregister(
+    adapters: &[AdapterEntry],
+    adapter_id: usize,
+    node_id: NodeId,
+    requested: InterfaceSet,
+) -> InterfaceSet {
+    match current_accessible_node(adapters, adapter_id, node_id) {
+        Some((_, current)) => requested ^ (requested & current),
+        None => requested,
+    }
+}
+
+fn should_emit_cache_remove(adapters: &[AdapterEntry], adapter_id: usize, node_id: NodeId) -> bool {
+    current_accessible_node(adapters, adapter_id, node_id).is_none()
+}
+
+fn current_node_has_parent(
+    adapters: &[AdapterEntry],
+    adapter_id: usize,
+    parent: &NodeIdOrRoot,
+    child_id: NodeId,
+) -> bool {
+    let Some((child, _)) = current_accessible_node(adapters, adapter_id, child_id) else {
+        return false;
+    };
+    match (child.parent(), parent) {
+        (Ok(NodeIdOrRoot::Root), NodeIdOrRoot::Root) => true,
+        (Ok(NodeIdOrRoot::Node(actual)), NodeIdOrRoot::Node(expected)) => actual == *expected,
+        _ => false,
+    }
+}
+
+fn should_emit_object_event(
+    adapters: &[AdapterEntry],
+    adapter_id: usize,
+    target: &NodeIdOrRoot,
+    event: &ObjectEvent,
+) -> bool {
+    match event {
+        ObjectEvent::StateChanged(State::Defunct, true) => match target {
+            NodeIdOrRoot::Node(node_id) => {
+                current_accessible_node(adapters, adapter_id, *node_id).is_none()
+            }
+            NodeIdOrRoot::Root => true,
+        },
+        ObjectEvent::ChildAdded(_, child_id) => {
+            current_node_has_parent(adapters, adapter_id, target, *child_id)
+        }
+        ObjectEvent::ChildRemoved(child_id) => {
+            !current_node_has_parent(adapters, adapter_id, target, *child_id)
+        }
+        _ => true,
+    }
+}
+
 async fn run_event_loop(
     executor: &Executor<'_>,
     session_bus: Connection,
@@ -240,7 +321,14 @@ async fn process_adapter_message(
         }
         Message::RegisterInterfaces { node, interfaces } => {
             if let Some(bus) = atspi_bus {
-                bus.register_interfaces(node, interfaces).await?
+                if let Some((current_node, current_interfaces)) =
+                    current_accessible_node(adapters, node.adapter_id(), node.id())
+                {
+                    let interfaces = interfaces & current_interfaces;
+                    if interfaces != InterfaceSet::empty() {
+                        bus.register_interfaces(current_node, interfaces).await?
+                    }
+                }
             }
         }
         Message::UnregisterInterfaces {
@@ -249,8 +337,12 @@ async fn process_adapter_message(
             interfaces,
         } => {
             if let Some(bus) = atspi_bus {
-                bus.unregister_interfaces(adapter_id, node_id, interfaces)
-                    .await?
+                let interfaces =
+                    interfaces_to_unregister(adapters, adapter_id, node_id, interfaces);
+                if interfaces != InterfaceSet::empty() {
+                    bus.unregister_interfaces(adapter_id, node_id, interfaces)
+                        .await?
+                }
             }
         }
         Message::EmitEvent {
@@ -258,7 +350,9 @@ async fn process_adapter_message(
             event: Event::Object { target, event },
         } => {
             if let Some(bus) = atspi_bus {
-                bus.emit_object_event(adapter_id, target, event).await?
+                if should_emit_object_event(adapters, adapter_id, &target, &event) {
+                    bus.emit_object_event(adapter_id, target, event).await?
+                }
             }
         }
         Message::EmitEvent {
@@ -281,7 +375,11 @@ async fn process_adapter_message(
         } => unreachable!("cache events are sent as EmitCacheAdd/EmitCacheRemove"),
         Message::EmitCacheAdd { node } => {
             if let Some(bus) = atspi_bus {
-                bus.emit_cache_add(node).await?;
+                if let Some((current_node, _)) =
+                    current_accessible_node(adapters, node.adapter_id(), node.id())
+                {
+                    bus.emit_cache_add(current_node).await?;
+                }
             }
         }
         Message::EmitCacheRemove {
@@ -289,10 +387,204 @@ async fn process_adapter_message(
             node_id,
         } => {
             if let Some(bus) = atspi_bus {
-                bus.emit_cache_remove(adapter_id, node_id).await?;
+                if should_emit_cache_remove(adapters, adapter_id, node_id) {
+                    bus.emit_cache_remove(adapter_id, node_id).await?;
+                }
             }
         }
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AdapterEntry, AdapterImpl, AdapterState, AppContext, Event, NodeId, NodeIdOrRoot,
+        ObjectEvent, State, current_accessible_node, interfaces_to_unregister,
+        should_emit_cache_remove, should_emit_object_event,
+    };
+    use accesskit::{
+        Action, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, Node,
+        NodeId as LocalNodeId, Rect, Role, Tree, TreeId, TreeUpdate,
+    };
+    use accesskit_atspi_common::{AdapterCallback, WindowBounds};
+    use atspi::{Interface, InterfaceSet};
+    use std::sync::{Arc, Mutex};
+
+    struct NoOpActionHandler;
+
+    impl ActionHandler for NoOpActionHandler {
+        fn do_action(&mut self, _request: ActionRequest) {}
+    }
+
+    struct NoOpActivationHandler;
+
+    impl ActivationHandler for NoOpActivationHandler {
+        fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
+            None
+        }
+    }
+
+    struct NoOpDeactivationHandler;
+
+    impl DeactivationHandler for NoOpDeactivationHandler {
+        fn deactivate_accessibility(&mut self) {}
+    }
+
+    struct NoOpCallback;
+
+    impl AdapterCallback for NoOpCallback {
+        fn register_interfaces(&self, _: &AdapterImpl, _: NodeId, _: InterfaceSet) {}
+
+        fn unregister_interfaces(&self, _: &AdapterImpl, _: NodeId, _: InterfaceSet) {}
+
+        fn emit_event(&self, _: &AdapterImpl, _: Event) {}
+    }
+
+    fn tree_with_child(child_role: Option<Role>) -> TreeUpdate {
+        let mut root = Node::new(Role::Window);
+        root.set_children(
+            child_role
+                .map(|_| LocalNodeId(1))
+                .into_iter()
+                .collect::<Vec<_>>(),
+        );
+        let mut nodes = vec![(LocalNodeId(0), root)];
+        if let Some(role) = child_role {
+            let mut child = Node::new(role);
+            child.set_bounds(Rect {
+                x0: 0.0,
+                y0: 0.0,
+                x1: 100.0,
+                y1: 100.0,
+            });
+            if role == Role::Button {
+                child.add_action(Action::Click);
+            }
+            nodes.push((LocalNodeId(1), child));
+        }
+
+        TreeUpdate {
+            nodes,
+            tree: Some(Tree::new(LocalNodeId(0))),
+            tree_id: TreeId::ROOT,
+            focus: LocalNodeId(0),
+        }
+    }
+
+    fn active_entry(initial_tree: TreeUpdate) -> AdapterEntry {
+        let app_context = AppContext::new(None);
+        let adapter = AdapterImpl::new(
+            &app_context,
+            NoOpCallback,
+            initial_tree,
+            false,
+            WindowBounds::default(),
+            NoOpActionHandler,
+        );
+        AdapterEntry {
+            id: adapter.id(),
+            activation_handler: Box::new(NoOpActivationHandler),
+            deactivation_handler: Box::new(NoOpDeactivationHandler),
+            state: Arc::new(Mutex::new(AdapterState::Active(adapter))),
+        }
+    }
+
+    fn first_child_id(entry: &AdapterEntry) -> NodeId {
+        let state = entry.state.lock().unwrap();
+        let AdapterState::Active(adapter) = &*state else {
+            panic!("test adapter must be active");
+        };
+        adapter
+            .platform_node(adapter.root_id())
+            .child_at_index(0)
+            .unwrap()
+            .unwrap()
+    }
+
+    fn update(entry: &AdapterEntry, tree: TreeUpdate) {
+        let mut state = entry.state.lock().unwrap();
+        let AdapterState::Active(adapter) = &mut *state else {
+            panic!("test adapter must be active");
+        };
+        adapter.update(tree);
+    }
+
+    #[test]
+    fn stale_lifecycle_messages_do_not_remove_reused_live_node() {
+        let entry = active_entry(tree_with_child(Some(Role::Button)));
+        let adapter_id = entry.id;
+        let child_id = first_child_id(&entry);
+        let adapters = std::slice::from_ref(&entry);
+        let old_interfaces = current_accessible_node(adapters, adapter_id, child_id)
+            .unwrap()
+            .1;
+        assert!(old_interfaces.contains(Interface::Action));
+        let parent = current_accessible_node(adapters, adapter_id, child_id)
+            .unwrap()
+            .0
+            .parent()
+            .unwrap();
+
+        update(&entry, tree_with_child(None));
+        assert!(current_accessible_node(adapters, adapter_id, child_id).is_none());
+        update(&entry, tree_with_child(Some(Role::Group)));
+
+        let current = current_accessible_node(adapters, adapter_id, child_id)
+            .expect("reused node ID is still accessible")
+            .1;
+
+        let removed = interfaces_to_unregister(adapters, adapter_id, child_id, old_interfaces);
+        assert!(!current.contains(Interface::Action));
+        assert!(current.contains(Interface::Accessible));
+        assert!(removed.contains(Interface::Action));
+        assert!(!removed.contains(Interface::Accessible));
+        assert!(!removed.contains(Interface::Component));
+        assert!(!should_emit_cache_remove(adapters, adapter_id, child_id));
+        assert!(!should_emit_object_event(
+            adapters,
+            adapter_id,
+            &parent,
+            &ObjectEvent::ChildRemoved(child_id),
+        ));
+        assert!(should_emit_object_event(
+            adapters,
+            adapter_id,
+            &parent,
+            &ObjectEvent::ChildAdded(0, child_id),
+        ));
+        assert!(!should_emit_object_event(
+            adapters,
+            adapter_id,
+            &NodeIdOrRoot::Node(child_id),
+            &ObjectEvent::StateChanged(State::Defunct, true),
+        ));
+
+        update(&entry, tree_with_child(None));
+        assert!(current_accessible_node(adapters, adapter_id, child_id).is_none());
+        assert!(should_emit_cache_remove(adapters, adapter_id, child_id));
+        assert!(should_emit_object_event(
+            adapters,
+            adapter_id,
+            &parent,
+            &ObjectEvent::ChildRemoved(child_id),
+        ));
+        assert!(!should_emit_object_event(
+            adapters,
+            adapter_id,
+            &parent,
+            &ObjectEvent::ChildAdded(0, child_id),
+        ));
+        assert!(should_emit_object_event(
+            adapters,
+            adapter_id,
+            &NodeIdOrRoot::Node(child_id),
+            &ObjectEvent::StateChanged(State::Defunct, true),
+        ));
+        assert_eq!(
+            interfaces_to_unregister(adapters, adapter_id, child_id, old_interfaces),
+            old_interfaces
+        );
+    }
 }

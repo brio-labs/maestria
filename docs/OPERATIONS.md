@@ -591,6 +591,41 @@ not the installed 10,000-file gate. The hosted runner also remained below
 16 GiB effective memory with rotational storage, so it cannot establish
 reference-hardware acceptance even if the corrected UI samples pass.
 
+At [`e81d44f3` run 36486876128](https://github.com/brio-labs/maestria/actions/runs/36486876128/job/109146574780),
+the installed benchmark again settled **10,000 approved files**, zero pending,
+with no scan error, and recorded 200 observations per class. All **800 timed
+out**. Every cold query observed a native accessible result; 92 cold
+interactions opened its detail and verified the **exact authorized citation
+and excerpt** through accessible Copy, but then timed out because keyboard
+Escape did not return to the search entry. The remaining 108 cold interactions
+timed out awaiting detail rows or Copy controls: the detail card was visible
+in the private Xvfb capture while its dynamic AT-SPI child was sometimes
+missing or returned an unknown object path. Active/edit/delete attempts then
+failed to open or recover from the detail view. These are failed interactions,
+**not** successful latency samples. In a separate private, source-built
+one-file diagnostic, invoking the genuine AT-SPI “Return to launcher results”
+button closed the detail, restored focused search, and permitted the next
+typed query; that is not installed acceptance. The hosted runner confirmed
+SSD storage but had only **15.615 GiB effective memory**, below the required
+16 GiB. Its resource sampler also failed with `PermissionError` reading
+`/proc/25178/io` for a short-lived launcher; the resource-telemetry gate
+failed independently. Keep the benchmark and reference-hardware gates open.
+
+A private D-Bus trace reproduced the missing detail as a provider-side
+lifecycle fault: the same AT-SPI object path received `AddAccessible` for the
+passage, then `RemoveAccessible` **0.843 ms later** while the card remained
+visible. A fresh client and direct provider introspection both found the path
+absent. The Unix accessibility bridge now reconciles queued node registration,
+removal, and cache events with the current visible tree before changing that
+path; the same-ID replacement regression passed. A rebuilt **source**
+launcher completed eight authorized passage-detail opens, exact citation and
+excerpt Copies, accessible returns, and subsequent typed queries in one
+private Xvfb/D-Bus session; this does **not** replace an installed benchmark
+run. The benchmark now uses the accessible Return button rather than the
+nonfunctional keyboard Escape to navigate after Copy. The resource monitor
+discards a `/proc` permission race only if the exact registered process has
+exited or been replaced; a live target's permission failure remains fatal.
+
 ### Disable, uninstall, and choose local-data retention
 
 Before removing packages, stop their processes explicitly: close active

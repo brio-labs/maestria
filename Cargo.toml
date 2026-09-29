@@ -49,8 +49,9 @@ members = [
 [patch.crates-io]
 # global-hotkey 0.8.0 otherwise leaves X11 ungrabs buffered after unregister.
 global-hotkey = { path = "vendor/global-hotkey" }
-# accesskit_unix 0.22.1 emits cache signals without the D-Bus argument tuple;
-# libatspi ignores them, leaving first-run Action interfaces stale in clients.
+# accesskit_unix 0.22.1 emits cache signals without the D-Bus argument tuple
+# and can unregister a live object when Slint reuses its node ID before queued
+# accessibility lifecycle messages are processed.
 accesskit_unix = { path = "vendor/accesskit_unix" }
 
 [workspace.package]
