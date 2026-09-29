@@ -46,6 +46,7 @@ fn install_query_callbacks(ui: &LauncherWindow, frontend: &Arc<Frontend>) {
         model.accepted.clear();
         model.accepted_passages.clear();
         model.accepted_paths.clear();
+        model.passages_loaded = false;
         model.displayed.clear();
         model.content_view_passages.clear();
         model.result_filter = "all".to_string();

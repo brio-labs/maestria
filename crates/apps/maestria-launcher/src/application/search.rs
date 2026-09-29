@@ -21,6 +21,7 @@ mod passage_view;
 pub(super) use passage_actions::activate_passage_action;
 use passage_actions::{passage_actions, path_actions};
 use passage_results::apply_passages;
+pub(super) use passage_results::apply_refreshed_passages;
 pub(super) use passage_results::apply_result_filter;
 pub(super) use passage_view::{
     close_passage_view, open_passage_view, passage_result_is_visible, path_result_is_visible,
@@ -34,6 +35,7 @@ fn reset_search_state(frontend: &Frontend, ui: &UiWeak, query: &str, has_search_
         model.accepted.clear();
         model.accepted_passages.clear();
         model.accepted_paths.clear();
+        model.passages_loaded = false;
         model.displayed.clear();
         model.content_view_passages.clear();
         model.result_filter = "all".to_string();
@@ -108,6 +110,7 @@ pub(super) fn start_search(
                         model.accepted.clear();
                         model.accepted_passages.clear();
                         model.accepted_paths.clear();
+                        model.passages_loaded = false;
                         model.displayed.clear();
                         drop(model);
                         window.set_results(empty_results());
@@ -143,6 +146,7 @@ pub(super) fn start_search(
                             generation,
                             &merge_query,
                             search_result,
+                            false,
                         );
                     } else {
                         window.set_index_status("Document search unavailable".into());
@@ -169,6 +173,7 @@ fn apply_search_response(window: &LauncherWindow, frontend: &Frontend, response:
         model.accepted.clone_from(&response.results);
         model.accepted_passages.clear();
         model.accepted_paths.clear();
+        model.passages_loaded = false;
         model.content_view_passages.clear();
         model.result_filter = "all".to_string();
         model.displayed = (0..response.results.len())

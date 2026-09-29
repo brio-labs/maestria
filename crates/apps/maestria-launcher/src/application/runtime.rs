@@ -78,6 +78,7 @@ fn run_primary(
             catalog_ticks_until_refresh: CATALOG_REFRESH_TICKS,
             accepted_passages: Vec::new(),
             accepted_paths: Vec::new(),
+            passages_loaded: false,
             displayed: Vec::new(),
             result_filter: "all".to_string(),
             content_view_passages: Vec::new(),

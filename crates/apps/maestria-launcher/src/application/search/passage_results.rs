@@ -10,12 +10,23 @@ use super::super::{
 use super::{result_row, update_selected_actions};
 use crate::ResultRow;
 
+pub(in crate::application) fn apply_refreshed_passages(
+    window: &LauncherWindow,
+    frontend: &Frontend,
+    generation: u64,
+    query: &str,
+    search_result: PassageSearchResult,
+) {
+    apply_passages(window, frontend, generation, query, search_result, true);
+}
+
 pub(super) fn apply_passages(
     window: &LauncherWindow,
     frontend: &Frontend,
     generation: u64,
     query: &str,
     search_result: PassageSearchResult,
+    preserve_unchanged: bool,
 ) {
     let metadata = search_result.metadata.summary();
     let accepted_paths = search_result
@@ -40,8 +51,26 @@ pub(super) fn apply_passages(
         if model.query != query || frontend.generation.load(Ordering::Acquire) != generation {
             return;
         }
+        if preserve_unchanged
+            && model.passages_loaded
+            && model
+                .accepted_paths
+                .iter()
+                .map(|accepted| &accepted.path)
+                .eq(accepted_paths.iter().map(|accepted| &accepted.path))
+            && model
+                .accepted_passages
+                .iter()
+                .map(|accepted| &accepted.passage)
+                .eq(accepted_passages.iter().map(|accepted| &accepted.passage))
+        {
+            drop(model);
+            window.set_index_status(metadata.into());
+            return;
+        }
         model.accepted_paths = accepted_paths;
         model.accepted_passages = accepted_passages;
+        model.passages_loaded = true;
         model.content_view_passages.clear();
         let (rows, displayed, document_count) = build_result_rows(&model, query, generation);
         let selected_index = choose_selected_result(&displayed, window.get_selected_index());

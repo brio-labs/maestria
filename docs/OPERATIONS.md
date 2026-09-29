@@ -742,13 +742,13 @@ but effective hosted memory was **15.615 GiB**, below 16 GiB. The installed
 benchmark and hardware release gates still fail; neither the source-built
 8,473-file diagnostic nor this installed failure establishes acceptance.
 
-The native launcher now observes a **search-grant-authorized**, lightweight
-durable source-event clock while visible. Only an observed source-version
-advance redispatches the current query; an unchanged no-match response is not
-retried on a timer. It defers the refresh while a passage detail is open or a
-new query is being debounced, and displays the normal “Searching document
-index…” state during refresh. The server's **100 ms internal interactive
-search deadline is unchanged**. An optimized **source-built** launcher and
+At `9982a322`, the native launcher first observed a
+**search-grant-authorized** durable source-event clock while visible. A source
+advance restarted the entire current query and cleared its existing results
+and accepted actions; an unchanged no-match response was not timer-retried.
+It deferred refresh while a passage detail was open or input was debouncing.
+The server's **100 ms internal interactive-search deadline was unchanged**.
+An optimized **source-built** launcher and
 search binary in private Xvfb/D-Bus/XDG rendered a no-match result for one
 unchanged query, then, after a durable edit in one approved Markdown file,
 automatically displayed the fresh cited passage on the same query through
@@ -756,6 +756,48 @@ AT-SPI in **907 ms** from the edit; the old term returned no match. The
 authorized clock moved from revision 11 to 24. This is a single-file
 source-built native UI smoke, not an installed 10,000-file performance pass,
 and does not erase any earlier failed observation.
+
+At [`9982a322` run 36542027669](https://github.com/brio-labs/maestria/actions/runs/36542027669/job/109320552088),
+the same-run **installed** Ubuntu packages again settled 10,000 files and
+recorded every one of the fixed 800 interactions. Hosted cold passed
+**200/200**, active **199/200**, edit **189/200**, delete **186/200**: **26**
+failures/timeouts, including missed pre-deletion results/details and missed
+post-edit details. Its effective memory was **15.614 GiB**, below the 16 GiB
+reference gate, although SSD provenance passed. The identical `.deb` artifacts
+were explicitly reinstalled inside a private Ubuntu 24 rootfs on local
+**30.854 GiB** hardware. That independent installed run also recorded 800:
+cold **200/200**, active **200/200**, edit **198/200**, delete **192/200**;
+the **10** failures include eight pre-deletion result/detail failures, one
+pre-edit missing result, and one post-edit “Document search unavailable.”
+Its hardware gate **failed**: an outer private `tmpfs /tmp` held the fixture,
+and a synthetic `/dev` hid the NVMe-backed Btrfs root's LVM child from
+`lsblk`. Evidence remains under
+`target/ubuntu24-private/rootfs/bench/current-head-9982a322-first-valid/`;
+the earlier aborted preflight has separate provenance and **no interactions**.
+Neither installed run is a release pass; failed durations remain in the
+reported p95/p99 distributions, not in successful-result latency.
+
+The launcher now refreshes **only the authorized passage results** on an
+observed indexed source change. It leaves the existing query's accepted
+actions and visible rows in place while fetching, does not re-render an
+unchanged passage/path response, and defers applying a changed response while
+a detail or file selection is open or input is debouncing. This removes the
+destructive full-query refresh window seen at `9982a322` without retrying
+failed interactive requests or changing the server deadline. A separate
+optimized **source-built**, two-file native Slint/AT-SPI smoke used private
+Xvfb, JWM, XDG, and D-Bus configured to autostart **only AT-SPI**, not optional
+portals: the original cited passage stayed selectable in **36** observations
+while the unrelated file's clock advanced **19 → 34**; its open detail survived
+another unrelated edit (**34 → 46**); and an initially empty unchanged query
+showed a fresh cited passage and opened its detail after its source edit
+(**46 → 52**). A separate *non-workload* run of the unchanged provenance
+checker at
+`target/ubuntu24-private/rootfs/bench/hardware-preflight-corrected-9982/`
+verified the exact installed `9982a322` binary hashes, **30.854 GiB**
+effective memory, real Btrfs for both fixture/output, and the NVMe → LVM
+`lsblk` chain; both hardware gates passed **only in this corrected
+preflight**, not in the earlier 800-interaction run. The new launcher behavior
+remains **source-built smoke, not installed 10,000-file acceptance**.
 
 ### Disable, uninstall, and choose local-data retention
 

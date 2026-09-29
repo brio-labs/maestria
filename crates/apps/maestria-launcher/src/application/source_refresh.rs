@@ -1,13 +1,15 @@
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, mpsc};
 
 use slint::ComponentHandle;
 
-use super::search::start_search;
+use super::search::apply_refreshed_passages;
 use super::{Frontend, LauncherWindow, SOURCE_REFRESH_TICKS, lock};
 use crate::ipc::LauncherState;
 
-/// Poll only the authorized, indexed source-event clock. Search is restarted
-/// at most once per observed change, never on a timer or an unchanged result.
+/// Poll only the authorized, indexed source-event clock. Refresh just the
+/// passages, leaving accepted actions and visible rows intact until a changed
+/// result arrives. Never reissue a query for an unchanged clock.
 pub(super) struct SourceRefresh {
     ticks_until_poll: u8,
     in_flight: bool,
@@ -15,6 +17,8 @@ pub(super) struct SourceRefresh {
     changed: bool,
     sender: mpsc::SyncSender<Option<i64>>,
     receiver: mpsc::Receiver<Option<i64>>,
+    deferred: Arc<AtomicBool>,
+    latest_refresh: Arc<AtomicU64>,
 }
 
 impl Default for SourceRefresh {
@@ -27,6 +31,8 @@ impl Default for SourceRefresh {
             changed: false,
             sender,
             receiver,
+            deferred: Arc::new(AtomicBool::new(false)),
+            latest_refresh: Arc::new(AtomicU64::new(0)),
         }
     }
 }
@@ -45,6 +51,9 @@ impl SourceRefresh {
                 self.observe(revision);
             }
         }
+        if self.deferred.swap(false, Ordering::AcqRel) {
+            self.changed = true;
+        }
         if !ui.window().is_visible() {
             return;
         }
@@ -54,18 +63,12 @@ impl SourceRefresh {
             self.should_refresh(
                 &model.query,
                 model.pending_ticks.is_some(),
-                ui.get_passage_view_open(),
+                ui.get_passage_view_open() || model.selected_file.is_some(),
             )
             .then(|| model.query.clone())
         };
         if let Some(query) = query {
-            start_search(
-                Arc::clone(state),
-                Arc::clone(frontend),
-                runtime.clone(),
-                ui.as_weak(),
-                query,
-            );
+            self.refresh_passages(ui, state, frontend, runtime, query);
         }
 
         if self.ticks_until_poll > 0 {
@@ -88,6 +91,63 @@ impl SourceRefresh {
         runtime.spawn(async move {
             let revision = super::passages::source_revision(config).await;
             let _ = sender.try_send(revision);
+        });
+    }
+
+    fn refresh_passages(
+        &self,
+        ui: &LauncherWindow,
+        state: &Arc<LauncherState>,
+        frontend: &Arc<Frontend>,
+        runtime: &tokio::runtime::Handle,
+        query: String,
+    ) {
+        let Some(config) = state
+            .settings()
+            .ok()
+            .and_then(|settings| settings.search_service())
+        else {
+            return;
+        };
+        let generation = frontend.generation.load(Ordering::Acquire);
+        let serial = self
+            .latest_refresh
+            .fetch_add(1, Ordering::AcqRel)
+            .wrapping_add(1);
+        let latest_refresh = Arc::clone(&self.latest_refresh);
+        let deferred = Arc::clone(&self.deferred);
+        let frontend = Arc::clone(frontend);
+        let ui = ui.as_weak();
+        runtime.spawn(async move {
+            let result = super::passages::search(config, &query).await;
+            let _ = slint::invoke_from_event_loop(move || {
+                if latest_refresh.load(Ordering::Acquire) != serial
+                    || frontend.generation.load(Ordering::Acquire) != generation
+                {
+                    return;
+                }
+                let Some(window) = ui.upgrade() else {
+                    return;
+                };
+                let model = lock(&frontend.model);
+                if model.query != query {
+                    return;
+                }
+                if !window.window().is_visible()
+                    || window.get_passage_view_open()
+                    || model.pending_ticks.is_some()
+                    || model.selected_file.is_some()
+                {
+                    deferred.store(true, Ordering::Release);
+                    return;
+                }
+                drop(model);
+                if let Some(result) = result {
+                    apply_refreshed_passages(&window, &frontend, generation, &query, result);
+                } else {
+                    window.set_index_status("Document search unavailable".into());
+                }
+            });
         });
     }
 

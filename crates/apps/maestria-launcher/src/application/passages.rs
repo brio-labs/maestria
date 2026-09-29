@@ -19,7 +19,7 @@ const MAX_PATH_BYTES: usize = 4096;
 const MAX_HASH_BYTES: usize = 128;
 const MAX_EXCERPT_BYTES: usize = 16 * 1024;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Passage {
     pub(super) evidence_id: u64,
     pub(super) artifact_version: u64,
@@ -28,12 +28,12 @@ pub(super) struct Passage {
     pub(super) location: PassageLocation,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct PathResult {
     pub(super) path: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum PassageLocation {
     File {
         path: String,

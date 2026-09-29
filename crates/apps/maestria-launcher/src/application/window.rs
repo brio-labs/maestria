@@ -25,6 +25,7 @@ pub(super) fn activate_launcher(
                 model.accepted.clear();
                 model.accepted_passages.clear();
                 model.accepted_paths.clear();
+                model.passages_loaded = false;
                 model.displayed.clear();
                 model.selected_file = None;
                 model.content_view_passages.clear();

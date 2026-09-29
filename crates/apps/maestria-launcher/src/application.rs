@@ -70,6 +70,7 @@ pub(super) struct FrontendModel {
     catalog_ticks_until_refresh: u16,
     accepted_passages: Vec<AcceptedPassage>,
     accepted_paths: Vec<AcceptedPath>,
+    passages_loaded: bool,
     displayed: Vec<DisplayedResult>,
     result_filter: String,
     content_view_passages: Vec<usize>,
