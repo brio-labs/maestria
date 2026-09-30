@@ -97,6 +97,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "security_snapshot",
         "source_projection",
         "sparse_namespace",
+        "structure_tree",
         "task_status",
         "types",
     ),

@@ -31,7 +31,8 @@ use watcher_state::{ArtifactIdEntry, WatchState, load_state, persist_state, unix
 #[path = "watcher_freshness.rs"]
 mod watcher_freshness;
 pub(crate) use watcher_freshness::{
-    fresh_source_paths, fresh_source_paths_bounded, is_internal_source_path,
+    fresh_source_paths, fresh_source_paths_bounded, fresh_source_paths_rehashed,
+    is_internal_source_path,
 };
 pub(crate) use watcher_state::status;
 #[path = "watcher_receipts.rs"]

@@ -49,6 +49,7 @@ mod notebook_inputs;
 /// - `security_snapshot`: authorization and integrity security snapshots.
 /// - `source_projection`: immutable active source/version snapshots from ordered source events.
 /// - `sparse_namespace`: learned-sparse instance and trust-zone identity.
+/// - `structure_tree`: indexed parent and sibling graph validation for parser document trees.
 /// - `task_status`: task status enum and transition policy.
 /// - `types`: module responsibility.
 mod ocr;

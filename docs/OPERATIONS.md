@@ -902,6 +902,42 @@ CI failures or identifies the historical `LockBusy` writer. Authorization,
 fresh evidence reopening, durable audit, Bubblewrap isolation, the **100 ms**
 deadline, and all release gates remain unchanged.
 
+The published `ddf9bcb8` installed acceptance remains **failed**: all 800
+observations were retained, including 45 timeouts. Its separate installed
+native edit diagnostic observed publication before the unchanged fresh-query
+refresh, which still hit the internal deadline. Neither workload was replayed.
+
+A later private 10,000-file diagnostic used the installed `ddf9bcb8`
+launcher/CLI and a **source-built daemon linked to Ubuntu runtime libraries
+with the host Rust/compiler toolchain**, not the CI-produced daemon. Its first
+cold unique-token request timed out: filtering took **36.94 ms**, previews
+**42.06 ms**, and the serve future was cancelled during durable audit at
+**101.77 ms**. Separate evidence-stage measurements found two corpus-wide
+watcher-state loads, **9.93 ms** and **8.67 ms**, inside the two source
+freshness checks; full-text reader assembly took only **1.49 ms**.
+
+Evidence reopening now rehashes the authorized source bytes at both freshness
+checks instead of deserializing the complete watcher state. Bulk status checks
+retain watcher-signature caching; root/privacy/symlink checks, fresh reopening,
+durable audit, isolation, and the **100 ms** deadline are unchanged. This
+trades corpus-wide metadata replay for work proportional to the opened source.
+With temporary timers removed, the first repaired source-built native attempt
+returned the formerly failing cold query in **39.85 ms** proxy round-trip.
+After one fsynced 116-byte edit, publication-triggered refresh removed the old
+passage in **53.78 ms**; a new foreground query issued after publication
+returned the fresh passage in **21.80 ms** proxy round-trip. That passage was
+then genuinely reopened; stale reopening was denied and the private clipboard
+stayed unchanged.
+
+These first source-built outcomes and sanitized reproduction recipes are
+byte-verified under
+`~/.local/share/maestria-release-evidence/ddf9bcb8/`, with archive checksums in
+`SHA256SUMS`. They demonstrate a removable preview cost and a repaired native
+path, **not** the cause of the earlier installed deadline, a successful
+installed acceptance, or the historical `LockBusy` writer. PR #516 remains
+draft; installed acceptance and genuine corpus/provider judgments are still
+release gates.
+
 ### Disable, uninstall, and choose local-data retention
 
 Before removing packages, stop their processes explicitly: close active

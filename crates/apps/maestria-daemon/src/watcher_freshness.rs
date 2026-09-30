@@ -29,7 +29,17 @@ pub(crate) fn fresh_source_paths(
     manifest: &InstanceManifest,
     sources: &[(String, String)],
 ) -> BTreeSet<String> {
-    fresh_source_paths_with_byte_budget(layout, manifest, sources, None)
+    fresh_source_paths_with_byte_budget(layout, manifest, sources, None, true)
+}
+
+/// Reopen evidence against source bytes without loading corpus-wide watch state.
+/// Scope and filesystem identity checks still precede each content read.
+pub(crate) fn fresh_source_paths_rehashed(
+    layout: &InstanceLayout,
+    manifest: &InstanceManifest,
+    sources: &[(String, String)],
+) -> BTreeSet<String> {
+    fresh_source_paths_with_byte_budget(layout, manifest, sources, None, false)
 }
 
 pub(crate) fn fresh_source_paths_bounded(
@@ -38,7 +48,7 @@ pub(crate) fn fresh_source_paths_bounded(
     sources: &[(String, String)],
     max_rehash_bytes: u64,
 ) -> BTreeSet<String> {
-    fresh_source_paths_with_byte_budget(layout, manifest, sources, Some(max_rehash_bytes))
+    fresh_source_paths_with_byte_budget(layout, manifest, sources, Some(max_rehash_bytes), false)
 }
 
 fn fresh_source_paths_with_byte_budget(
@@ -46,9 +56,12 @@ fn fresh_source_paths_with_byte_budget(
     manifest: &InstanceManifest,
     sources: &[(String, String)],
     mut rehash_bytes_remaining: Option<u64>,
+    use_watcher_state: bool,
 ) -> BTreeSet<String> {
     #[cfg(unix)]
-    let state = rehash_bytes_remaining.is_none().then(|| load_state(layout));
+    let state = use_watcher_state.then(|| load_state(layout));
+    #[cfg(not(unix))]
+    let _ = use_watcher_state;
     sources
         .iter()
         .filter_map(|(source, expected_hash)| {

@@ -436,7 +436,7 @@ fn current_source_path_with_active_sources(
         ));
     }
     let source_path = path.display().to_string();
-    let fresh = crate::watcher::fresh_source_paths(
+    let fresh = crate::watcher::fresh_source_paths_rehashed(
         layout,
         manifest,
         &[(source_path.clone(), content_hash.as_str().to_owned())],

@@ -231,38 +231,6 @@ fn source_event_scan_preserves_stale_and_restored_content_versions_without_audit
         [1, 3, 4, 5]
     );
     assert_eq!(store.searchable_source_revision()?, 5);
-    assert_eq!(store.consumer_source_revision()?, 5);
-    store.append(DomainEventEnvelope {
-        id: EventId::new(6),
-        event: DomainEvent::FullTextIndexed {
-            artifact_id,
-            chunk_id: ChunkId::new(42),
-        },
-    })?;
-    assert_eq!(store.consumer_source_revision()?, 6);
-    assert_eq!(store.searchable_source_revision()?, 5);
-    store.append(DomainEventEnvelope {
-        id: EventId::new(7),
-        event: DomainEvent::SearchExecuted {
-            query: "publication-triggered refresh".to_string(),
-            limit: 1,
-            evidence_ids: Vec::new(),
-            pack_metadata: None,
-            at: LogicalTick::new(2),
-        },
-    })?;
-    assert_eq!(store.consumer_source_revision()?, 6);
-    store.append(DomainEventEnvelope {
-        id: EventId::new(8),
-        event: DomainEvent::ArtifactIndexed { artifact_id },
-    })?;
-    assert_eq!(store.consumer_source_revision()?, 8);
-    assert_eq!(store.searchable_source_revision()?, 5);
-    assert_eq!(
-        store.scan_searchable_source_events()?,
-        source_events,
-        "publication and its refresh audit must not rebuild source projections"
-    );
     let between = store.scan_searchable_source_events_between(1, 4)?;
     assert_eq!(
         between
@@ -289,6 +257,57 @@ fn source_event_scan_preserves_stale_and_restored_content_versions_without_audit
     assert_eq!(
         active.get(std::path::Path::new(&source_path)),
         Some(&(artifact_id, version, content_hash))
+    );
+    Ok(())
+}
+
+#[test]
+fn consumer_revision_tracks_publication_and_readiness_without_refresh_audit_loops()
+-> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    let artifact_id = ArtifactId::new(7);
+    store.append(DomainEventEnvelope {
+        id: EventId::new(1),
+        event: DomainEvent::ParserStarted {
+            artifact_id,
+            title: "published.md".to_string(),
+            source_path: "/tmp/published.md".to_string(),
+            content_hash: maestria_test_support::content_hash(13)?,
+            blob_id: BlobId::new(42),
+        },
+    })?;
+    let source_events = store.scan_searchable_source_events()?;
+    assert_eq!(store.consumer_source_revision()?, 1);
+    store.append(DomainEventEnvelope {
+        id: EventId::new(2),
+        event: DomainEvent::FullTextIndexed {
+            artifact_id,
+            chunk_id: ChunkId::new(42),
+        },
+    })?;
+    assert_eq!(store.consumer_source_revision()?, 2);
+    assert_eq!(store.searchable_source_revision()?, 1);
+    store.append(DomainEventEnvelope {
+        id: EventId::new(3),
+        event: DomainEvent::SearchExecuted {
+            query: "publication-triggered refresh".to_string(),
+            limit: 1,
+            evidence_ids: Vec::new(),
+            pack_metadata: None,
+            at: LogicalTick::new(2),
+        },
+    })?;
+    assert_eq!(store.consumer_source_revision()?, 2);
+    store.append(DomainEventEnvelope {
+        id: EventId::new(4),
+        event: DomainEvent::ArtifactIndexed { artifact_id },
+    })?;
+    assert_eq!(store.consumer_source_revision()?, 4);
+    assert_eq!(store.searchable_source_revision()?, 1);
+    assert_eq!(
+        store.scan_searchable_source_events()?,
+        source_events,
+        "publication and its refresh audit must not rebuild source projections"
     );
     Ok(())
 }
