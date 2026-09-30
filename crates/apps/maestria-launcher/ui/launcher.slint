@@ -86,6 +86,7 @@ export component LauncherWindow inherits Window {
     callback preferences-reset-requested(bool);
     callback dismissed();
     callback selection-changed(int);
+    callback result-navigation-requested(bool);
     callback result-filter-changed(string);
     callback passage-view-requested(string);
     callback passage-view-closed();
@@ -179,22 +180,16 @@ export component LauncherWindow inherits Window {
                 if (root.selected-action-index < root.actions.length - 1) {
                     root.selected-action-index += 1;
                 }
-            } else if (root.results.length > 0 && root.selected-index < root.results.length - 1) {
-                root.selected-index += 1;
-            }
-            if (!root.actions-open) {
-                root.selection-changed(root.selected-index);
+            } else if (root.results.length > 0) {
+                root.result-navigation-requested(true);
             }
             accept
         } else if (!root.preferences-open && !root.about-open && !root.passage-view-open && !root.extensions-open
             && event.text == Key.UpArrow) {
             if (root.actions-open && root.selected-action-index > 0) {
                 root.selected-action-index -= 1;
-            } else if (!root.actions-open && root.selected-index > 0) {
-                root.selected-index -= 1;
-            }
-            if (!root.actions-open) {
-                root.selection-changed(root.selected-index);
+            } else if (!root.actions-open && root.results.length > 0) {
+                root.result-navigation-requested(false);
             }
             accept
         } else if (!root.preferences-open && !root.about-open && !root.passage-view-open && !root.extensions-open
@@ -456,10 +451,10 @@ export component LauncherWindow inherits Window {
                                     ? (root.dark-mode ? #83e2bd : #67a98a)
                                     : (root.dark-mode ? #354946 : #dce5df);
                                 border-width: row.kind == "passage_group" ? 0px : 1px;
-                                accessible-role: button;
-                                accessible-label: row.accessible_name;
                                 Text {
                                     visible: row.kind == "passage_group";
+                                    accessible-role: text;
+                                    accessible-label: row.accessible_name;
                                     text: row.title;
                                     color: root.dark-mode ? #abc0b7 : #4a625b;
                                     font-size: 11px;
@@ -561,6 +556,8 @@ export component LauncherWindow inherits Window {
                                 }
                                 TouchArea {
                                     visible: row.kind != "passage_group";
+                                    accessible-role: button;
+                                    accessible-label: row.accessible_name;
                                     clicked => {
                                         root.selection-changed(index);
                                         if (row.kind == "path") {

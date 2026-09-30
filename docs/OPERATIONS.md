@@ -386,6 +386,12 @@ loads the new table. Removing the optional `[search]` table and restarting
 disables launcher passage requests without uninstalling either package; revoke
 the provider grant separately if access should end for every client.
 
+In search results, Up and Down move between actionable rows and stop at the
+first or last actionable result. Document-group headings are labels, not
+buttons or keyboard selection targets. Return opens the selected cited
+passage; it does not activate a heading. This also applies when application
+or calculation results appear before document passages.
+
 The package does not fetch model or OCR artifacts. Text and lexical search do
 not require a model; the search daemon starts without a model client, and
 scanned pages without OCR remain `NeedsOcr` rather than producing fabricated

@@ -17,6 +17,7 @@ pub(super) use app_path_action::activate_path_action;
 mod passage_actions;
 mod passage_results;
 mod passage_view;
+mod result_navigation;
 
 pub(super) use passage_actions::activate_passage_action;
 use passage_actions::{passage_actions, path_actions};
@@ -26,6 +27,7 @@ pub(super) use passage_results::apply_result_filter;
 pub(super) use passage_view::{
     close_passage_view, open_passage_view, passage_result_is_visible, path_result_is_visible,
 };
+pub(super) use result_navigation::navigate_result_selection;
 
 fn reset_search_state(frontend: &Frontend, ui: &UiWeak, query: &str, has_search_service: bool) {
     {

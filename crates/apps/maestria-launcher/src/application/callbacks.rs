@@ -6,8 +6,8 @@ use super::preferences::{
     clear_shortcut, configure_shortcut, defer_shortcut_setup, save_preferences,
 };
 use super::search::{
-    apply_result_filter, close_passage_view, open_passage_view, passage_result_is_visible,
-    update_selected_actions,
+    apply_result_filter, close_passage_view, navigate_result_selection, open_passage_view,
+    passage_result_is_visible, update_selected_actions,
 };
 use super::window::{hide_launcher, show_notice};
 use super::{Frontend, LauncherWindow, SEARCH_DEBOUNCE_TICKS, empty_actions, empty_results, lock};
@@ -75,6 +75,14 @@ fn install_query_callbacks(ui: &LauncherWindow, frontend: &Arc<Frontend>) {
     ui.on_selection_changed(move |index| {
         if let Some(ui) = weak.upgrade() {
             update_selected_actions(&ui, &selection_frontend, index.max(0) as usize);
+        }
+    });
+
+    let weak = ui.as_weak();
+    let navigation_frontend = Arc::clone(frontend);
+    ui.on_result_navigation_requested(move |forward| {
+        if let Some(ui) = weak.upgrade() {
+            navigate_result_selection(&ui, &navigation_frontend, forward);
         }
     });
 }
