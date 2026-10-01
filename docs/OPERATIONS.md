@@ -944,6 +944,44 @@ installed acceptance, or the historical `LockBusy` writer. PR #516 remains
 draft; installed acceptance and genuine corpus/provider judgments are still
 release gates.
 
+### Bounded durable-audit and shutdown repairs (2026-10-01)
+
+A disk-backed regression established a separate search deadline failure:
+prepared durable access-audit persistence entered the main indexing lane and
+waited for its occupied permit. Deferred persistence already bypassed that
+lane. Prepared persistence now uses the same inline, watchdog-bounded path.
+The regression requires the acknowledged query/trace audit to be readable
+through an independent SQLite reopen **before** indexing is released; it
+failed past **100 ms** before this repair.
+
+Shutdown also returned early when the continuous-ingestion watcher failed,
+without joining the runtime task. Both tasks are now joined, preserving and
+combining their errors. A controlled pending-runtime regression failed before
+the repair. A fresh private daemon smoke forced an actual watcher-state
+persistence error: shutdown preserved the error, exited **1** in **65.27 ms**,
+and required no additional signal or extension of the **5-second** gate.
+
+With the source-built Arch daemon and unchanged installed `1d742124` Ubuntu
+launcher/CLI, three fresh native Return/detail sequences exercised fresh
+reopening, edited/deleted stale-action denial with unchanged clipboard, and
+deferred no-match refresh without retyping. Five interactive replies had
+independently reopened matching durable query/trace audits and no daemon error;
+maximum proxy round-trip was **12.50 ms**. The driver subsequently failed in
+its audit observer because it expected a nonexistent response wrapper. That
+first failure is retained; the audit proof used retained replies, not replay.
+Earlier root-namespace, consumer-status-schema, and incomplete native-settings
+setup/observer failures are retained separately.
+
+This is **not** fresh CI-installed acceptance or bilingual quality evidence.
+It does not attribute the historical Return failures, Tantivy writer, or
+original outer shutdown survivor. Historical writer attribution remains
+unresolved and, by the bounded release decision, is **not an active release
+gate**. Fresh exact-package installed acceptance and the frozen personal-corpus
+French/English evaluation remain gates; PR #516 stays draft until they pass.
+Authorization before content I/O, exact roots, fresh reopening, durable audit,
+Bubblewrap isolation, cancellation, interactive-search admission, and the
+**100-ms internal deadline** are unchanged.
+
 ### Disable, uninstall, and choose local-data retention
 
 Before removing packages, stop their processes explicitly: close active

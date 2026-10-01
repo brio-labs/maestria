@@ -26,7 +26,7 @@ use crate::recovery_staging::{
 use crate::supervision_recovery::supervise_recovery;
 use crate::vector_startup::reconcile_vector_projection_for_layout;
 
-/// Preserve a startup/recovery failure together with a concurrent shutdown failure.
+/// Preserve a primary lifecycle failure together with a concurrent shutdown failure.
 ///
 /// Shutdown failures must not be discarded when the primary operation already
 /// failed: teardown errors (runtime-task joins, watcher joins) are as relevant
@@ -292,18 +292,24 @@ impl InstanceLifecycle {
     /// have joined, shutdown remains in progress but completion is not awaited.
     pub async fn shutdown(mut self) -> Result<()> {
         self.shutdown_token.cancel();
-        if let Some(watcher_task) = self.watcher_task.take() {
-            watcher_task
+        let watcher_result = match self.watcher_task.take() {
+            Some(watcher_task) => watcher_task
                 .await
-                .with_context(|| "continuous ingestion watcher join failed")??;
-        }
-        let Some(runtime_task) = self.runtime_task.take() else {
-            return Ok(());
+                .context("continuous ingestion watcher join failed")
+                .and_then(|result| result),
+            None => Ok(()),
         };
-        runtime_task
-            .await
-            .with_context(|| "runtime loop join failed")??;
-        Ok(())
+        let runtime_result = match self.runtime_task.take() {
+            Some(runtime_task) => runtime_task
+                .await
+                .context("runtime loop join failed")
+                .and_then(|result| result.map_err(anyhow::Error::from)),
+            None => Ok(()),
+        };
+        match watcher_result {
+            Ok(()) => runtime_result,
+            Err(error) => Err(combine_failures(error, runtime_result)),
+        }
     }
 
     /// Run until the external `shutdown` token is triggered, or until the runtime stops itself.

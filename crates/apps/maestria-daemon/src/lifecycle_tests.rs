@@ -124,3 +124,61 @@ async fn retained_runtime_handle_does_not_block_reconciliation_after_shutdown()
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn shutdown_joins_runtime_even_when_watcher_join_fails()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::create()?;
+    let layout = prepare_instance(temp_dir.path().to_path_buf())?;
+    let mut lifecycle = InstanceLifecycle::start(layout, AutonomyProfile::ReadOnly).await?;
+
+    let runtime_task = lifecycle
+        .runtime_task
+        .take()
+        .ok_or("started lifecycle must own a runtime task")?;
+    runtime_task.abort();
+    let _ = runtime_task.await;
+
+    let (release_runtime, runtime_release) = tokio::sync::oneshot::channel();
+    let (runtime_finished, runtime_finished_rx) = tokio::sync::oneshot::channel();
+    lifecycle.runtime_task = Some(tokio::spawn(async move {
+        let _ = runtime_release.await;
+        let _ = runtime_finished.send(());
+        Ok(())
+    }));
+    let watcher_task = tokio::spawn(async {
+        Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied).into())
+    });
+    while !watcher_task.is_finished() {
+        tokio::task::yield_now().await;
+    }
+    lifecycle.watcher_task = Some(watcher_task);
+
+    let shutdown = lifecycle.shutdown();
+    tokio::pin!(shutdown);
+    let first_poll = std::future::poll_fn(|context| {
+        std::task::Poll::Ready(Future::poll(shutdown.as_mut(), context))
+    })
+    .await;
+    assert!(
+        first_poll.is_pending(),
+        "shutdown returned before the runtime task joined"
+    );
+    release_runtime
+        .send(())
+        .map_err(|_| "shutdown dropped its runtime task")?;
+    let shutdown_error = shutdown
+        .await
+        .err()
+        .ok_or("watcher join failure must be reported")?;
+    assert_eq!(
+        shutdown_error
+            .downcast_ref::<std::io::Error>()
+            .map(std::io::Error::kind),
+        Some(std::io::ErrorKind::PermissionDenied)
+    );
+    runtime_finished_rx
+        .await
+        .map_err(|_| "runtime task did not finish before shutdown returned")?;
+    Ok(())
+}

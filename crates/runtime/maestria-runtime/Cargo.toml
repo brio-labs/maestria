@@ -25,5 +25,6 @@ tokio-test = "0.4"
 tracing-subscriber = { workspace = true }
 parking_lot = "0.12"
 maestria-search-tantivy = { workspace = true }
+maestria-storage-sqlite = { workspace = true }
 tempfile = { workspace = true }
 maestria-test-support = { workspace = true }

@@ -337,6 +337,15 @@ intelligence to a reviewed set of directories.
   the same privacy boundary as the generic whitelist-first indexer.
 
 ### Fixed
+- Prepared durable search-access audit writes now bypass indexing semaphore
+  admission, matching deferred persistence and retaining the existing watchdog.
+  A real SQLite regression requires an acknowledged, independently readable
+  query/trace audit while indexing remains blocked; the 100-ms interactive
+  deadline and cancellation/admission behavior are unchanged.
+- Daemon shutdown always joins both continuous-ingestion watcher and runtime
+  tasks, even when the watcher fails, preserving combined error reporting.
+  A pending-runtime regression and a private actual watcher-persistence-error
+  shutdown verify the repair without longer waits or suppressed errors.
 - Approved-root watcher status now waits for a durable parser receipt instead
   of treating channel submission as indexing completion. Edits, deletions,
   and revoked roots deny stale search/evidence; reapproving unchanged content

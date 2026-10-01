@@ -4955,6 +4955,7 @@ dependencies = [
  "maestria-ports",
  "maestria-search-tantivy",
  "maestria-sqlite-support",
+ "maestria-storage-sqlite",
  "maestria-test-support",
  "maestria-validation",
  "parking_lot",

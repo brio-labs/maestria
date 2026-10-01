@@ -31,6 +31,9 @@ use std::time::Duration;
 use tokio::sync::{RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 
+#[path = "durable_access.rs"]
+mod durable_access;
+
 fn artifact_fixture(id: ArtifactId) -> Artifact {
     Artifact {
         id,

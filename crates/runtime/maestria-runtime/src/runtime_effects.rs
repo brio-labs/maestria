@@ -96,21 +96,27 @@ impl MaestriaRuntime {
         }
     }
 
-    /// Run a pending `PersistEvent` inline within the executor, bypassing
-    /// semaphore admission. Returns `Ok(None)` when the event was persisted,
-    /// `Ok(Some(work))` when the item is not a pending persist event and
-    /// should be admitted normally, and `Err` when persistence failed (the
-    /// caller must stop the executor).
+    /// Run persistence inline within the executor, bypassing indexing semaphore
+    /// admission in both deferred and prepared durable submissions. Return
+    /// `Ok(None)` after persistence, `Ok(Some(work))` for other effects, and
+    /// `Err` when persistence fails (the caller must stop the executor).
     async fn run_persist_event(
         context: EffectExecutionContext,
         work: EffectWork,
     ) -> Result<Option<EffectWork>, EffectFailure> {
         match work {
             EffectWork::Pending(effect @ MaestriaEffect::PersistEvent { .. }) => {
-                context.execute_with_retries(effect).await.map(|()| None)
+                context.execute_with_retries(effect).await
             }
-            other => Ok(Some(other)),
+            EffectWork::Prepared(prepared)
+                if matches!(&prepared, PreparedEffect::Dispatch { effect, .. }
+                    if matches!(**effect, MaestriaEffect::PersistEvent { .. })) =>
+            {
+                context.execute_prepared_with_watchdog(prepared).await
+            }
+            other => return Ok(Some(other)),
         }
+        .map(|()| None)
     }
     pub(crate) fn effect_execution_context(&self) -> EffectExecutionContext {
         EffectExecutionContext {

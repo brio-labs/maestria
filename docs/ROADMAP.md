@@ -675,6 +675,14 @@ and the search-only service independently as well as the combined install:
   retrieval promotion requirements still apply; target budgets do not
   silently activate shadow routes.
 
+The 2026-10-01 bounded repair establishes prepared durable-audit starvation
+behind indexing and early shutdown return on watcher failure. Focused
+regressions and private source-daemon/native smokes verify those paths, not
+fresh CI-installed acceptance or this corpus-quality gate. Historical Tantivy
+writer identity remains unresolved historical evidence, not an active release
+gate. Current interaction, shutdown, hardware, and genuine French/English
+quality requirements remain unchanged; PR #516 remains draft pending them.
+
 ### Historical Tauri launcher-only X11 measurement (2026-09-23)
 
 On an Intel Core Ultra 7 258V, private Xvfb/JWM display, WebKit DPR 1,
