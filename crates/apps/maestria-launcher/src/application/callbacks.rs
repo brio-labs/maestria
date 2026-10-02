@@ -1,4 +1,4 @@
-use slint::ComponentHandle;
+use slint::{ComponentHandle, Timer, TimerMode};
 use std::sync::Arc;
 
 use super::dispatch::{DispatchContext, dispatch_action};
@@ -7,10 +7,13 @@ use super::preferences::{
 };
 use super::search::{
     apply_result_filter, close_passage_view, navigate_result_selection, open_passage_view,
-    passage_result_is_visible, update_selected_actions,
+    passage_result_is_visible, start_typed_passage_search, start_typed_search,
+    take_pending_passage_search, update_selected_actions,
 };
 use super::window::{hide_launcher, show_notice};
-use super::{Frontend, LauncherWindow, SEARCH_DEBOUNCE_TICKS, empty_actions, empty_results, lock};
+use super::{
+    Frontend, LauncherWindow, PASSAGE_SEARCH_DEBOUNCE, empty_actions, empty_results, lock,
+};
 use crate::ipc::LauncherState;
 use crate::model::{
     HOST_COPY_ACTIVATION, HOST_PREFERENCES, HOST_RESET_PREFERENCES, PreferencesUpdate,
@@ -25,7 +28,7 @@ pub(super) fn install_callbacks(
     runtime: tokio::runtime::Handle,
     system_dark: bool,
 ) {
-    install_query_callbacks(ui, &frontend);
+    install_query_callbacks(ui, &state, &frontend, &runtime);
     install_result_callback(ui, &state, &frontend, &shortcuts, &runtime, system_dark);
     install_action_callback(ui, &state, &frontend, &shortcuts, &runtime, system_dark);
     install_preferences_callbacks(ui, &state, &shortcuts, system_dark);
@@ -36,25 +39,44 @@ pub(super) fn install_callbacks(
     install_search_surface_callbacks(ui, &frontend);
 }
 
-fn install_query_callbacks(ui: &LauncherWindow, frontend: &Arc<Frontend>) {
+fn install_query_callbacks(
+    ui: &LauncherWindow,
+    state: &Arc<LauncherState>,
+    frontend: &Arc<Frontend>,
+    runtime: &tokio::runtime::Handle,
+) {
     let weak = ui.as_weak();
     let query_frontend = Arc::clone(frontend);
+    let query_state = Arc::clone(state);
+    let query_runtime = runtime.clone();
+    // This callback owns the timer for the lifetime of the launcher window.
+    let passage_search_timer = Timer::default();
     ui.on_query_changed(move |query| {
-        let mut model = lock(&query_frontend.model);
-        model.query = query.to_string();
-        model.pending_ticks = Some(SEARCH_DEBOUNCE_TICKS);
-        model.accepted.clear();
-        model.accepted_passages.clear();
-        model.accepted_paths.clear();
-        model.passages_loaded = false;
-        model.displayed.clear();
-        model.content_view_passages.clear();
-        model.result_filter = "all".to_string();
-        model.selected_file = None;
-        query_frontend
-            .generation
-            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-        drop(model);
+        let query = query.to_string();
+        passage_search_timer.stop();
+        let pending_search = start_typed_search(
+            Arc::clone(&query_state),
+            Arc::clone(&query_frontend),
+            query_runtime.clone(),
+            weak.clone(),
+            query.clone(),
+        );
+        let has_search_service = pending_search
+            .as_ref()
+            .is_some_and(|search| search.has_search_service);
+        {
+            let mut model = lock(&query_frontend.model);
+            model.query.clone_from(&query);
+            model.passage_search_pending = pending_search.is_some();
+            model.accepted.clear();
+            model.accepted_passages.clear();
+            model.accepted_paths.clear();
+            model.passages_loaded = false;
+            model.displayed.clear();
+            model.content_view_passages.clear();
+            model.result_filter = "all".to_string();
+            model.selected_file = None;
+        }
         if let Some(ui) = weak.upgrade() {
             ui.set_results(empty_results());
             ui.set_actions(empty_actions());
@@ -64,10 +86,57 @@ fn install_query_callbacks(ui: &LauncherWindow, frontend: &Arc<Frontend>) {
             ui.set_passage_view_open(false);
             ui.set_passage_view_results(empty_results());
             ui.set_result_filter("all".into());
-            ui.set_index_status("Index status pending".into());
+            ui.set_index_status(
+                if has_search_service && query.is_empty() {
+                    "Enter a query to search documents"
+                } else if has_search_service {
+                    "Searching document index…"
+                } else {
+                    "Document search not configured"
+                }
+                .into(),
+            );
             ui.set_status_kind("loading".into());
             ui.set_status_message("Searching…".into());
+        } else {
+            lock(&query_frontend.model).passage_search_pending = false;
+            return;
         }
+        let Some(pending_search) = pending_search else {
+            show_notice(
+                &weak,
+                "Search generation exhausted; restart the launcher.".to_string(),
+            );
+            return;
+        };
+        let generation = pending_search.generation;
+        let timer_frontend = Arc::clone(&query_frontend);
+        let timer_state = Arc::clone(&query_state);
+        let timer_runtime = query_runtime.clone();
+        let timer_ui = weak.clone();
+        let mut catalog_applied = Some(pending_search.catalog_applied);
+        passage_search_timer.start(TimerMode::SingleShot, PASSAGE_SEARCH_DEBOUNCE, move || {
+            let Some(catalog_applied) = catalog_applied.take() else {
+                return;
+            };
+            let Some((pending_query, pending_generation)) =
+                take_pending_passage_search(&timer_frontend)
+            else {
+                return;
+            };
+            if pending_generation != generation || !has_search_service || pending_query.is_empty() {
+                return;
+            }
+            start_typed_passage_search(
+                Arc::clone(&timer_state),
+                Arc::clone(&timer_frontend),
+                timer_runtime.clone(),
+                timer_ui.clone(),
+                pending_query,
+                pending_generation,
+                catalog_applied,
+            );
+        });
     });
 
     let weak = ui.as_weak();

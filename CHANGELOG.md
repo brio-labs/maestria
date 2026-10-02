@@ -337,6 +337,22 @@ intelligence to a reviewed set of directories.
   the same privacy boundary as the generic whitelist-first indexer.
 
 ### Fixed
+- Interactive source snapshots are now prepared on an awaited blocking worker
+  after watcher deliveries, removals, and parser work quiesce, before indexing
+  status reports ready. The scan permit is released before preparation;
+  revision races remain non-ready and same-revision preparation errors remain
+  visible without retries. A fresh 10,000-source diagnostic established a
+  470-ms cold replay inside a timed-out request; the post-repair debug fixture
+  instead hit its ingestion-readiness deadline with zero search requests.
+  Consumer add/edit/delete transitions passed, but fresh installed-release
+  latency and availability acceptance remain required.
+- Typed Slint edits immediately advance cancellation generations, clear stale
+  rows, and start the application catalog. A dedicated 25-ms trailing timer
+  coalesces passage requests; passage RPCs run independently but publish only
+  after current-generation catalog application. Superseded semaphore waiters
+  cancel without occupying the shared interactive slot. The 50-ms UI tick,
+  100-ms daemon deadline, and five-second shutdown gate are unchanged;
+  the scheduling change alone does not certify native latency percentiles.
 - Prepared durable search-access audit writes now bypass indexing semaphore
   admission, matching deferred persistence and retaining the existing watchdog.
   A real SQLite regression requires an acknowledged, independently readable

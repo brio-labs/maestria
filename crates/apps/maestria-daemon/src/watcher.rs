@@ -3,6 +3,7 @@ use maestria_core::{InstanceLayout, InstanceManifest};
 #[cfg(test)]
 use maestria_domain::DomainEvent;
 use maestria_domain::DomainInput;
+use maestria_runtime::RuntimeHandle;
 use maestria_storage_sqlite::SqliteStore;
 use parking_lot::RwLock;
 #[cfg(test)]
@@ -14,6 +15,8 @@ use tokio::{
     time::{MissedTickBehavior, interval},
 };
 use tokio_util::sync::CancellationToken;
+
+use crate::search_executor::SearchRuntime;
 
 #[cfg(test)]
 use crate::source_identity::source_key;
@@ -59,6 +62,8 @@ pub(crate) fn spawn(
     input_tx: mpsc::Sender<DomainInput>,
     artifact_ids: BTreeMap<String, (maestria_domain::ArtifactId, String)>,
     shutdown: CancellationToken,
+    search_runtime: SearchRuntime,
+    runtime_handle: RuntimeHandle,
 ) -> JoinHandle<Result<()>> {
     tokio::spawn(async move {
         let event_log = SqliteStore::open_read_only(&layout.database_path).with_context(|| {
@@ -97,7 +102,7 @@ pub(crate) fn spawn(
             receipts: ReceiptTracking::new(event_log),
             scan_permits,
         };
-        watcher.run().await
+        watcher.run(search_runtime, runtime_handle).await
     })
 }
 
@@ -116,7 +121,12 @@ struct Watcher {
 }
 
 impl Watcher {
-    async fn run(mut self) -> Result<()> {
+    async fn run(
+        mut self,
+        search_runtime: SearchRuntime,
+        runtime_handle: RuntimeHandle,
+    ) -> Result<()> {
+        let mut snapshot_refresh = SnapshotRefreshState::new(search_runtime, runtime_handle);
         let mut ticks = interval(WATCH_INTERVAL);
         ticks.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
@@ -128,8 +138,16 @@ impl Watcher {
                     if let Err(error) = persist_state(&self.layout, &self.state) {
                         tracing::warn!(%error, "failed to persist indexing progress status");
                     }
-                    if let Err(error) = self.scan_once().await {
-                        self.state.scanning = false;
+                    if let Err(error) = self
+                        .scan_once_with_snapshot_refresh(&mut snapshot_refresh)
+                        .await
+                    {
+                        self.state.scanning = !snapshot_refresh
+                            .is_ready_for_current(
+                                !self.pending.is_empty(),
+                                !self.state.pending_removals.is_empty(),
+                            )
+                            .await;
                         self.state.pending_files = self.pending_file_count();
                         self.state.last_error = Some(error.to_string());
                         if let Err(persist_error) = persist_state(&self.layout, &self.state) {
@@ -144,10 +162,21 @@ impl Watcher {
             .with_context(|| "persist continuous ingestion state on shutdown")
     }
 
+    #[cfg(test)]
     async fn scan_once(&mut self) -> Result<()> {
-        let permits = self.scan_permits.clone();
-        let _permit = permits.acquire().await.context("acquire scan permit")?;
+        self.scan_once_inner(None).await
+    }
 
+    async fn scan_once_with_snapshot_refresh(
+        &mut self,
+        refresh: &mut SnapshotRefreshState,
+    ) -> Result<()> {
+        self.scan_once_inner(Some(refresh)).await
+    }
+
+    async fn scan_once_inner(&mut self, refresh: Option<&mut SnapshotRefreshState>) -> Result<()> {
+        let permits = self.scan_permits.clone();
+        let permit = permits.acquire().await.context("acquire scan permit")?;
         let previous_artifact_ids = self.state.artifact_ids.clone();
         let confirmed = self.phase_confirm_deliveries()?;
         let manifest = self.manifest.read().clone();
@@ -233,11 +262,190 @@ impl Watcher {
             .artifact_ids
             .retain(|key, entry| self.state.files.get(key) == Some(&entry.content_hash));
         self.phase_process_pending_removals()?;
-        self.state.scanning = false;
-        self.state.last_error = None;
+        drop(permit);
+        let readiness = match refresh {
+            Some(refresh) => {
+                refresh
+                    .prepare_if_ready(
+                        !self.pending.is_empty(),
+                        !self.state.pending_removals.is_empty(),
+                    )
+                    .await
+            }
+            None => SnapshotReadiness::Ready,
+        };
+        self.state.scanning = !matches!(&readiness, SnapshotReadiness::Ready);
+        self.state.last_error = match readiness {
+            SnapshotReadiness::Ready | SnapshotReadiness::Pending => None,
+            SnapshotReadiness::Failed(error) => Some(error),
+        };
         self.state.pending_files = pending_files;
         self.state.last_scan_unix_ms = Some(unix_time_millis());
         persist_state(&self.layout, &self.state)
+    }
+}
+
+enum SnapshotReadiness {
+    Ready,
+    Pending,
+    Failed(String),
+}
+
+struct SnapshotRefreshState {
+    search_runtime: SearchRuntime,
+    runtime_handle: RuntimeHandle,
+    attempted_revision: Option<i64>,
+    failure: Option<(i64, String)>,
+}
+
+impl SnapshotRefreshState {
+    fn new(search_runtime: SearchRuntime, runtime_handle: RuntimeHandle) -> Self {
+        Self {
+            search_runtime,
+            runtime_handle,
+            attempted_revision: None,
+            failure: None,
+        }
+    }
+
+    async fn is_ready_for_current(&self, pending_deliveries: bool, pending_removals: bool) -> bool {
+        if pending_deliveries || pending_removals || self.runtime_handle.has_pending_parsers().await
+        {
+            return false;
+        }
+        let Ok(revision) = self.search_runtime.searchable_source_revision() else {
+            return false;
+        };
+        self.search_runtime
+            .interactive_snapshot_is_current(revision)
+    }
+
+    async fn prepare_if_ready(
+        &mut self,
+        pending_deliveries: bool,
+        pending_removals: bool,
+    ) -> SnapshotReadiness {
+        let current_revision = match self.search_runtime.searchable_source_revision() {
+            Ok(revision) => revision,
+            Err(error) => {
+                return SnapshotReadiness::Failed(format!(
+                    "read searchable source revision: {error:#}"
+                ));
+            }
+        };
+        if self
+            .failure
+            .as_ref()
+            .is_some_and(|(revision, _)| *revision != current_revision)
+        {
+            self.failure = None;
+        }
+        let cached_current = self
+            .search_runtime
+            .interactive_snapshot_is_current(current_revision);
+        if cached_current {
+            self.failure = None;
+        } else if let Some((revision, error)) = &self.failure
+            && *revision == current_revision
+        {
+            return SnapshotReadiness::Failed(error.clone());
+        }
+
+        if pending_deliveries || pending_removals || self.runtime_handle.has_pending_parsers().await
+        {
+            return SnapshotReadiness::Pending;
+        }
+        if cached_current {
+            let latest_revision = match self.search_runtime.searchable_source_revision() {
+                Ok(revision) => revision,
+                Err(error) => {
+                    return self.record_failure(
+                        current_revision,
+                        format!("recheck searchable source revision: {error:#}"),
+                    );
+                }
+            };
+            if latest_revision != current_revision
+                || !self
+                    .search_runtime
+                    .interactive_snapshot_is_current(latest_revision)
+            {
+                return SnapshotReadiness::Pending;
+            }
+            return SnapshotReadiness::Ready;
+        }
+        if self.attempted_revision == Some(current_revision) {
+            return self
+                .failure
+                .as_ref()
+                .filter(|(revision, _)| *revision == current_revision)
+                .map_or(SnapshotReadiness::Pending, |(_, error)| {
+                    SnapshotReadiness::Failed(error.clone())
+                });
+        }
+
+        self.attempted_revision = Some(current_revision);
+        let search_runtime = self.search_runtime.clone();
+        let preparation =
+            tokio::task::spawn_blocking(move || search_runtime.prepare_interactive_snapshot())
+                .await;
+        let (prepared_revision, ready) = match preparation {
+            Ok(Ok(prepared)) => prepared,
+            Ok(Err(error)) => {
+                return self.record_failure(
+                    current_revision,
+                    format!("prepare interactive source snapshot: {error:#}"),
+                );
+            }
+            Err(error) => {
+                return self.record_failure(
+                    current_revision,
+                    format!("join interactive source snapshot preparation: {error}"),
+                );
+            }
+        };
+        if !ready {
+            if prepared_revision == current_revision {
+                return self.record_failure(
+                    current_revision,
+                    "interactive source snapshot cache did not reach the current revision"
+                        .to_owned(),
+                );
+            }
+            self.failure = None;
+            return SnapshotReadiness::Pending;
+        }
+
+        let latest_revision = match self.search_runtime.searchable_source_revision() {
+            Ok(revision) => revision,
+            Err(error) => {
+                return self.record_failure(
+                    current_revision,
+                    format!("recheck searchable source revision: {error:#}"),
+                );
+            }
+        };
+        if latest_revision != prepared_revision
+            || !self
+                .search_runtime
+                .interactive_snapshot_is_current(latest_revision)
+            || self.runtime_handle.has_pending_parsers().await
+        {
+            self.failure = None;
+            return SnapshotReadiness::Pending;
+        }
+        self.failure = None;
+        SnapshotReadiness::Ready
+    }
+
+    fn record_failure(&mut self, revision: i64, error: String) -> SnapshotReadiness {
+        tracing::warn!(
+            revision,
+            error = %error,
+            "interactive source snapshot preparation failed"
+        );
+        self.failure = Some((revision, error.clone()));
+        SnapshotReadiness::Failed(error)
     }
 }
 

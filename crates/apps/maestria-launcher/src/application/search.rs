@@ -33,7 +33,7 @@ fn reset_search_state(frontend: &Frontend, ui: &UiWeak, query: &str, has_search_
     {
         let mut model = lock(&frontend.model);
         model.query = query.to_string();
-        model.pending_ticks = None;
+        model.passage_search_pending = false;
         model.accepted.clear();
         model.accepted_passages.clear();
         model.accepted_paths.clear();
@@ -76,10 +76,8 @@ pub(super) async fn search_passages(
     query: &str,
 ) -> Option<super::passages::PassageSearchResult> {
     let mut generation_updates = frontend.generation_updates.subscribe();
-    let _interactive_search = frontend.interactive_search.lock().await;
-    if frontend.generation.load(Ordering::Acquire) != generation {
-        return None;
-    }
+    let _interactive_search =
+        acquire_interactive_search_slot(frontend, generation, &mut generation_updates).await?;
 
     // Resolve the authorized service after waiting for the shared request slot.
     let config = state
@@ -93,6 +91,137 @@ pub(super) async fn search_passages(
     }
 }
 
+async fn acquire_interactive_search_slot<'a>(
+    frontend: &'a Frontend,
+    generation: u64,
+    generation_updates: &mut tokio::sync::watch::Receiver<u64>,
+) -> Option<tokio::sync::MutexGuard<'a, ()>> {
+    let guard = tokio::select! {
+        biased;
+        _ = generation_updates.changed() => return None,
+        guard = frontend.interactive_search.lock() => guard,
+    };
+    (frontend.generation.load(Ordering::Acquire) == generation).then_some(guard)
+}
+
+pub(super) struct TypedSearch {
+    pub(super) generation: u64,
+    pub(super) has_search_service: bool,
+    pub(super) catalog_applied: tokio::sync::oneshot::Receiver<()>,
+}
+
+pub(super) fn advance_search_generation(frontend: &Frontend) -> Option<u64> {
+    let previous = frontend
+        .generation
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |generation| {
+            generation.checked_add(1)
+        })
+        .ok()?;
+    let generation = previous + 1;
+    frontend.generation_updates.send_replace(generation);
+    Some(generation)
+}
+
+pub(super) fn start_typed_search(
+    state: Arc<LauncherState>,
+    frontend: Arc<Frontend>,
+    runtime: tokio::runtime::Handle,
+    ui: UiWeak,
+    query: String,
+) -> Option<TypedSearch> {
+    frontend.active_search.store(0, Ordering::Release);
+    let generation = advance_search_generation(&frontend)?;
+    let has_search_service = state
+        .settings()
+        .ok()
+        .and_then(|settings| settings.search_service())
+        .is_some();
+    let catalog_applied = start_catalog_search(
+        state,
+        Arc::clone(&frontend),
+        &runtime,
+        ui,
+        query,
+        generation,
+    );
+    Some(TypedSearch {
+        generation,
+        has_search_service,
+        catalog_applied,
+    })
+}
+
+pub(super) fn take_pending_passage_search(frontend: &Frontend) -> Option<(String, u64)> {
+    let mut model = lock(&frontend.model);
+    if !model.passage_search_pending {
+        return None;
+    }
+    model.passage_search_pending = false;
+    Some((
+        model.query.clone(),
+        frontend.generation.load(Ordering::Acquire),
+    ))
+}
+
+pub(super) fn start_typed_passage_search(
+    state: Arc<LauncherState>,
+    frontend: Arc<Frontend>,
+    runtime: tokio::runtime::Handle,
+    ui: UiWeak,
+    query: String,
+    generation: u64,
+    catalog_applied: tokio::sync::oneshot::Receiver<()>,
+) {
+    if query.is_empty() {
+        finish_active_search(&frontend, generation);
+        return;
+    }
+    frontend.active_search.store(generation, Ordering::Release);
+    runtime.spawn(async move {
+        let mut generation_updates = frontend.generation_updates.subscribe();
+        let search_result = search_passages(&frontend, &state, generation, &query).await;
+        if frontend.generation.load(Ordering::Acquire) != generation {
+            finish_active_search(&frontend, generation);
+            return;
+        }
+        // The catalog apply resets passage rows, so only the RPC may run in parallel.
+        if !wait_for_catalog_application(
+            &frontend,
+            generation,
+            &mut generation_updates,
+            catalog_applied,
+        )
+        .await
+        {
+            finish_active_search(&frontend, generation);
+            return;
+        }
+        if frontend.generation.load(Ordering::Acquire) != generation {
+            finish_active_search(&frontend, generation);
+            return;
+        }
+        let applied =
+            apply_passage_result(Arc::clone(&frontend), ui, generation, query, search_result);
+        let _ = applied.await;
+        finish_active_search(&frontend, generation);
+    });
+}
+
+async fn wait_for_catalog_application(
+    frontend: &Frontend,
+    generation: u64,
+    generation_updates: &mut tokio::sync::watch::Receiver<u64>,
+    catalog_applied: tokio::sync::oneshot::Receiver<()>,
+) -> bool {
+    tokio::select! {
+        biased;
+        _ = generation_updates.changed() => false,
+        result = catalog_applied => {
+            result.is_ok() && frontend.generation.load(Ordering::Acquire) == generation
+        },
+    }
+}
+
 pub(super) fn start_search(
     state: Arc<LauncherState>,
     frontend: Arc<Frontend>,
@@ -100,24 +229,14 @@ pub(super) fn start_search(
     ui: UiWeak,
     query: String,
 ) {
-    let previous =
-        frontend
-            .generation
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |generation| {
-                generation.checked_add(1)
-            });
-    let generation = match previous {
-        Ok(previous) => previous + 1,
-        Err(_) => {
-            show_notice(
-                &ui,
-                "Search generation exhausted; restart the launcher.".to_string(),
-            );
-            return;
-        }
+    let Some(generation) = advance_search_generation(&frontend) else {
+        show_notice(
+            &ui,
+            "Search generation exhausted; restart the launcher.".to_string(),
+        );
+        return;
     };
     frontend.active_search.store(generation, Ordering::Release);
-    frontend.generation_updates.send_replace(generation);
 
     let search_service = state
         .settings()
@@ -125,74 +244,92 @@ pub(super) fn start_search(
         .and_then(|settings| settings.search_service());
     reset_search_state(&frontend, &ui, &query, search_service.is_some());
 
+    let catalog_applied = start_catalog_search(
+        Arc::clone(&state),
+        Arc::clone(&frontend),
+        &runtime,
+        ui.clone(),
+        query.clone(),
+        generation,
+    );
     runtime.spawn(async move {
-        let response = state.search(query.clone(), generation).await;
-        let apply_frontend = Arc::clone(&frontend);
-        let apply_ui = ui.clone();
-        let (applied, wait_for_application) = tokio::sync::oneshot::channel::<()>();
-        let _ = slint::invoke_from_event_loop(move || {
-            if apply_frontend.generation.load(Ordering::Acquire) == generation
-                && let Some(window) = apply_ui.upgrade()
-            {
-                match response {
-                    Ok(response) => apply_search_response(&window, &apply_frontend, response),
-                    Err(error) => {
-                        let mut model = lock(&apply_frontend.model);
-                        model.accepted.clear();
-                        model.accepted_passages.clear();
-                        model.accepted_paths.clear();
-                        model.passages_loaded = false;
-                        model.displayed.clear();
-                        drop(model);
-                        window.set_results(empty_results());
-                        window.set_actions(empty_actions());
-                        window.set_status_kind("error".into());
-                        window.set_status_message(error.message.into());
-                    }
-                }
-            }
-            drop(applied);
-        });
-        let _ = wait_for_application.await;
+        let _ = catalog_applied.await;
         if frontend.generation.load(Ordering::Acquire) != generation {
+            finish_active_search(&frontend, generation);
             return;
         }
 
         if search_service.is_some() && !query.is_empty() {
             let search_result = search_passages(&frontend, &state, generation, &query).await;
-            let merge_frontend = Arc::clone(&frontend);
-            let merge_ui = ui.clone();
-            let merge_query = query.clone();
-            let (passages_applied, wait_for_passages) = tokio::sync::oneshot::channel::<()>();
-            let _ = slint::invoke_from_event_loop(move || {
-                if merge_frontend.generation.load(Ordering::Acquire) != generation {
-                    return;
-                }
-                if let Some(window) = merge_ui.upgrade() {
-                    if let Some(search_result) = search_result {
-                        apply_passages(
-                            &window,
-                            &merge_frontend,
-                            generation,
-                            &merge_query,
-                            search_result,
-                            false,
-                        );
-                    } else {
-                        window.set_index_status("Document search unavailable".into());
-                    }
-                }
-                drop(passages_applied);
-            });
-            let _ = wait_for_passages.await;
+            if frontend.generation.load(Ordering::Acquire) == generation {
+                let applied = apply_passage_result(
+                    Arc::clone(&frontend),
+                    ui,
+                    generation,
+                    query,
+                    search_result,
+                );
+                let _ = applied.await;
+            }
         }
-        let _ = frontend.active_search.compare_exchange(
-            generation,
-            0,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        );
+        finish_active_search(&frontend, generation);
     });
+}
+
+fn start_catalog_search(
+    state: Arc<LauncherState>,
+    frontend: Arc<Frontend>,
+    runtime: &tokio::runtime::Handle,
+    ui: UiWeak,
+    query: String,
+    generation: u64,
+) -> tokio::sync::oneshot::Receiver<()> {
+    let (applied, wait_for_application) = tokio::sync::oneshot::channel::<()>();
+    runtime.spawn(async move {
+        let response = state.search(query, generation).await;
+        let _ = slint::invoke_from_event_loop(move || {
+            if frontend.generation.load(Ordering::Acquire) == generation
+                && let Some(window) = ui.upgrade()
+            {
+                match response {
+                    Ok(response) => apply_search_response(&window, &frontend, response),
+                    Err(error) => apply_search_error(&window, &frontend, error.message),
+                }
+                let _ = applied.send(());
+            }
+        });
+    });
+    wait_for_application
+}
+
+fn apply_passage_result(
+    frontend: Arc<Frontend>,
+    ui: UiWeak,
+    generation: u64,
+    query: String,
+    search_result: Option<super::passages::PassageSearchResult>,
+) -> tokio::sync::oneshot::Receiver<()> {
+    let (applied, wait_for_application) = tokio::sync::oneshot::channel::<()>();
+    let _ = slint::invoke_from_event_loop(move || {
+        if frontend.generation.load(Ordering::Acquire) == generation
+            && let Some(window) = ui.upgrade()
+        {
+            if let Some(search_result) = search_result {
+                apply_passages(&window, &frontend, generation, &query, search_result, false);
+            } else {
+                window.set_index_status("Document search unavailable".into());
+            }
+        }
+        drop(applied);
+    });
+    wait_for_application
+}
+
+fn finish_active_search(frontend: &Frontend, generation: u64) {
+    let _ =
+        frontend
+            .active_search
+            .compare_exchange(generation, 0, Ordering::AcqRel, Ordering::Acquire);
 }
 
 fn apply_search_response(window: &LauncherWindow, frontend: &Frontend, response: SearchResponse) {
@@ -228,6 +365,19 @@ fn apply_search_response(window: &LauncherWindow, frontend: &Frontend, response:
     window.set_selected_action_index(0);
     window.set_actions_open(false);
     window.set_status_kind(status_kind.into());
+    window.set_status_message(message.into());
+}
+fn apply_search_error(window: &LauncherWindow, frontend: &Frontend, message: String) {
+    let mut model = lock(&frontend.model);
+    model.accepted.clear();
+    model.accepted_passages.clear();
+    model.accepted_paths.clear();
+    model.passages_loaded = false;
+    model.displayed.clear();
+    drop(model);
+    window.set_results(empty_results());
+    window.set_actions(empty_actions());
+    window.set_status_kind("error".into());
     window.set_status_message(message.into());
 }
 
@@ -318,5 +468,87 @@ fn result_kind_label(kind: &ResultKind) -> &'static str {
         ResultKind::Application => "application",
         ResultKind::Command => "command",
         ResultKind::Calculation => "calculation",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_frontend(generation: u64, query: &str, passage_search_pending: bool) -> Frontend {
+        let (generation_updates, _) = tokio::sync::watch::channel(generation);
+        Frontend {
+            generation: std::sync::atomic::AtomicU64::new(generation),
+            active_search: std::sync::atomic::AtomicU64::new(0),
+            generation_updates,
+            interactive_search: tokio::sync::Mutex::new(()),
+            model: std::sync::Mutex::new(super::super::FrontendModel {
+                query: query.to_string(),
+                passage_search_pending,
+                accepted: Vec::new(),
+                selected_file: None,
+                catalog_ticks_until_refresh: super::super::CATALOG_REFRESH_TICKS,
+                accepted_passages: Vec::new(),
+                accepted_paths: Vec::new(),
+                passages_loaded: false,
+                displayed: Vec::new(),
+                result_filter: "all".to_string(),
+                content_view_passages: Vec::new(),
+            }),
+        }
+    }
+
+    #[test]
+    fn pending_passage_timer_takes_only_the_latest_generation_once()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = test_frontend(1, "first", true);
+        let cancelled_generation = frontend.generation_updates.subscribe();
+        let stale_generation = frontend.generation.load(Ordering::Acquire);
+        {
+            let mut model = lock(&frontend.model);
+            model.query = "latest".to_string();
+            model.passage_search_pending = true;
+        }
+
+        let latest_generation = advance_search_generation(&frontend)
+            .ok_or("search generation unexpectedly exhausted")?;
+        assert!(cancelled_generation.has_changed()?);
+        assert_eq!(*cancelled_generation.borrow(), latest_generation);
+        assert_ne!(latest_generation, stale_generation);
+        assert_eq!(
+            take_pending_passage_search(&frontend),
+            Some(("latest".to_string(), latest_generation))
+        );
+        assert_eq!(take_pending_passage_search(&frontend), None);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn superseded_search_drops_while_waiting_for_the_shared_slot() {
+        let frontend = test_frontend(1, "stale", false);
+        let _held_slot = frontend.interactive_search.lock().await;
+        let mut generation_updates = frontend.generation_updates.subscribe();
+        let pending = acquire_interactive_search_slot(&frontend, 1, &mut generation_updates);
+        tokio::pin!(pending);
+        tokio::task::yield_now().await;
+
+        assert_eq!(advance_search_generation(&frontend), Some(2));
+        let acquired = tokio::time::timeout(std::time::Duration::from_millis(100), &mut pending)
+            .await
+            .expect("generation cancellation must release a queued search");
+        assert!(acquired.is_none());
+    }
+
+    #[tokio::test]
+    async fn superseded_catalog_gate_drops_passage_result() {
+        let frontend = test_frontend(1, "stale", false);
+        let mut generation_updates = frontend.generation_updates.subscribe();
+        let (_catalog_applied, wait_for_catalog) = tokio::sync::oneshot::channel();
+        let waiting =
+            wait_for_catalog_application(&frontend, 1, &mut generation_updates, wait_for_catalog);
+        tokio::pin!(waiting);
+
+        assert_eq!(advance_search_generation(&frontend), Some(2));
+        assert!(!waiting.await);
     }
 }

@@ -21,7 +21,7 @@ pub(super) fn activate_launcher(
             {
                 let mut model = lock(&frontend.model);
                 model.query.clear();
-                model.pending_ticks = None;
+                model.passage_search_pending = false;
                 model.accepted.clear();
                 model.accepted_passages.clear();
                 model.accepted_paths.clear();

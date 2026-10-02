@@ -683,6 +683,31 @@ writer identity remains unresolved historical evidence, not an active release
 gate. Current interaction, shutdown, hardware, and genuine French/English
 quality requirements remain unchanged; PR #516 remains draft pending them.
 
+The 2026-10-02 frozen project-work evaluation completed once on 16 documents
+(371,746 bytes), with 30 French and 30 English paraphrases. Judgments were
+LLM-assisted and independently source-reviewed, not human-certified; four
+cross-language pairs represent the same intent (56 distinct needs).
+The production-engine candidate ablation used FixedKRrf(60) and the actual
+local 384-dimensional Bekko assets, without persisting a promotion:
+
+| Query-macro metric | French lexical → Hybrid | English lexical → Hybrid |
+|---|---|---|
+| Passage Recall@10 | 23.33% → 63.33% | 70.00% → 76.67% |
+| Bounded document recall | 30.00% → 90.00% | 90.00% → 90.00% |
+
+The document metric considers ten distinct documents within the first 100
+ranked passages, not an unrestricted document Recall@10. Complete ten-document
+cuts were available for only 4/30 French lexical cases and 27/30 cases in each
+other language/route combination. Ten plan refusals and two quarantined
+observations remain in the denominator; 120 held-out plan attempts produced
+110 searches, followed by six fixed-control searches.
+Exact phrase/path controls kept rank one, but the first-hit control regressed
+from rank one to rank nine under Hybrid. **The quality gate fails.** This
+transient all-class ablation is not the currently served native/consumer
+policy, does not prove their authorization/navigation surfaces, and cannot
+justify silently activating shadow retrieval. The frozen run must not be
+warmed, tuned, or replayed.
+
 ### Historical Tauri launcher-only X11 measurement (2026-09-23)
 
 On an Intel Core Ultra 7 258V, private Xvfb/JWM display, WebKit DPR 1,

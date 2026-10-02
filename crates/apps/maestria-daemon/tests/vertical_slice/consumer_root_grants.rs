@@ -484,3 +484,181 @@ async fn verify_scoped_inventory(
     assert_eq!(inventory.indexed_file_count, 1);
     Ok(())
 }
+async fn consumer_scan_time(
+    consumer: &maestria_daemon::SearchApiClient,
+) -> Result<u64, Box<dyn std::error::Error>> {
+    let response = consumer
+        .request(maestria_daemon::SearchApiOperation::IndexingStatus)
+        .await?;
+    let maestria_daemon::SearchApiResponse::IndexingStatus(status) = response else {
+        return Err("unexpected indexing status response".into());
+    };
+    status
+        .last_scan_unix_ms
+        .ok_or_else(|| "watcher has not completed an indexing scan".into())
+}
+
+async fn wait_for_indexed_source_count(
+    consumer: &maestria_daemon::SearchApiClient,
+    expected_count: usize,
+    after: Option<(u64, i64)>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for _ in 0..120 {
+        let response = consumer
+            .request(maestria_daemon::SearchApiOperation::IndexingStatus)
+            .await?;
+        let maestria_daemon::SearchApiResponse::IndexingStatus(status) = response else {
+            return Err("unexpected indexing status response".into());
+        };
+        let transition_observed = if let Some((scan_time, revision)) = after {
+            status
+                .last_scan_unix_ms
+                .is_some_and(|observed| observed > scan_time)
+                && source_revision_as_consumer(consumer).await? > revision
+        } else {
+            status.last_scan_unix_ms.is_some()
+        };
+        if transition_observed
+            && status.indexed_file_count == expected_count
+            && !status.scanning
+            && status.pending_file_count == 0
+            && !status.last_scan_error
+        {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    Err(format!("indexing did not settle at {expected_count} files").into())
+}
+
+async fn verify_fresh_consumer_source(
+    consumer: &maestria_daemon::SearchApiClient,
+    root: &Path,
+    filename: &str,
+    token: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let response = search_as_consumer(consumer, token).await?;
+    assert_eq!(response.evidence.len(), 1);
+    let preview = response.evidence[0]
+        .preview
+        .as_ref()
+        .ok_or("authorized fresh evidence was not reopened")?;
+    assert!(preview.excerpt.contains(token));
+    assert!(matches!(
+        &preview.location,
+        maestria_daemon::api::EvidenceSourceResponse::File { path, .. }
+            if Path::new(path).starts_with(root) && Path::new(path).ends_with(filename)
+    ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn consumer_search_observes_post_start_source_only_after_snapshot_readiness()
+-> Result<(), Box<dyn std::error::Error>> {
+    let tmp = TempDir::new()?;
+    let instance = tmp.path().join("source-transition-provider");
+    let allowed_root = instance.join("allowed");
+    fs::create_dir_all(&allowed_root)?;
+    let plan = InstanceService::init_instance_with_roots(
+        instance,
+        vec![allowed_root.clone()],
+        maestria_test_support::realm_id(31)?,
+    )?;
+    for directory in &plan.directories {
+        fs::create_dir_all(directory)?;
+    }
+    fs::write(&plan.manifest_path, plan.manifest_contents.as_bytes())?;
+
+    let shutdown = CancellationToken::new();
+    let daemon = tokio::spawn(maestria_daemon::run_instance_with_shutdown(
+        plan.layout.root.clone(),
+        shutdown.clone(),
+        AutonomyProfile::ReadOnly,
+    ));
+    let result = async {
+        let layout = &plan.layout;
+        let owner = wait_for_daemon_client(layout).await?;
+        let consumer_realm = maestria_test_support::realm_id(32)?;
+        let response = owner
+            .request(maestria_daemon::ClientOperation::RealmGrantCreate {
+                consumer_realm: consumer_realm.clone(),
+                access: maestria_daemon::RealmGrantAccess::SearchAndOpenEvidence,
+                max_sensitivity: maestria_daemon::RealmGrantSensitivity::Restricted,
+                max_results: 5,
+                max_evidence_bytes: 4096,
+                expires_in_seconds: 86_400,
+                allowed_roots: vec![allowed_root.display().to_string()],
+            })
+            .await?;
+        let maestria_daemon::ClientResponse::RealmGrantCreated(created) = response else {
+            return Err("grant creation did not return a credential".into());
+        };
+        let consumer = maestria_daemon::SearchApiClient::consumer(
+            layout.system_dir.join("daemon.sock"),
+            consumer_realm,
+            created.credential.expose().to_string(),
+        )?;
+
+        let source_path = allowed_root.join("post-start-source.md");
+        wait_for_indexed_source_count(&consumer, 0, None).await?;
+        let before_first_publication = (
+            consumer_scan_time(&consumer).await?,
+            source_revision_as_consumer(&consumer).await?,
+        );
+        fs::write(
+            &source_path,
+            "# Fresh source\nfreshsourceevidence is published after startup.\n",
+        )?;
+        wait_for_indexed_source_count(&consumer, 1, Some(before_first_publication)).await?;
+        verify_fresh_consumer_source(
+            &consumer,
+            &allowed_root,
+            "post-start-source.md",
+            "freshsourceevidence",
+        )
+        .await?;
+
+        let before_edit_publication = (
+            consumer_scan_time(&consumer).await?,
+            source_revision_as_consumer(&consumer).await?,
+        );
+        fs::write(
+            &source_path,
+            "# Updated source\neditedsourceevidence replaces the previous content.\n",
+        )?;
+        wait_for_indexed_source_count(&consumer, 1, Some(before_edit_publication)).await?;
+        assert!(
+            search_as_consumer(&consumer, "freshsourceevidence")
+                .await?
+                .evidence
+                .is_empty(),
+            "edited source content must not leave old searchable evidence"
+        );
+        verify_fresh_consumer_source(
+            &consumer,
+            &allowed_root,
+            "post-start-source.md",
+            "editedsourceevidence",
+        )
+        .await?;
+
+        let before_removal_publication = (
+            consumer_scan_time(&consumer).await?,
+            source_revision_as_consumer(&consumer).await?,
+        );
+        fs::remove_file(source_path)?;
+        wait_for_indexed_source_count(&consumer, 0, Some(before_removal_publication)).await?;
+        assert!(
+            search_as_consumer(&consumer, "editedsourceevidence")
+                .await?
+                .evidence
+                .is_empty(),
+            "deleted source content must not remain searchable"
+        );
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    shutdown.cancel();
+    daemon.await??;
+    result
+}

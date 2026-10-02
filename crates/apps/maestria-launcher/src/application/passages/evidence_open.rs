@@ -274,7 +274,7 @@ mod tests {
                 height: 40,
             },
         };
-        let output = serde_json::to_vec(&serde_json::json!({
+        let output = br#"{
             "type": "evidence",
             "data": {
                 "evidence_id": 41,
@@ -290,9 +290,9 @@ mod tests {
                 },
                 "excerpt": "Freshly reopened text"
             }
-        }))?;
+        }"#;
         let opened =
-            parse_reopened(&passage, &output).map_err(|_| "current PDF region was rejected")?;
+            parse_reopened(&passage, output).map_err(|_| "current PDF region was rejected")?;
         assert_eq!(opened.excerpt, "Freshly reopened text");
         assert_eq!(
             opened.path.as_deref(),
@@ -310,7 +310,7 @@ mod tests {
             height: 41,
         };
         assert!(matches!(
-            parse_reopened(&passage, &output),
+            parse_reopened(&passage, output),
             Err(ReopenError::Changed)
         ));
         Ok(())

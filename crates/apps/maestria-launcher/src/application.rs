@@ -8,7 +8,8 @@ use crate::model::SearchResult;
 use crate::{ActionRow, LauncherWindow, ResultRow};
 
 const UI_TICK: Duration = Duration::from_millis(50);
-const SEARCH_DEBOUNCE_TICKS: u8 = 2;
+// Coalesce typed input without spending a full UI tick before the passage request.
+const PASSAGE_SEARCH_DEBOUNCE: Duration = Duration::from_millis(25);
 const CATALOG_REFRESH_TICKS: u16 = 600;
 const SOURCE_REFRESH_TICKS: u8 = 20;
 
@@ -64,7 +65,7 @@ pub(super) enum DisplayedResult {
 
 pub(super) struct FrontendModel {
     query: String,
-    pending_ticks: Option<u8>,
+    passage_search_pending: bool,
     accepted: Vec<SearchResult>,
     selected_file: Option<FileSelection>,
     catalog_ticks_until_refresh: u16,

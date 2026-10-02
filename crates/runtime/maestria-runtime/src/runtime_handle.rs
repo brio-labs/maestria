@@ -10,6 +10,11 @@ impl RuntimeHandle {
         self.input_tx.clone()
     }
 
+    /// Whether parser work is still outstanding in the runtime.
+    pub async fn has_pending_parsers(&self) -> bool {
+        !self.state.read().await.pending_parsers.is_empty()
+    }
+
     /// Reserve bounded capacity for one correlated submission without consuming its input.
     ///
     /// # Cancellation

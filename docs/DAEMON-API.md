@@ -139,6 +139,16 @@ watcher scanning/pending/error fields. Only the instance token can administer
 roots; a consumer grant's separate `indexing_status` response is limited to
 its frozen approved roots and never authorizes root changes.
 
+`scanning` remains true while accepted deliveries, removals, parser work, or
+interactive source-snapshot preparation are outstanding. After ingestion
+quiesces, the watcher releases its scan permit and prepares the current
+interactive snapshot on an awaited blocking worker before reporting ready.
+Source-revision checks prevent a raced publication from reporting readiness.
+A preparation failure stays visible and is not retried for the same revision;
+search cancellation and the 100-ms internal interactive deadline are unchanged.
+Owner status intentionally samples source paths; a truncated path list is not
+an incomplete indexed-file count or, by itself, an indexing-readiness failure.
+
 ## Index choice operations
 
 Document indexing (files/directories under a root) and repository code

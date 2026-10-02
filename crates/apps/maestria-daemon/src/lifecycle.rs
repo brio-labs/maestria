@@ -237,16 +237,28 @@ impl InstanceLifecycle {
     pub(crate) fn source_manifest(&self) -> Arc<RwLock<InstanceManifest>> {
         self.source_manifest.clone()
     }
-    fn start_watcher(&mut self) {
+    fn start_watcher(&mut self) -> Result<()> {
         if self.watcher_task.is_none() {
+            let search_executor = self
+                .runtime_handle
+                .search_executor()
+                .ok_or_else(|| anyhow!("daemon-owned search executor is unavailable"))?;
+            let search_runtime = search_executor
+                .as_any()
+                .and_then(|executor| executor.downcast_ref::<crate::SearchRuntime>())
+                .cloned()
+                .ok_or_else(|| anyhow!("daemon-owned search executor has an unexpected type"))?;
             self.watcher_task = Some(crate::watcher::spawn(
                 self.layout.clone(),
                 self.source_manifest.clone(),
                 self.input_tx.clone(),
                 self.watched_artifacts.clone(),
                 self.shutdown_token.clone(),
+                search_runtime,
+                self.runtime_handle.clone(),
             ));
         }
+        Ok(())
     }
 
     /// Queue recovery in dependency order: parsers, full-text, then validation.
@@ -324,7 +336,10 @@ impl InstanceLifecycle {
             return Err(combine_failures(error, shutdown_result));
         }
 
-        self.start_watcher();
+        if let Err(error) = self.start_watcher() {
+            let shutdown_result = self.shutdown().await;
+            return Err(combine_failures(error, shutdown_result));
+        }
 
         let (termination, runtime_result) = match self.runtime_task.as_mut() {
             Some(runtime_task) => {

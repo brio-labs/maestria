@@ -76,7 +76,7 @@ fn run_primary(
         interactive_search: tokio::sync::Mutex::new(()),
         model: std::sync::Mutex::new(FrontendModel {
             query: String::new(),
-            pending_ticks: None,
+            passage_search_pending: false,
             accepted: Vec::new(),
             selected_file: None,
             catalog_ticks_until_refresh: CATALOG_REFRESH_TICKS,
@@ -257,16 +257,6 @@ fn on_timer_tick(timer: &mut TimerState, context: &TimerContext) {
         &context.activation_receiver,
     );
 
-    if let Some(query) = take_debounced_query(&context.frontend) {
-        start_search(
-            Arc::clone(&context.state),
-            Arc::clone(&context.frontend),
-            context.runtime.clone(),
-            ui.as_weak(),
-            query,
-        );
-    }
-
     if timer.initialized {
         refresh_catalog_if_due(&ui, &context.state, &context.frontend);
         timer
@@ -359,21 +349,6 @@ fn handle_shortcut_activation(
     }
     while receiver.try_recv().is_ok() {}
     activate_launcher(ui, Arc::clone(state), Arc::clone(frontend), runtime.clone());
-}
-
-fn take_debounced_query(frontend: &Frontend) -> Option<String> {
-    let mut model = lock(&frontend.model);
-    match model.pending_ticks {
-        Some(1) => {
-            model.pending_ticks = None;
-            Some(model.query.clone())
-        }
-        Some(remaining) => {
-            model.pending_ticks = Some(remaining.saturating_sub(1));
-            None
-        }
-        None => None,
-    }
 }
 
 fn refresh_catalog_if_due(ui: &LauncherWindow, state: &LauncherState, frontend: &Frontend) {

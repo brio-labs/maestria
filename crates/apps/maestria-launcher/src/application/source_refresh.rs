@@ -66,7 +66,7 @@ impl SourceRefresh {
             } else {
                 self.should_refresh(
                     &model.query,
-                    model.pending_ticks.is_some(),
+                    model.passage_search_pending,
                     ui.get_passage_view_open() || model.selected_file.is_some(),
                 )
                 .then(|| model.query.clone())
@@ -143,7 +143,7 @@ impl SourceRefresh {
                 }
                 if !window.window().is_visible()
                     || window.get_passage_view_open()
-                    || model.pending_ticks.is_some()
+                    || model.passage_search_pending
                     || model.selected_file.is_some()
                 {
                     deferred.store(true, Ordering::Release);

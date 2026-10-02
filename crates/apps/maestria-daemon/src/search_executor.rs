@@ -12,6 +12,8 @@ mod port;
 pub(crate) mod projection;
 #[path = "search_executor/runtime_setup.rs"]
 mod runtime_setup;
+#[path = "search_executor/snapshot_refresh.rs"]
+mod snapshot_refresh;
 pub(crate) use construction::load_repository_code_index_with_exclusions;
 pub use construction::{
     prepare_search_runtime, prepare_search_runtime_read_only,
