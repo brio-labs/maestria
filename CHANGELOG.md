@@ -59,9 +59,9 @@ Their consumed queries and first outcomes remain closed and preserved.
 An independently reserved owner-runtime trace then showed both lanes
 succeeded: Markdown was first in chunks, while DOCX won RRF with card and
 chunk support. The smoke's unquoted query used OR semantics, not literal
-phrase semantics. Future smoke inputs are scope-unique and explicitly quote
-the literal query. A fresh bounded source consumer Search passed; a separate
-fresh InteractiveSearch and evidence reopen passed at 64.42 ms CLI round-trip.
+phrase semantics. Scope-unique smoke inputs quote the literal query for initial,
+restart, pre/post-change and authorization-denial calls. Fresh source Search
+passed; separate InteractiveSearch and evidence reopen passed at 64.42 ms.
 These synthetic source observations neither recover the original CI payload
 nor qualify ordinary-query relevance, historical failures, or installed latency.
 

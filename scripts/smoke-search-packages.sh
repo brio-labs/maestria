@@ -699,7 +699,7 @@ if [[ "$restart_ready" != true ]]; then
   cat "$root/daemon-restarted.log" >&2
   fail "existing external search grant did not resume after daemon restart"
 fi
-if ! "$binary" search "${consumer_args[@]}" --limit 1 "$phrase" >"$root/restart-search.json" 2>"$root/restart-search.err"; then
+if ! "$binary" search "${consumer_args[@]}" --limit 1 "$literal_query" >"$root/restart-search.json" 2>"$root/restart-search.err"; then
   cat "$root/restart-search.err" >&2
   fail "approved passage search did not resume after daemon restart"
 fi
@@ -739,12 +739,12 @@ PY
 
 # Warm the interactive snapshot before editing the source. An old cache entry
 # must never release a hit, citation or excerpt after the approved file changes.
-if ! "$binary" interactive-search "${consumer_args[@]}" --limit 1 "$phrase" >"$root/pre-change-interactive.json" 2>"$root/pre-change-interactive.err"; then
+if ! "$binary" interactive-search "${consumer_args[@]}" --limit 1 "$literal_query" >"$root/pre-change-interactive.json" 2>"$root/pre-change-interactive.err"; then
   cat "$root/pre-change-interactive.err" >&2
   fail "could not warm the restarted interactive source snapshot"
 fi
 printf '%s\n' '# Changed source' 'The original cited passage is no longer in this file.' >"$fixture"
-if ! "$binary" interactive-search "${consumer_args[@]}" --limit 1 "$phrase" >"$root/stale-interactive.json" 2>"$root/stale-interactive.err"; then
+if ! "$binary" interactive-search "${consumer_args[@]}" --limit 1 "$literal_query" >"$root/stale-interactive.json" 2>"$root/stale-interactive.err"; then
   cat "$root/stale-interactive.err" >&2
   fail "interactive search failed after approved source changed"
 fi
@@ -765,7 +765,7 @@ expect_unauthorized() {
   local label="$1"
   shift
   local output="$root/$label.stdout" error="$root/$label.stderr"
-  if "$binary" search "$@" --limit 1 "$phrase" >"$output" 2>"$error"; then
+  if "$binary" search "$@" --limit 1 "$literal_query" >"$output" 2>"$error"; then
     fail "$label consumer search unexpectedly succeeded"
   fi
   if [[ -s "$output" || "$(<"$error")" != *"Unauthorized"* ]]; then

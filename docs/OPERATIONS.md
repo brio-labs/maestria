@@ -145,10 +145,10 @@ Sillage is in continuous development with no external release promise.
   trace showed both lexical lanes succeeded: Markdown ranked first in chunks,
   but DOCX won RRF with card and chunk support. Shell argument quoting is not
   Tantivy phrase syntax: an exact literal CLI query must include double quotes,
-  for example `'"the literal passage"'`. The package smoke now sends that
-  syntax with scope-unique fixture text. Fresh bounded source Search passed;
-  a distinct source InteractiveSearch and evidence reopen passed (64.42 ms CLI
-  round-trip). The owner trace does not qualify federation authorization, and
+  for example `'"the literal passage"'`. All main-phrase package-smoke callers
+  use that syntax across initial, restart, source-change and denial gates.
+  Fresh source Search passed; separate InteractiveSearch and evidence reopen
+  passed at 64.42 ms CLI round-trip. The owner trace does not qualify authorization;
   none of these synthetic source results qualifies exact-installed behavior,
   ordinary-query FR/EN relevance, failed Return, or the original unavailable
   searches. The original CI response was not retained; it cannot be recovered
