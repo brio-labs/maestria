@@ -1,0 +1,122 @@
+use super::event_payloads::{FamilyDecodeError, StoredEventPayload};
+use super::stored_security::StoredSecurityMetadata;
+use sillage_domain::DomainEvent;
+
+impl StoredEventPayload {
+    pub(crate) fn try_from_domain_memory(event: &DomainEvent) -> Option<Self> {
+        match event {
+            DomainEvent::MemoryCandidateCreated {
+                candidate_id,
+                claim_id,
+                evidence_ids,
+                confidence_milli,
+                security,
+            } => Some(Self::MemoryCandidateCreated {
+                candidate_id: candidate_id.value(),
+                claim_id: claim_id.value(),
+                evidence_ids: evidence_ids
+                    .iter()
+                    .map(|evidence_id| evidence_id.value())
+                    .collect(),
+                confidence_milli: *confidence_milli,
+                security: StoredSecurityMetadata::from_domain(security),
+            }),
+            DomainEvent::MemoryPromoted {
+                memory_id,
+                candidate_id,
+                security,
+            } => Some(Self::MemoryPromoted {
+                memory_id: memory_id.value(),
+                candidate_id: candidate_id.value(),
+                security: StoredSecurityMetadata::from_domain(security),
+            }),
+            DomainEvent::MemoryContradicted {
+                memory_id,
+                contradicting_candidate_id,
+            } => Some(Self::MemoryContradicted {
+                memory_id: memory_id.value(),
+                contradicting_candidate_id: contradicting_candidate_id.value(),
+            }),
+            DomainEvent::MemoryDeprecated { memory_id } => Some(Self::MemoryDeprecated {
+                memory_id: memory_id.value(),
+            }),
+            DomainEvent::MemorySuperseded {
+                memory_id,
+                by_memory_id,
+            } => Some(Self::MemorySuperseded {
+                memory_id: memory_id.value(),
+                by_memory_id: by_memory_id.value(),
+            }),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn try_into_domain_memory(self) -> Result<DomainEvent, FamilyDecodeError> {
+        match self {
+            Self::MemoryCandidateCreated {
+                candidate_id,
+                claim_id,
+                evidence_ids,
+                confidence_milli,
+                security,
+            } => Ok(DomainEvent::MemoryCandidateCreated {
+                candidate_id: sillage_domain::MemoryCandidateId::new(candidate_id),
+                claim_id: sillage_domain::ClaimId::new(claim_id),
+                evidence_ids: evidence_ids
+                    .into_iter()
+                    .map(sillage_domain::EvidenceId::new)
+                    .collect(),
+                confidence_milli,
+                security: security
+                    .try_into_domain()
+                    .map_err(FamilyDecodeError::Invalid)?,
+            }),
+            Self::MemoryPromoted {
+                memory_id,
+                candidate_id,
+                security,
+            } => Ok(DomainEvent::MemoryPromoted {
+                memory_id: sillage_domain::MemoryId::new(memory_id),
+                candidate_id: sillage_domain::MemoryCandidateId::new(candidate_id),
+                security: security
+                    .try_into_domain()
+                    .map_err(FamilyDecodeError::Invalid)?,
+            }),
+            Self::MemoryContradicted {
+                memory_id,
+                contradicting_candidate_id,
+            } => Ok(DomainEvent::MemoryContradicted {
+                memory_id: sillage_domain::MemoryId::new(memory_id),
+                contradicting_candidate_id: sillage_domain::MemoryCandidateId::new(
+                    contradicting_candidate_id,
+                ),
+            }),
+            Self::MemoryDeprecated { memory_id } => Ok(DomainEvent::MemoryDeprecated {
+                memory_id: sillage_domain::MemoryId::new(memory_id),
+            }),
+            Self::MemorySuperseded {
+                memory_id,
+                by_memory_id,
+            } => Ok(DomainEvent::MemorySuperseded {
+                memory_id: sillage_domain::MemoryId::new(memory_id),
+                by_memory_id: sillage_domain::MemoryId::new(by_memory_id),
+            }),
+            other => Err(FamilyDecodeError::Foreign(Box::new(other))),
+        }
+    }
+
+    pub(crate) fn try_kind_memory(&self) -> Option<&'static str> {
+        match self {
+            Self::MemoryCandidateCreated { .. } => Some("memory_candidate_created"),
+            Self::MemoryPromoted { .. } => Some("memory_promoted"),
+            Self::MemoryContradicted { .. } => Some("memory_contradicted"),
+            Self::MemoryDeprecated { .. } => Some("memory_deprecated"),
+            Self::MemorySuperseded { .. } => Some("memory_superseded"),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn try_filter_artifact_id_memory(&self) -> Option<u64> {
+        None
+    }
+}

@@ -30,8 +30,8 @@ transitions**, and **pure deterministic logic**.
 
 ## Interfaces
 
-- `maestria-domain` exposes core models and deterministic transition functions.
-- `maestria-governance` depends on kernel capabilities, not vice versa.
+- `sillage-domain` exposes core models and deterministic transition functions.
+- `sillage-governance` depends on kernel capabilities, not vice versa.
 
 ## Verification
 

@@ -64,7 +64,7 @@ done
 dbus-update-activation-environment WAYLAND_DISPLAY QT_QPA_PLATFORM XDG_CURRENT_DESKTOP \
   XDG_SESSION_TYPE KDE_FULL_SESSION KDE_SESSION_VERSION QT_LINUX_ACCESSIBILITY_ALWAYS_ON
 python3 scripts/check-launcher-portal-consent.py "$decision" "$session"
-settings="$session/config/io.github.briolabs.Maestria.Launcher/launcher.toml"
+settings="$session/config/io.github.briolabs.Sillage.Launcher/launcher.toml"
 if [[ "$decision" == allow ]]; then
   [[ -f "$settings" ]] || { echo 'approved shortcut preference vanished after launcher quit' >&2; exit 1; }
 else

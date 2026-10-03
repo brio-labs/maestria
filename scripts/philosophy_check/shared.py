@@ -21,7 +21,7 @@ def _is_checker_source(path: Path) -> bool:
     return resolved == THIS_SCRIPT or resolved.parent == PACKAGE_DIR
 
 
-DOMAIN_ROOT = ROOT / "crates" / "kernel" / "maestria-domain"
+DOMAIN_ROOT = ROOT / "crates" / "kernel" / "sillage-domain"
 
 
 DOMAIN_SRC = DOMAIN_ROOT / "src"
@@ -31,9 +31,9 @@ DOMAIN_MANIFEST = DOMAIN_ROOT / "Cargo.toml"
 
 
 KERNEL_ROOTS = (
-    ROOT / "crates" / "kernel" / "maestria-domain",
-    ROOT / "crates" / "kernel" / "maestria-governance",
-    ROOT / "crates" / "kernel" / "maestria-ports",
+    ROOT / "crates" / "kernel" / "sillage-domain",
+    ROOT / "crates" / "kernel" / "sillage-governance",
+    ROOT / "crates" / "kernel" / "sillage-ports",
 )
 
 
@@ -45,6 +45,10 @@ SKIP_DIRS = {".git", "target", "node_modules", "dist", ".direnv", ".venv"}
 
 # Files exempted from the doctrine scan (e.g. vendored or legacy artifacts).
 SKIP_FILES = set()
+
+# Immutable corpus snapshots are source data, not active Rust compilation units.
+# General source and secret scans still inspect these historical bytes.
+FROZEN_SOURCE_ROOT = ROOT / "tests" / "frozen-corpus-snapshots"
 
 
 def should_skip(path: Path) -> bool:
@@ -102,6 +106,8 @@ def _production_rust_files(*, skip_tests: bool = True, sorted_: bool = False) ->
         if should_skip(path):
             continue
         if any(path.is_relative_to(root) for root in external_patches):
+            continue
+        if path.is_relative_to(FROZEN_SOURCE_ROOT):
             continue
         if skip_tests and is_test_source(path):
             continue

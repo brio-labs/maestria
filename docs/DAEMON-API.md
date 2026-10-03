@@ -193,13 +193,13 @@ reports whether an index exists for the root, its summary, and its current
 freshness verdict.
 
 ```json
-{"type": "repository_index_candidates", "root": "/home/you/projects/maestria"}
+{"type": "repository_index_candidates", "root": "/home/you/projects/sillage"}
 {"type": "repository_index_selection_get"}
-{"type": "repository_index_selection_save", "profile": {"root": "/home/you/projects/maestria", "includes": ["crates/one"], "policies": {"crates/one": {"max_file_bytes": 1048576, "skip_generated": false, "skip_minified": true}}}}
-{"type": "repository_index_run", "root": "/home/you/projects/maestria", "includes": ["/home/you/projects/maestria/crates/one"], "policies": {}}
-{"type": "repository_index_status", "root": "/home/you/projects/maestria"}
-{"type": "repository_index_children", "root": "/home/you/projects/maestria", "path": "crates/one"}
-{"type": "repository_index_files", "root": "/home/you/projects/maestria", "path": "crates/one"}
+{"type": "repository_index_selection_save", "profile": {"root": "/home/you/projects/sillage", "includes": ["crates/one"], "policies": {"crates/one": {"max_file_bytes": 1048576, "skip_generated": false, "skip_minified": true}}}}
+{"type": "repository_index_run", "root": "/home/you/projects/sillage", "includes": ["/home/you/projects/sillage/crates/one"], "policies": {}}
+{"type": "repository_index_status", "root": "/home/you/projects/sillage"}
+{"type": "repository_index_children", "root": "/home/you/projects/sillage", "path": "crates/one"}
+{"type": "repository_index_files", "root": "/home/you/projects/sillage", "path": "crates/one"}
 {"type": "repository_index_progress_get"}
 ```
 
@@ -255,12 +255,12 @@ for their persistence barrier before acknowledging success. The daemon never
 trusts a browser or agent to supply source identity, hashes, or citation
 provenance.
 
-The supported Rust client is `maestria_daemon::DaemonClient`:
+The supported Rust client is `sillage_daemon::DaemonClient`:
 
 ```rust
-let client = maestria_daemon::DaemonClient::from_instance(&layout)?;
+let client = sillage_daemon::DaemonClient::from_instance(&layout)?;
 let response = client
-    .request(maestria_daemon::ClientOperation::Status)
+    .request(sillage_daemon::ClientOperation::Status)
     .await?;
 ```
 
@@ -294,11 +294,12 @@ Response (`RetrievalStatusResponse`) shape:
 {
   "index_generation": 3,
   "corpus_snapshot": 42,
-  "fingerprint": "maestria-core:deterministic-v1",
+  "fingerprint": "sillage-core:deterministic-v1",
   "lanes": {
     "hybrid_state": "Active",
     "hybrid_served_classes": ["DomainTerminology"],
     "hybrid_evaluation_id": "eval-123",
+    "hybrid_ranking_policy_id": "hybrid-lexical-head-preserving-v1+fixed-k-rrf-v1:k=60",
     "hybrid_evaluation_date": "2026-01-01",
     "hybrid_report_hash": "abc...",
     "learned_sparse_state": "Shadow",
@@ -325,8 +326,22 @@ Response (`RetrievalStatusResponse`) shape:
 `Shadow` | `Active`; `dense_enabled` reflects the resolved dense generation and
 `dense_model` the enabled manifest embedding model; promotion records are the
 latest stored `RetrievalPromotionRecordWire` rows (`learned_sparse` / `hybrid`)
-when present. See `crates/apps/maestria-daemon/src/api/search_services.rs:85`
-(`retrieval_status`) and `crates/apps/maestria-studio/src/http/retrieval.rs`.
+when present. See `crates/apps/sillage-daemon/src/api/search_services.rs:85`
+(`retrieval_status`) and `crates/apps/sillage-studio/src/http/retrieval.rs`.
+
+`hybrid_ranking_policy_id` is the full ranking identity of the accepted active
+promotion and is null in Shadow. Current Hybrid ranking preserves the first
+eligible lexical-baseline result, including its identity, metadata and lexical
+score provenance, through fusion, reranking, expansion and diversity; semantic
+ranking may improve only the tail. The baseline head is selected after fusing
+eligible lexical lanes, not by retriever registration order. Trace `fusion`
+records the complete policy identity.
+
+Promotion records must name
+`hybrid-lexical-head-preserving-v1+fixed-k-rrf-v1:k=60`. Missing or unsupported
+ranking identities fail closed to Shadow; a stored legacy record shown in
+`promotion_records` is not evidence of active serving. Quality evidence for a
+different fusion policy cannot activate this one.
 
 
 ## Studio proxy contract
@@ -346,13 +361,13 @@ provider, agent harness, filesystem callback, terminal callback, or MCP
 server. Launch it after the daemon with:
 
 ```bash
-maestria start -i <instance>
-maestria studio -i <instance> --no-open
+sillage start -i <instance>
+sillage studio -i <instance> --no-open
 ```
 
 The CLI performs an authenticated `status` preflight. If the daemon is not
 reachable it exits with exactly:
-`daemon unavailable; start it with maestria start -i <instance>`.
+`daemon unavailable; start it with sillage start -i <instance>`.
 Studio reads optional profiles only from
 `<instance>/system/studio-agents.toml`; there is no current-working-directory
 or CLI agent-config override. If that file is absent and `omp` is on `PATH`,
@@ -389,7 +404,7 @@ transient until an explicit typed `notebook_draft_save` mutation.
 
 Model integrations must keep generated plans, claims, rewrites, and memory
 proposals outside the domain kernel. The supported typed boundary is
-`maestria_ports::ModelAgentProposal`. An adapter validates the bounded query,
+`sillage_ports::ModelAgentProposal`. An adapter validates the bounded query,
 search limit, command, capability, timeout, expected index generation, and
 source evidence IDs before obtaining a `GovernedAgentProposal`.
 

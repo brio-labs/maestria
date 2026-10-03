@@ -1,0 +1,149 @@
+use crate::test_support::*;
+use sillage_domain::{
+    ArtifactId, ClaimId, Relation, RelationEndpoint, RelationId, RelationKind, SillageEffect,
+    UpdateGraphRequest,
+};
+use sillage_ports::{GraphIndex, GraphRelationPage, GraphRelationQuery, PortError};
+use std::sync::Arc;
+use tokio::sync::{RwLock, mpsc};
+
+struct FailingGraphIndex;
+impl GraphIndex for FailingGraphIndex {
+    fn insert_relation(&self, _relation: Relation) -> Result<(), PortError> {
+        Err(PortError::internal(
+            "sillage runtime test",
+            "forced failure",
+        ))
+    }
+    fn get_relations_for(
+        &self,
+        _query: GraphRelationQuery,
+    ) -> Result<GraphRelationPage, PortError> {
+        Ok(GraphRelationPage {
+            relations: vec![],
+            complete: true,
+        })
+    }
+    fn delete_relations(&self, _relation_ids: &[RelationId]) -> Result<(), PortError> {
+        Ok(())
+    }
+    fn clear(&self) -> Result<(), PortError> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn update_graph_inserts_relation_when_present() -> Result<(), Box<dyn std::error::Error>> {
+    let relation_id = RelationId::new(1);
+    let relation = Relation {
+        id: relation_id,
+        source: RelationEndpoint::Claim(ClaimId::new(1)),
+        kind: RelationKind::Supports,
+        target: RelationEndpoint::Artifact(ArtifactId::new(2)),
+        evidence_id: Some(sillage_domain::EvidenceId::new(7)),
+        confidence_milli: 800,
+        security: sillage_domain::SecurityMetadata::default(),
+    };
+
+    let mut state = KernelState::new();
+    Arc::make_mut(&mut state.relations).insert(relation_id, relation.clone());
+
+    let adapters = crate::test_helpers::test_adapters();
+    let graph_index = adapters.graph_index.clone();
+    let governance = crate::test_helpers::test_governance();
+    let (input_tx, _input_rx) = mpsc::channel(8);
+
+    let ctx = EffectExecutionContext::test_default(
+        Arc::new(adapters),
+        Arc::new(governance),
+        Arc::new(RwLock::new(state)),
+        input_tx,
+    );
+
+    let result = SillageRuntime::test_execute_effect(
+        SillageEffect::UpdateGraph(UpdateGraphRequest { relation_id }),
+        ctx,
+        None,
+    )
+    .await;
+
+    assert!(result, "update_graph should succeed");
+
+    let query = GraphRelationQuery::new(RelationEndpoint::Claim(ClaimId::new(1)), u64::MAX)
+        .ok_or("graph query limit must be positive")?;
+    let stored = graph_index.get_relations_for(query)?.relations;
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0], relation);
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_graph_fails_when_relation_missing_from_state()
+-> Result<(), Box<dyn std::error::Error>> {
+    let adapters = crate::test_helpers::test_adapters();
+    let governance = crate::test_helpers::test_governance();
+    let (input_tx, _input_rx) = mpsc::channel(8);
+
+    let ctx = EffectExecutionContext::test_default(
+        Arc::new(adapters),
+        Arc::new(governance),
+        Arc::new(RwLock::new(KernelState::new())),
+        input_tx,
+    );
+
+    let result = SillageRuntime::test_execute_effect(
+        SillageEffect::UpdateGraph(UpdateGraphRequest {
+            relation_id: RelationId::new(99),
+        }),
+        ctx,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result,
+        "update_graph must fail if relation is not in state"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_graph_fails_when_adapter_fails() -> Result<(), Box<dyn std::error::Error>> {
+    let relation_id = RelationId::new(1);
+    let mut state = KernelState::new();
+    Arc::make_mut(&mut state.relations).insert(
+        relation_id,
+        Relation {
+            id: relation_id,
+            source: RelationEndpoint::Claim(ClaimId::new(1)),
+            kind: RelationKind::Supports,
+            target: RelationEndpoint::Artifact(ArtifactId::new(2)),
+            evidence_id: Some(sillage_domain::EvidenceId::new(7)),
+            confidence_milli: 800,
+            security: sillage_domain::SecurityMetadata::default(),
+        },
+    );
+
+    let mut adapters = crate::test_helpers::test_adapters();
+    adapters.graph_index = Arc::new(FailingGraphIndex);
+
+    let governance = crate::test_helpers::test_governance();
+    let (input_tx, _input_rx) = mpsc::channel(8);
+
+    let ctx = EffectExecutionContext::test_default(
+        Arc::new(adapters),
+        Arc::new(governance),
+        Arc::new(RwLock::new(state)),
+        input_tx,
+    );
+
+    let result = SillageRuntime::test_execute_effect(
+        SillageEffect::UpdateGraph(UpdateGraphRequest { relation_id }),
+        ctx,
+        None,
+    )
+    .await;
+
+    assert!(!result, "update_graph must fail if adapter returns error");
+    Ok(())
+}

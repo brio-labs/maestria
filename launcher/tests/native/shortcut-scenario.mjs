@@ -39,7 +39,7 @@ async function releaseGrab(child) {
 
 export async function shortcutScenario(session, context, resident) {
   const { application, environment, evidence } = context;
-  const settingsPath = path.join(environment.XDG_CONFIG_HOME, 'io.github.briolabs.Maestria.Launcher', 'launcher.toml');
+  const settingsPath = path.join(environment.XDG_CONFIG_HOME, 'io.github.briolabs.Sillage.Launcher', 'launcher.toml');
   const openPreferences = async () => {
     await session.keys(['Control', ',']);
     await session.keys('NULL');

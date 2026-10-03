@@ -14,8 +14,8 @@ if [[ $# -eq 2 ]]; then
   worker_packages=("$worker_dir"/*.deb)
   [[ ${#launcher_packages[@]} -eq 1 && ${#worker_packages[@]} -eq 1 ]] || fail 'expected exactly one Debian package per component'
   for specification in \
-    "io-github-briolabs-maestria-launcher|/usr/bin/maestria-launcher|${launcher_packages[0]}" \
-    "io-github-briolabs-maestria-extension-worker|/usr/bin/maestria-extension-worker|${worker_packages[0]}"; do
+    "io-github-briolabs-sillage-launcher|/usr/bin/sillage-launcher|${launcher_packages[0]}" \
+    "io-github-briolabs-sillage-extension-worker|/usr/bin/sillage-extension-worker|${worker_packages[0]}"; do
     IFS='|' read -r package_name binary package <<<"$specification"
     [[ "$(dpkg-deb --field "$package" Package)" == "$package_name" ]] || fail "incorrect package name: $package"
     installed="$(dpkg-query --show --showformat='${Status}|${Version}|${Architecture}' "$package_name" 2>/dev/null || true)"
@@ -23,7 +23,7 @@ if [[ $# -eq 2 ]]; then
     [[ "$installed" == "$expected" ]] || fail "installed $package_name does not match exact artifact $package: $installed"
     [[ -x "$binary" && "$(dpkg-query --search "$binary")" == "$package_name: $binary" ]] || fail "package-owned executable missing: $binary"
   done
-  [[ ! -e /usr/bin/maestria-search ]] || fail 'combined launcher+worker smoke unexpectedly installed optional search'
+  [[ ! -e /usr/bin/sillage-search ]] || fail 'combined launcher+worker smoke unexpectedly installed optional search'
   root="$(mktemp -d -t sillage-combined-extension.XXXXXX)"
   cleanup_root() { chmod -R u+w -- "$root" 2>/dev/null || true; rm -rf -- "$root"; }
   trap cleanup_root EXIT
@@ -52,8 +52,8 @@ cleanup_processes() {
   if [[ -s "$root/restarted.log" ]]; then cat "$root/restarted.log"; fi
 }
 trap cleanup_processes EXIT
-mkdir -p "$root/config/io.github.briolabs.Maestria.Launcher" "$root/package/dist"
-cat > "$root/config/io.github.briolabs.Maestria.Launcher/launcher.toml" <<'TOML'
+mkdir -p "$root/config/io.github.briolabs.Sillage.Launcher" "$root/package/dist"
+cat > "$root/config/io.github.briolabs.Sillage.Launcher/launcher.toml" <<'TOML'
 schemaVersion = 1
 shortcut = "Control+Space"
 shortcutSetup = "deferred"
@@ -105,7 +105,7 @@ for attempt in {1..100}; do
   sleep .05
 done
 [[ "$ready" == true ]] || fail 'private X11 window manager did not become ready'
-setsid /usr/bin/maestria-launcher --activate >"$root/launcher.log" 2>&1 & launcher_pid=$!
+setsid /usr/bin/sillage-launcher --activate >"$root/launcher.log" 2>&1 & launcher_pid=$!
 window=
 for attempt in {1..100}; do
   window="$(xdotool search --onlyvisible --name '^Sillage Launcher$' 2>/dev/null | { read -r id; printf '%s' "$id"; } || true)"

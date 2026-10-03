@@ -7,8 +7,8 @@ import subprocess
 import sys
 import tarfile
 
-PACKAGE_NAME = "io-github-briolabs-maestria-search"
-BINARY_PATH = "usr/bin/maestria-search"
+PACKAGE_NAME = "io-github-briolabs-sillage-search"
+BINARY_PATH = "usr/bin/sillage-search"
 LICENSE_PATH = f"usr/share/doc/{PACKAGE_NAME}/LICENSE"
 ALLOWED_FILES = {BINARY_PATH, LICENSE_PATH}
 ALLOWED_DIRECTORIES = {

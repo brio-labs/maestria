@@ -38,11 +38,11 @@ is an estimate, and estimates are labeled as such or left out.
 ## Harness
 
 Corpora and instances live outside the repository (default
-`~/maestria-perf/`, with `corpus*/` inputs and `inst-*/` instances):
+`~/sillage-perf/`, with `corpus*/` inputs and `inst-*/` instances):
 
 ```sh
-cargo build --release -p maestria-cli
-CLI=target/release/maestria-cli
+cargo build --release -p sillage-cli
+CLI=target/release/sillage-cli
 $CLI init  -i inst-a --read-root corpus >/dev/null
 { time $CLI index -i inst-a -r corpus --yes ; } 2>&1 | grep real
 { time $CLI search -i inst-a "query text"     ; } 2>&1 | grep real

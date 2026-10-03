@@ -1,0 +1,288 @@
+use anyhow::{Context, Result};
+use parking_lot::RwLock;
+use sillage_blob_fs::FsBlobStore;
+use sillage_code_intel::{REPOSITORY_CODE_INDEX_FILENAME, RepositoryCodeIndex};
+use sillage_core::{InstanceLayout, InstanceManifest};
+use sillage_domain::{DomainInput, KernelState};
+use sillage_governance::{
+    AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier, DefaultValidationGate, Scope,
+};
+use sillage_graph_sqlite::SqliteGraphIndex;
+use sillage_harness::LocalShellHarnessAdapter;
+use sillage_parsers::ParserRegistry;
+use sillage_ports::{FullTextIndex, Parser, SearchKnowledgeExecutor, VectorIndex};
+use sillage_retrieval::RepositoryExecutionPolicy;
+use sillage_runtime::{Adapters, Governance, RuntimeConfig, SillageRuntime};
+use sillage_storage_sqlite::SqliteStore;
+use sillage_web_evidence::UreqWebFetcher;
+use std::{fs, sync::Arc};
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+
+use crate::projection_open::{
+    open_base_stores, open_full_text_index, open_graph_index, open_vector_index,
+    resolve_index_generations,
+};
+use crate::providers::build_ocr_provider;
+use crate::search_executor::{
+    SearchRuntime, SearchRuntimeParts, load_repository_code_index_with_exclusions,
+};
+use crate::vector_startup::build_embedding_provider;
+
+#[path = "runtime_construction/policies.rs"]
+mod policies;
+
+#[cfg(test)]
+pub(crate) use policies::build_sparse_retriever;
+pub(crate) use policies::{hybrid_policy, learned_sparse_policy, search_lane_bundle};
+
+struct StorageAdapters {
+    blob_store: Arc<FsBlobStore>,
+    sqlite_store: Arc<SqliteStore>,
+}
+
+struct IndexAdapters {
+    search_index: Arc<dyn FullTextIndex + Send + Sync>,
+    vector_index: Option<Arc<dyn VectorIndex + Send + Sync>>,
+    graph_index: Arc<SqliteGraphIndex>,
+}
+
+struct EcosystemAdapters {
+    parser: Arc<dyn Parser + Send + Sync>,
+    ocr_provider: Option<Arc<dyn sillage_ports::OcrProvider + Send + Sync>>,
+    repository_code_index: Option<Arc<RepositoryCodeIndex>>,
+}
+
+fn build_storage_adapters(layout: &InstanceLayout) -> Result<StorageAdapters> {
+    let (sqlite_store, blob_store) = open_base_stores(layout)?;
+    Ok(StorageAdapters {
+        blob_store,
+        sqlite_store,
+    })
+}
+
+type ProjectionFlushHook =
+    std::sync::Arc<dyn Fn() -> std::result::Result<(), sillage_ports::PortError> + Send + Sync>;
+
+/// Flush hook for lazy projection commits: keeps a concrete handle to the
+/// writable tantivy index so the runtime can commit buffered documents
+/// before `run` returns (session-end watermarking reads committed counts).
+fn build_index_adapters(
+    layout: &InstanceLayout,
+    state: &KernelState,
+    read_only_search_index: bool,
+    has_embedding_provider: bool,
+) -> Result<(IndexAdapters, Option<ProjectionFlushHook>)> {
+    let concrete_search_index =
+        open_full_text_index(layout, state, !read_only_search_index, false)?;
+    let flush_hook: Option<ProjectionFlushHook> = if read_only_search_index {
+        None
+    } else {
+        let index = std::sync::Arc::clone(&concrete_search_index);
+        Some(Arc::new(move || index.commit_and_reload()))
+    };
+    let search_index: Arc<dyn FullTextIndex + Send + Sync> = concrete_search_index;
+    let vector_index = open_vector_index(layout, has_embedding_provider)?;
+    let graph_index = open_graph_index(layout, state, false)?;
+    Ok((
+        IndexAdapters {
+            search_index,
+            vector_index,
+            graph_index,
+        },
+        flush_hook,
+    ))
+}
+
+fn build_ecosystem_adapters(
+    layout: &InstanceLayout,
+    manifest: &InstanceManifest,
+) -> Result<EcosystemAdapters> {
+    let ocr_provider = build_ocr_provider(manifest)?;
+    let parser = Arc::new(ParserRegistry::with_defaults());
+    let repository_code_index =
+        match load_repository_code_index_with_exclusions(layout, Some(manifest)) {
+            Ok(index) => index,
+            Err(error) => {
+                // The repository code index is regenerable cache: a stale or
+                // invalid persisted index (its repository root moved or was
+                // deleted) must not block daemon startup. Remove it so the
+                // next `index repository` run rebuilds it, mirroring the
+                // CLI's repair-before-build path.
+                let index_path = layout.system_dir.join(REPOSITORY_CODE_INDEX_FILENAME);
+                tracing::warn!(
+                    %error,
+                    path = %index_path.display(),
+                    "repository code index unhealthy; removing for rebuild"
+                );
+                let _ = fs::remove_file(&index_path);
+                None
+            }
+        };
+    Ok(EcosystemAdapters {
+        parser,
+        ocr_provider,
+        repository_code_index,
+    })
+}
+
+fn build_adapters(
+    layout: &InstanceLayout,
+    state: &KernelState,
+    manifest: &InstanceManifest,
+    source_manifest: Arc<RwLock<InstanceManifest>>,
+    embedding_provider: Option<Arc<dyn sillage_ports::EmbeddingProvider + Send + Sync>>,
+    repository_execution_policy: RepositoryExecutionPolicy,
+    read_only_search_index: bool,
+) -> Result<(Adapters, Option<ProjectionFlushHook>)> {
+    let storage = build_storage_adapters(layout)?;
+    let (indexes, flush_hook) = build_index_adapters(
+        layout,
+        state,
+        read_only_search_index,
+        embedding_provider.is_some(),
+    )?;
+    let ecosystem = build_ecosystem_adapters(layout, manifest)?;
+    let (primary_generation, corpus_snapshot, dense_generation) = resolve_index_generations(state)?;
+    let (hybrid_execution_policy, learned_sparse_execution_policy, sparse_retriever) =
+        crate::runtime_construction::search_lane_bundle(
+            state,
+            manifest,
+            storage.sqlite_store.clone(),
+            storage.blob_store.clone(),
+        );
+    let search_executor: Arc<dyn SearchKnowledgeExecutor + Send + Sync> =
+        Arc::new(SearchRuntime::from_parts_with_manifest(
+            SearchRuntimeParts {
+                artifacts: storage.sqlite_store.clone(),
+                cards: storage.sqlite_store.clone(),
+                chunks: storage.sqlite_store.clone(),
+                evidence: storage.sqlite_store.clone(),
+                search_index: indexes.search_index.clone(),
+                blobs: storage.blob_store.clone(),
+                vector_index: indexes.vector_index.clone(),
+                graph_index: Some(indexes.graph_index.clone()),
+                event_log: storage.sqlite_store.clone(),
+                primary_generation,
+                dense_generation,
+                repository_code_index: ecosystem.repository_code_index.clone(),
+                repository_execution_policy,
+                hybrid_execution_policy,
+                learned_sparse_execution_policy,
+                sparse_retriever,
+                corpus_snapshot,
+                scope_id: sillage_domain::DEFAULT_INSTANCE_SCOPE_ID,
+            },
+            embedding_provider.clone(),
+            sillage_governance::RetrievalSecurityPolicy::default()
+                .require_read_allowed(true)
+                .allow_unscoped_items(true),
+            source_manifest,
+            layout.clone(),
+        )?);
+    Ok(Adapters {
+        event_log: storage.sqlite_store.clone(),
+        blob_store: storage.blob_store,
+        search_index: indexes.search_index,
+        parser: ecosystem.parser,
+        ocr_provider: ecosystem.ocr_provider,
+        harness: Arc::new(LocalShellHarnessAdapter),
+        artifact_repo: storage.sqlite_store.clone(),
+        chunk_repo: storage.sqlite_store.clone(),
+        card_repo: storage.sqlite_store.clone(),
+        evidence_repo: storage.sqlite_store.clone(),
+        realm_read_grant_repo: storage.sqlite_store.clone(),
+        embedding_provider,
+        web_fetcher: Arc::new(UreqWebFetcher::new()),
+        vector_index: indexes.vector_index,
+        graph_index: indexes.graph_index,
+        search_executor: Some(search_executor),
+        id_allocator: storage.sqlite_store.clone(),
+        effect_journal: storage.sqlite_store.clone(),
+        approval_repo: storage.sqlite_store,
+    })
+    .map(|adapters| (adapters, flush_hook))
+}
+
+pub(crate) fn build_runtime_with_source_manifest(
+    layout: &InstanceLayout,
+    state: KernelState,
+    profile: AutonomyProfile,
+    source_manifest: Arc<RwLock<InstanceManifest>>,
+) -> Result<(
+    SillageRuntime,
+    mpsc::Sender<DomainInput>,
+    mpsc::Receiver<DomainInput>,
+    CancellationToken,
+)> {
+    build_runtime_with_source_manifest_and_policy(
+        layout,
+        state,
+        profile,
+        RepositoryExecutionPolicy::Shadow,
+        source_manifest,
+    )
+}
+
+fn build_runtime_with_source_manifest_and_policy(
+    layout: &InstanceLayout,
+    state: KernelState,
+    profile: AutonomyProfile,
+    repository_execution_policy: RepositoryExecutionPolicy,
+    source_manifest: Arc<RwLock<InstanceManifest>>,
+) -> Result<(
+    SillageRuntime,
+    mpsc::Sender<DomainInput>,
+    mpsc::Receiver<DomainInput>,
+    CancellationToken,
+)> {
+    let manifest = source_manifest.read().clone();
+    let embedding_model = manifest
+        .embeddings
+        .as_ref()
+        .filter(|config| config.enabled)
+        .map(|config| config.model.clone());
+    let embedding_provider = build_embedding_provider(&manifest, &state)?;
+    let (adapters, flush_hook) = build_adapters(
+        layout,
+        &state,
+        &manifest,
+        source_manifest,
+        embedding_provider,
+        repository_execution_policy,
+        false,
+    )?;
+    sillage_runtime::rebuild_realm_read_grant_projection(&*adapters.realm_read_grant_repo, &state)
+        .with_context(|| "rebuild realm read grant projection")?;
+    let governance = Governance {
+        classifier: Arc::new(DefaultRiskClassifier),
+        approval_gate: Arc::new(DefaultApprovalGate),
+        validation_gate: Arc::new(DefaultValidationGate::new(true)),
+        memory_promotion_gate: Arc::new(sillage_governance::DefaultMemoryPromotionGate),
+    };
+    let blocked_patterns = crate::blocked_patterns::runtime_blocked_patterns(&manifest);
+    let scope = Scope::new(
+        manifest.read_roots,
+        Vec::new(),
+        vec!["shell".into()],
+        Vec::new(),
+        false,
+    )
+    .with_blocked_patterns(blocked_patterns);
+    let config = RuntimeConfig {
+        profile,
+        scope,
+        embedding_model,
+        flush_projections: flush_hook,
+        ..Default::default()
+    };
+
+    let shutdown_token = CancellationToken::new();
+    let (runtime, input_rx) = SillageRuntime::new(config, state, adapters, governance);
+    let input_tx = runtime.handle().feedback_sender();
+    Ok((runtime, input_tx, input_rx, shutdown_token))
+}
+
+#[cfg(test)]
+#[path = "runtime_supervision_tests.rs"]
+mod tests;

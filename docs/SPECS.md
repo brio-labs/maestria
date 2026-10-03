@@ -24,7 +24,7 @@ invariants that implementation and verification must preserve.
 | `I-Domain-Pure` | Domain transitions perform no I/O and sample no clocks, randomness, filesystem, network, shell, database, or runtime state. |
 | `I-Domain-NoPanic` | Domain production code returns typed errors or failure states; it must not use `panic`, `unwrap`, or `expect`. |
 | `I-Domain-ValidStates` | Domain values make known invalid state combinations unrepresentable: exclusive states carry their payloads in enum variants, validated values and meaningful identities have distinct types, boundary conversion owns runtime validation, and state-dependent operations use exhaustive typed transitions or justified typestate. |
-| `I-Effect-Explicit` | Every side effect is represented as a `MaestriaEffect`; runtime/adapters execute effects outside the domain. |
+| `I-Effect-Explicit` | Every side effect is represented as a `SillageEffect`; runtime/adapters execute effects outside the domain. |
 | `I-Event-AuditTrail` | State changes emit append-only domain events. Replaying the event log must deterministically reconstruct exact KernelState, rejecting duplicate/invalid events. |
 | `I-Evidence-Immutable` | Evidence is immutable and points to stable source spans, snapshots, blobs, command logs, diffs, tests, or validation reports. |
 | `I-Evidence-Provenance` | Claims, memories, task reports, and answers cite evidence IDs and source provenance. |

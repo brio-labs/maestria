@@ -119,7 +119,7 @@ class DocConsistencyTests(unittest.TestCase):
         readme_with_usage = (
             "# Test\n\n"
             "```\n"
-            "maestria init -i .maestria-dev\n"
+            "sillage init -i .sillage-dev\n"
             "```\n"
         )
         tree = {"Init": None}
@@ -132,7 +132,7 @@ class DocConsistencyTests(unittest.TestCase):
         readme = (
             "# Test\n\n"
             "```\n"
-            "maestria index -i .maestria-dev repository ~/Projects\n"
+            "sillage index -i .sillage-dev repository ~/Projects\n"
             "```\n"
         )
         tree = {"Index": {"Repository": None}}

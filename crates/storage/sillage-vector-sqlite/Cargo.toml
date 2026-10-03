@@ -1,0 +1,16 @@
+[package]
+name = "sillage-vector-sqlite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sillage-domain = { workspace = true }
+sillage-ports = { workspace = true }
+sillage-sqlite-support = { workspace = true }
+rusqlite = { workspace = true }
+
+[dev-dependencies]
+sillage-ports = { workspace = true, features = ["contract-tests"] }
+sillage-test-support = { workspace = true }

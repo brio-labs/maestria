@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate Maestria's checked-in benchmark evidence ledger and run reports."""
+"""Validate Sillage's checked-in benchmark evidence ledger and run reports."""
 
 from __future__ import annotations
 
@@ -10,6 +10,19 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+FROZEN_CORPUS_SOURCE_ROOT = (
+    ROOT
+    / "tests"
+    / "frozen-corpus-snapshots"
+    / "benchmark-evidence-v1"
+    / "193a44d4bb2800a3ee19f44728362aa5ccfdc8cc"
+)
+# The immutable benchmark manifest references this original golden report path.
+# Resolve it only inside the fixed source snapshot archive, never the live tree.
+FROZEN_GOLDEN_REPORT_PATH = Path(
+    "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
+)
+
 ALLOWED_FIDELITY = {"real", "synthetic", "mixed", "staged"}
 ALLOWED_STATUS = {"pass", "warning", "fail", "pending", "n/a"}
 REQUIRED_MILESTONES = (
@@ -117,24 +130,27 @@ def errors_for_manifest(path: Path) -> list[str]:
             source_paths = corpus.get("source_paths")
             if not isinstance(source_paths, list) or not source_paths:
                 errors.append(f"{prefix}.corpus.source_paths must be non-empty")
-            else:
+            expected_hash = corpus.get("source_hash")
+            if not isinstance(expected_hash, str) or len(expected_hash) != 64:
+                errors.append(f"{prefix}.corpus.source_hash must be a SHA-256 digest")
+            elif isinstance(source_paths, list) and source_paths:
+                digest = hashlib.sha256()
                 for source in source_paths:
-                    source_path = ROOT / str(source)
+                    source_name = str(source)
+                    source_path = FROZEN_CORPUS_SOURCE_ROOT / source_name
                     if not source_path.is_file():
-                        errors.append(f"{prefix}.corpus source is missing: {source}")
-                expected_hash = corpus.get("source_hash")
-                if not isinstance(expected_hash, str) or len(expected_hash) != 64:
-                    errors.append(f"{prefix}.corpus.source_hash must be a SHA-256 digest")
-                elif source_paths:
-                    digest = hashlib.sha256()
-                    for source in source_paths:
-                        source_path = ROOT / str(source)
-                        if source_path.is_file():
-                            digest.update(str(source).encode())
-                            digest.update(b"\0")
-                            digest.update(source_path.read_bytes())
-                    if digest.hexdigest() != expected_hash:
-                        errors.append(f"{prefix}.corpus.source_hash does not match source files")
+                        errors.append(
+                            f"{prefix}.corpus frozen source is missing from snapshot: "
+                            f"{source_name}"
+                        )
+                        continue
+                    digest.update(source_name.encode())
+                    digest.update(b"\0")
+                    digest.update(source_path.read_bytes())
+                if digest.hexdigest() != expected_hash:
+                    errors.append(
+                        f"{prefix}.corpus.source_hash does not match frozen source snapshot"
+                    )
 
         for container_name, required_keys in (
             ("fingerprints", ("corpus_snapshot", "index_generation", "model_fingerprint")),
@@ -482,6 +498,8 @@ def report_path(report: dict[str, Any], report_root: Path | None) -> Path:
     path = Path(str(report["path"]))
     if report_root is not None and path.parts[:2] == ("target", "benchmark-reports"):
         return report_root / path.name
+    if path == FROZEN_GOLDEN_REPORT_PATH:
+        return FROZEN_CORPUS_SOURCE_ROOT / path
     return ROOT / path
 
 

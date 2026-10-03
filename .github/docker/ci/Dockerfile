@@ -93,12 +93,12 @@ RUN cd /src \
     && /opt/dx-data/tools/binaryen-129/bin/wasm-opt --version \
     && echo '=== captured args ===' \
     && (ls /src/target/dx/.captured-args/ 2>/dev/null || true) \
-    && (grep -o '"--remap-path-prefix=[^"]*"' /src/target/dx/.captured-args/*/maestria_studio_web.bin.json 2>/dev/null | sort -u || true) \
-    && (grep -o 'metadata=[a-f0-9]*\|extra-filename=[-a-f0-9]*\|--cfg [a-z_0-9]*="[^"]*"' /src/target/dx/.captured-args/*/maestria_studio_web.bin.json 2>/dev/null | sort -u || true) \
+    && (grep -o '"--remap-path-prefix=[^"]*"' /src/target/dx/.captured-args/*/sillage_studio_web.bin.json 2>/dev/null | sort -u || true) \
+    && (grep -o 'metadata=[a-f0-9]*\|extra-filename=[-a-f0-9]*\|--cfg [a-z_0-9]*="[^"]*"' /src/target/dx/.captured-args/*/sillage_studio_web.bin.json 2>/dev/null | sort -u || true) \
     && echo '=== exe hashes ===' \
-    && (sha256sum /src/target/wasm32-unknown-unknown/wasm-release/deps/maestria_studio_web-*.wasm 2>/dev/null || true) \
+    && (sha256sum /src/target/wasm32-unknown-unknown/wasm-release/deps/sillage_studio_web-*.wasm 2>/dev/null || true) \
     && echo '=== bindgen output hashes ===' \
-    && (sha256sum /src/target/dx/maestria-studio-web/release/web/public/wasm/* 2>/dev/null || true) \
+    && (sha256sum /src/target/dx/sillage-studio-web/release/web/public/wasm/* 2>/dev/null || true) \
     && echo '=== generated asset hashes ===' \
     && sha256sum dist/index.html dist/assets/* \
     && echo '=== committed asset hashes ===' \

@@ -1,21 +1,58 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PACKAGE_LAUNCHER=io-github-briolabs-maestria-launcher
-PACKAGE_SEARCH=io-github-briolabs-maestria-search
-PACKAGE_WORKER=io-github-briolabs-maestria-extension-worker
-BINARY_LAUNCHER=/usr/bin/maestria-launcher
-BINARY_SEARCH=/usr/bin/maestria-search
-BINARY_WORKER=/usr/bin/maestria-extension-worker
-OLD_SOURCE_REVISION=985a8368458d7267a4b150ae52702f90fbeedbcd
-OLD_ARTIFACT_RUN=36455626998
-OLD_SOURCE_UPSTREAM=0.0.0
+# These are the immutable identities of the pinned historical 0.0.0 artifacts.
+# They apply only to the legacy input set; current artifacts use Sillage IDs.
+LEGACY_PACKAGE_NAMES=(
+  io-github-briolabs-maestria-launcher
+  io-github-briolabs-maestria-search
+  io-github-briolabs-maestria-extension-worker
+)
+CURRENT_PACKAGE_NAMES=(
+  io-github-briolabs-sillage-launcher
+  io-github-briolabs-sillage-search
+  io-github-briolabs-sillage-extension-worker
+)
+LEGACY_BINARY_PATHS=(
+  /usr/bin/maestria-launcher
+  /usr/bin/maestria-search
+  /usr/bin/maestria-extension-worker
+)
+CURRENT_BINARY_PATHS=(
+  /usr/bin/sillage-launcher
+  /usr/bin/sillage-search
+  /usr/bin/sillage-extension-worker
+)
+LEGACY_APP_ID=io.github.briolabs.Maestria.Launcher
+CURRENT_APP_ID=io.github.briolabs.Sillage.Launcher
+LEGACY_SOURCE_REVISION=985a8368458d7267a4b150ae52702f90fbeedbcd
+LEGACY_ARTIFACT_RUN=36455626998
+LEGACY_SOURCE_UPSTREAM=0.0.0
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-fail() { echo "version-upgrade smoke failed: $*" >&2; exit 1; }
+fail() { echo "cross-name package smoke failed: $*" >&2; exit 1; }
+
+activate_suite() {
+  local suite="$1"
+  case "$suite" in
+    legacy)
+      active_suite=legacy-maestria
+      package_names=("${LEGACY_PACKAGE_NAMES[@]}")
+      binary_paths=("${LEGACY_BINARY_PATHS[@]}")
+      ;;
+    current)
+      active_suite=current-sillage
+      package_names=("${CURRENT_PACKAGE_NAMES[@]}")
+      binary_paths=("${CURRENT_BINARY_PATHS[@]}")
+      ;;
+    *)
+      fail "unknown package suite $suite"
+      ;;
+  esac
+}
 
 usage() {
-  echo "usage: smoke-version-upgrade.sh OLD_LAUNCHER_DIR OLD_SEARCH_DIR OLD_WORKER_DIR NEW_LAUNCHER_DIR NEW_SEARCH_DIR NEW_WORKER_DIR" >&2
+  echo "usage: smoke-version-upgrade.sh LEGACY_MAESTRIA_LAUNCHER_DIR LEGACY_MAESTRIA_SEARCH_DIR LEGACY_MAESTRIA_WORKER_DIR CURRENT_SILLAGE_LAUNCHER_DIR CURRENT_SILLAGE_SEARCH_DIR CURRENT_SILLAGE_WORKER_DIR" >&2
   exit 2
 }
 
@@ -37,27 +74,31 @@ for directory in "${input_dirs[@]}"; do
   [[ ${#packages[@]} -eq 1 ]] || fail "expected exactly one .deb package in $directory, found ${#packages[@]}"
   package_paths+=("${packages[0]}")
 done
+all_product_package_names=("${LEGACY_PACKAGE_NAMES[@]}" "${CURRENT_PACKAGE_NAMES[@]}")
 
-package_names=("$PACKAGE_LAUNCHER" "$PACKAGE_SEARCH" "$PACKAGE_WORKER")
-binary_paths=("$BINARY_LAUNCHER" "$BINARY_SEARCH" "$BINARY_WORKER")
 package_versions=()
 package_sha256=()
 package_upstreams=()
 for index in 0 1 2; do
   old_index=$index
   new_index=$((index + 3))
-  expected_package="${package_names[$index]}"
-  old_package="${package_paths[$old_index]}"
-  new_package="${package_paths[$new_index]}"
-  for package in "$old_package" "$new_package"; do
+  for suite in legacy current; do
+    if [[ "$suite" == legacy ]]; then
+      package_index="$old_index"
+      expected_package="${LEGACY_PACKAGE_NAMES[$index]}"
+    else
+      package_index="$new_index"
+      expected_package="${CURRENT_PACKAGE_NAMES[$index]}"
+    fi
+    package="${package_paths[$package_index]}"
     actual_package="$(dpkg-deb --field "$package" Package)" || fail "cannot read package name from $package"
-    [[ "$actual_package" == "$expected_package" ]] || fail "expected $expected_package in $package, found $actual_package"
+    [[ "$actual_package" == "$expected_package" ]] || fail "$suite artifact must retain package identity $expected_package, found $actual_package"
     architecture="$(dpkg-deb --field "$package" Architecture)" || fail "cannot read architecture from $package"
     [[ "$architecture" == amd64 ]] || fail "expected amd64 package $package, found $architecture"
     version="$(dpkg-deb --field "$package" Version)" || fail "cannot read version from $package"
     [[ -n "$version" ]] || fail "package version is empty in $package"
     dependencies="$(dpkg-deb --field "$package" Depends 2>/dev/null || true) $(dpkg-deb --field "$package" Pre-Depends 2>/dev/null || true) $(dpkg-deb --field "$package" Recommends 2>/dev/null || true) $(dpkg-deb --field "$package" Suggests 2>/dev/null || true)"
-    for other_package in "${package_names[@]}"; do
+    for other_package in "${all_product_package_names[@]}"; do
       [[ "$other_package" == "$expected_package" ]] && continue
       [[ "$dependencies" != *"$other_package"* ]] || fail "$expected_package has a direct package coupling on $other_package in $package"
     done
@@ -71,13 +112,15 @@ for index in 0 1 2; do
   new_version="${package_versions[$((2 * index + 1))]}"
   old_upstream="${package_upstreams[$((2 * index))]}"
   new_upstream="${package_upstreams[$((2 * index + 1))]}"
-  [[ "$old_upstream" == "$OLD_SOURCE_UPSTREAM" ]] || fail "$expected_package old upstream version must be $OLD_SOURCE_UPSTREAM, found $old_upstream"
-  [[ "$new_upstream" != "$old_upstream" ]] || fail "$expected_package old and new upstream versions are identical: $old_upstream"
-  dpkg --compare-versions "$old_upstream" lt "$new_upstream" || fail "$expected_package upstream version is not newer: old=$old_upstream new=$new_upstream"
-  [[ "${package_sha256[$((2 * index))]}" != "${package_sha256[$((2 * index + 1))]}" ]] || fail "$expected_package old and new Debian artifact SHA-256 are identical"
+  legacy_package="${LEGACY_PACKAGE_NAMES[$index]}"
+  current_package="${CURRENT_PACKAGE_NAMES[$index]}"
+  [[ "$old_upstream" == "$LEGACY_SOURCE_UPSTREAM" ]] || fail "$legacy_package legacy upstream version must be $LEGACY_SOURCE_UPSTREAM, found $old_upstream"
+  [[ "$new_upstream" != "$old_upstream" ]] || fail "$current_package legacy and current upstream versions are identical: $old_upstream"
+  dpkg --compare-versions "$old_upstream" lt "$new_upstream" || fail "$current_package upstream version is not newer: legacy=$old_upstream current=$new_upstream"
+  [[ "${package_sha256[$((2 * index))]}" != "${package_sha256[$((2 * index + 1))]}" ]] || fail "$legacy_package and $current_package Debian artifact SHA-256 are identical"
   if [[ ${7:-} == --inside ]]; then
-    printf 'VERSION_UPGRADE_ARTIFACT package=%s old_version=%s old_sha256=%s new_version=%s new_sha256=%s\n' \
-      "$expected_package" "$old_version" "${package_sha256[$((2 * index))]}" "$new_version" "${package_sha256[$((2 * index + 1))]}"
+    printf 'CROSSNAME_INSTALL_ARTIFACT legacy_package=%s legacy_version=%s legacy_sha256=%s current_package=%s current_version=%s current_sha256=%s\n' \
+      "$legacy_package" "$old_version" "${package_sha256[$((2 * index))]}" "$current_package" "$new_version" "${package_sha256[$((2 * index + 1))]}"
   fi
 done
 
@@ -87,19 +130,19 @@ old_upstreams=("${package_upstreams[0]}" "${package_upstreams[2]}" "${package_up
 new_upstreams=("${package_upstreams[1]}" "${package_upstreams[3]}" "${package_upstreams[5]}")
 [[ "${old_versions[0]}" == "${old_versions[1]}" && "${old_versions[1]}" == "${old_versions[2]}" ]] || fail 'old launcher, search, and worker artifacts do not share one upstream package version'
 [[ "${new_versions[0]}" == "${new_versions[1]}" && "${new_versions[1]}" == "${new_versions[2]}" ]] || fail 'new launcher, search, and worker artifacts do not share one upstream package version'
-[[ "${old_upstreams[0]}" == "$OLD_SOURCE_UPSTREAM" && "${new_upstreams[0]}" == "${new_upstreams[1]}" && "${new_upstreams[1]}" == "${new_upstreams[2]}" ]] || fail 'artifact sets have inconsistent upstream product versions'
+[[ "${old_upstreams[0]}" == "$LEGACY_SOURCE_UPSTREAM" && "${new_upstreams[0]}" == "${new_upstreams[1]}" && "${new_upstreams[1]}" == "${new_upstreams[2]}" ]] || fail 'legacy and current artifact sets have inconsistent upstream product versions'
 
 repo_root="$(realpath -- "$SCRIPT_DIR/..")"
 checkout_revision="$(git -C "$repo_root" rev-parse --verify HEAD 2>/dev/null)" || fail 'cannot identify the checked-out committed source revision'
 new_source_revision="${NEW_SOURCE_REVISION:-${GITHUB_SHA:-$checkout_revision}}"
-[[ "$OLD_SOURCE_REVISION" =~ ^[0-9a-f]{40,64}$ && "$new_source_revision" =~ ^[0-9a-f]{40,64}$ ]] || fail 'source provenance must use full lowercase Git commit hashes'
+[[ "$LEGACY_SOURCE_REVISION" =~ ^[0-9a-f]{40,64}$ && "$new_source_revision" =~ ^[0-9a-f]{40,64}$ ]] || fail 'source provenance must use full lowercase Git commit hashes'
 [[ "$new_source_revision" == "$checkout_revision" ]] || fail "new artifact source revision $new_source_revision does not match checked-out source $checkout_revision"
-[[ "$OLD_SOURCE_REVISION" != "$new_source_revision" ]] || fail 'old and new artifacts claim the same committed source revision'
+[[ "$LEGACY_SOURCE_REVISION" != "$new_source_revision" ]] || fail 'legacy and current artifacts claim the same committed source revision'
 if [[ -n "${GITHUB_SHA:-}" ]]; then
   [[ "$GITHUB_SHA" == "$checkout_revision" ]] || fail "GitHub artifact source $GITHUB_SHA differs from checked-out source $checkout_revision"
 fi
-git -C "$repo_root" cat-file -e "${OLD_SOURCE_REVISION}^{commit}" 2>/dev/null || fail 'old source commit is unavailable locally; fetch the release baseline before running this smoke'
-product_source_diff="$(git -C "$repo_root" diff --name-only "$OLD_SOURCE_REVISION" "$new_source_revision" -- crates src launcher/src extension-sdk/src)" || fail 'cannot compare old and new committed product sources'
+git -C "$repo_root" cat-file -e "${LEGACY_SOURCE_REVISION}^{commit}" 2>/dev/null || fail 'legacy source commit is unavailable locally; fetch the release baseline before running this smoke'
+product_source_diff="$(git -C "$repo_root" diff --name-only "$LEGACY_SOURCE_REVISION" "$new_source_revision" -- crates src launcher/src extension-sdk/src)" || fail 'cannot compare legacy and current committed product sources'
 product_code_changed=false
 while IFS= read -r changed_path; do
   case "$changed_path" in
@@ -114,8 +157,8 @@ if [[ ${7:-} == --inside ]]; then
   printf 'VERSION_UPGRADE_PRODUCT_CODE_DIFF=verified files=%s\n' "$product_source_diff"
 fi
 if [[ ${7:-} == --inside ]]; then
-  printf 'VERSION_UPGRADE_PROVENANCE old_run=%s old_source_revision=%s new_source_revision=%s\n' \
-    "$OLD_ARTIFACT_RUN" "$OLD_SOURCE_REVISION" "$new_source_revision"
+  printf 'CROSSNAME_INSTALL_PROVENANCE legacy_run=%s legacy_source_revision=%s current_source_revision=%s\n' \
+    "$LEGACY_ARTIFACT_RUN" "$LEGACY_SOURCE_REVISION" "$new_source_revision"
 fi
 if [[ ${7:-} == --inside ]]; then
   [[ $# -eq 8 && -d "$8" ]] || usage
@@ -125,13 +168,16 @@ else
     command -v "$tool" >/dev/null 2>&1 || fail "required private desktop tool is unavailable: $tool"
   done
   umask 077
-  root="$(mktemp -d "${TMPDIR:-/tmp}/maestria-version-upgrade.XXXXXX")"
+  root="$(mktemp -d "${TMPDIR:-/tmp}/sillage-version-upgrade.XXXXXX")"
   chmod 700 "$root"
   cleanup_outer() {
     # Installed extension bundles seal package directories read-only; after the
     # private launcher exits, restore owner write access only inside this root.
-    local sealed="$root/data/io.github.briolabs.Maestria.Launcher/extensions/packages"
-    if [[ -d "$sealed" && ! -L "$sealed" ]]; then chmod -R u+w -- "$sealed"; fi
+    local app_id sealed
+    for app_id in "$LEGACY_APP_ID" "$CURRENT_APP_ID"; do
+      sealed="$root/data/$app_id/extensions/packages"
+      if [[ -d "$sealed" && ! -L "$sealed" ]]; then chmod -R u+w -- "$sealed"; fi
+    done
     rm -rf -- "$root"
   }
   trap cleanup_outer EXIT
@@ -191,7 +237,7 @@ stop_search_best_effort() {
 stop_launcher_best_effort() {
   [[ -n "$launcher_pid" ]] || return 0
   if process_is_live "$launcher_pid"; then
-    timeout --kill-after=1s 5s "$BINARY_LAUNCHER" --quit >/dev/null 2>&1 || true
+    timeout --kill-after=1s 5s "${binary_paths[0]}" --quit >/dev/null 2>&1 || true
     for attempt in {1..100}; do process_is_live "$launcher_pid" || break; sleep .05; done
     if process_is_live "$launcher_pid"; then kill -TERM -- "-$launcher_pid" 2>/dev/null || kill -TERM "$launcher_pid" 2>/dev/null || true; fi
   fi
@@ -219,23 +265,28 @@ trap cleanup_inner EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-mkdir -p "$root/config/io.github.briolabs.Maestria.Launcher" "$root/package/dist" "$root/search"
-cat > "$root/config/io.github.briolabs.Maestria.Launcher/launcher.toml" <<'TOML'
+extension_id=dev.sillage.version-upgrade
+profile_state_value=private-extension-profile-state-retained-on-reinstall
+legacy_config_file="$root/config/$LEGACY_APP_ID/launcher.toml"
+current_config_file="$root/config/$CURRENT_APP_ID/launcher.toml"
+legacy_extension_store="$root/data/$LEGACY_APP_ID/extensions"
+current_extension_store="$root/data/$CURRENT_APP_ID/extensions"
+mkdir -p "$root/config/$LEGACY_APP_ID" "$root/package/dist" "$root/search"
+cat > "$legacy_config_file" <<'TOML'
 schemaVersion = 1
 shortcut = "Control+Space"
 shortcutSetup = "deferred"
 reduceMotion = true
 TOML
-chmod 600 "$root/config/io.github.briolabs.Maestria.Launcher/launcher.toml"
-config_file="$root/config/io.github.briolabs.Maestria.Launcher/launcher.toml"
+chmod 600 "$legacy_config_file"
 
 cat > "$root/package/manifest.json" <<'JSON'
 {"apiVersion":1,"id":"dev.sillage.version-upgrade","name":"Version Upgrade Broker","version":"1.0.0","entrypoints":[{"id":"main","file":"dist/main.js"}],"commands":[{"id":"state-check","title":"Version upgrade state","entrypointId":"main"}],"permissions":[{"type":"copy","formats":["text"]},{"type":"storage","scope":"extension"}]}
 JSON
 cat > "$root/package/dist/main.js" <<'JS'
 const stateKey = "upgrade-proof";
-const stateValue = "private-extension-state-survived-real-package-upgrade";
-const clipboardValue = "private-xvfb-version-upgrade-copy-proof";
+const stateValue = "private-extension-profile-state-retained-on-reinstall";
+const clipboardValue = "private-xvfb-crossname-profile-copy-proof";
 
 export default {
   commands: {
@@ -318,7 +369,15 @@ printf 'VERSION_UPGRADE_BWRAP_PREFLIGHT=passed\n'
 verify_installed_set() {
   local set="$1" index expected_version expected_architecture installed owner binary_hash
   local -a versions
-  if [[ "$set" == old ]]; then versions=("${old_versions[@]}"); else versions=("${new_versions[@]}"); fi
+  if [[ "$set" == old ]]; then
+    versions=("${old_versions[@]}")
+    activate_suite legacy
+  elif [[ "$set" == new ]]; then
+    versions=("${new_versions[@]}")
+    activate_suite current
+  else
+    fail "unknown installed package set $set"
+  fi
   for index in 0 1 2; do
     expected_version="${versions[$index]}"
     expected_architecture=amd64
@@ -329,13 +388,13 @@ verify_installed_set() {
     owner="$(dpkg-query --search "$binary" 2>/dev/null || true)"
     [[ "$owner" == "${package_names[$index]}: $binary" ]] || fail "$set executable is not owned by its exact Debian package: $binary ($owner)"
     binary_hash="$(sha256sum -- "$binary" | cut -d ' ' -f 1)"
-    printf 'VERSION_UPGRADE_INSTALLED set=%s package=%s version=%s binary=%s binary_sha256=%s owner=%s\n' \
-      "$set" "${package_names[$index]}" "$expected_version" "$binary" "$binary_hash" "$owner"
+    printf 'CROSSNAME_INSTALL_PACKAGE_VERIFIED set=%s suite=%s package=%s version=%s binary=%s binary_sha256=%s owner=%s\n' \
+      "$set" "$active_suite" "${package_names[$index]}" "$expected_version" "$binary" "$binary_hash" "$owner"
     if [[ "$set" == new ]]; then
       old_hash="${old_binary_sha256[$index]}"
-      [[ "$binary_hash" != "$old_hash" ]] || fail "${package_names[$index]} old and new installed executable bytes are identical"
+      [[ "$binary_hash" != "$old_hash" ]] || fail "${CURRENT_PACKAGE_NAMES[$index]} canonical executable bytes are identical to pinned legacy ${LEGACY_PACKAGE_NAMES[$index]}"
       if [[ -n "${new_binary_sha256[$index]:-}" ]]; then
-        [[ "$binary_hash" == "${new_binary_sha256[$index]}" ]] || fail "${package_names[$index]} reinstall changed the new package executable bytes"
+        [[ "$binary_hash" == "${new_binary_sha256[$index]}" ]] || fail "${CURRENT_PACKAGE_NAMES[$index]} reinstall changed the canonical package executable bytes"
       else
         new_binary_sha256[$index]="$binary_hash"
       fi
@@ -369,15 +428,15 @@ private_launcher_window() {
 }
 start_launcher() {
   : >"$launcher_log"
-  setsid "$BINARY_LAUNCHER" --activate >"$launcher_log" 2>&1 & launcher_pid=$!
+  setsid "${binary_paths[0]}" --activate >"$launcher_log" 2>&1 & launcher_pid=$!
   launcher_window="$(private_launcher_window)"
   timeout --kill-after=1s 5s xdotool windowactivate --sync "$launcher_window"
-  printf 'VERSION_UPGRADE_LAUNCHER_STARTED path=%s pid=%s window=%s\n' "$BINARY_LAUNCHER" "$launcher_pid" "$launcher_window"
+  printf 'VERSION_UPGRADE_LAUNCHER_STARTED suite=%s path=%s pid=%s window=%s\n' "$active_suite" "${binary_paths[0]}" "$launcher_pid" "$launcher_window"
 }
 stop_launcher_gracefully() {
   [[ -n "$launcher_pid" ]] || return 0
   local status=0
-  timeout --kill-after=1s 10s "$BINARY_LAUNCHER" --quit >/dev/null || { cat "$launcher_log" >&2; fail 'installed resident launcher --quit request failed'; }
+  timeout --kill-after=1s 10s "${binary_paths[0]}" --quit >/dev/null || { cat "$launcher_log" >&2; fail 'installed resident launcher --quit request failed'; }
   for attempt in {1..200}; do process_is_live "$launcher_pid" || break; sleep .05; done
   if process_is_live "$launcher_pid"; then fail 'resident launcher did not stop gracefully after --quit'; fi
   wait "$launcher_pid" || status=$?
@@ -403,7 +462,7 @@ fixture="$(realpath -- "$fixture")"
 approved_root="$(realpath -- "$approved_root")"
 ungranted_root="$(realpath -- "$ungranted_root")"
 
-search_cli() { timeout --kill-after=1s 12s "$BINARY_SEARCH" "$@"; }
+search_cli() { timeout --kill-after=1s 12s "${binary_paths[1]}" "$@"; }
 
 setup_search_instance() {
   mkdir -m 700 "$instance"
@@ -463,7 +522,7 @@ PY
 start_search_daemon() {
   local attempt ready=false
   : >"$search_log"
-  "$BINARY_SEARCH" start --instance-dir "$instance" >"$search_log" 2>&1 & search_pid=$!
+  "${binary_paths[1]}" start --instance-dir "$instance" >"$search_log" 2>&1 & search_pid=$!
   for attempt in {1..600}; do
     if search_cli owner roots status --instance-dir "$instance" >"$search_root/owner-roots.json" 2>"$search_root/owner-roots.err"; then
       if python3 - "$search_root/owner-roots.json" "$approved_root" <<'PY'
@@ -481,7 +540,7 @@ PY
     sleep .05
   done
   [[ "$ready" == true && -S "$socket_path" ]] || { cat "$search_log" >&2; fail 'private search daemon did not bind its socket with exactly one approved root'; }
-  printf 'VERSION_UPGRADE_SEARCH_DAEMON_STARTED binary=%s pid=%s socket=%s\n' "$BINARY_SEARCH" "$search_pid" "$socket_path"
+  printf 'VERSION_UPGRADE_SEARCH_DAEMON_STARTED suite=%s binary=%s pid=%s socket=%s\n' "$active_suite" "${binary_paths[1]}" "$search_pid" "$socket_path"
   if [[ -s "$credential_file" ]]; then wait_for_search_index; fi
 }
 
@@ -628,101 +687,164 @@ for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_p
 print(digest.hexdigest())
 PY
 }
-extension_store="$root/data/io.github.briolabs.Maestria.Launcher/extensions"
 state_key_hex="$(printf '%s' upgrade-proof | od -An -tx1 | tr -d ' \n')"
-# ActiveBundle supplies its per-extension data directory to the broker, which
-# creates a second extension-scoped subdirectory. Read the old package's actual
-# durable path so an upgrade must retain its value, not silently migrate it.
-extension_data_file="$extension_store/data/dev.sillage.version-upgrade/dev.sillage.version-upgrade/$state_key_hex"
+legacy_extension_data_file="$legacy_extension_store/data/$extension_id/$extension_id/$state_key_hex"
+current_extension_data_file="$current_extension_store/data/$extension_id/$extension_id/$state_key_hex"
+
+select_profile_state() {
+  local profile="$1"
+  case "$profile" in
+    legacy)
+      profile_config_file="$legacy_config_file"
+      profile_extension_store="$legacy_extension_store"
+      profile_extension_data_file="$legacy_extension_data_file"
+      ;;
+    current)
+      profile_config_file="$current_config_file"
+      profile_extension_store="$current_extension_store"
+      profile_extension_data_file="$current_extension_data_file"
+      ;;
+    *)
+      fail "unknown XDG profile $profile"
+      ;;
+  esac
+}
 
 snapshot_private_state() {
-  local label="$1"
-  [[ -s "$config_file" ]] || fail "$label launcher settings file is missing"
-  [[ "$(stat -c '%a' "$config_file")" == 600 ]] || fail "$label launcher settings file is not private mode 0600"
-  [[ -s "$extension_data_file" && "$(<"$extension_data_file")" == private-extension-state-survived-real-package-upgrade ]] || fail "$label extension private storage value is missing or changed"
-  [[ "$(stat -c '%a' "$extension_data_file")" == 600 ]] || fail "$label extension state file is not private mode 0600"
-  config_sha="$(sha256sum -- "$config_file" | cut -d ' ' -f 1)"
-  extension_sha="$(hash_tree "$extension_store")"
+  local label="$1" profile="$2"
+  select_profile_state "$profile"
+  [[ -s "$profile_config_file" ]] || fail "$label $profile launcher settings file is missing"
+  [[ "$(stat -c '%a' "$profile_config_file")" == 600 ]] || fail "$label $profile launcher settings file is not private mode 0600"
+  [[ -s "$profile_extension_data_file" && "$(<"$profile_extension_data_file")" == "$profile_state_value" ]] || fail "$label $profile extension private storage value is missing or changed"
+  [[ "$(stat -c '%a' "$profile_extension_data_file")" == 600 ]] || fail "$label $profile extension state file is not private mode 0600"
+  config_sha="$(sha256sum -- "$profile_config_file" | cut -d ' ' -f 1)"
+  extension_sha="$(hash_tree "$profile_extension_store")"
   search_sha="$(hash_tree "$instance")"
   credential_sha="$(sha256sum -- "$credential_file" | cut -d ' ' -f 1)"
-  printf 'VERSION_UPGRADE_PRIVATE_STATE phase=%s launcher_settings_sha256=%s extension_permissions_and_data_sha256=%s search_instance_and_grants_sha256=%s consumer_credential_sha256=%s\n' \
-    "$label" "$config_sha" "$extension_sha" "$search_sha" "$credential_sha"
+  printf 'CROSSNAME_PROFILE_STATE profile=%s phase=%s launcher_settings_sha256=%s extension_permissions_and_data_sha256=%s explicit_search_instance_sha256=%s consumer_credential_sha256=%s\n' \
+    "$profile" "$label" "$config_sha" "$extension_sha" "$search_sha" "$credential_sha"
+}
+
+assert_profile_state_matches() {
+  local label="$1" profile="$2" expected_config="$3" expected_extension="$4"
+  select_profile_state "$profile"
+  [[ "$(sha256sum -- "$profile_config_file" | cut -d ' ' -f 1)" == "$expected_config" ]] || fail "$label modified $profile launcher settings"
+  [[ "$(hash_tree "$profile_extension_store")" == "$expected_extension" ]] || fail "$label modified $profile extension permissions/package/data"
+  [[ "$(<"$profile_extension_data_file")" == "$profile_state_value" ]] || fail "$label changed the $profile extension profile value"
+  printf 'CROSSNAME_PROFILE_STATE_UNCHANGED profile=%s phase=%s launcher_settings_sha256=%s extension_store_sha256=%s\n' \
+    "$profile" "$label" "$expected_config" "$expected_extension"
 }
 
 assert_private_state_matches() {
-  local label="$1" expected_config="$2" expected_extension="$3" expected_search="$4" expected_credential="$5"
-  [[ "$(sha256sum -- "$config_file" | cut -d ' ' -f 1)" == "$expected_config" ]] || fail "$label modified private launcher settings"
-  [[ "$(hash_tree "$extension_store")" == "$expected_extension" ]] || fail "$label modified extension permissions/package/data"
-  [[ "$(hash_tree "$instance")" == "$expected_search" ]] || fail "$label modified the private search instance/consumer grant"
+  local label="$1" profile="$2" expected_config="$3" expected_extension="$4" expected_search="$5" expected_credential="$6"
+  select_profile_state "$profile"
+  [[ "$(sha256sum -- "$profile_config_file" | cut -d ' ' -f 1)" == "$expected_config" ]] || fail "$label modified $profile launcher settings"
+  [[ "$(hash_tree "$profile_extension_store")" == "$expected_extension" ]] || fail "$label modified $profile extension permissions/package/data"
+  [[ "$(hash_tree "$instance")" == "$expected_search" ]] || fail "$label modified the explicit private search instance/consumer grant"
   [[ "$(sha256sum -- "$credential_file" | cut -d ' ' -f 1)" == "$expected_credential" ]] || fail "$label modified the external consumer credential"
-  [[ "$(<"$extension_data_file")" == private-extension-state-survived-real-package-upgrade ]] || fail "$label changed the persistent extension value"
-  printf 'VERSION_UPGRADE_PRIVATE_STATE_UNCHANGED phase=%s launcher_settings_sha256=%s extension_store_sha256=%s search_instance_sha256=%s consumer_credential_sha256=%s\n' \
-    "$label" "$expected_config" "$expected_extension" "$expected_search" "$expected_credential"
+  [[ "$(<"$profile_extension_data_file")" == "$profile_state_value" ]] || fail "$label changed the $profile extension profile value"
+  printf 'CROSSNAME_PROFILE_STATE_UNCHANGED profile=%s phase=%s launcher_settings_sha256=%s extension_store_sha256=%s explicit_search_instance_sha256=%s consumer_credential_sha256=%s\n' \
+    "$profile" "$label" "$expected_config" "$expected_extension" "$expected_search" "$expected_credential"
 }
 
-for package in "${package_names[@]}"; do
+for package in "${all_product_package_names[@]}"; do
   status="$(dpkg-query --show --showformat='${Status}' "$package" 2>/dev/null || true)"
   [[ "$status" != 'install ok installed' ]] || fail "runner already has $package installed; refusing a pre-existing package state"
 done
-run_apt 'install the old artifacts from the committed 0.0.0 source' install --yes --no-install-recommends "${package_paths[0]}" "${package_paths[1]}" "${package_paths[2]}"
+
+run_apt 'install the pinned historical Maestria 0.0.0 artifacts' install --yes --no-install-recommends "${package_paths[0]}" "${package_paths[1]}" "${package_paths[2]}"
 old_binary_sha256=() new_binary_sha256=()
 verify_installed_set old
+activate_suite legacy
+[[ ! -e "$legacy_extension_data_file" ]] || fail 'legacy extension profile was not fresh before first setup'
 
 setup_search_instance
 start_search_daemon
 create_search_grant
 wait_for_search_index
-verify_search_behavior old ""
+verify_search_behavior legacy-maestria ""
 
 start_launcher
 window="$launcher_window"
-timeout --kill-after=1s 45s python3 "$SCRIPT_DIR/check-version-upgrade.py" prepare "$root" "$window"
-[[ -s "$extension_data_file" ]] || fail 'installed extension worker did not create its private XDG storage entry'
-[[ "$(<"$extension_data_file")" == private-extension-state-survived-real-package-upgrade ]] || fail 'installed extension worker stored an unexpected value'
-[[ "$(stat -c '%a' "$extension_data_file")" == 600 ]] || fail 'installed extension worker data is not mode 0600'
+timeout --kill-after=1s 45s python3 "$SCRIPT_DIR/check-version-upgrade.py" prepare legacy "$root" "$window"
+[[ -s "$legacy_extension_data_file" ]] || fail 'pinned Maestria extension worker did not create its private XDG storage entry'
+[[ "$(<"$legacy_extension_data_file")" == "$profile_state_value" ]] || fail 'legacy extension worker stored an unexpected private profile value'
+[[ "$(stat -c '%a' "$legacy_extension_data_file")" == 600 ]] || fail 'legacy extension worker data is not mode 0600'
 stop_launcher_gracefully
 stop_search_gracefully
-snapshot_private_state before-upgrade
-saved_config_sha="$config_sha" saved_extension_sha="$extension_sha" saved_search_sha="$search_sha" saved_credential_sha="$credential_sha"
+snapshot_private_state before-sillage-install legacy
+legacy_saved_config_sha="$config_sha"
+legacy_saved_extension_sha="$extension_sha"
+legacy_saved_search_sha="$search_sha"
+legacy_saved_credential_sha="$credential_sha"
 
-
-run_apt 'upgrade to new source-built Debian artifacts' install --yes --no-install-recommends "${package_paths[3]}" "${package_paths[4]}" "${package_paths[5]}"
+run_apt 'install canonical Sillage artifacts alongside the pinned Maestria packages; do not migrate profiles' install --yes --no-install-recommends "${package_paths[3]}" "${package_paths[4]}" "${package_paths[5]}"
 verify_installed_set new
-assert_private_state_matches after-upgrade-before-restart "$saved_config_sha" "$saved_extension_sha" "$saved_search_sha" "$saved_credential_sha"
+verify_installed_set old
+assert_private_state_matches after-sillage-install-before-sillage-launch legacy "$legacy_saved_config_sha" "$legacy_saved_extension_sha" "$legacy_saved_search_sha" "$legacy_saved_credential_sha"
+[[ ! -e "$current_config_file" && ! -e "$current_extension_store" ]] || fail 'Sillage config or extension profile exists before first Sillage setup; cross-name migration is unsupported'
+printf 'CROSSNAME_PROFILE_ISOLATION_VERIFIED legacy_app_id=%s current_app_id=%s legacy_config=%s current_config_absent=true current_extension_state_absent=true\n' \
+  "$LEGACY_APP_ID" "$CURRENT_APP_ID" "$legacy_config_file"
 
+activate_suite current
 start_search_daemon
-verify_search_behavior after-upgrade "$primary_evidence_id"
-start_launcher
-window="$launcher_window"
-timeout --kill-after=1s 45s python3 "$SCRIPT_DIR/check-version-upgrade.py" verify "$root" "$window"
-stop_launcher_gracefully
+verify_search_behavior sillage-explicit-private-instance "$primary_evidence_id"
 stop_search_gracefully
 
-# Package removal is deliberately separate from upgrade; retain, never purge, the private XDG state.
-snapshot_private_state before-remove-reinstall
-saved_config_sha="$config_sha" saved_extension_sha="$extension_sha" saved_search_sha="$search_sha" saved_credential_sha="$credential_sha"
-run_apt 'remove all three independent product packages while retaining private user state' remove --yes --no-install-recommends "$PACKAGE_LAUNCHER" "$PACKAGE_SEARCH" "$PACKAGE_WORKER"
-for binary in "${binary_paths[@]}"; do [[ ! -e "$binary" ]] || fail "package removal left installed executable $binary"; done
-for package in "${package_names[@]}"; do
-  status="$(dpkg-query --show --showformat='${Status}' "$package" 2>/dev/null || true)"
-  [[ "$status" != 'install ok installed' ]] || fail "apt remove left $package installed"
+[[ ! -e "$current_config_file" && ! -e "$current_extension_store" ]] || fail 'Sillage config or extension profile appeared before its first launcher run'
+printf 'CROSSNAME_PROFILE_FRESH_DEFAULTS_START current_config_absent=true current_extension_state_absent=true\n'
+start_launcher
+window="$launcher_window"
+timeout --kill-after=1s 45s python3 "$SCRIPT_DIR/check-version-upgrade.py" defaults current "$root" "$window"
+stop_launcher_gracefully
+[[ -s "$current_config_file" ]] || fail 'Sillage preferences UI did not persist its configured settings after fresh-defaults verification'
+[[ "$(stat -c '%a' "$current_config_file")" == 600 ]] || fail 'Sillage preferences UI did not persist mode 0600 settings'
+printf 'CROSSNAME_PROFILE_FRESH_DEFAULTS_TRANSITION config_persisted=true mode=0600 configured_via=preferences_ui\n'
+
+start_launcher
+window="$launcher_window"
+timeout --kill-after=1s 45s python3 "$SCRIPT_DIR/check-version-upgrade.py" prepare current "$root" "$window"
+[[ -s "$current_extension_data_file" ]] || fail 'Sillage extension worker did not create its private XDG storage entry'
+[[ "$(<"$current_extension_data_file")" == "$profile_state_value" ]] || fail 'Sillage extension worker stored an unexpected private profile value'
+[[ "$(stat -c '%a' "$current_extension_data_file")" == 600 ]] || fail 'Sillage extension data is not mode 0600'
+stop_launcher_gracefully
+snapshot_private_state before-sillage-remove-reinstall current
+current_saved_config_sha="$config_sha"
+current_saved_extension_sha="$extension_sha"
+current_saved_search_sha="$search_sha"
+current_saved_credential_sha="$credential_sha"
+assert_profile_state_matches after-sillage-profile-creation legacy "$legacy_saved_config_sha" "$legacy_saved_extension_sha"
+
+run_apt 'remove only the canonical Sillage package suite, leaving the distinct Maestria suite installed' remove --yes --no-install-recommends "${CURRENT_PACKAGE_NAMES[@]}"
+for binary in "${CURRENT_BINARY_PATHS[@]}"; do
+  [[ ! -e "$binary" ]] || fail "Sillage package removal left installed executable $binary"
 done
-assert_private_state_matches after-remove "$saved_config_sha" "$saved_extension_sha" "$saved_search_sha" "$saved_credential_sha"
-run_apt 'reinstall the exact new product artifacts' install --yes --no-install-recommends "${package_paths[3]}" "${package_paths[4]}" "${package_paths[5]}"
-verify_installed_set new
-assert_private_state_matches after-reinstall "$saved_config_sha" "$saved_extension_sha" "$saved_search_sha" "$saved_credential_sha"
+for package in "${CURRENT_PACKAGE_NAMES[@]}"; do
+  status="$(dpkg-query --show --showformat='${Status}' "$package" 2>/dev/null || true)"
+  [[ "$status" != 'install ok installed' ]] || fail "apt remove left current Sillage package $package installed"
+done
+verify_installed_set old
+assert_private_state_matches after-sillage-remove current "$current_saved_config_sha" "$current_saved_extension_sha" "$current_saved_search_sha" "$current_saved_credential_sha"
+assert_profile_state_matches after-sillage-remove legacy "$legacy_saved_config_sha" "$legacy_saved_extension_sha"
 
+run_apt 'reinstall the exact canonical Sillage artifacts' install --yes --no-install-recommends "${package_paths[3]}" "${package_paths[4]}" "${package_paths[5]}"
+verify_installed_set new
+verify_installed_set old
+assert_private_state_matches after-sillage-reinstall current "$current_saved_config_sha" "$current_saved_extension_sha" "$current_saved_search_sha" "$current_saved_credential_sha"
+assert_profile_state_matches after-sillage-reinstall legacy "$legacy_saved_config_sha" "$legacy_saved_extension_sha"
+
+activate_suite current
 start_search_daemon
-verify_search_behavior after-reinstall "$primary_evidence_id"
+verify_search_behavior sillage-reinstall "$primary_evidence_id"
 start_launcher
 window="$launcher_window"
-timeout --kill-after=1s 45s python3 "$SCRIPT_DIR/check-version-upgrade.py" verify "$root" "$window"
-[[ "$(<"$extension_data_file")" == private-extension-state-survived-real-package-upgrade ]] || fail 'reinstalled launcher/worker lost the private extension value'
+timeout --kill-after=1s 45s python3 "$SCRIPT_DIR/check-version-upgrade.py" verify current "$root" "$window"
+[[ "$(<"$current_extension_data_file")" == "$profile_state_value" ]] || fail 'reinstalled Sillage launcher/worker lost its private extension profile value'
 stop_launcher_gracefully
 
 if ! revoke_output="$(search_cli owner grant revoke --instance-dir "$instance" "$grant_digest" 2>"$search_root/grant-revoke.err")"; then
   cat "$search_root/grant-revoke.err" >&2
-  fail 'could not revoke the retained search consumer grant after upgrade/reinstall acceptance'
+  fail 'could not revoke the retained search consumer grant after Sillage remove/reinstall acceptance'
 fi
 [[ "$revoke_output" == *'state=revoked'* ]] || fail 'search grant revoke did not confirm state=revoked'
 if search_cli search "${consumer_args[@]}" --limit 1 "$primary_phrase" >"$search_root/final-revoked.stdout" 2>"$search_root/final-revoked.stderr"; then
@@ -732,12 +854,13 @@ fi
   cat "$search_root/final-revoked.stderr" >&2
   fail 'revoked search consumer did not receive typed Unauthorized'
 }
-printf '%s\n' "VERSION_UPGRADE_SEARCH_GRANT_REVOKED digest=$grant_digest denial=Unauthorized"
+printf '%s\n' "CROSSNAME_SEARCH_GRANT_REVOKED digest=$grant_digest denial=Unauthorized"
 stop_search_gracefully
 
 start_launcher
 window="$launcher_window"
-timeout --kill-after=1s 45s python3 "$SCRIPT_DIR/check-version-upgrade.py" revoke "$root" "$window"
-[[ "$(<"$extension_data_file")" == private-extension-state-survived-real-package-upgrade ]] || fail 'revoking the extension permission unexpectedly removed its private data'
+timeout --kill-after=1s 45s python3 "$SCRIPT_DIR/check-version-upgrade.py" revoke current "$root" "$window"
+[[ "$(<"$current_extension_data_file")" == "$profile_state_value" ]] || fail 'revoking the Sillage extension permission unexpectedly removed its private data'
 stop_launcher_gracefully
-printf '%s\n' "VERSION_UPGRADE_ACCEPTANCE_PASSED old_upstream=${old_upstreams[0]} new_upstream=${new_upstreams[0]} source_old=$OLD_SOURCE_REVISION source_new=$new_source_revision persistent_search_evidence_id=$primary_evidence_id retained_xdg_state_through_reinstall=true revoked_grants=search,extension private_xvfb=true private_dbus=true bwrap_worker=true"
+assert_profile_state_matches final legacy "$legacy_saved_config_sha" "$legacy_saved_extension_sha"
+printf '%s\n' "CROSSNAME_INSTALL_ACCEPTANCE_PASSED legacy_run=$LEGACY_ARTIFACT_RUN legacy_upstream=${old_upstreams[0]} current_upstream=${new_upstreams[0]} legacy_source=$LEGACY_SOURCE_REVISION current_source=$new_source_revision legacy_launcher_and_extension_profile_unchanged=true current_profile_retained_through_remove_reinstall=true explicit_private_search_instance_reused=true search_evidence_id=$primary_evidence_id revoked_grants=search,current-extension private_xvfb=true private_dbus=true bwrap_worker=true"

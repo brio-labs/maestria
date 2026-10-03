@@ -169,7 +169,7 @@ def main() -> None:
                         raise SystemExit("XDG_CONFIG_HOME is required for shortcut setup smoke")
                     settings = (
                         Path(config_home)
-                        / "io.github.briolabs.Maestria.Launcher"
+                        / "io.github.briolabs.Sillage.Launcher"
                         / "launcher.toml"
                     )
                     if (
@@ -195,7 +195,7 @@ def main() -> None:
                         raise SystemExit("XDG_CONFIG_HOME is required for deferral persistence smoke")
                     settings = (
                         Path(config_home)
-                        / "io.github.briolabs.Maestria.Launcher"
+                        / "io.github.briolabs.Sillage.Launcher"
                         / "launcher.toml"
                     )
                     query = next(
@@ -249,7 +249,7 @@ def main() -> None:
                     raise SystemExit("XDG_CONFIG_HOME is required for conflict-grab smoke")
                 settings = (
                     Path(config_home)
-                    / "io.github.briolabs.Maestria.Launcher"
+                    / "io.github.briolabs.Sillage.Launcher"
                     / "launcher.toml"
                 )
                 for node, _, name in role_nodes:

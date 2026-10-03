@@ -14,21 +14,29 @@ import gi
 gi.require_version("Atspi", "2.0")
 from gi.repository import Atspi
 
-if len(sys.argv) != 4 or sys.argv[1] not in {"prepare", "verify", "revoke"}:
-    raise SystemExit("usage: check-version-upgrade.py prepare|verify|revoke PRIVATE_ROOT WINDOW_ID")
+if (
+    len(sys.argv) != 5
+    or sys.argv[1] not in {"defaults", "prepare", "verify", "revoke"}
+    or sys.argv[2] not in {"legacy", "current"}
+    or (sys.argv[1] == "defaults" and sys.argv[2] != "current")
+):
+    raise SystemExit("usage: check-version-upgrade.py defaults current PRIVATE_ROOT WINDOW_ID | prepare|verify|revoke legacy|current PRIVATE_ROOT WINDOW_ID")
 
 phase = sys.argv[1]
-root = Path(sys.argv[2])
-window_id = sys.argv[3]
+profile = sys.argv[2]
+root = Path(sys.argv[3])
+window_id = sys.argv[4]
 window_title = subprocess.run(
     ["xdotool", "getwindowname", window_id], check=True, capture_output=True, text=True, timeout=5
 ).stdout.strip()
+# The pinned legacy package already displays "Sillage Launcher"; its Debian,
+# executable, and XDG identities are checked separately by the shell harness.
 if window_title != "Sillage Launcher":
     raise SystemExit(f"expected the private launcher window, found {window_title!r}")
 extension_id = "dev.sillage.version-upgrade"
 extension_name = "Version Upgrade Broker"
-state_value = "private-extension-state-survived-real-package-upgrade"
-clipboard_value = "private-xvfb-version-upgrade-copy-proof"
+state_value = "private-extension-profile-state-retained-on-reinstall"
+clipboard_value = "private-xvfb-crossname-profile-copy-proof"
 package_path = root / "package"
 
 Atspi.init()
@@ -110,7 +118,7 @@ def text_value(node) -> str:
     return Atspi.Text.get_text(iface, 0, Atspi.Text.get_character_count(iface))
 
 
-def click_and_type(node, text: str):
+def click_component(node):
     component = node.get_component_iface()
     bounds = component.get_extents(Atspi.CoordType.SCREEN) if component else None
     if bounds is None or bounds.width <= 0 or bounds.height <= 0:
@@ -120,6 +128,10 @@ def click_and_type(node, text: str):
          str(bounds.y + max(4, bounds.height // 2)), "click", "1"],
         check=True, timeout=5,
     )
+
+
+def click_and_type(node, text: str):
+    click_component(node)
     subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "1", text], check=True, timeout=10)
     print("VERSION_UPGRADE_PATH_ENTRY_USED_PRIVATE_X11_POINTER", flush=True)
 
@@ -136,14 +148,87 @@ def exact_text(label: str, expected: str):
     raise RuntimeError(f"launcher field {label!r} contained {actual!r}, expected {expected!r}")
 
 
+def expect_showing(label: str):
+    node = expect(label)
+    if not node.get_state_set().contains(Atspi.StateType.SHOWING):
+        raise RuntimeError(f"launcher control {label!r} is exposed but not showing")
+    return node
+
+
+def assert_not_showing(label: str):
+    for node in nodes():
+        try:
+            if node.get_name() != label:
+                continue
+            showing = node.get_state_set().contains(Atspi.StateType.SHOWING)
+        except (AttributeError, RuntimeError):
+            continue
+        if showing:
+            raise RuntimeError(f"launcher unexpectedly shows {label!r}")
+
+
+def wait_for_checkbox_state(label: str, checked: bool):
+    deadline = time.monotonic() + 5
+    actual = None
+    while time.monotonic() < deadline:
+        node = named(label)
+        if node is not None:
+            actual = node.get_state_set().contains(Atspi.StateType.CHECKED)
+            if actual == checked:
+                return node
+        time.sleep(0.04)
+    raise RuntimeError(f"launcher checkbox {label!r} checked={actual}, expected {checked}")
+
+
 def verify_settings():
+    assert_not_showing("Set Up Shortcut")
+    assert_not_showing("Not Now")
     accessible_action("Open launcher preferences")
-    checkbox = expect("Reduce interface motion")
+    checkbox = expect_showing("Reduce interface motion")
     if not checkbox.get_state_set().contains(Atspi.StateType.CHECKED):
         raise RuntimeError("launcher did not load reduceMotion=true from its private XDG settings")
+    expect_showing("Global shortcut accelerator")
     exact_text("Global shortcut accelerator", "Control+Space")
+    expect_showing("System ✓")
     accessible_action("Close preferences")
-    print(f"VERSION_UPGRADE_SETTINGS_VERIFIED phase={phase} reduce_motion=true shortcut=Control+Space", flush=True)
+    print(f"CROSSNAME_PROFILE_SETTINGS_VERIFIED profile={profile} phase={phase} reduce_motion=true shortcut=Control+Space shortcut_setup=deferred theme=system", flush=True)
+
+
+def verify_fresh_defaults():
+    expect_showing("Set Up Shortcut")
+    expect_showing("Not Now")
+    accessible_action("Open launcher preferences")
+    checkbox = expect_showing("Reduce interface motion")
+    if checkbox.get_state_set().contains(Atspi.StateType.CHECKED):
+        raise RuntimeError("first Sillage launch inherited the seeded legacy reduceMotion=true setting")
+    expect_showing("Global shortcut accelerator")
+    exact_text("Global shortcut accelerator", "Control+Space")
+    expect_showing("System ✓")
+    accessible_action("Close preferences")
+    print("CROSSNAME_PROFILE_DEFAULTS_VERIFIED profile=current phase=first-launch reduce_motion=false shortcut=Control+Space shortcut_setup=unconfigured theme=system seeded_legacy_reduce_motion=true seeded_legacy_shortcut_setup=deferred inherited_nondefault_values=false", flush=True)
+
+    accessible_action("Not Now")
+    assert_not_showing("Set Up Shortcut")
+    assert_not_showing("Not Now")
+    accessible_action("Open launcher preferences")
+    checkbox = expect_showing("Reduce interface motion")
+    if checkbox.get_state_set().contains(Atspi.StateType.CHECKED):
+        raise RuntimeError("Sillage reduceMotion changed while deferring its default shortcut offer")
+    click_component(checkbox)
+    wait_for_checkbox_state("Reduce interface motion", True)
+    expect_showing("Global shortcut accelerator")
+    exact_text("Global shortcut accelerator", "Control+Space")
+    expect_showing("System ✓")
+    accessible_action("Save launcher preferences")
+    expect_showing("Preferences saved.")
+    wait_for_checkbox_state("Reduce interface motion", True)
+    expect_showing("Global shortcut accelerator")
+    exact_text("Global shortcut accelerator", "Control+Space")
+    expect_showing("System ✓")
+    accessible_action("Close preferences")
+    assert_not_showing("Set Up Shortcut")
+    assert_not_showing("Not Now")
+    print("CROSSNAME_PROFILE_CONFIGURED_AFTER_DEFAULTS profile=current phase=first-launch reduce_motion=true shortcut=Control+Space shortcut_setup=deferred theme=system transition=preferences_ui", flush=True)
 
 
 def extension_description(prefix: str) -> str:
@@ -173,7 +258,7 @@ def verify_review_permissions(new_install: bool):
         ):
             raise RuntimeError(f"install consent did not present only the requested copy/storage permissions: {description!r}")
         accessible_action("Approve exact extension identity and permissions, then install")
-        print("VERSION_UPGRADE_EXTENSION_CONSENT_VERIFIED copy=text storage=extension file_search=not_granted", flush=True)
+        print(f"CROSSNAME_PROFILE_EXTENSION_CONSENT_VERIFIED profile={profile} copy=text storage=extension file_search=not_granted", flush=True)
     accessible_action(f"Review permissions and details for {extension_name} 1.0.0")
 
 def private_copy():
@@ -191,14 +276,14 @@ def private_copy():
         raise RuntimeError("extension capability action is not visible and enabled")
     iface = button.get_action_iface()
     if iface is not None and Atspi.Action.do_action(iface, 0):
-        print("VERSION_UPGRADE_EXTENSION_ACTION_USED_ATSPI", flush=True)
+        print(f"CROSSNAME_PROFILE_EXTENSION_ACTION_USED_ATSPI profile={profile}", flush=True)
     else:
         subprocess.run(
             ["xdotool", "mousemove", str(bounds.x + bounds.width // 2),
              str(bounds.y + bounds.height // 2), "click", "1"],
             check=True, timeout=5,
         )
-        print("VERSION_UPGRADE_EXTENSION_ACTION_USED_PRIVATE_X11_POINTER_NOT_ATSPI", flush=True)
+        print(f"CROSSNAME_PROFILE_EXTENSION_ACTION_USED_PRIVATE_X11_POINTER_NOT_ATSPI profile={profile}", flush=True)
     expected_title = (
         "UPGRADE_PRIVATE_STATE_INITIALIZED_AND_COPY_ALLOWED"
         if phase == "prepare"
@@ -211,7 +296,7 @@ def private_copy():
     ).stdout
     if clipboard != clipboard_value:
         raise RuntimeError(f"private Xvfb clipboard contained {clipboard!r}, not the authorized extension copy")
-    print(f"VERSION_UPGRADE_EXTENSION_COPY_VERIFIED phase={phase} clipboard=private_xvfb", flush=True)
+    print(f"CROSSNAME_PROFILE_EXTENSION_COPY_VERIFIED profile={profile} phase={phase} clipboard=private_xvfb", flush=True)
 
 
 def install_and_seed():
@@ -228,7 +313,7 @@ def install_and_seed():
     accessible_action("Select Initialize private upgrade state")
     private_copy()
     accessible_action("Return to installed extensions")
-    print("VERSION_UPGRADE_EXTENSION_INITIALIZED worker=bubblewrap storage=private_xdg copy=private_xvfb", flush=True)
+    print(f"CROSSNAME_PROFILE_EXTENSION_INITIALIZED profile={profile} worker=bubblewrap storage=private_xdg copy=private_xvfb", flush=True)
 
 
 def verify_retained():
@@ -239,7 +324,7 @@ def verify_retained():
     accessible_action("Select Verify retained private upgrade state")
     private_copy()
     accessible_action("Return to installed extensions")
-    print(f"VERSION_UPGRADE_EXTENSION_RETAINED phase={phase} id={extension_id} storage={state_value} ungranted_file_search=denied copy_grant=active", flush=True)
+    print(f"CROSSNAME_PROFILE_EXTENSION_RETAINED profile={profile} phase={phase} id={extension_id} storage={state_value} ungranted_file_search=denied copy_grant=active", flush=True)
 def revoke_extension_grant():
     accessible_action("Manage installed extensions and permissions")
     accessible_action(f"Review permissions and details for {extension_name} 1.0.0")
@@ -249,19 +334,22 @@ def revoke_extension_grant():
     accessible_action(f"Review permissions and details for {extension_name} 1.0.0")
     if named("Run command Version upgrade state") is not None:
         raise RuntimeError("revoked extension grant still exposes its executable command")
-    print(f"VERSION_UPGRADE_EXTENSION_GRANT_REVOKED id={extension_id} command=unavailable", flush=True)
+    print(f"CROSSNAME_PROFILE_EXTENSION_GRANT_REVOKED profile={profile} id={extension_id} command=unavailable", flush=True)
 
 
 
 
 try:
-    verify_settings()
-    if phase == "prepare":
-        install_and_seed()
-    elif phase == "verify":
-        verify_retained()
+    if phase == "defaults":
+        verify_fresh_defaults()
     else:
-        revoke_extension_grant()
+        verify_settings()
+        if phase == "prepare":
+            install_and_seed()
+        elif phase == "verify":
+            verify_retained()
+        else:
+            revoke_extension_grant()
 except Exception as error:
-    print(f"VERSION_UPGRADE_GUI_FAILURE phase={phase}: {error}", file=sys.stderr, flush=True)
+    print(f"CROSSNAME_PROFILE_GUI_FAILURE profile={profile} phase={phase}: {error}", file=sys.stderr, flush=True)
     raise

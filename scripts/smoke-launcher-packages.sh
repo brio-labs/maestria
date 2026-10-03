@@ -14,9 +14,9 @@ if [[ ${#appimages[@]} -ne 1 ]]; then
   exit 1
 fi
 
-LAUNCHER_PACKAGE=io-github-briolabs-maestria-launcher
-SEARCH_PACKAGE=io-github-briolabs-maestria-search
-WORKER_PACKAGE=io-github-briolabs-maestria-extension-worker
+LAUNCHER_PACKAGE=io-github-briolabs-sillage-launcher
+SEARCH_PACKAGE=io-github-briolabs-sillage-search
+WORKER_PACKAGE=io-github-briolabs-sillage-extension-worker
 debs=("$package_dir"/*.deb)
 if [[ ${#debs[@]} -ne 1 ]]; then
   echo "expected one Debian package in $package_dir, found ${#debs[@]}" >&2
@@ -43,13 +43,13 @@ for component_package in "$SEARCH_PACKAGE" "$WORKER_PACKAGE"; do
     exit 1
   fi
 done
-if [[ -x /usr/bin/maestria-search || -x /usr/bin/maestria-extension-worker ]]; then
+if [[ -x /usr/bin/sillage-search || -x /usr/bin/sillage-extension-worker ]]; then
   echo "launcher-only smoke requires search and extension worker binaries to be absent" >&2
   exit 1
 fi
 export PATH=/usr/bin:/bin
 
-root="$(mktemp -d -t maestria-launcher-native-smoke.XXXXXX)"
+root="$(mktemp -d -t sillage-launcher-native-smoke.XXXXXX)"
 mkdir -p "$root/home" "$root/config" "$root/cache" "$root/data" "$root/state" "$root/runtime"
 chmod 700 "$root/runtime"
 export HOME="$root/home"
@@ -275,7 +275,7 @@ smoke_window() {
   echo "$label package native keyboard, calculation/clipboard, first-run deferral, Preferences, resident reactivation/quit, and AT-SPI smoke passed"
 }
 
-smoke_window deb /usr/bin/maestria-launcher
+smoke_window deb /usr/bin/sillage-launcher
 smoke_window appimage env APPIMAGE_EXTRACT_AND_RUN=1 "${appimages[0]}"
 
 wait_launcher_window() {
@@ -365,7 +365,7 @@ PY
 smoke_shortcut_setup() {
   export XDG_CONFIG_HOME="$root/shortcut-config"
   mkdir -p "$XDG_CONFIG_HOME"
-  setsid maestria-launcher --activate >"$root/shortcut-setup.log" 2>&1 &
+  setsid sillage-launcher --activate >"$root/shortcut-setup.log" 2>&1 &
   active_app_pid=$!
   local window
   window="$(wait_launcher_window)"
@@ -388,10 +388,10 @@ smoke_shortcut_setup() {
     wait_launcher_hidden
   done
 
-  maestria-launcher --quit
+  sillage-launcher --quit
   wait "$active_app_pid" 2>/dev/null || true
   active_app_pid=
-  setsid maestria-launcher --activate >"$root/shortcut-restart.log" 2>&1 &
+  setsid sillage-launcher --activate >"$root/shortcut-restart.log" 2>&1 &
   active_app_pid=$!
   window="$(wait_launcher_window)"
   timeout 20s python3 scripts/check-launcher-accessibility.py --requested-shortcut
@@ -438,7 +438,7 @@ smoke_shortcut_setup() {
     return 1
   fi
   wait_launcher_hidden
-  maestria-launcher --quit
+  sillage-launcher --quit
   wait "$active_app_pid" 2>/dev/null || true
   active_app_pid=
   echo "native X11 shortcut persisted, survived restart and lock modifiers, and rejected conflicting grabs"
@@ -484,7 +484,7 @@ smoke_nested_wayland() {
     return 1
   fi
 
-  setsid maestria-launcher --activate >"$root/wayland-launcher.log" 2>&1 &
+  setsid sillage-launcher --activate >"$root/wayland-launcher.log" 2>&1 &
   active_app_pid=$!
   timeout 20s python3 scripts/check-launcher-accessibility.py --offer
   if [[ "$fake_seat" == true ]]; then
@@ -492,9 +492,9 @@ smoke_nested_wayland() {
   else
     timeout 20s python3 scripts/check-launcher-accessibility.py --defer-offer-no-seat
   fi
-  maestria-launcher --activate
+  sillage-launcher --activate
   timeout 20s python3 scripts/check-launcher-accessibility.py --no-offer
-  maestria-launcher --quit
+  sillage-launcher --quit
   wait "$active_app_pid"
   active_app_pid=
   kill -TERM "$weston_pid"

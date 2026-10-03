@@ -24,24 +24,24 @@
 
 # ── Core: Domain (deterministic, side-effect-free transitions) ──────────────
 /crates/kernel/                                                               @carabistouflette
-/crates/kernel/maestria-domain/                                                @carabistouflette
+/crates/kernel/sillage-domain/                                                @carabistouflette
 
 # ── Core: Governance (approval gates, policy evaluation) ────────────────────
-/crates/kernel/maestria-governance/                                            @carabistouflette
+/crates/kernel/sillage-governance/                                            @carabistouflette
 
 # ── Core: Ports (trait contracts, adapter interfaces) ───────────────────────
-/crates/kernel/maestria-ports/                                                 @carabistouflette
+/crates/kernel/sillage-ports/                                                 @carabistouflette
 /crates/core/                                                                 @carabistouflette
 
 # ── Runtime (effect orchestration, lifecycle, supervisor) ───────────────────
 /crates/runtime/                                                               @carabistouflette
 
 # ── Retrieval (evidence collection, indexing, search) ───────────────────────
-/crates/ecosystem/maestria-retrieval/                                          @carabistouflette
+/crates/ecosystem/sillage-retrieval/                                          @carabistouflette
 
 /crates/ecosystem/                                                            @carabistouflette
 # ── Validation (policy-aware checks, gate enforcement) ─────────────────────
-/crates/ecosystem/maestria-validation/                                         @carabistouflette
+/crates/ecosystem/sillage-validation/                                         @carabistouflette
 
 # ── Storage (persistence, blob, graph, vector, search index) ────────────────
 /crates/storage/                                                               @carabistouflette
@@ -50,8 +50,8 @@
 /crates/harness/                                                               @carabistouflette
 
 # ── Daemon (HTTP API, supervisor, application entry point) ──────────────────
-/crates/apps/maestria-daemon/                                                  @carabistouflette
-/crates/apps/maestria-launcher/                                               @carabistouflette
+/crates/apps/sillage-daemon/                                                  @carabistouflette
+/crates/apps/sillage-launcher/                                               @carabistouflette
 /launcher/                                                                     @carabistouflette
 
 # ── Test suites (property, replay, contract contracts) ──────────────────────

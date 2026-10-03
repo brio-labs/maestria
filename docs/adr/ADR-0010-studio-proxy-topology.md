@@ -16,11 +16,11 @@ browser → Studio (axum: rust-embed assets, REST, origin+bearer middleware)
 ```
 
 Each Studio HTTP handler is a thin translation of a REST call into one
-typed `ClientOperation` over the socket (`maestria-studio/src/http/*.rs`),
+typed `ClientOperation` over the socket (`sillage-studio/src/http/*.rs`),
 and the daemon independently authenticates the per-instance token and
 checks read/write scope on every operation (rule 48; `daemon.token`,
 socket permissions `0o600`). The CLI spawns the Studio server per session
-(`maestria studio -i <instance>`), separate from the long-lived daemon.
+(`sillage studio -i <instance>`), separate from the long-lived daemon.
 
 The simplicity/performance review flagged the axum + hyper + tower stack in
 Studio as the largest remaining async dependency cluster and asked whether
@@ -59,7 +59,7 @@ codified as follows:
   with its own scope classification and a thin Studio handler. REST
   endpoints are never added without a corresponding typed operation.
 - **UI lifecycle stays decoupled from the daemon.** The Studio server is
-  spawned and restarted independently (`maestria studio`); daemon uptime
+  spawned and restarted independently (`sillage studio`); daemon uptime
   is data-plane uptime and does not bundle presentation-layer restarts.
 
 ## Alternatives considered
@@ -87,7 +87,7 @@ boundary into the storage tier and split the enforcement point.
 
 ## Consequences
 
-- The async web stack is justified permanently inside `maestria-studio`;
+- The async web stack is justified permanently inside `sillage-studio`;
   dependency reviews should weigh it as presentation-layer cost, not
   debt.
 - Two processes remain an operations fact (`docs/OPERATIONS.md`): the

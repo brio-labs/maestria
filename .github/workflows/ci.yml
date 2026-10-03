@@ -52,7 +52,7 @@ jobs:
               - 'scripts/verify-search-packages.py'
               - 'scripts/check-combined-extension-broker.py'
               - 'scripts/check-version-upgrade.py'
-              - 'scripts/smoke-installed-native-benchmark.py'
+              - 'scripts/smoke-installed-sillage-native-benchmark.py'
               - 'web/**'
               - 'launcher/**'
               - 'vendor/**'
@@ -92,9 +92,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2.9.1
       - uses: ./.github/actions/setup-frontend
       - name: Test Studio web crate
-        run: cargo test -p maestria-studio-web
+        run: cargo test -p sillage-studio-web
       - name: Check Studio web WASM
-        run: cargo check --target wasm32-unknown-unknown -p maestria-studio-web
+        run: cargo check --target wasm32-unknown-unknown -p sillage-studio-web
       - name: Build Studio frontend
         env:
           RUSTC_WRAPPER: ""
@@ -294,7 +294,7 @@ jobs:
         env:
           RUSTC_WRAPPER: ''
       - name: Build Debian and AppImage packages
-        run: NO_STRIP=1 cargo packager --release --packages maestria-launcher --formats deb,appimage
+        run: NO_STRIP=1 cargo packager --release --packages sillage-launcher --formats deb,appimage
       - name: Inspect package contents and metadata
         run: python3 scripts/verify-launcher-packages.py target/launcher-packages
       - name: Install Debian package and declared runtime dependencies
@@ -361,7 +361,7 @@ jobs:
         env:
           RUSTC_WRAPPER: ''
       - name: Build search-only Debian package
-        run: cargo packager --release --packages maestria-search --formats deb
+        run: cargo packager --release --packages sillage-search --formats deb
       - name: Inspect search-only package
         run: python3 scripts/verify-search-packages.py target/search-packages
       - name: Install Debian package and declared runtime dependencies
@@ -395,7 +395,7 @@ jobs:
         env:
           RUSTC_WRAPPER: ''
       - name: Build fresh extension worker Debian package
-        run: cargo packager --release --packages maestria-extension-worker --formats deb
+        run: cargo packager --release --packages sillage-extension-worker --formats deb
       - name: Install worker package and declared runtime dependencies
         run: sudo apt-get install --yes --no-install-recommends ./target/extension-packages/*.deb
       - name: Allow Bubblewrap namespace setup with Ubuntu's scoped AppArmor profile
@@ -441,10 +441,10 @@ jobs:
         run: timeout --kill-after=5s 180s bash scripts/smoke-combined-extension-packages.sh target/launcher-packages target/extension-packages
       - name: Remove only optional worker and retain installed launcher
         run: |
-          sudo apt-get remove --yes --no-install-recommends io-github-briolabs-maestria-extension-worker
-          test "$(dpkg-query --show --showformat='${Status}' io-github-briolabs-maestria-launcher)" = 'install ok installed'
-          test -x /usr/bin/maestria-launcher
-          test ! -e /usr/bin/maestria-extension-worker
+          sudo apt-get remove --yes --no-install-recommends io-github-briolabs-sillage-extension-worker
+          test "$(dpkg-query --show --showformat='${Status}' io-github-briolabs-sillage-launcher)" = 'install ok installed'
+          test -x /usr/bin/sillage-launcher
+          test ! -e /usr/bin/sillage-extension-worker
       - name: Retain private native broker screenshot after failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -467,7 +467,7 @@ jobs:
       - uses: ./.github/actions/setup-system-dependencies
         with:
           native-test: 'true'
-      - name: Verify the old successful 0.0.0 source and fetch its commit
+      - name: Verify pinned historical Maestria 0.0.0 source and fetch its commit
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -509,7 +509,7 @@ jobs:
         run: |
           sudo apt-get install --yes --no-install-recommends xclip bubblewrap apparmor apparmor-profiles
           sudo apparmor_parser -r /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
-      - name: Exercise old-to-new three-package upgrade and retained private state
+      - name: Exercise Maestria-to-Sillage package/profile isolation and Sillage remove/reinstall
         run: |
           timeout --kill-after=5s 720s bash scripts/smoke-version-upgrade.sh \
             target/upgrade/old/launcher target/upgrade/old/search target/upgrade/old/worker \
@@ -541,7 +541,7 @@ jobs:
           sudo apparmor_parser -r /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
       - name: Measure installed native 10,000-file cold/active/edit/delete interactions
         run: |
-          timeout --kill-after=10s 12600s bash scripts/smoke-installed-native-benchmark.sh \
+          timeout --kill-after=10s 12600s bash scripts/smoke-installed-sillage-native-benchmark.sh \
             target/launcher-packages target/search-packages target/installed-native-benchmark
       - name: Retain failure-inclusive installed native observations and hardware provenance
         if: always()
@@ -568,8 +568,8 @@ jobs:
       - name: Run frozen golden gate
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            cargo test -p maestria-retrieval --test retrieval -- golden_fixture
-            cargo test -p maestria-core --test golden_gate
+            cargo test -p sillage-retrieval --test retrieval -- golden_fixture
+            cargo test -p sillage-core --test golden_gate
           else
             cargo test --workspace --all-targets --all-features
           fi

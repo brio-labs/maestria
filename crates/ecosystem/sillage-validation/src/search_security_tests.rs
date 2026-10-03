@@ -1,0 +1,133 @@
+use sillage_domain::{EvidenceId, SearchTraceFilter, TrustZone};
+
+use super::{SEARCH_CHECKS, SearchCheck, Validator};
+
+use crate::search_validator_fixtures::*;
+
+fn retrieval_validator() -> SearchCheck {
+    for c in SEARCH_CHECKS {
+        if c.name == "retrieval_security" {
+            return SearchCheck {
+                name: c.name,
+                check: c.check,
+            };
+        }
+    }
+    SEARCH_CHECKS[0]
+}
+
+#[test]
+fn retrieval_security_validator_requires_required_filters() -> Result<(), Box<dyn std::error::Error>>
+{
+    let mut fixture = fixture()?;
+    if let Some(trace) = fixture.outcome.trace_data.as_mut() {
+        trace.filters = vec![SearchTraceFilter::Acl, SearchTraceFilter::Quarantine];
+    }
+    let check = retrieval_validator().validate(&fixture.context());
+    assert!(!check.passed);
+    assert!(check.message.contains("required filter"));
+    Ok(())
+}
+
+type SecurityMutation = fn(&mut sillage_domain::Evidence);
+#[test]
+fn security_validator_blocks_poisoning_prompt_injection_secret_acl_and_quarantine()
+-> Result<(), Box<dyn std::error::Error>> {
+    fn poison(evidence: &mut sillage_domain::Evidence) {
+        evidence
+            .security
+            .poisoning_flags
+            .push("graph_poisoning".to_string());
+    }
+    fn prompt_injection(evidence: &mut sillage_domain::Evidence) {
+        evidence.security.prompt_injection_risk = true;
+    }
+    fn secret(evidence: &mut sillage_domain::Evidence) {
+        evidence
+            .security
+            .poisoning_flags
+            .push("secret_signal".to_string());
+    }
+    fn acl(evidence: &mut sillage_domain::Evidence) {
+        evidence.security.read_allowed = false;
+    }
+    fn quarantine(evidence: &mut sillage_domain::Evidence) {
+        evidence.security.trust_zone = TrustZone::Quarantined;
+    }
+
+    let cases: [(&str, SecurityMutation); 5] = [
+        ("poisoning", poison),
+        ("prompt injection", prompt_injection),
+        ("secret", secret),
+        ("acl", acl),
+        ("quarantine", quarantine),
+    ];
+    for (label, mutate) in cases {
+        let mut fixture = fixture()?;
+        let Some(evidence) = fixture.evidences.get_mut(&EvidenceId::new(10)) else {
+            return Err(format!("fixture lost evidence for {label}").into());
+        };
+        mutate(evidence);
+        let check = retrieval_validator().validate(&fixture.context());
+        assert!(!check.passed, "security case should fail: {label}");
+        assert!(check.message.contains("1 denied candidate(s)"));
+    }
+    Ok(())
+}
+
+#[test]
+fn security_validator_enforces_typed_policy_values() -> Result<(), Box<dyn std::error::Error>> {
+    let mut fixture = fixture()?;
+    if let Some(trace) = fixture.outcome.trace_data.as_mut() {
+        trace.policy_fingerprint = Some(
+            "trust=Some(Verified);sensitivity=Some(Public);read_allowed=true;scope=Restricted(ScopeId(999));unscoped=false"
+                .to_string(),
+        );
+        trace.filters = vec![
+            SearchTraceFilter::Acl,
+            SearchTraceFilter::Trust,
+            SearchTraceFilter::Sensitivity,
+            SearchTraceFilter::Scope,
+            SearchTraceFilter::Quarantine,
+            SearchTraceFilter::PromptInjection,
+            SearchTraceFilter::Freshness,
+        ];
+    }
+    let check = retrieval_validator().validate(&fixture.context());
+    assert!(!check.passed);
+    assert!(check.message.contains("denied candidate"));
+    assert!(check.message.contains("1 denied candidate(s)"));
+    Ok(())
+}
+
+#[test]
+fn retrieval_security_validator_requires_complete_policy_provenance()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut fixture = fixture()?;
+    let check = retrieval_validator().validate(&fixture.context());
+    assert!(
+        check.passed,
+        "complete policy provenance should pass: {}",
+        check.message
+    );
+
+    let Some(trace) = fixture.outcome.trace_data.as_mut() else {
+        return Err("fixture lost its trace".into());
+    };
+    trace.policy_fingerprint = None;
+    let check = retrieval_validator().validate(&fixture.context());
+    assert!(!check.passed);
+    assert!(check.message.contains("requires a policy fingerprint"));
+
+    let Some(trace) = fixture.outcome.trace_data.as_mut() else {
+        return Err("fixture lost its trace".into());
+    };
+    trace.policy_fingerprint = Some(
+        "trust=Some(Verified);sensitivity=Some(Internal);read_allowed=true;scope=None;unscoped=true"
+            .to_string(),
+    );
+    let check = retrieval_validator().validate(&fixture.context());
+    assert!(!check.passed);
+    assert!(check.message.contains("denied candidate"));
+    Ok(())
+}

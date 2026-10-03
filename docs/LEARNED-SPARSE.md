@@ -33,9 +33,9 @@ The lane remains implemented and benchmark-gated:
 - a real local provider (pinned SPLADE ONNX sidecar, see `docs/RESEARCH.md` §4.3)
   encodes queries and documents through the `sparse_text_v1` contract;
 - a durable SQLite projection serves the lane when a valid promotion record exists;
-- the promotion record is per-instance durable state: `maestria promotion set --record
-  <file.json>` validates and stores it, `maestria promotion remove` deletes it and
-  restores the lexical/hybrid route, `maestria promotion show` prints it. An invalid or
+- the promotion record is per-instance durable state: `sillage promotion set --record
+  <file.json>` validates and stores it, `sillage promotion remove` deletes it and
+  restores the lexical/hybrid route, `sillage promotion show` prints it. An invalid or
   unparsable record is fail-closed to shadow serving; rolling the sparse generation back
   in the registry degrades the lane to hybrid serving even while a record exists;
 - the benchmark evidence ledger (`tests/contracts/benchmark_evidence_v1.json`,
@@ -233,7 +233,7 @@ filtering, idempotent replacement, deletion/tombstone propagation, rebuild, and 
 ordering.
 
 The current durable research projection is the SQLite adapter
-`maestria-storage-sqlite::SqliteLearnedSparseIndex`, documented in
+`sillage-storage-sqlite::SqliteLearnedSparseIndex`, documented in
 `docs/adr/ADR-0006-learned-sparse-projection.md`. It mirrors the shared generation
 registry, remains non-searchable outside shadow/active lifecycle states, persists
 identity-complete rows, and applies authorization filters before scoring. This

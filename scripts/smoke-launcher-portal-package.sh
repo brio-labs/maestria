@@ -7,14 +7,14 @@ package_dir="$(realpath "$1")"
 shopt -s nullglob
 packages=("$package_dir"/*.deb)
 [[ ${#packages[@]} -eq 1 ]] || fail 'expected exactly one launcher Debian artifact'
-package_name=io-github-briolabs-maestria-launcher
+package_name=io-github-briolabs-sillage-launcher
 [[ "$(dpkg-deb --field "${packages[0]}" Package)" == "$package_name" ]] || fail 'wrong launcher package'
 expected="install ok installed|$(dpkg-deb --field "${packages[0]}" Version)|$(dpkg-deb --field "${packages[0]}" Architecture)"
 installed="$(dpkg-query --show --showformat='${Status}|${Version}|${Architecture}' "$package_name")"
 [[ "$installed" == "$expected" ]] || fail "installed package differs from same-run artifact: $installed"
-[[ "$(dpkg-query --search /usr/bin/maestria-launcher)" == "$package_name: /usr/bin/maestria-launcher" ]] || fail 'launcher binary is not package-owned'
-[[ -f /usr/share/applications/io.github.briolabs.Maestria.Launcher.desktop ]] || fail 'installed desktop identity is missing'
-for component in maestria-search maestria-extension-worker; do
+[[ "$(dpkg-query --search /usr/bin/sillage-launcher)" == "$package_name: /usr/bin/sillage-launcher" ]] || fail 'launcher binary is not package-owned'
+[[ -f /usr/share/applications/io.github.briolabs.Sillage.Launcher.desktop ]] || fail 'installed desktop identity is missing'
+for component in sillage-search sillage-extension-worker; do
   [[ ! -e "/usr/bin/$component" ]] || fail "optional $component must not be installed"
   status="$(dpkg-query --show --showformat='${Status}' "io-github-briolabs-$component" 2>/dev/null || true)"
   [[ "$status" != 'install ok installed' ]] || fail "optional $component package must not be installed"

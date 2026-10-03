@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PACKAGE_NAME=io-github-briolabs-maestria-extension-worker
-LAUNCHER_PACKAGE=io-github-briolabs-maestria-launcher
-SEARCH_PACKAGE=io-github-briolabs-maestria-search
-WORKER_BINARY=/usr/bin/maestria-extension-worker
+PACKAGE_NAME=io-github-briolabs-sillage-extension-worker
+LAUNCHER_PACKAGE=io-github-briolabs-sillage-launcher
+SEARCH_PACKAGE=io-github-briolabs-sillage-search
+WORKER_BINARY=/usr/bin/sillage-extension-worker
 BUBBLEWRAP=/usr/bin/bwrap
 
 fail() {
@@ -36,11 +36,11 @@ import subprocess
 import sys
 
 package = Path(sys.argv[1])
-expected_package = "io-github-briolabs-maestria-extension-worker"
+expected_package = "io-github-briolabs-sillage-extension-worker"
 expected_dependencies = {"bubblewrap", "libc6", "libgcc-s1"}
 independent_packages = {
-    "io-github-briolabs-maestria-launcher",
-    "io-github-briolabs-maestria-search",
+    "io-github-briolabs-sillage-launcher",
+    "io-github-briolabs-sillage-search",
 }
 relation_fields = (
     "Pre-Depends",
@@ -124,7 +124,7 @@ if [[ "$installed" != "$expected_installed" ]]; then
   fail "installed worker package does not match $package: got $installed"
 fi
 
-binary="$(command -v maestria-extension-worker || true)"
+binary="$(command -v sillage-extension-worker || true)"
 if [[ "$binary" != "$WORKER_BINARY" || "$(realpath "$binary")" != "$WORKER_BINARY" ]]; then
   fail "worker executable is not the installed package binary: ${binary:-not found}"
 fi
@@ -139,14 +139,14 @@ for optional_package in "$LAUNCHER_PACKAGE" "$SEARCH_PACKAGE"; do
     fail "worker-only smoke unexpectedly found $optional_package installed"
   fi
 done
-for optional_binary in /usr/bin/maestria-launcher /usr/bin/maestria-search; do
+for optional_binary in /usr/bin/sillage-launcher /usr/bin/sillage-search; do
   if [[ -e "$optional_binary" ]]; then
     fail "worker-only smoke unexpectedly found $optional_binary"
   fi
 done
 
 umask 077
-root="$(mktemp -d -t maestria-extension-package-smoke.XXXXXX)"
+root="$(mktemp -d -t sillage-extension-package-smoke.XXXXXX)"
 worker_log="$root/worker.log"
 cleanup() {
   rm -rf "$root"

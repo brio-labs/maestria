@@ -133,9 +133,9 @@ def dialog_button_in_image(image, decision):
 def run(decision, session):
     Atspi.init()
     monitor = session / "portal-dbus.log"
-    binary = os.environ.get("SILLAGE_LOCAL_PORTAL_LAUNCHER", "/usr/bin/maestria-launcher")
+    binary = os.environ.get("SILLAGE_LOCAL_PORTAL_LAUNCHER", "/usr/bin/sillage-launcher")
     provenance = "SOURCE_BUILT" if os.environ.get("SILLAGE_LOCAL_PORTAL_LAUNCHER") else "INSTALLED"
-    settings = session / "config/io.github.briolabs.Maestria.Launcher/launcher.toml"
+    settings = session / "config/io.github.briolabs.Sillage.Launcher/launcher.toml"
     launcher_log = (session / "launcher.log").open("w")
     launcher = subprocess.Popen([binary, "--activate"], stdout=launcher_log, stderr=subprocess.STDOUT)
     try:

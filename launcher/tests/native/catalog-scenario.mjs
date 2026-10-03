@@ -30,10 +30,10 @@ export async function catalogScenario(session, { application, environment, evide
 
   const catalog = await query('CatalogProbe');
   assert.deepEqual(catalog.results.filter((result) => result.kind === 'application').map((result) => result.id).sort(), [
-    'app:maestria-test-launch.desktop', 'app:maestria-test-override.desktop', 'app:maestria-test-removed.desktop',
+    'app:sillage-test-launch.desktop', 'app:sillage-test-override.desktop', 'app:sillage-test-removed.desktop',
   ]);
   assert.equal(catalog.results.some((result) => result.title.includes('System Shadowed')), false);
-  assert.equal(catalog.results.find((result) => result.id === 'app:maestria-test-override.desktop').title, 'User Priority Fixture');
+  assert.equal(catalog.results.find((result) => result.id === 'app:sillage-test-override.desktop').title, 'User Priority Fixture');
 
   // Every request crosses real IPC; the newest generation wins under contention.
   const racing = await session.executeAsync((start, done) => {
@@ -44,19 +44,19 @@ export async function catalogScenario(session, { application, environment, evide
   const raced = JSON.parse(racing);
   generation += 32;
   assert.equal(raced[31].ok, true);
-  assert.equal(raced[31].value.results[0].id, 'app:maestria-test-override.desktop');
+  assert.equal(raced[31].value.results[0].id, 'app:sillage-test-override.desktop');
   const stale = await invoke(session, 'execute_action', { resultId: catalog.results[0].id, actionId: 'open', generation: generation - 32 });
   assert.equal(stale.ok, false);
   assert.equal(stale.error.code, 'stale_result');
 
   await reopen();
   await input.setValue('Fixture');
-  const retained = await session.$('[id="result-app:maestria-test-override.desktop"]');
+  const retained = await session.$('[id="result-app:sillage-test-override.desktop"]');
   await retained.waitForExist({ timeout: 5000 });
   await retained.click();
-  await writeFile(path.join(fixtures.applications, 'maestria-test-added.desktop'),
+  await writeFile(path.join(fixtures.applications, 'sillage-test-added.desktop'),
     `[Desktop Entry]\nType=Application\nName=Added Fixture\nExec="${fixtures.program}"\nTerminal=false\n`);
-  await session.waitUntil(async () => (await session.$('[id="result-app:maestria-test-added.desktop"]')).isExisting(), { timeout: 10000 });
+  await session.waitUntil(async () => (await session.$('[id="result-app:sillage-test-added.desktop"]')).isExisting(), { timeout: 10000 });
   assert.equal(await retained.getAttribute('aria-selected'), 'true', 'Catalog refresh must retain selection by desktop ID');
   await reopen();
   // WebKitDriver types '+' as '=' on X11 unless Shift is held explicitly.
@@ -122,7 +122,7 @@ export async function catalogScenario(session, { application, environment, evide
 
   await reopen();
   const removed = await query('Removable Fixture');
-  assert.equal(removed.results[0].id, 'app:maestria-test-removed.desktop');
+  assert.equal(removed.results[0].id, 'app:sillage-test-removed.desktop');
   await rm(fixtures.removedPath);
   const missing = await invoke(session, 'execute_action', { resultId: removed.results[0].id, actionId: 'open', generation });
   assert.equal(missing.ok, false, 'Removing the desktop file must prevent cached Exec launch');

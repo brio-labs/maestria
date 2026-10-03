@@ -8,10 +8,10 @@ import subprocess
 import sys
 import tempfile
 
-APP_ID = "io.github.briolabs.Maestria.Launcher"
+APP_ID = "io.github.briolabs.Sillage.Launcher"
 PRODUCT_NAME = "Sillage Launcher"
-BINARY_NAME = "maestria-launcher"
-PACKAGE_NAME = "io-github-briolabs-maestria-launcher"
+BINARY_NAME = "sillage-launcher"
+PACKAGE_NAME = "io-github-briolabs-sillage-launcher"
 DESKTOP_ID = f"{APP_ID}.desktop"
 RUNTIME_DEPENDENCIES = {
     "libglib2.0-0t64",
@@ -36,8 +36,8 @@ RUNTIME_DEPENDENCIES = {
 }
 
 OPTIONAL_COMPONENT_PACKAGES = {
-    "io-github-briolabs-maestria-search",
-    "io-github-briolabs-maestria-extension-worker",
+    "io-github-briolabs-sillage-search",
+    "io-github-briolabs-sillage-extension-worker",
 }
 PACKAGE_RELATION_FIELDS = (
     "Pre-Depends",
@@ -191,7 +191,7 @@ def main() -> None:
     if missing:
         fail(f"Debian package omits runtime dependencies: {', '.join(missing)}")
 
-    with tempfile.TemporaryDirectory(prefix="maestria-launcher-package-check-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="sillage-launcher-package-check-") as temporary:
         root = Path(temporary)
         deb_root = root / "deb"
         deb_root.mkdir()

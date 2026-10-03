@@ -1,0 +1,540 @@
+use sillage_domain::*;
+#[path = "common/assertions.rs"]
+mod assertions;
+#[path = "common/content_hash.rs"]
+mod fixtures;
+
+use assertions::require_error;
+#[test]
+fn test_replay_artifact_chunk_card_evidence() -> Result<(), Box<dyn std::error::Error>> {
+    let mut state = KernelState::new();
+
+    let art_id = ArtifactId::new(1);
+    let chunk_id = ChunkId::new(1);
+    let card_id = CardId::new(1);
+    let claim_id = ClaimId::new(1);
+    let ev_id = EvidenceId::new(1);
+
+    // Apply inputs
+    state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
+        artifact_id: art_id,
+        title: "Test Artifact".to_string(),
+        security: None,
+    }))?;
+
+    state.apply_input(DomainInput::RegisterChunk(RegisterChunkInput {
+        source_span: sillage_domain::SourceSpan::text_span(1, 1)?,
+        representations: vec![],
+        chunk_id,
+        artifact_id: art_id,
+        node_id: StructureNodeId::new(1),
+        order: 0,
+        text: "chunk text".to_string(),
+    }))?;
+
+    state.apply_input(DomainInput::CreateCard(CreateCardInput {
+        node_id: sillage_domain::StructureNodeId::new(1),
+        source_span: sillage_domain::SourceSpan::text_span(1, 1)?,
+        card_id,
+        artifact_id: art_id,
+        title: "card title".to_string(),
+        body: "card body".to_string(),
+        security: None,
+    }))?;
+
+    state.apply_input(DomainInput::CreateClaim(CreateClaimInput {
+        claim_id,
+        artifact_id: art_id,
+        text: "claim text".to_string(),
+        evidence_ids: vec![],
+        security: None,
+    }))?;
+
+    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+        evidence_id: ev_id,
+        artifact_id: art_id,
+        claim_id: Some(claim_id),
+        kind: EvidenceKind::FileSpan {
+            path: "a".to_string(),
+            range: LineRange::new(1, 1)?,
+            snapshot: SnapshotRef::new(BlobId::new(42), fixtures::test_content_hash()?),
+        },
+        excerpt: "excerpt text".to_string(),
+        observed_at: LogicalTick::new(0),
+        security: None,
+    }))?;
+
+    // Now check equality of replay
+    let replayed = replay_events(state.event_log_owned())?;
+    assert_eq!(state, replayed);
+    Ok(())
+}
+
+#[test]
+fn test_replay_duplicate_rejection() -> Result<(), Box<dyn std::error::Error>> {
+    let art_id = ArtifactId::new(1);
+    let mut state = KernelState::new();
+
+    let ev = DomainEventEnvelope {
+        id: EventId::new(1),
+        event: DomainEvent::ArtifactRegistered {
+            artifact_id: art_id,
+            title: "Test Artifact".to_string(),
+            security: sillage_domain::SecurityMetadata::default(),
+        },
+    };
+
+    // First apply works
+    state.apply_event(ev.clone())?;
+
+    // Second apply with the exact same event envelope? Wait, ArtifactRegistered doesn't fail on duplicate in apply_event!
+    // But ChunkRegistered does.
+    let mut ev_chunk = DomainEventEnvelope {
+        id: EventId::new(2),
+        event: DomainEvent::ChunkRegistered {
+            node_id: sillage_domain::StructureNodeId::new(1),
+            source_span: sillage_domain::SourceSpan::text_span(1, 1)?,
+            representations: vec![],
+            representations_digest: "sha256:fixture".to_string(),
+            chunk_id: ChunkId::new(1),
+            artifact_id: art_id,
+            order: 1,
+            text: "t".to_string(),
+        },
+    };
+    state.apply_event(ev_chunk.clone())?;
+
+    ev_chunk.id = EventId::new(3);
+    let err = match state.apply_event(ev_chunk) {
+        Err(e) => e,
+        Ok(_) => return Err(Box::new(DomainError::EmptyIntent)),
+    };
+    assert!(matches!(
+        err,
+        DomainError::DuplicateChunk { id } if id.value() == 1
+    ));
+    Ok(())
+}
+
+#[test]
+fn test_task_completion_validation_enforced() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    let task_id = TaskId::new(1);
+    let rep_id = ValidationReportId::new(1);
+
+    state.apply_input(DomainInput::OpenTask(OpenTaskInput {
+        task_id,
+        title: "T".to_string(),
+        priority: TaskPriority::Normal,
+        artifact_id: None,
+    }))?;
+
+    state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+        task_id,
+        to: TaskStatus::Open,
+    }))?;
+    state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+        task_id,
+        to: TaskStatus::Active,
+    }))?;
+
+    state.apply_input(DomainInput::RecordValidationReport(
+        RecordValidationReportInput {
+            report_id: rep_id,
+            task_id: Some(task_id),
+            passed: false, // failed report
+            warnings: vec![],
+        },
+    ))?;
+
+    // Trying to complete with a failed report should fail
+    let err = match state.apply_input(DomainInput::CompleteTask(CompleteTaskInput {
+        task_id,
+        validation_report_id: rep_id,
+    })) {
+        Err(e) => e,
+        Ok(_) => return Err(DomainError::ValidationFailed { task_id }),
+    };
+
+    assert!(matches!(err, DomainError::ValidationFailed { .. }));
+    Ok(())
+}
+
+#[test]
+fn replay_accepts_legacy_completion_noop_status_events() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    let task_id = TaskId::new(1);
+    let report_id = ValidationReportId::new(1);
+
+    state.apply_input(DomainInput::OpenTask(OpenTaskInput {
+        task_id,
+        title: "T".to_string(),
+        priority: TaskPriority::Normal,
+        artifact_id: None,
+    }))?;
+    state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+        task_id,
+        to: TaskStatus::Open,
+    }))?;
+    state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+        task_id,
+        to: TaskStatus::Active,
+    }))?;
+    state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+        task_id,
+        to: TaskStatus::Validating,
+    }))?;
+    state.apply_input(DomainInput::RecordValidationReport(
+        RecordValidationReportInput {
+            report_id,
+            task_id: Some(task_id),
+            passed: true,
+            warnings: vec![],
+        },
+    ))?;
+    state.apply_input(DomainInput::CompleteTask(CompleteTaskInput {
+        task_id,
+        validation_report_id: report_id,
+    }))?;
+
+    let next_event = state.event_log.len() as u64 + 1;
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(next_event),
+        event: DomainEvent::TaskStatusChanged {
+            task_id,
+            from: TaskStatus::CompletedVerified {
+                validation_report_id: report_id,
+            },
+            to: TaskStatus::CompletedVerified {
+                validation_report_id: report_id,
+            },
+        },
+    })?;
+    assert_eq!(
+        state.tasks.get(&task_id).map(|task| task.status),
+        Some(TaskStatus::CompletedVerified {
+            validation_report_id: report_id
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn replay_rejects_noncompletion_noop_status_events() -> Result<(), Box<dyn std::error::Error>> {
+    let mut state = KernelState::new();
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(1),
+        event: DomainEvent::TaskOpened {
+            task_id: TaskId::new(1),
+            title: "task".to_string(),
+            priority: TaskPriority::Normal,
+            artifact_id: None,
+        },
+    })?;
+
+    let error = require_error(
+        state.apply_event(DomainEventEnvelope {
+            id: EventId::new(2),
+            event: DomainEvent::TaskStatusChanged {
+                task_id: TaskId::new(1),
+                from: TaskStatus::Draft,
+                to: TaskStatus::Draft,
+            },
+        }),
+        "noncompletion no-op status events must be rejected",
+    )?;
+    assert!(matches!(
+        error,
+        DomainError::InvalidTaskTransition {
+            task_id: TaskId(1),
+            from: TaskStatus::Draft,
+            to: TaskStatus::Draft,
+        }
+    ));
+    assert_eq!(state.event_log.len(), 1);
+    Ok(())
+}
+#[test]
+fn test_out_of_order_id_rejection() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+
+    let ev_1 = DomainEventEnvelope {
+        id: EventId::new(1),
+        event: DomainEvent::TickObserved {
+            at: LogicalTick::new(1),
+        },
+    };
+    let ev_2 = DomainEventEnvelope {
+        id: EventId::new(2),
+        event: DomainEvent::TickObserved {
+            at: LogicalTick::new(2),
+        },
+    };
+
+    state.apply_event(ev_1)?;
+    state.apply_event(ev_2)?;
+
+    // The next event must carry the next contiguous id.
+    let err_id = match state.apply_event(DomainEventEnvelope {
+        id: EventId::new(4),
+        event: DomainEvent::TickObserved {
+            at: LogicalTick::new(3),
+        },
+    }) {
+        Err(e) => e,
+        Ok(_) => return Err(DomainError::EmptyIntent),
+    };
+    assert!(matches!(
+        err_id,
+        DomainError::InvalidEventId {
+            expected: 3,
+            actual: 4
+        }
+    ));
+    assert_eq!(state.event_log.len(), 2);
+    Ok(())
+}
+
+#[test]
+fn informational_events_validate_referenced_state() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    // TaskOpened replay registers the task.
+    let opened = DomainEventEnvelope {
+        id: EventId::new(1),
+        event: DomainEvent::TaskOpened {
+            task_id: TaskId::new(9),
+            title: "intent".to_string(),
+            priority: TaskPriority::Normal,
+            artifact_id: None,
+        },
+    };
+    state.apply_event(opened)?;
+    assert!(state.tasks.contains_key(&TaskId::new(9)));
+
+    let missing_artifact = DomainEventEnvelope {
+        id: EventId::new(2),
+        event: DomainEvent::SearchCompleted {
+            artifact_id: ArtifactId::new(7),
+        },
+    };
+    assert!(matches!(
+        state.apply_event(missing_artifact),
+        Err(DomainError::MissingArtifact { id }) if id == ArtifactId::new(7)
+    ));
+    // The rejected apply appended nothing; only TaskOpened is logged.
+    assert_eq!(state.event_log.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn harness_completion_rejects_missing_task() -> Result<(), Box<dyn std::error::Error>> {
+    let mut state = KernelState::new();
+    let err = require_error(
+        state.apply_input(DomainInput::HarnessRunCompleted(
+            sillage_domain::HarnessRunCompleted {
+                run_id: sillage_domain::HarnessRunId::new(1),
+                generation: 1,
+                task_id: Some(TaskId::new(9)),
+                command: "test".to_string(),
+                exit_code: 1,
+                output: String::new(),
+            },
+        )),
+        "missing task must reject harness completion",
+    )?;
+    assert!(matches!(
+        err,
+        DomainError::MissingTask { id } if id == TaskId::new(9)
+    ));
+    assert!(state.event_log.is_empty());
+    Ok(())
+}
+
+#[test]
+fn test_relation_constraints() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    let rel_id = RelationId::new(1);
+
+    // Invalid confidence
+    let err = match state.apply_input(DomainInput::CreateRelation(CreateRelationInput {
+        relation_id: rel_id,
+        source: RelationEndpoint::Artifact(ArtifactId::new(99)),
+        kind: RelationKind::DerivedFrom,
+        target: RelationEndpoint::Artifact(ArtifactId::new(100)),
+        evidence_id: None,
+        confidence_milli: 1001, // invalid
+        security: None,
+    })) {
+        Err(e) => e,
+        Ok(_) => return Err(DomainError::EmptyIntent),
+    };
+    assert!(matches!(
+        err,
+        DomainError::InvalidConfidence {
+            max: 1000,
+            actual: 1001
+        }
+    ));
+
+    // Missing endpoint
+    let err2 = match state.apply_input(DomainInput::CreateRelation(CreateRelationInput {
+        relation_id: rel_id,
+        source: RelationEndpoint::Artifact(ArtifactId::new(99)), // missing
+        kind: RelationKind::DerivedFrom,
+        target: RelationEndpoint::Artifact(ArtifactId::new(100)),
+        evidence_id: None,
+        confidence_milli: 500,
+        security: None,
+    })) {
+        Err(e) => e,
+        Ok(_) => return Err(DomainError::EmptyIntent),
+    };
+    assert!(matches!(err2, DomainError::MissingArtifact { .. }));
+    Ok(())
+}
+
+#[test]
+fn test_claim_evidence_constraints() -> Result<(), Box<dyn std::error::Error>> {
+    let mut state = KernelState::new();
+
+    let art_id = ArtifactId::new(1);
+    state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
+        artifact_id: art_id,
+        title: "A".to_string(),
+        security: None,
+    }))?;
+
+    let ev_id = EvidenceId::new(1);
+    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+        evidence_id: ev_id,
+        artifact_id: art_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "a".into(),
+            range: LineRange::new(2, 2)?,
+            snapshot: SnapshotRef::new(BlobId::new(42), fixtures::test_content_hash()?),
+        },
+        excerpt: "".to_string(),
+        observed_at: LogicalTick::new(1),
+        security: None,
+    }))?;
+
+    let err = match state.apply_input(DomainInput::CreateClaim(CreateClaimInput {
+        claim_id: ClaimId::new(1),
+        artifact_id: art_id,
+        text: "T".to_string(),
+        evidence_ids: vec![ev_id, ev_id], // duplicate
+        security: None,
+    })) {
+        Err(e) => e,
+        Ok(_) => return Err("duplicate claim evidence unexpectedly accepted".into()),
+    };
+
+    assert!(matches!(
+        err,
+        DomainError::DuplicateEvidenceInClaim { id } if id.value() == 1
+    ));
+
+    // Now artifact mismatch
+    let art2_id = ArtifactId::new(2);
+    state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
+        artifact_id: art2_id,
+        title: "B".to_string(),
+        security: None,
+    }))?;
+
+    let err2 = match state.apply_input(DomainInput::CreateClaim(CreateClaimInput {
+        claim_id: ClaimId::new(1),
+        artifact_id: art2_id, // mismatch
+        text: "T".to_string(),
+        evidence_ids: vec![ev_id],
+        security: None,
+    })) {
+        Err(e) => e,
+        Ok(_) => return Err("cross-artifact claim evidence unexpectedly accepted".into()),
+    };
+    assert!(matches!(
+        err2,
+        DomainError::ArtifactMismatch {
+            expected: _,
+            actual: _
+        }
+    ));
+    Ok(())
+}
+
+#[test]
+fn test_validation_report_constraints() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+
+    // Missing task
+    let err = match state.apply_input(DomainInput::RecordValidationReport(
+        RecordValidationReportInput {
+            report_id: ValidationReportId::new(1),
+            task_id: Some(TaskId::new(99)), // missing
+            passed: true,
+            warnings: vec![],
+        },
+    )) {
+        Err(e) => e,
+        Ok(_) => return Err(DomainError::EmptyIntent),
+    };
+    assert!(matches!(err, DomainError::MissingTask { .. }));
+    Ok(())
+}
+
+#[test]
+fn test_task_completion_status_mismatch() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    let task_id = TaskId::new(1);
+    let rep_id = ValidationReportId::new(1);
+
+    state.apply_input(DomainInput::OpenTask(OpenTaskInput {
+        task_id,
+        title: "T".to_string(),
+        priority: TaskPriority::Normal,
+        artifact_id: None,
+    }))?;
+
+    state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+        task_id,
+        to: TaskStatus::Open,
+    }))?;
+    state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+        task_id,
+        to: TaskStatus::Active,
+    }))?;
+
+    // Report with warnings
+    state.apply_input(DomainInput::RecordValidationReport(
+        RecordValidationReportInput {
+            report_id: rep_id,
+            task_id: Some(task_id),
+            passed: true,
+            warnings: vec!["warning".to_string()],
+        },
+    ))?;
+
+    // Can't complete verified if there are warnings!
+    // Let's craft an envelope directly because apply_input doesn't allow bypassing the helper's automatic status
+    let ev_invalid_status = DomainEventEnvelope {
+        id: EventId::new(5),
+        event: DomainEvent::TaskCompletionRecorded {
+            task_id,
+            status: TaskStatus::CompletedVerified {
+                validation_report_id: rep_id,
+            },
+        },
+    };
+
+    let err = match state.apply_event(ev_invalid_status) {
+        Err(e) => e,
+        Ok(_) => return Err(DomainError::EmptyIntent),
+    };
+
+    assert!(matches!(
+        err,
+        DomainError::ValidationWarningsForbidden { .. }
+    ));
+    Ok(())
+}

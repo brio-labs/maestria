@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-SCRIPT = Path(__file__).with_name("smoke-installed-native-benchmark.py")
+SCRIPT = Path(__file__).with_name("smoke-installed-sillage-native-benchmark.py")
 SPEC = importlib.util.spec_from_file_location("installed_native_benchmark", SCRIPT)
 if SPEC is None or SPEC.loader is None:
     raise RuntimeError("unable to load installed native benchmark driver")

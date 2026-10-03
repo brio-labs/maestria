@@ -131,9 +131,9 @@ worker-level cancellation and independent termination of non-cooperative code.
 
 | Component | Owns | Must not own |
 |---|---|---|
-| `maestria-domain` | Domain entities, state, transitions, events, effects, strong identifiers | I/O, async workers, SQL, prompts, provider clients |
-| `maestria-governance` | Scope, risk, approval, validation, freshness, trust, memory, and security policy | I/O or effect execution |
-| `maestria-runtime` | Effect execution, workers, queues, cancellation, retries, journaling, supervision | Direct domain mutation |
+| `sillage-domain` | Domain entities, state, transitions, events, effects, strong identifiers | I/O, async workers, SQL, prompts, provider clients |
+| `sillage-governance` | Scope, risk, approval, validation, freshness, trust, memory, and security policy | I/O or effect execution |
+| `sillage-runtime` | Effect execution, workers, queues, cancellation, retries, journaling, supervision | Direct domain mutation |
 | Storage adapter | Current queryable state and event persistence | Domain interpretation |
 | Blob adapter | Immutable source snapshots, logs, reports, evidence packs | Mutable policy state |
 | Parser adapters | Source parsing and document structure | Direct persistence |
@@ -286,7 +286,7 @@ pending implementation and adversarial verification.
 
 ## 5. Domain Kernel
 
-`maestria-domain` is the authoritative implementation of domain meaning.
+`sillage-domain` is the authoritative implementation of domain meaning.
 
 It owns types including:
 
@@ -297,7 +297,7 @@ Claim, Relation
 Evidence, EvidenceSpan
 MemoryCandidate, Memory
 Task, TaskState, TaskTransition
-DomainEvent, DomainInput, MaestriaEffect
+DomainEvent, DomainInput, SillageEffect
 ValidationReport shape
 PolicyDecision shape
 InstanceManifest
@@ -323,7 +323,7 @@ The preferred domain API is:
 ```rust
 pub struct Transition {
     pub events: Vec<DomainEvent>,
-    pub effects: Vec<MaestriaEffect>,
+    pub effects: Vec<SillageEffect>,
 }
 
 pub trait DomainReducer {
@@ -353,7 +353,7 @@ The only supported path for domain state mutation is:
 DomainInput
   → DomainReducer
   → DomainState transition
-  → DomainEvent and MaestriaEffect
+  → DomainEvent and SillageEffect
 ```
 
 Runtime, storage, search, harness, and application code must not mutate domain state through side channels.
@@ -362,7 +362,7 @@ Runtime, storage, search, harness, and application code must not mutate domain s
 
 ## 6. Effects and Runtime Execution
 
-A `MaestriaEffect` is a declarative request to perform work outside the domain kernel.
+A `SillageEffect` is a declarative request to perform work outside the domain kernel.
 
 Examples include:
 
@@ -382,7 +382,7 @@ An operation becomes a separate effect when it crosses a policy, approval, trust
 
 ### 6.1 Runtime Responsibilities
 
-`maestria-runtime` owns:
+`sillage-runtime` owns:
 
 - effect execution;
 - bounded queues and backpressure;
@@ -433,7 +433,7 @@ Representative capability contracts are:
 
 ```rust
 pub trait ClassifyRisk {
-    fn classify(&self, effect: &MaestriaEffect, scope: &Scope) -> RiskClass;
+    fn classify(&self, effect: &SillageEffect, scope: &Scope) -> RiskClass;
 }
 
 pub trait DecideApproval {

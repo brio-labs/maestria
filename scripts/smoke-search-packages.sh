@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PACKAGE_NAME=io-github-briolabs-maestria-search
+PACKAGE_NAME=io-github-briolabs-sillage-search
 if [[ $# -ne 1 || ! -d "$1" ]]; then
   echo "usage: $0 PACKAGE_DIRECTORY" >&2
   exit 2
@@ -35,19 +35,19 @@ if [[ "$installed" != "$expected_installed" ]]; then
   exit 1
 fi
 
-binary="$(command -v maestria-search || true)"
-if [[ "$binary" != /usr/bin/maestria-search || "$(realpath "$binary")" != /usr/bin/maestria-search ]]; then
-  echo "expected installed PATH executable /usr/bin/maestria-search, got ${binary:-not found}" >&2
+binary="$(command -v sillage-search || true)"
+if [[ "$binary" != /usr/bin/sillage-search || "$(realpath "$binary")" != /usr/bin/sillage-search ]]; then
+  echo "expected installed PATH executable /usr/bin/sillage-search, got ${binary:-not found}" >&2
   exit 1
 fi
-binary_owner="$(dpkg-query --search /usr/bin/maestria-search)"
-if [[ "$binary_owner" != "$PACKAGE_NAME: /usr/bin/maestria-search" ]]; then
+binary_owner="$(dpkg-query --search /usr/bin/sillage-search)"
+if [[ "$binary_owner" != "$PACKAGE_NAME: /usr/bin/sillage-search" ]]; then
   echo "installed executable is not owned by $PACKAGE_NAME: $binary_owner" >&2
   exit 1
 fi
 
 umask 077
-root="$(mktemp -d "${TMPDIR:-/tmp}/maestria-search-package-smoke.XXXXXX")"
+root="$(mktemp -d "${TMPDIR:-/tmp}/sillage-search-package-smoke.XXXXXX")"
 instance="$root/instance"
 approved_root="$root/approved-root"
 credential_file="$root/external-grant.credential"

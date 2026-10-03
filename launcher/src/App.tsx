@@ -11,7 +11,7 @@ import {
   search,
   signalLauncherReady,
 } from './bridge';
-import markAsset from './assets/maestria-mark.svg';
+import markAsset from './assets/sillage-mark.svg';
 import searchAsset from './assets/search.svg';
 import { ActionPanel } from './components/ActionPanel';
 import { Preferences } from './components/Preferences';

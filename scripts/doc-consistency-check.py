@@ -14,12 +14,12 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CLI_TYPES = REPO_ROOT / "crates" / "apps" / "maestria-cli" / "src" / "cli_types.rs"
+CLI_TYPES = REPO_ROOT / "crates" / "apps" / "sillage-cli" / "src" / "cli_types.rs"
 README = REPO_ROOT / "README.md"
 
-DAEMON_PROTOCOL = REPO_ROOT / "crates" / "apps" / "maestria-daemon" / "src" / "api" / "protocol.rs"
-DAEMON_API = REPO_ROOT / "crates" / "apps" / "maestria-daemon" / "src" / "api.rs"
-DAEMON_SERVER = REPO_ROOT / "crates" / "apps" / "maestria-daemon" / "src" / "api" / "server.rs"
+DAEMON_PROTOCOL = REPO_ROOT / "crates" / "apps" / "sillage-daemon" / "src" / "api" / "protocol.rs"
+DAEMON_API = REPO_ROOT / "crates" / "apps" / "sillage-daemon" / "src" / "api.rs"
+DAEMON_SERVER = REPO_ROOT / "crates" / "apps" / "sillage-daemon" / "src" / "api" / "server.rs"
 DAEMON_DOC = REPO_ROOT / "docs" / "DAEMON-API.md"
 
 def load_cli_types() -> str:
@@ -132,17 +132,17 @@ def find_readme_gaps(readme_text: str, tree: dict, prefix_words: list[str] | Non
                 heading_pattern = r'#{3,6}\s+`' + cmd_esc + r'`'
                 has_heading = bool(re.search(heading_pattern, readme_text, re.IGNORECASE))
 
-            # Check for usage like `maestria index generations` in a code block.
+            # Check for usage like `sillage index generations` in a code block.
             # Code blocks use fenced backticks, so no leading backtick on each line.
             # We check two variants:
-            #   1) Simple: `maestria <prefix> <cmd>` with no flags between words.
+            #   1) Simple: `sillage <prefix> <cmd>` with no flags between words.
             #   2) Deep: allows optional flags/args between command words, so
-            #      `maestria index -i .maestria-dev repository <path>` matches
+            #      `sillage index -i .sillage-dev repository <path>` matches
             #      `index repository`.
             if not has_usage:
                 esc_parts = [re.escape(_camel_to_kebab(w)) for w in prefix_words]
                 esc_parts.append(cmd_esc)
-                usage_pattern = (r'maestria\s+' + r'\s+'.join(esc_parts) +
+                usage_pattern = (r'sillage\s+' + r'\s+'.join(esc_parts) +
                                  r'(?:\s|`|$|\.|,|;|\)|\|)')
                 has_usage = bool(re.search(usage_pattern, readme_text))
             if not has_usage:
@@ -150,11 +150,11 @@ def find_readme_gaps(readme_text: str, tree: dict, prefix_words: list[str] | Non
                 for w in prefix_words:
                     esc_parts_deep.append(re.escape(_camel_to_kebab(w)))
                     # Allow optional flags/args between command words.
-                    # Includes \s+ so `index -i .maestria-dev repository` matches.
+                    # Includes \s+ so `index -i .sillage-dev repository` matches.
                     esc_parts_deep.append(r'(?:\s+-\S+(?:\s+\S+)*\s+)?')
                 esc_parts_deep.append(cmd_esc)
                 joined = ''.join(esc_parts_deep)
-                usage_pattern_deep = r'maestria\s+' + joined + r'(?:\s|`|$|\.|,|;|\)|\|)'
+                usage_pattern_deep = r'sillage\s+' + joined + r'(?:\s|`|$|\.|,|;|\)|\|)'
                 has_usage = bool(re.search(usage_pattern_deep, readme_text))
         documented = has_heading or has_usage
         if not documented:

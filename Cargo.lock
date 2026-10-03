@@ -4636,489 +4636,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "maestria"
-version = "0.0.1"
-
-[[package]]
-name = "maestria-adapter-http"
-version = "0.0.1"
-dependencies = [
- "maestria-ports",
- "serde",
- "serde_json",
- "ureq",
-]
-
-[[package]]
-name = "maestria-blob-fs"
-version = "0.0.1"
-dependencies = [
- "maestria-domain",
- "maestria-ports",
- "sha2 0.10.9",
- "tempfile",
- "tracing",
-]
-
-[[package]]
-name = "maestria-cli"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "clap",
- "dhat",
- "getrandom 0.4.3",
- "maestria-blob-fs",
- "maestria-code-intel",
- "maestria-core",
- "maestria-daemon",
- "maestria-domain",
- "maestria-governance",
- "maestria-index-selection",
- "maestria-parsers",
- "maestria-ports",
- "maestria-retrieval",
- "maestria-search-tantivy",
- "maestria-storage-sqlite",
- "maestria-studio",
- "maestria-test-support",
- "maestria-vector-sqlite",
- "rusqlite",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "maestria-code-intel"
-version = "0.0.1"
-dependencies = [
- "maestria-domain",
- "maestria-governance",
- "maestria-index-selection",
- "maestria-test-support",
- "proc-macro2",
- "regex",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "syn 2.0.118",
- "tempfile",
- "toml 0.8.2",
-]
-
-[[package]]
-name = "maestria-core"
-version = "0.0.1"
-dependencies = [
- "maestria-domain",
- "maestria-governance",
- "maestria-ports",
- "maestria-retrieval",
- "maestria-test-support",
- "sha2 0.10.9",
- "tokio",
- "url",
-]
-
-[[package]]
-name = "maestria-daemon"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "clap",
- "getrandom 0.4.3",
- "ignore",
- "lopdf",
- "maestria-adapter-http",
- "maestria-blob-fs",
- "maestria-code-intel",
- "maestria-core",
- "maestria-domain",
- "maestria-embedding-openai",
- "maestria-governance",
- "maestria-graph-sqlite",
- "maestria-harness",
- "maestria-index-selection",
- "maestria-ocr-local",
- "maestria-parsers",
- "maestria-ports",
- "maestria-retrieval",
- "maestria-runtime",
- "maestria-search-tantivy",
- "maestria-sparse-local",
- "maestria-storage-sqlite",
- "maestria-test-support",
- "maestria-vector-sqlite",
- "maestria-visual-local",
- "maestria-web-evidence",
- "parking_lot",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "maestria-domain"
-version = "0.0.1"
-dependencies = [
- "serde",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "maestria-embedding-openai"
-version = "0.0.1"
-dependencies = [
- "maestria-adapter-http",
- "maestria-ports",
- "serde",
- "serde_json",
- "url",
-]
-
-[[package]]
-name = "maestria-extension-worker"
-version = "0.0.1"
-dependencies = [
- "maestria-extensions",
- "rquickjs",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
-name = "maestria-extensions"
-version = "0.0.1"
-dependencies = [
- "rustix 1.1.4",
- "semver",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "thiserror 2.0.18",
- "url",
- "zip",
-]
-
-[[package]]
-name = "maestria-governance"
-version = "0.0.1"
-dependencies = [
- "maestria-domain",
-]
-
-[[package]]
-name = "maestria-graph-sqlite"
-version = "0.0.1"
-dependencies = [
- "maestria-domain",
- "maestria-ports",
- "maestria-sqlite-support",
- "rusqlite",
- "serde_json",
-]
-
-[[package]]
-name = "maestria-harness"
-version = "0.0.1"
-dependencies = [
- "libc",
- "maestria-ports",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "maestria-harness-cli"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "clap",
- "maestria-domain",
- "maestria-governance",
- "maestria-harness",
- "maestria-ports",
- "tokio",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "maestria-index-selection"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "ignore",
- "maestria-governance",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "maestria-launcher"
-version = "0.0.1"
-dependencies = [
- "arboard",
- "ashpd",
- "futures-util",
- "gio",
- "glib",
- "global-hotkey",
- "libc",
- "maestria-extensions",
- "raw-window-handle",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "slint",
- "slint-build",
- "thiserror 2.0.18",
- "tokio",
- "toml 0.8.2",
- "url",
-]
-
-[[package]]
-name = "maestria-memory"
-version = "0.0.1"
-dependencies = [
- "maestria-domain",
-]
-
-[[package]]
-name = "maestria-ocr-local"
-version = "0.0.1"
-dependencies = [
- "base64 0.22.1",
- "maestria-adapter-http",
- "maestria-ports",
- "serde",
- "serde_json",
- "url",
-]
-
-[[package]]
-name = "maestria-parsers"
-version = "0.0.1"
-dependencies = [
- "insta",
- "lopdf",
- "maestria-domain",
- "maestria-ports",
- "quick-xml",
- "zip",
-]
-
-[[package]]
-name = "maestria-ports"
-version = "0.0.1"
-dependencies = [
- "maestria-domain",
- "maestria-test-support",
- "serde",
-]
-
-[[package]]
-name = "maestria-retrieval"
-version = "0.0.1"
-dependencies = [
- "maestria-code-intel",
- "maestria-domain",
- "maestria-governance",
- "maestria-ports",
- "maestria-test-support",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
-name = "maestria-runtime"
-version = "0.0.1"
-dependencies = [
- "maestria-domain",
- "maestria-governance",
- "maestria-memory",
- "maestria-ports",
- "maestria-search-tantivy",
- "maestria-sqlite-support",
- "maestria-storage-sqlite",
- "maestria-test-support",
- "maestria-validation",
- "parking_lot",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-test",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "maestria-search"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "clap",
- "libc",
- "maestria-core",
- "maestria-daemon",
- "maestria-domain",
- "maestria-governance",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "maestria-search-tantivy"
-version = "0.0.1"
-dependencies = [
- "maestria-domain",
- "maestria-governance",
- "maestria-ports",
- "maestria-test-support",
- "tantivy",
- "tempfile",
- "tracing",
-]
-
-[[package]]
-name = "maestria-sparse-local"
-version = "0.0.1"
-dependencies = [
- "maestria-adapter-http",
- "maestria-domain",
- "maestria-ports",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "maestria-sqlite-support"
-version = "0.0.1"
-dependencies = [
- "maestria-domain",
- "maestria-ports",
- "rusqlite",
-]
-
-[[package]]
-name = "maestria-storage-sqlite"
-version = "0.0.1"
-dependencies = [
- "maestria-domain",
- "maestria-ports",
- "maestria-sqlite-support",
- "maestria-test-support",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "maestria-studio"
-version = "0.0.1"
-dependencies = [
- "agent-client-protocol",
- "anyhow",
- "axum",
- "maestria-core",
- "maestria-daemon",
- "maestria-index-selection",
- "mime_guess",
- "rust-embed",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
- "toml 0.8.2",
- "tower",
- "tower-http 0.7.0",
-]
-
-[[package]]
-name = "maestria-studio-web"
-version = "0.0.1"
-dependencies = [
- "dioxus",
- "gloo-net 0.7.0",
- "gloo-timers 0.4.0",
- "js-sys",
- "pulldown-cmark",
- "serde",
- "serde_json",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "maestria-test-support"
-version = "0.0.1"
-dependencies = [
- "maestria-domain",
-]
-
-[[package]]
-name = "maestria-validation"
-version = "0.0.1"
-dependencies = [
- "maestria-domain",
- "maestria-test-support",
-]
-
-[[package]]
-name = "maestria-vector-sqlite"
-version = "0.0.1"
-dependencies = [
- "maestria-domain",
- "maestria-ports",
- "maestria-sqlite-support",
- "maestria-test-support",
- "rusqlite",
-]
-
-[[package]]
-name = "maestria-visual-local"
-version = "0.0.1"
-dependencies = [
- "base64 0.22.1",
- "maestria-adapter-http",
- "maestria-domain",
- "maestria-ports",
- "maestria-test-support",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "maestria-web-evidence"
-version = "0.0.1"
-dependencies = [
- "maestria-domain",
- "maestria-ports",
- "ureq",
- "url",
-]
-
-[[package]]
 name = "manganis"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7227,6 +6744,491 @@ checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
 dependencies = [
  "errno",
  "libc",
+]
+
+[[package]]
+name = "sillage"
+version = "0.0.1"
+
+[[package]]
+name = "sillage-adapter-http"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sillage-ports",
+ "ureq",
+]
+
+[[package]]
+name = "sillage-blob-fs"
+version = "0.0.1"
+dependencies = [
+ "sha2 0.10.9",
+ "sillage-domain",
+ "sillage-ports",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "sillage-cli"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dhat",
+ "getrandom 0.4.3",
+ "rusqlite",
+ "serde_json",
+ "sillage-blob-fs",
+ "sillage-code-intel",
+ "sillage-core",
+ "sillage-daemon",
+ "sillage-domain",
+ "sillage-governance",
+ "sillage-index-selection",
+ "sillage-parsers",
+ "sillage-ports",
+ "sillage-retrieval",
+ "sillage-search-tantivy",
+ "sillage-storage-sqlite",
+ "sillage-studio",
+ "sillage-test-support",
+ "sillage-vector-sqlite",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "sillage-code-intel"
+version = "0.0.1"
+dependencies = [
+ "proc-macro2",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sillage-domain",
+ "sillage-governance",
+ "sillage-index-selection",
+ "sillage-test-support",
+ "syn 2.0.118",
+ "tempfile",
+ "toml 0.8.2",
+]
+
+[[package]]
+name = "sillage-core"
+version = "0.0.1"
+dependencies = [
+ "sha2 0.10.9",
+ "sillage-domain",
+ "sillage-governance",
+ "sillage-ports",
+ "sillage-retrieval",
+ "sillage-test-support",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "sillage-daemon"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "getrandom 0.4.3",
+ "ignore",
+ "lopdf",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sillage-adapter-http",
+ "sillage-blob-fs",
+ "sillage-code-intel",
+ "sillage-core",
+ "sillage-domain",
+ "sillage-embedding-openai",
+ "sillage-governance",
+ "sillage-graph-sqlite",
+ "sillage-harness",
+ "sillage-index-selection",
+ "sillage-ocr-local",
+ "sillage-parsers",
+ "sillage-ports",
+ "sillage-retrieval",
+ "sillage-runtime",
+ "sillage-search-tantivy",
+ "sillage-sparse-local",
+ "sillage-storage-sqlite",
+ "sillage-test-support",
+ "sillage-vector-sqlite",
+ "sillage-visual-local",
+ "sillage-web-evidence",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "sillage-domain"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "sillage-embedding-openai"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sillage-adapter-http",
+ "sillage-ports",
+ "url",
+]
+
+[[package]]
+name = "sillage-extension-worker"
+version = "0.0.1"
+dependencies = [
+ "rquickjs",
+ "serde",
+ "serde_json",
+ "sillage-extensions",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
+name = "sillage-extensions"
+version = "0.0.1"
+dependencies = [
+ "rustix 1.1.4",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.18",
+ "url",
+ "zip",
+]
+
+[[package]]
+name = "sillage-governance"
+version = "0.0.1"
+dependencies = [
+ "sillage-domain",
+]
+
+[[package]]
+name = "sillage-graph-sqlite"
+version = "0.0.1"
+dependencies = [
+ "rusqlite",
+ "serde_json",
+ "sillage-domain",
+ "sillage-ports",
+ "sillage-sqlite-support",
+]
+
+[[package]]
+name = "sillage-harness"
+version = "0.0.1"
+dependencies = [
+ "libc",
+ "sillage-ports",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "sillage-harness-cli"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "sillage-domain",
+ "sillage-governance",
+ "sillage-harness",
+ "sillage-ports",
+ "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "sillage-index-selection"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "ignore",
+ "serde",
+ "serde_json",
+ "sillage-governance",
+]
+
+[[package]]
+name = "sillage-launcher"
+version = "0.0.1"
+dependencies = [
+ "arboard",
+ "ashpd",
+ "futures-util",
+ "gio",
+ "glib",
+ "global-hotkey",
+ "libc",
+ "raw-window-handle",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sillage-extensions",
+ "slint",
+ "slint-build",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml 0.8.2",
+ "url",
+]
+
+[[package]]
+name = "sillage-memory"
+version = "0.0.1"
+dependencies = [
+ "sillage-domain",
+]
+
+[[package]]
+name = "sillage-ocr-local"
+version = "0.0.1"
+dependencies = [
+ "base64 0.22.1",
+ "serde",
+ "serde_json",
+ "sillage-adapter-http",
+ "sillage-ports",
+ "url",
+]
+
+[[package]]
+name = "sillage-parsers"
+version = "0.0.1"
+dependencies = [
+ "insta",
+ "lopdf",
+ "quick-xml",
+ "sillage-domain",
+ "sillage-ports",
+ "zip",
+]
+
+[[package]]
+name = "sillage-ports"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "sillage-domain",
+ "sillage-test-support",
+]
+
+[[package]]
+name = "sillage-retrieval"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sillage-code-intel",
+ "sillage-domain",
+ "sillage-governance",
+ "sillage-ports",
+ "sillage-search-tantivy",
+ "sillage-test-support",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "sillage-runtime"
+version = "0.0.1"
+dependencies = [
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "sillage-domain",
+ "sillage-governance",
+ "sillage-memory",
+ "sillage-ports",
+ "sillage-search-tantivy",
+ "sillage-sqlite-support",
+ "sillage-storage-sqlite",
+ "sillage-test-support",
+ "sillage-validation",
+ "tempfile",
+ "tokio",
+ "tokio-test",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "sillage-search"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "libc",
+ "serde_json",
+ "sillage-core",
+ "sillage-daemon",
+ "sillage-domain",
+ "sillage-governance",
+ "tokio",
+]
+
+[[package]]
+name = "sillage-search-tantivy"
+version = "0.0.1"
+dependencies = [
+ "sillage-domain",
+ "sillage-governance",
+ "sillage-ports",
+ "sillage-test-support",
+ "tantivy",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "sillage-sparse-local"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sillage-adapter-http",
+ "sillage-domain",
+ "sillage-ports",
+]
+
+[[package]]
+name = "sillage-sqlite-support"
+version = "0.0.1"
+dependencies = [
+ "rusqlite",
+ "sillage-domain",
+ "sillage-ports",
+]
+
+[[package]]
+name = "sillage-storage-sqlite"
+version = "0.0.1"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sillage-domain",
+ "sillage-ports",
+ "sillage-sqlite-support",
+ "sillage-test-support",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "sillage-studio"
+version = "0.0.1"
+dependencies = [
+ "agent-client-protocol",
+ "anyhow",
+ "axum",
+ "mime_guess",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "sillage-core",
+ "sillage-daemon",
+ "sillage-index-selection",
+ "tokio",
+ "tokio-util",
+ "toml 0.8.2",
+ "tower",
+ "tower-http 0.7.0",
+]
+
+[[package]]
+name = "sillage-studio-web"
+version = "0.0.1"
+dependencies = [
+ "dioxus",
+ "gloo-net 0.7.0",
+ "gloo-timers 0.4.0",
+ "js-sys",
+ "pulldown-cmark",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "sillage-test-support"
+version = "0.0.1"
+dependencies = [
+ "sillage-domain",
+]
+
+[[package]]
+name = "sillage-validation"
+version = "0.0.1"
+dependencies = [
+ "sillage-domain",
+ "sillage-test-support",
+]
+
+[[package]]
+name = "sillage-vector-sqlite"
+version = "0.0.1"
+dependencies = [
+ "rusqlite",
+ "sillage-domain",
+ "sillage-ports",
+ "sillage-sqlite-support",
+ "sillage-test-support",
+]
+
+[[package]]
+name = "sillage-visual-local"
+version = "0.0.1"
+dependencies = [
+ "base64 0.22.1",
+ "serde",
+ "serde_json",
+ "sillage-adapter-http",
+ "sillage-domain",
+ "sillage-ports",
+ "sillage-test-support",
+]
+
+[[package]]
+name = "sillage-web-evidence"
+version = "0.0.1"
+dependencies = [
+ "sillage-domain",
+ "sillage-ports",
+ "ureq",
+ "url",
 ]
 
 [[package]]

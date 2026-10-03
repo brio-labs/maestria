@@ -118,7 +118,7 @@ This does not establish stock Ubuntu 24.04 Wayland shortcuts. Actual
 version-upgrade and first Ubuntu Copy AT-SPI activation remain separate gates.
 
 The stock Ubuntu GNOME fallback is a user-created compositor shortcut for
-`maestria-launcher --activate` ([instructions](OPERATIONS.md#8-opt-in-linux-package-onboarding));
+`sillage-launcher --activate` ([instructions](OPERATIONS.md#8-opt-in-linux-package-onboarding));
 the launcher does not register or remove that binding. Documentation of this
 manual route does not prove a packaged compositor activation or retention
 across a version-different upgrade.
@@ -143,10 +143,15 @@ annotated design mockup; actual Slint X11/Wayland windows are documented in
 **Exit criteria:** On X11 and separately on Wayland, a fresh user can invoke,
 find and launch an app, calculate `2 + 2`, copy `4`, dismiss and reopen without a
 daemon or model. `--activate` routes to the existing resident process and
-`--quit` exits cleanly. Existing `maestria-launcher`,
-`io.github.briolabs.Maestria.Launcher`, portal grants, and `launcher.toml`
-preferences survive the migration. Actual Slint-window screenshots and
-keyboard/accessibility interactions demonstrate the approved visual design.
+`--quit` exits cleanly. This is an intentionally breaking identity cutover:
+the executable, Debian package, desktop/portal ID, settings root, and data
+paths use new Sillage identities. Old Maestria IDs and paths are neither
+aliased nor migrated. Existing preferences, grants, compositor bindings,
+instances, credentials, and model assets remain untouched; retention or import
+across the rename has not been verified. Legacy CI/evidence below applies only
+to its original identity, and this rename does not satisfy any release gate.
+Actual Slint-window screenshots and keyboard/accessibility interactions
+demonstrate the approved visual design.
 The old Tauri/React launcher, stale native tests, build dependencies, and
 packaging are removed **only after** full behavioral parity is demonstrated;
 Studio remains a separate web surface.
@@ -625,7 +630,7 @@ budgets and crash recovery are verified on shipped artifacts.
 | CLI and authenticated per-instance daemon | Exists; lifecycle explicit, protocol embedded in daemon crate |
 | Approved read roots, supported local text/PDF ingestion, watcher | Search-only Debian and developer build with explicit owner root approval and documented daemon lifecycle; v18 per-consumer frozen root grants passed local A/B, restart, removal, and PDF-denial regressions, but current package and release latency gates remain open |
 | Lexical passage retrieval and evidence opening | Exists in the standalone CLI/daemon; an optional credential-path Slint client shows cited results and reopens actions without starting the indexer |
-| `maestria-retrieval` traits, typed plans, authorization, generations | Exists; daemon assembles the production engine |
+| `sillage-retrieval` traits, typed plans, authorization, generations | Exists; daemon assembles the production engine |
 | Dense semantic retrieval | Provider-dependent, measured for selected daemon query classes only |
 | Native Slint launcher UI | Built and locally native-smoked on X11/Wayland and from Debian/AppImage; first-run deferral persisted across packaged X11 runs; not a release-certified product |
 | Document-result UI and standalone search install | Search-only Debian independently smoked for Markdown/DOCX/PDF on Ubuntu 24.04; combined apt install found a filename-only source and denied its deletion. Final Ubuntu-built launcher/search executables byte-identical to Debian payloads rendered native X11 File/Path and body-only cited passage rows, copied authorized path and reopened excerpt, and explicitly denied a deleted path action. Nested Weston passage action used a private X11 clipboard fallback; the native helper separately copied/denied over-limit text in pure Weston Wayland without `DISPLAY`. Full pure-Wayland Slint action and certified combined release remain open |
@@ -707,6 +712,76 @@ transient all-class ablation is not the currently served native/consumer
 policy, does not prove their authorization/navigation surfaces, and cannot
 justify silently activating shadow retrieval. The frozen run must not be
 warmed, tuned, or replayed.
+
+CI `36955524206` at head `193a44d4` retained its first installed-native outcome:
+794/800 observations passed. Three queries showed `Document search unavailable`;
+one passage was observed before a later list-scope lookup failed, and two
+Return actions did not open detail. Cold and edit classes each passed 200/200;
+active and delete classes each passed 197/200. Failure-inclusive keyboard-to-
+AT-SPI query p95 was 253.84 ms cold, 254.86 ms active, 1303.81 ms edit, and
+235.44 ms delete, not a measurement of the internal request deadline. The
+hosted runner also failed the ≥16 GiB/SSD reference-hardware gate. Its producing
+checkout was PR merge `3bc97ec3`; downloaded Debian hashes match the hosted
+installed-package provenance. This workload is sealed and must not be replayed
+to obtain a pass; source cohesion repairs do not explain these failures.
+
+A separate three-case, synthetic-only diagnostic confirmed that FixedKRrf(60)
+correctly implements rank-only fusion: the same lexical head moved from rank
+one to two for an exact-path and an ordinary query under the transient
+candidate. Default shadow policy excluded dense, and the actual promotion
+predicate rejected the exact-path class. A synthetic aggregate predicate input
+with unchanged MRR and improved recall was accepted; this does not certify an
+individual frozen first-hit control. No fusion implementation or served-policy
+defect, corpus result, or resource qualification is established by that probe.
+The original quality failure and serving-policy gates remain unchanged.
+
+The explicitly authorized generic lexical-head-preserving policy now wraps
+Fixed-K RRF (k=60), preserving the actual eligible lexical-baseline head through
+reranking, expansion and diversity. Semantic ranking may improve only the
+remaining results. Its full identity is
+`hybrid-lexical-head-preserving-v1+fixed-k-rrf-v1:k=60`; legacy or unsupported
+promotion identities fail closed to Shadow.
+
+A genuinely new, independently source-reviewed, LLM-assisted freeze contains
+60 distinct needs (30 French, 30 English), 126 byte-exact judgments and three
+separate controls on the same approved 16-document corpus. The corrected
+real-model run completed once after a preserved zero-query control-decoder
+setup failure; no frozen inputs changed and no query was warmed or replayed:
+
+| Query-macro metric | French lexical → Hybrid candidate | English lexical → Hybrid candidate |
+|---|---|---|
+| Passage Recall@10 | 4.17% → 61.00% | 68.89% → 74.17% |
+| Bounded document recall | 25.56% → 94.44% | 70.56% → 80.83% |
+
+All 60 cases remain in each metric denominator. The 120 held-out plan attempts
+produced 108 searches and 12 refusals; six control searches followed.
+All 32 comparable held-out lexical heads retained full identity, metadata and
+baseline score lanes. The other 28 cases have no comparable baseline head;
+they are not counted as successful preservation.
+
+The fixed exact-phrase target retained rank two. The exact-path target was
+absent from the lexical baseline but ranked second in the candidate. The
+contractual rank-one first-hit target ranked second in both routes.
+**Two controls fail; qualification remains unpassed.** These observations do
+not establish a Hybrid demotion or a native path/navigation failure. The
+document metric is still ten distinct documents within 100 ranked passages,
+not unrestricted document Recall@10. Both reopened promotion tables contain
+zero records; serving remains Shadow. Neither this candidate evaluation nor
+its ordinary 114.19-ms daemon shutdown certifies the installed native release.
+The new cases and controls are consumed and must not be retargeted or replayed.
+
+The authorized baseline investigation subsequently demonstrated a separate
+general card-association defect with a fresh synthetic source: the real parser
+attached its summary card to the document root, while the retriever required
+that root to equal a chunk node and rejected the card before scoring.
+The repair preserves direct node associations and otherwise requires one exact,
+same-artifact source-span match; missing and ambiguous matches fail closed.
+A different preregistered source then produced one card hit and its canonical
+chunk evidence, with the candidate anchored to the resolved chunk node.
+Real-index regressions also cover missing/ambiguous spans and denied evidence.
+Neither source-only probe attributes the failed frozen controls or establishes
+new bilingual quality, native reliability, latency, or installed qualification.
+The consumed quality results remain unchanged; serving stays Shadow.
 
 ### Historical Tauri launcher-only X11 measurement (2026-09-23)
 

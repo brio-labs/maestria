@@ -18,11 +18,11 @@ import { shortcutScenario } from './shortcut-scenario.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repository = path.resolve(here, '../../..');
-const application = path.join(repository, 'target/release/maestria-launcher');
+const application = path.join(repository, 'target/release/sillage-launcher');
 const execute = promisify(execFile);
 
 if (!process.argv.includes('--isolated')) {
-  const root = await mkdtemp(path.join(tmpdir(), 'maestria-launcher-native-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'sillage-launcher-native-'));
   try {
     for (const directory of ['data/applications', 'system/applications', 'config', 'cache', 'runtime']) {
       await mkdir(path.join(root, directory), { recursive: true, mode: 0o700 });
@@ -36,7 +36,7 @@ if (!process.argv.includes('--isolated')) {
       stdio: 'inherit',
       env: {
         ...process.env, GDK_BACKEND: 'x11', WAYLAND_DISPLAY: '',
-        MAESTRIA_NATIVE_TEST_ROOT: root,
+        SILLAGE_NATIVE_TEST_ROOT: root,
         XDG_DATA_HOME: path.join(root, 'data'), XDG_DATA_DIRS: path.join(root, 'system'),
         XDG_CONFIG_HOME: path.join(root, 'config'), XDG_CACHE_HOME: path.join(root, 'cache'),
         XDG_RUNTIME_DIR: path.join(root, 'runtime'), XDG_CURRENT_DESKTOP: 'GNOME',
@@ -50,7 +50,7 @@ if (!process.argv.includes('--isolated')) {
     await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
   }
 } else {
-  const root = process.env.MAESTRIA_NATIVE_TEST_ROOT;
+  const root = process.env.SILLAGE_NATIVE_TEST_ROOT;
   if (!root) throw new Error('The native suite must be launched through its private-session wrapper');
   for (const port of [4444, 4445]) {
     const probe = createServer();
@@ -61,7 +61,7 @@ if (!process.argv.includes('--isolated')) {
   const evidence = path.join(repository, 'target/launcher-evidence');
   await mkdir(evidence, { recursive: true });
   const fixtures = await createFixtures(root);
-  const environment = { ...process.env, MAESTRIA_LAUNCHER_ARGV_RECORD: fixtures.record,
+  const environment = { ...process.env, SILLAGE_LAUNCHER_ARGV_RECORD: fixtures.record,
     AT_SPI_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS, LANG: 'C.UTF-8' };
   const registryPath = ['/usr/libexec/at-spi2-registryd', '/usr/lib/at-spi2-registryd'].find(existsSync);
   if (!registryPath) throw new Error('Install at-spi2-core for native GTK accessibility automation');

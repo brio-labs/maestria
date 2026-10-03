@@ -36,9 +36,9 @@ The current build and target product remain intentionally different surfaces:
 | Dense semantic search | Provider-dependent in the CLI/daemon workflow; not a launcher default |
 | Native resident launcher and application catalog | Available in the Slint developer build on X11 and Wayland; Debian and AppImage packages built and native-smoked |
 | Distinctive interface and full Tauri-to-Slint parity | Slint search, Preferences, About attribution, theme and keyboard basics work; parity and release performance measurements remain open |
-| Search-only installable service and scoped third-party client | `maestria-search` is a separate headless Debian package; local Unix-socket search/evidence works without the launcher or a model. Hosted Ubuntu 24.04 installed-binary smoke passed. Provider-backed relevance and combined release acceptance remain open |
+| Search-only installable service and scoped third-party client | `sillage-search` is a separate headless Debian package; local Unix-socket search/evidence works without the launcher or a model. Hosted Ubuntu 24.04 installed-binary smoke passed. Provider-backed relevance and combined release acceptance remain open |
 | X11 global shortcut | Available after user setup in Preferences |
-| Wayland global shortcut | Private installed Ubuntu 26.04 KDE GlobalShortcuts consent passed; stock Ubuntu 24.04 lacks the required host-app Registry, so use a user-created compositor binding for `maestria-launcher --activate` where needed |
+| Wayland global shortcut | Private installed Ubuntu 26.04 KDE GlobalShortcuts consent passed; stock Ubuntu 24.04 lacks the required host-app Registry, so use a user-created compositor binding for `sillage-launcher --activate` where needed |
 | Extension lifecycle, SDK, isolated workers and capability broker | Opt-in developer build; same-run installed Ubuntu 24.04 launcher/worker Bubblewrap broker smoke passed with a private pointer. First installed extension Copy AT-SPI activation and version-different upgrade remain open |
 
 The existing CLI and daemon quick start below is for the current developer
@@ -54,8 +54,8 @@ git clone https://github.com/brio-labs/maestria.git
 cd maestria
 
 # Build the CLI binary
-cargo build --release -p maestria-cli
-./target/release/maestria-cli --help
+cargo build --release -p sillage-cli
+./target/release/sillage-cli --help
 ```
 
 Sillage has no releases: the development workspace version is `0.0.1` and
@@ -69,15 +69,15 @@ X11/Wayland development libraries used by the
 [CI dependency setup](.github/actions/setup-system-dependencies/action.yml):
 
 ```bash
-cargo build --release -p maestria-launcher
-./target/release/maestria-launcher --activate
+cargo build --release -p sillage-launcher
+./target/release/sillage-launcher --activate
 ```
 
 To build the Debian and AppImage packages, install the pinned Cargo Packager:
 
 ```bash
 cargo install cargo-packager --locked --version 0.11.8
-NO_STRIP=1 APPIMAGE_EXTRACT_AND_RUN=1 cargo packager --release --packages maestria-launcher --formats deb,appimage
+NO_STRIP=1 APPIMAGE_EXTRACT_AND_RUN=1 cargo packager --release --packages sillage-launcher --formats deb,appimage
 ```
 
 The packages land under `target/launcher-packages/`. Build distributable
@@ -88,11 +88,11 @@ apt-installed launcher could not start on Ubuntu 24.04 (`glibc` 2.39).
 whose ELF libraries use `.relr.dyn`; it does not change runtime compatibility.
 `APPIMAGE_EXTRACT_AND_RUN=1` lets linuxdeploy's AppImage plugin run without
 FUSE inside a container; the builder also needs the `file` utility. A Debian
-installation provides `maestria-launcher` on `PATH` and a desktop entry whose
+installation provides `sillage-launcher` on `PATH` and a desktop entry whose
 `Exec` is
-`maestria-launcher --activate`. No daemon or model is started, and installation
-does not enable autostart. Use `maestria-launcher --activate`
-to show and focus the resident window and `maestria-launcher --quit` for an
+`sillage-launcher --activate`. No daemon or model is started, and installation
+does not enable autostart. Use `sillage-launcher --activate`
+to show and focus the resident window and `sillage-launcher --quit` for an
 explicit shutdown. Closing or unfocusing the window hides it without ending
 the resident process.
 
@@ -126,33 +126,42 @@ and full screen-reader interactions remain unverified.
 Open Preferences with Ctrl+Comma; the shortcut editor receives keyboard focus.
 Set up the X11 shortcut there; the initial suggestion is
 `Control+Space`. On Wayland, the global-shortcuts portal needs a desktop entry
-with the matching `io.github.briolabs.Maestria.Launcher` identity and a
+with the matching `io.github.briolabs.Sillage.Launcher` identity and a
 resolvable `Exec`. The Debian package provides it; an AppImage user must
 integrate its desktop entry with a valid installed executable before portal
 setup. The compositor owns the actual key combination. If it cannot assign
-a portal shortcut, bind a user-chosen key to `maestria-launcher --activate`
+a portal shortcut, bind a user-chosen key to `sillage-launcher --activate`
 (or to the user's chosen AppImage executable with `--activate`). For a
 Hyprland configuration using its Lua API, a portal binding can use
-`hl.bind("CTRL + SUPER + F12", hl.dsp.global("io.github.briolabs.Maestria.Launcher:activate-launcher"))`;
+`hl.bind("CTRL + SUPER + F12", hl.dsp.global("io.github.briolabs.Sillage.Launcher:activate-launcher"))`;
 this is a **user-controlled example**, not a shipped or enabled default.
 Tiling compositors can enlarge the window; configure a user-owned floating
 and size rule if desired. File selection uses a native chooser and does not
 index the selected directory.
 
-The existing `maestria-launcher` executable, Debian package ID
-`io-github-briolabs-maestria-launcher`, and
-`io.github.briolabs.Maestria.Launcher` desktop/portal identity remain stable
-under the Sillage name. Retention of settings, grants and compositor bindings
-across a version-different upgrade has not yet been verified.
+The Sillage cutover deliberately changes the executable, package, desktop/portal
+identity, and application data paths. The canonical launcher is
+`sillage-launcher`, its Debian package is
+`io-github-briolabs-sillage-launcher`, and its portal identity is
+`io.github.briolabs.Sillage.Launcher`; no Maestria aliases are shipped.
+Existing Maestria settings, grants, compositor bindings, instances, credentials,
+and model assets are neither moved nor automatically imported into Sillage
+paths. No version-different upgrade retention or data migration has been
+verified. Keep the actual source endpoint
+`https://github.com/brio-labs/maestria` and its existing `maestria` clone
+directory: no replacement GitHub repository URL is verified. Historical
+CI/evidence links, the `ghcr.io/brio-labs/maestria/ci` image, and frozen
+benchmark/corpus identities remain unchanged. The rename alone does not
+qualify a release; retrieval and combined-release acceptance gates remain open.
 
-To opt into document results, install `maestria-search` separately and create
+To opt into document results, install `sillage-search` separately and create
 an approved root plus a `search-and-open-evidence` consumer grant as shown
 below. After launching once to create `launcher.toml`, add this table to
-`$XDG_CONFIG_HOME/io.github.briolabs.Maestria.Launcher/launcher.toml` (or
-`~/.config/io.github.briolabs.Maestria.Launcher/launcher.toml` without
+`$XDG_CONFIG_HOME/io.github.briolabs.Sillage.Launcher/launcher.toml` (or
+`~/.config/io.github.briolabs.Sillage.Launcher/launcher.toml` without
 `XDG_CONFIG_HOME`), replacing the paths and realm with the actual absolute
 socket path, 64-character hexadecimal consumer realm and mode-0600 credential
-file. Keep `maestria-search` on `PATH`; the launcher invokes it as a separate
+file. Keep `sillage-search` on `PATH`; the launcher invokes it as a separate
 bounded process and never reads the credential contents into its UI:
 
 ```toml
@@ -185,55 +194,55 @@ launcher-onboarding commands.
 
 ```bash
 # 1) Initialize an instance with approved read roots
-maestria init -i .maestria-dev --read-root ~/Projects --read-root ~/Notes
+sillage init -i .sillage-dev --read-root ~/Projects --read-root ~/Notes
 
 # 2) Index a directory (recursive) or a single file
-maestria index -i .maestria-dev -r ~/Projects/my-project
-maestria index -i .maestria-dev ~/Notes/research.md
+sillage index -i .sillage-dev -r ~/Projects/my-project
+sillage index -i .sillage-dev ~/Notes/research.md
 
 # 3) Search indexed chunks
-maestria search -i .maestria-dev "source-grounded phrase"
+sillage search -i .sillage-dev "source-grounded phrase"
 
 # 4) Explain a durable search
-maestria search explain -i .maestria-dev "source-grounded phrase"
+sillage search explain -i .sillage-dev "source-grounded phrase"
 
 # 5) Inspect evidence backing a search result
-maestria open-evidence -i .maestria-dev --evidence-id 1
-maestria open-evidence -i .maestria-dev --chunk-id 5
+sillage open-evidence -i .sillage-dev --evidence-id 1
+sillage open-evidence -i .sillage-dev --chunk-id 5
 
 # 6) Inspect search/index/task observability
-maestria search trace -i .maestria-dev 42
-maestria index generations -i .maestria-dev
-maestria evidence coverage -i .maestria-dev 7
+sillage search trace -i .sillage-dev 42
+sillage index generations -i .sillage-dev
+sillage evidence coverage -i .sillage-dev 7
 
 # 7) Check instance health
-maestria status -i .maestria-dev
-maestria doctor -i .maestria-dev
+sillage status -i .sillage-dev
+sillage doctor -i .sillage-dev
 
 # 8) Create and validate a task
-maestria task start -i .maestria-dev "Review research notes"
-maestria task add-evidence -i .maestria-dev 1 --evidence-id 1
-maestria task request-validation -i .maestria-dev 1
+sillage task start -i .sillage-dev "Review research notes"
+sillage task add-evidence -i .sillage-dev 1 --evidence-id 1
+sillage task request-validation -i .sillage-dev 1
 
 # 9) Check task coverage and approve
-maestria evidence coverage -i .maestria-dev 1
-maestria approval list -i .maestria-dev
+sillage evidence coverage -i .sillage-dev 1
+sillage approval list -i .sillage-dev
 
 # 10) Propose and promote memory
-maestria memory candidates -i .maestria-dev
-maestria memory propose -i .maestria-dev -t "observation claim" -e 1,2 -c 700
-maestria memory promote -i .maestria-dev -c 1 --approve
+sillage memory candidates -i .sillage-dev
+sillage memory propose -i .sillage-dev -t "observation claim" -e 1,2 -c 700
+sillage memory promote -i .sillage-dev -c 1 --approve
 
 # 10b) Manage the learned-sparse promotion record
-maestria promotion show -i .maestria-dev
-maestria promotion set -i .maestria-dev --record learned_sparse_promotion_v1.json
-maestria promotion remove -i .maestria-dev
+sillage promotion show -i .sillage-dev
+sillage promotion set -i .sillage-dev --record learned_sparse_promotion_v1.json
+sillage promotion remove -i .sillage-dev
 
 # 11) Start the daemon (or restart after changes)
-maestria start -i .maestria-dev
+sillage start -i .sillage-dev
 # Governance profile: read-only (default) or trusted-workspace; the
-# env var MAESTRIA_DAEMON_PROFILE remains an alias for scripts.
-# maestria start -i .maestria-dev --profile trusted-workspace
+# env var SILLAGE_DAEMON_PROFILE remains an alias for scripts.
+# sillage start -i .sillage-dev --profile trusted-workspace
 # Stop with Ctrl-C; start again picks up where it left off
 ```
 
@@ -243,16 +252,16 @@ Studio is a daemon-first, authenticated loopback frontend. Start the matching
 daemon, then launch the client with the instance explicitly selected:
 
 ```bash
-maestria start -i .maestria-dev
-maestria studio -i .maestria-dev --no-open
+sillage start -i .sillage-dev
+sillage studio -i .sillage-dev --no-open
 ```
 
 Without `--no-open`, the CLI asks the platform default browser to open the
 printed `studio_url`. If the daemon is unavailable, the command exits with:
-`daemon unavailable; start it with maestria start -i .maestria-dev`.
+`daemon unavailable; start it with sillage start -i .sillage-dev`.
 
 Studio reads agent profiles only from
-`.maestria-dev/system/studio-agents.toml`; the CLI has no agent-config path
+`.sillage-dev/system/studio-agents.toml`; the CLI has no agent-config path
 override and never reads a profile from the current working directory. The
 file may configure an ACP-compatible external command:
 
@@ -307,20 +316,20 @@ New instances are schema v2. Before using an existing schema-v1 instance,
 migrate it once and retain the printed stable identity:
 
 ```bash
-maestria realm migrate -i ~/provider
-maestria realm migrate -i ~/consumer
-maestria realm identity -i ~/provider
-maestria realm identity -i ~/consumer
+sillage realm migrate -i ~/provider
+sillage realm migrate -i ~/consumer
+sillage realm identity -i ~/provider
+sillage realm identity -i ~/consumer
 ```
 
 Start both local daemons, then have the provider issue and install a bounded
 consumer binding:
 
 ```bash
-maestria start -i ~/provider
-maestria start -i ~/consumer
+sillage start -i ~/provider
+sillage start -i ~/consumer
 
-maestria realm grant create -i ~/provider \
+sillage realm grant create -i ~/provider \
   --consumer-instance ~/consumer \
   --access search-and-open-evidence \
   --max-sensitivity confidential \
@@ -334,12 +343,12 @@ the provider realm printed by `realm identity` for consumer reads, and revoke
 with the digest when access is no longer required:
 
 ```bash
-maestria realm search -i ~/consumer \
+sillage realm search -i ~/consumer \
   --provider-realm <provider-realm-id> "provider-only phrase" --limit 1
-maestria realm open-evidence -i ~/consumer \
+sillage realm open-evidence -i ~/consumer \
   --provider-realm <provider-realm-id> --evidence-id 1
-maestria realm grant list -i ~/provider
-maestria realm grant revoke -i ~/provider <grant-token-digest>
+sillage realm grant list -i ~/provider
+sillage realm grant revoke -i ~/provider <grant-token-digest>
 ```
 
 Federation is Unix-socket-only. The provider keeps its daemon token; the
@@ -357,21 +366,21 @@ consumer. Revoked grants remain revoked; access is never automatically renewed.
 An approved and indexed provider can serve passage search from an unrelated
 local process without a launcher, Studio, extension runtime or embedding
 model. Start its daemon explicitly with
-`maestria start -i ~/provider --profile read-only`. In another terminal,
+`sillage start -i ~/provider --profile read-only`. In another terminal,
 issue a per-consumer capability. The credential is created once in a
 mode-0600 file and is never printed:
 
 ```bash
 consumer_realm="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
-maestria realm grant create-external -i ~/provider \
+sillage realm grant create-external -i ~/provider \
   --consumer-realm "$consumer_realm" --credential-file ./search-client.key \
   --access search-only --max-sensitivity internal \
   --max-results 5 --max-evidence-bytes 256 --expires-in-seconds 3600
-maestria search-api search \
+sillage search-api search \
   --socket-path ~/provider/system/daemon.sock \
   --consumer-realm "$consumer_realm" --credential-file ./search-client.key \
   --limit 5 "source-grounded phrase"
-maestria search-api status \
+sillage search-api status \
   --socket-path ~/provider/system/daemon.sock \
   --consumer-realm "$consumer_realm" --credential-file ./search-client.key
 ```
@@ -380,31 +389,31 @@ maestria search-api status \
 `preview.location` and `preview.truncated` flag, but only a
 `search-and-open-evidence` grant permits `search-api open-evidence`.
 Grant revocation or expiry removes access; the provider instance token is
-never given to the external client. The existing `maestria` commands above
+never given to the external client. The existing `sillage` commands above
 are available from the full developer CLI. For a headless search-only build,
-use the separate `maestria-search` binary and Debian package instead:
+use the separate `sillage-search` binary and Debian package instead:
 
 ```bash
-cargo build --release -p maestria-search
+cargo build --release -p sillage-search
 cargo install cargo-packager --locked --version 0.11.8
-cargo packager --release --packages maestria-search --formats deb
-# On a Debian-family host, install target/search-packages/maestria-search_*.deb
+cargo packager --release --packages sillage-search --formats deb
+# On a Debian-family host, install target/search-packages/sillage-search_*.deb
 # with apt so system runtime dependencies are resolved.
-maestria-search init --instance-dir ~/provider --read-root ~/Documents
-maestria-search start --instance-dir ~/provider
+sillage-search init --instance-dir ~/provider --read-root ~/Documents
+sillage-search start --instance-dir ~/provider
 # In a second terminal, generate a 64-character lowercase hexadecimal realm:
 consumer_realm="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
-maestria-search owner grant create-external --instance-dir ~/provider \
+sillage-search owner grant create-external --instance-dir ~/provider \
   --consumer-realm "$consumer_realm" --credential-file ./search-client.key \
   --access search-and-open-evidence --max-sensitivity internal \
   --max-results 5 --max-evidence-bytes 4096
-maestria-search search --socket-path ~/provider/system/daemon.sock \
+sillage-search search --socket-path ~/provider/system/daemon.sock \
   --consumer-realm "$consumer_realm" --credential-file ./search-client.key \
   --limit 5 "source-grounded phrase"
-maestria-search interactive-search --socket-path ~/provider/system/daemon.sock \
+sillage-search interactive-search --socket-path ~/provider/system/daemon.sock \
   --consumer-realm "$consumer_realm" --credential-file ./search-client.key \
   --limit 5 "source-grounded phrase"
-# Pass an evidence_id from the result to maestria-search open-evidence
+# Pass an evidence_id from the result to sillage-search open-evidence
 # with the same socket, realm and private credential file.
 ```
 
@@ -414,7 +423,7 @@ Use `owner roots status|add|remove` to inspect or change approved read roots,
 `owner grant list|revoke` to inspect or revoke grants, and
 `indexing-status` to inspect live indexing freshness. A client without a
 matching, live grant is denied. In a disposable Ubuntu 24.04 container the
-apt-installed `/usr/bin/maestria-search` indexed Markdown, DOCX paragraphs and
+apt-installed `/usr/bin/sillage-search` indexed Markdown, DOCX paragraphs and
 a text-bearing PDF, reported an image-only PDF as OCR-needed, and served
 bounded typed previews through general and v2 interactive search. Federated
 evidence reopening returned an authorized current PDF source path and exact
@@ -447,7 +456,7 @@ complete product acceptance remain open.
 
 ### Daemon client
 
-`maestria start -i <instance>` runs the local daemon. Its authenticated local
+`sillage start -i <instance>` runs the local daemon. Its authenticated local
 client boundary is newline-delimited JSON on
 `<instance>/system/daemon.sock`; the token is stored in
 `<instance>/system/daemon.token`.
@@ -484,9 +493,9 @@ envelopes.
 Repository indexing and bounded context queries are supported:
 
 ```bash
-maestria index -i .maestria-dev repository ~/Projects/my-project
-maestria search -i .maestria-dev code symbol "SearchPlan"
-maestria search -i .maestria-dev code context "RetrievalEngine" --depth 2 --nodes 32
+sillage index -i .sillage-dev repository ~/Projects/my-project
+sillage search -i .sillage-dev code symbol "SearchPlan"
+sillage search -i .sillage-dev code context "RetrievalEngine" --depth 2 --nodes 32
 ```
 
 Cargo workspaces, Python distributions (`pyproject.toml`/`setup.cfg`/`setup.py`), and
@@ -512,7 +521,7 @@ for normal text/layout retrieval.
 
 When enabled, both sidecars listen on loopback only, perform CPU inference,
 and retain no inputs; Sillage never downloads or executes model code and
-`maestria doctor` reports whether the configured rasterizer or visual
+`sillage doctor` reports whether the configured rasterizer or visual
 capability is available. Pinned sidecar profiles — revisions, artifact
 hashes, endpoints, and manifest key blocks — are dated implementation
 candidates documented in [`docs/RESEARCH.md`](./docs/RESEARCH.md); omit the
@@ -523,12 +532,12 @@ candidates documented in [`docs/RESEARCH.md`](./docs/RESEARCH.md); omit the
 Task completion is validation-gated:
 
 ```bash
-maestria task start -i .maestria-dev "check the repository"
-maestria task request-validation -i .maestria-dev <task-id>
-maestria evidence coverage -i .maestria-dev <task-id>
-maestria approval list -i .maestria-dev
-maestria memory candidates -i .maestria-dev
-maestria memory propose -i .maestria-dev -t "claim" -e <evidence-id> -c 700
+sillage task start -i .sillage-dev "check the repository"
+sillage task request-validation -i .sillage-dev <task-id>
+sillage evidence coverage -i .sillage-dev <task-id>
+sillage approval list -i .sillage-dev
+sillage memory candidates -i .sillage-dev
+sillage memory propose -i .sillage-dev -t "claim" -e <evidence-id> -c 700
 ```
 
 Memory proposals require evidence and remain candidates until the explicit
@@ -548,19 +557,19 @@ local fallback, and research candidates are not silently promoted.
 
 ## Command reference
 
-Every command accepts `-i, --instance-dir <PATH>` (default `.maestria-dev`).
+Every command accepts `-i, --instance-dir <PATH>` (default `.sillage-dev`).
 
 ### `init`
 
 Create a local Sillage instance layout and manifest.
 
 ```
-maestria init [-i <dir>] [--read-root <path>...]
+sillage init [-i <dir>] [--read-root <path>...]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-i, --instance-dir` | Instance root directory (default `.maestria-dev`) |
+| `-i, --instance-dir` | Instance root directory (default `.sillage-dev`) |
 | `--read-root` | Approved root path that may be indexed (repeatable) |
 
 Omitting `--read-root` defaults to the instance directory itself.
@@ -571,8 +580,8 @@ Index a file, files under a directory with `--recursive`, or list index
 generations.
 
 ```
-maestria index [-i <dir>] [-r] <path>
-maestria index generations [-i <dir>]
+sillage index [-i <dir>] [-r] <path>
+sillage index generations [-i <dir>]
 ```
 
 | Flag | Description |
@@ -599,7 +608,7 @@ and representation fingerprint fields.
 Build and persist exact Cargo metadata and Rust symbol records for a repository.
 
 ```
-maestria index repository [-i <dir>] <path>
+sillage index repository [-i <dir>] <path>
 ```
 
 | Flag | Description |
@@ -614,29 +623,29 @@ manifest exclusion rules and must be inside an approved read root.
 The observability names reserve `explain`, `trace`, `compare`, and
 `generations` in their respective command positions. To use one as a direct
 query or path, terminate option and subcommand parsing with `--`, for example
-`maestria search -- trace` or `maestria index -- generations`.
+`sillage search -- trace` or `sillage index -- generations`.
 
 ### `search`
 
 Search indexed local chunks or inspect durable search observability.
 
 ```
-maestria search [-i <dir>] [-l <n>] <query>
-maestria search explain [-i <dir>] [-l <n>] <query>
-maestria search trace [-i <dir>] <trace_id>
-maestria search compare [-i <dir>] <experiment_a> <experiment_b>
-maestria search [-i <dir>] roots status
-maestria search [-i <dir>] roots add <directory>
-maestria search [-i <dir>] roots remove <directory>
+sillage search [-i <dir>] [-l <n>] <query>
+sillage search explain [-i <dir>] [-l <n>] <query>
+sillage search trace [-i <dir>] <trace_id>
+sillage search compare [-i <dir>] <experiment_a> <experiment_b>
+sillage search [-i <dir>] roots status
+sillage search [-i <dir>] roots add <directory>
+sillage search [-i <dir>] roots remove <directory>
 ```
 
 With the default instance, approve a root explicitly, inspect its index, and
 revoke it when no longer needed:
 
 ```bash
-maestria search roots add ~/Documents
-maestria search roots status
-maestria search roots remove ~/Documents
+sillage search roots add ~/Documents
+sillage search roots status
+sillage search roots remove ~/Documents
 ```
 
 | Flag | Description |
@@ -668,14 +677,14 @@ Query the persisted repository code index built by `index repository`. All
 `-i`/`--instance-dir` and `-l`/`--limit` flags.
 
 ```
-maestria search code symbol <pattern>
-maestria search code path <pattern>
-maestria search code regex <pattern>
-maestria search code doc <pattern>
-maestria search code markers <todo|fixme|hack|unsafe>
-maestria search code changed [--since <commit>]
-maestria search code references <pattern> [--direction inbound|outbound]
-maestria search code context <pattern> [--depth <n>] [--nodes <n>] [--direction both|forward|reverse]
+sillage search code symbol <pattern>
+sillage search code path <pattern>
+sillage search code regex <pattern>
+sillage search code doc <pattern>
+sillage search code markers <todo|fixme|hack|unsafe>
+sillage search code changed [--since <commit>]
+sillage search code references <pattern> [--direction inbound|outbound]
+sillage search code context <pattern> [--depth <n>] [--nodes <n>] [--direction both|forward|reverse]
 ```
 
 | Subcommand | Description |
@@ -712,7 +721,7 @@ and [`docs/RESEARCH.md`](./docs/RESEARCH.md) for dated retrieval evidence.
 Resolve typed source evidence without launching external programs.
 
 ```
-maestria open-evidence [-i <dir>] (--evidence-id <n> | --chunk-id <n>)
+sillage open-evidence [-i <dir>] (--evidence-id <n> | --chunk-id <n>)
 ```
 
 | Flag | Description |
@@ -728,7 +737,7 @@ maestria open-evidence [-i <dir>] (--evidence-id <n> | --chunk-id <n>)
 Show evidence and validation coverage for a task.
 
 ```
-maestria evidence coverage [-i <dir>] <task_id>
+sillage evidence coverage [-i <dir>] <task_id>
 ```
 
 
@@ -738,7 +747,7 @@ Print local instance health facts: root path, database location, full-text
 index directory, and event log count.
 
 ```
-maestria status [-i <dir>]
+sillage status [-i <dir>]
 ```
 
 ### `doctor`
@@ -747,7 +756,7 @@ Check local storage, index, blob store, and parser wiring. Prints `ok` for
 each component that opens successfully.
 
 ```
-maestria doctor [-i <dir>]
+sillage doctor [-i <dir>]
 ```
 
 ### `retire-retrieval-events`
@@ -759,7 +768,7 @@ rows below the boundary stop being decoded at open, `status` reports
 explicitly. Requires a recorded `--reason`.
 
 ```
-maestria retire-retrieval-events -i <dir> --before-sequence <n> --reason "<why>" [--yes]
+sillage retire-retrieval-events -i <dir> --before-sequence <n> --reason "<why>" [--yes]
 ```
 
 ### `start`
@@ -767,7 +776,7 @@ maestria retire-retrieval-events -i <dir> --before-sequence <n> --reason "<why>"
 Start the Sillage daemon for the given instance.
 
 ```
-maestria start [-i <dir>] [--profile read-only|trusted-workspace]
+sillage start [-i <dir>] [--profile read-only|trusted-workspace]
 ```
 
 ### `realm`
@@ -776,23 +785,23 @@ Manage explicit local federation. Schema-v1 instances must first run
 `realm migrate`; normal local searches never cross a realm boundary.
 
 ```
-maestria realm migrate [-i <instance>]
-maestria realm identity [-i <instance>]
-maestria realm grant create [-i <provider>] --consumer-instance <consumer> \
+sillage realm migrate [-i <instance>]
+sillage realm identity [-i <instance>]
+sillage realm grant create [-i <provider>] --consumer-instance <consumer> \
   --access search-only|search-and-open-evidence \
   --max-sensitivity public|internal|confidential|restricted \
   --max-results <1..100> --max-evidence-bytes <1..65536> \
   [--expires-in-seconds <1..31536000>]
-maestria realm grant create-external [-i <provider>] \
+sillage realm grant create-external [-i <provider>] \
   --consumer-realm <64-hex-id> --credential-file <path> \
   --access search-only|search-and-open-evidence \
   --max-sensitivity public|internal|confidential|restricted \
   --max-results <1..100> --max-evidence-bytes <1..65536> \
   [--expires-in-seconds <1..31536000>]
-maestria realm grant list [-i <provider>]
-maestria realm grant revoke [-i <provider>] <grant-token-digest>
-maestria realm search [-i <consumer>] --provider-realm <realm-id> [-l <n>] <query>
-maestria realm open-evidence [-i <consumer>] --provider-realm <realm-id> \
+sillage realm grant list [-i <provider>]
+sillage realm grant revoke [-i <provider>] <grant-token-digest>
+sillage realm search [-i <consumer>] --provider-realm <realm-id> [-l <n>] <query>
+sillage realm open-evidence [-i <consumer>] --provider-realm <realm-id> \
   --evidence-id <n>
 ```
 
@@ -809,13 +818,13 @@ process. The caller supplies a private credential file and a stable consumer
 realm ID; no instance token, Studio or launcher is required.
 
 ```
-maestria search-api search --socket-path <provider-daemon.sock> \
+sillage search-api search --socket-path <provider-daemon.sock> \
   --consumer-realm <64-hex-id> --credential-file <path> [-l <n>] <query>
-maestria search-api status --socket-path <provider-daemon.sock> \
+sillage search-api status --socket-path <provider-daemon.sock> \
   --consumer-realm <64-hex-id> --credential-file <path>
-maestria search-api indexing-status --socket-path <provider-daemon.sock> \
+sillage search-api indexing-status --socket-path <provider-daemon.sock> \
   --consumer-realm <64-hex-id> --credential-file <path>
-maestria search-api open-evidence --socket-path <provider-daemon.sock> \
+sillage search-api open-evidence --socket-path <provider-daemon.sock> \
   --consumer-realm <64-hex-id> --credential-file <path> --evidence-id <n>
 ```
 
@@ -832,7 +841,7 @@ Task workflow commands.
 Create a new persisted task.
 
 ```
-maestria task start [-i <dir>] [-p low|normal|high] [--artifact-id <n>] <title>
+sillage task start [-i <dir>] [-p low|normal|high] [--artifact-id <n>] <title>
 ```
 
 | Flag | Description |
@@ -846,7 +855,7 @@ maestria task start [-i <dir>] [-p low|normal|high] [--artifact-id <n>] <title>
 Show all tasks, or a single task by id.
 
 ```
-maestria task show [-i <dir>] [<task-id>]
+sillage task show [-i <dir>] [<task-id>]
 ```
 
 Omitting `<task-id>` lists every persisted task.
@@ -856,7 +865,7 @@ Omitting `<task-id>` lists every persisted task.
 Link an existing evidence record to a task.
 
 ```
-maestria task add-evidence [-i <dir>] <task-id> --evidence-id <n>
+sillage task add-evidence [-i <dir>] <task-id> --evidence-id <n>
 ```
 
 #### `task request-validation`
@@ -864,7 +873,7 @@ maestria task add-evidence [-i <dir>] <task-id> --evidence-id <n>
 Start validation for a task from a known task id.
 
 ```
-maestria task request-validation [-i <dir>] <task-id>
+sillage task request-validation [-i <dir>] <task-id>
 ```
 
 #### `task complete`
@@ -872,7 +881,7 @@ maestria task request-validation [-i <dir>] <task-id>
 Complete a validating task from a recorded validation report.
 
 ```
-maestria task complete [-i <dir>] <task-id> --report-id <n>
+sillage task complete [-i <dir>] <task-id> --report-id <n>
 ```
 
 | Flag | Description |
@@ -894,7 +903,7 @@ Memory projection commands.
 List persisted memory candidates.
 
 ```
-maestria memory candidates [-i <dir>] [-l <n>]
+sillage memory candidates [-i <dir>] [-l <n>]
 ```
 
 | Flag | Description |
@@ -907,7 +916,7 @@ maestria memory candidates [-i <dir>] [-l <n>]
 Propose a new memory candidate backed by evidence.
 
 ```
-maestria memory propose [-i <dir>] -t <text> -e <id,...> -c <0..1000>
+sillage memory propose [-i <dir>] -t <text> -e <id,...> -c <0..1000>
 ```
 
 | Flag | Description |
@@ -922,7 +931,7 @@ maestria memory propose [-i <dir>] -t <text> -e <id,...> -c <0..1000>
 Promote a memory candidate through governance-gated approval.
 
 ```
-maestria memory promote [-i <dir>] -c <candidate-id> [--approve]
+sillage memory promote [-i <dir>] -c <candidate-id> [--approve]
 ```
 
 | Flag | Description |
@@ -945,7 +954,7 @@ Approval request management.
 List pending approval requests.
 
 ```
-maestria approval list [-i <dir>]
+sillage approval list [-i <dir>]
 ```
 
 #### `approval resolve`
@@ -953,7 +962,7 @@ maestria approval list [-i <dir>]
 Resolve an approval request.
 
 ```
-maestria approval resolve [-i <dir>] <id> (--approve | --deny)
+sillage approval resolve [-i <dir>] <id> (--approve | --deny)
 ```
 
 | Flag | Description |
@@ -976,29 +985,29 @@ where it left off without data loss or duplicate work.
 
 | Crate | Layer | Description |
 |-------|-------|-------------|
-| `maestria-domain` | Kernel | Deterministic domain types, events, transitions, and effects |
-| `maestria-governance` | Kernel | Scope, risk, approval, validation, freshness, trust, and security policy |
-| `maestria-ports` | Kernel | Capability traits and deterministic in-memory contract adapters |
-| `maestria-core` | Core | Local-first orchestration services and instance composition |
-| `maestria-runtime` | Runtime | Effect execution, workers, queues, cancellation, retries, and journaling |
-| `maestria-cli` | App | User-facing CLI binary |
-| `maestria-daemon` | App | Restart-safe daemon with authenticated local API |
-| `maestria-retrieval` | Ecosystem | Typed search planning, candidate generation, fusion, and reranking |
-| `maestria-code-intel` | Ecosystem | Repository code intelligence index for workspace metadata and Rust symbols |
-| `maestria-parsers` | Ecosystem | Source parsing and document structure extraction |
-| `maestria-memory` | Ecosystem | Candidate deduplication, promotion workflow, and staleness handling |
-| `maestria-validation` | Ecosystem | Validation runners, reports, and completion gating |
-| `maestria-web-evidence` | Ecosystem | Governed web evidence fetching and current-web retrieval |
-| `maestria-embedding-openai` | Ecosystem | OpenAI-compatible embedding provider adapter |
-| `maestria-ocr-local` | Ecosystem | Local OCR provider adapter for scanned PDFs |
-| `maestria-visual-local` | Ecosystem | Local visual retrieval provider adapter for page/region evidence |
-| `maestria-harness` | Harness | Normalized external execution and capability reporting |
-| `maestria-harness-cli` | Harness | CLI harness for local command execution |
-| `maestria-storage-sqlite` | Storage | SQLite-based state persistence, event log, and repository traits |
-| `maestria-search-tantivy` | Storage | Tantivy-based full-text lexical index |
-| `maestria-vector-sqlite` | Storage | SQLite-based vector similarity index |
-| `maestria-graph-sqlite` | Storage | SQLite-based graph projection index |
-| `maestria-blob-fs` | Storage | Filesystem-backed immutable blob store |
+| `sillage-domain` | Kernel | Deterministic domain types, events, transitions, and effects |
+| `sillage-governance` | Kernel | Scope, risk, approval, validation, freshness, trust, and security policy |
+| `sillage-ports` | Kernel | Capability traits and deterministic in-memory contract adapters |
+| `sillage-core` | Core | Local-first orchestration services and instance composition |
+| `sillage-runtime` | Runtime | Effect execution, workers, queues, cancellation, retries, and journaling |
+| `sillage-cli` | App | User-facing CLI binary |
+| `sillage-daemon` | App | Restart-safe daemon with authenticated local API |
+| `sillage-retrieval` | Ecosystem | Typed search planning, candidate generation, fusion, and reranking |
+| `sillage-code-intel` | Ecosystem | Repository code intelligence index for workspace metadata and Rust symbols |
+| `sillage-parsers` | Ecosystem | Source parsing and document structure extraction |
+| `sillage-memory` | Ecosystem | Candidate deduplication, promotion workflow, and staleness handling |
+| `sillage-validation` | Ecosystem | Validation runners, reports, and completion gating |
+| `sillage-web-evidence` | Ecosystem | Governed web evidence fetching and current-web retrieval |
+| `sillage-embedding-openai` | Ecosystem | OpenAI-compatible embedding provider adapter |
+| `sillage-ocr-local` | Ecosystem | Local OCR provider adapter for scanned PDFs |
+| `sillage-visual-local` | Ecosystem | Local visual retrieval provider adapter for page/region evidence |
+| `sillage-harness` | Harness | Normalized external execution and capability reporting |
+| `sillage-harness-cli` | Harness | CLI harness for local command execution |
+| `sillage-storage-sqlite` | Storage | SQLite-based state persistence, event log, and repository traits |
+| `sillage-search-tantivy` | Storage | Tantivy-based full-text lexical index |
+| `sillage-vector-sqlite` | Storage | SQLite-based vector similarity index |
+| `sillage-graph-sqlite` | Storage | SQLite-based graph projection index |
+| `sillage-blob-fs` | Storage | Filesystem-backed immutable blob store |
 
 ## Invariants
 

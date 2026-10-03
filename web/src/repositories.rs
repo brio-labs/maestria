@@ -125,7 +125,7 @@ fn ScanForm(
             input {
                 id: "repository-index-root",
                 class: "flex-1 rounded border border-line bg-input px-3 py-2",
-                placeholder: "Absolute repository path, e.g. /home/you/projects/maestria",
+                placeholder: "Absolute repository path, e.g. /home/you/projects/sillage",
                 value: "{root}",
                 oninput: move |event| root.set(event.value())
             }

@@ -1,0 +1,152 @@
+use sillage_domain::{
+    SearchExecutionBudget, SearchExecutionCompletion, SearchExecutionUsage, SearchPlan,
+    SearchTraceLaneCandidateDto,
+};
+use sillage_ports::SearchQuery;
+use std::sync::Arc;
+
+use crate::traits::CandidateRetriever;
+use crate::types::{CandidateRequest, RetrievalError, RetrievalResult};
+
+struct AuthorizedSources<'a> {
+    authorization: &'a sillage_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&'a crate::types::CandidateSourceFilter>,
+}
+
+#[path = "engine_budget.rs"]
+mod engine_budget;
+pub use engine_budget::lane_budget;
+pub(crate) use engine_budget::partition_allowance;
+pub(super) use engine_budget::{
+    add_usage, execution_with_budget, remaining_budget, usage_within_budget,
+};
+
+#[path = "engine_diversity.rs"]
+mod engine_diversity;
+pub use engine_diversity::reconcile_status;
+pub(crate) use engine_diversity::{DiversityStageRequest, run_diversity_stage};
+#[path = "engine_lane_admission.rs"]
+mod admission;
+#[path = "engine_pipeline_dispatch.rs"]
+mod dispatch;
+#[path = "engine_lane_workers.rs"]
+mod lane_workers;
+pub(super) use dispatch::collect_batches;
+use dispatch::collect_batches_with_cancellation;
+
+pub(crate) fn search_query_for_plan(
+    plan: &SearchPlan,
+    text: &str,
+) -> Result<SearchQuery, RetrievalError> {
+    Ok(SearchQuery {
+        q: text.to_string(),
+        limit: plan.stop_conditions().max_results as usize,
+        offset: 0,
+        execution_budget: plan.execution_budget()?,
+    })
+}
+
+pub(super) fn collect_initial_batches_with_cancellation(
+    retrievers: &[Arc<dyn CandidateRetriever>],
+    plan: &SearchPlan,
+    authorization: &sillage_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&crate::types::CandidateSourceFilter>,
+    cancellation: Option<&crate::types::SearchCancellation>,
+) -> RetrievalResult<(
+    Vec<crate::types::CandidateBatch>,
+    crate::rewrite::QueryRewriteSession,
+    u32,
+    SearchExecutionUsage,
+)> {
+    if cancellation.is_some_and(crate::types::SearchCancellation::is_cancelled) {
+        return Err(RetrievalError::Cancelled);
+    }
+    let session = super::rewrite_session(plan);
+    if session
+        .records()
+        .iter()
+        .any(|record| record.stage != crate::rewrite::StageRole::InitialRetrieval)
+    {
+        return Err(RetrievalError::Internal(
+            "retrieval engine cannot dispatch non-initial rewrite stages".to_string(),
+        ));
+    }
+    let mut batches = Vec::new();
+    let mut web_requests_used = 0_u32;
+    let mut execution_usage = SearchExecutionUsage::default();
+    for rewrite in session.records() {
+        if cancellation.is_some_and(crate::types::SearchCancellation::is_cancelled) {
+            return Err(RetrievalError::Cancelled);
+        }
+        let rewrite_query = search_query_for_plan(plan, &rewrite.query)?;
+        batches.extend(collect_batches_with_cancellation(
+            retrievers,
+            plan,
+            &rewrite_query,
+            AuthorizedSources {
+                authorization,
+                source_filter,
+            },
+            &mut web_requests_used,
+            &mut execution_usage,
+            cancellation,
+        )?);
+    }
+    if cancellation.is_some_and(crate::types::SearchCancellation::is_cancelled) {
+        return Err(RetrievalError::Cancelled);
+    }
+    Ok((batches, session, web_requests_used, execution_usage))
+}
+pub(super) fn collect_missing_slot_batches(
+    retrievers: &[Arc<dyn CandidateRetriever>],
+    plan: &SearchPlan,
+    query: &str,
+    authorization: &sillage_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&crate::types::CandidateSourceFilter>,
+    web_requests_used: &mut u32,
+    execution_usage: &mut SearchExecutionUsage,
+) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
+    let query = search_query_for_plan(plan, query)?;
+    collect_batches(
+        retrievers,
+        plan,
+        &query,
+        authorization,
+        source_filter,
+        web_requests_used,
+        execution_usage,
+    )
+}
+
+pub(super) fn trace_lanes(
+    batches: &[crate::types::CandidateBatch],
+) -> RetrievalResult<Vec<sillage_domain::SearchTraceLane>> {
+    batches
+        .iter()
+        .map(|batch| {
+            Ok(sillage_domain::SearchTraceLane {
+                retriever_id: batch.descriptor.id.clone(),
+                query: batch.query.clone(),
+                generation: Some(batch.descriptor.generation),
+                status: batch.status.clone(),
+                execution: batch.execution,
+                candidates: batch
+                    .candidates
+                    .iter()
+                    .enumerate()
+                    .map(|(rank, candidate)| {
+                        sillage_domain::SearchTraceLaneCandidate::new(SearchTraceLaneCandidateDto {
+                            evidence_id: candidate.evidence_id(),
+                            artifact_version: candidate.artifact_version(),
+                            source_span: candidate.source_span().clone(),
+                            lane_rank: (rank + 1) as u32,
+                            duplicate_cluster: candidate.duplicate_cluster(),
+                            scores: candidate.scores().clone(),
+                            reasons: candidate.reasons().to_vec(),
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            })
+        })
+        .collect()
+}

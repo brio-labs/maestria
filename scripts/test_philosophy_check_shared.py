@@ -45,7 +45,7 @@ class SharedHelpersTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates/apps/maestria-launcher/src/lib.rs"
+            source = root / "crates/apps/sillage-launcher/src/lib.rs"
             source.parent.mkdir(parents=True)
             source.write_text(
                 "use std::collections::HashMap;\n"

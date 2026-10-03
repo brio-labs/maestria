@@ -1,9 +1,90 @@
 # Changelog
 
-Rolling development log. Maestria has no releases: the workspace version is
-pinned at `0.0.0` and `main` is always the current build.
+Rolling development log. Sillage has no releases: the workspace version is
+pinned at `0.0.1` and `main` is always the current build.
 
 ## [Unreleased]
+
+### Breaking project identity cutover
+
+All active project-owned package, crate, Rust namespace, CLI/binary, desktop/
+portal/D-Bus/AppArmor, Debian package, environment prefix, SDK/plugin, and
+configuration/data-path identifiers now use Sillage names. This is a breaking
+technical cutover: the previous binaries, packages, IDs, environment variables,
+settings, grants, and data paths have no aliases, fallback reads, or automatic
+migration.
+Existing Maestria data and installed state are not moved or removed; new
+Sillage locations start independently. The installed-package CI gate installs
+the pinned Maestria suite alongside Sillage, checks separate identity-based
+profiles and the unseeded first-launch UI defaults before configuration, then
+tests Sillage-only remove/reinstall. It does not claim cross-name data migration
+or retention. That gate has not yet run on fresh exact-CI Sillage packages.
+
+The separate real source-built launcher/helper smoke passed genuine unseeded
+defaults before configuration: shortcut setup offered, reduce-motion off,
+Control+Space, and System theme. UI save produced mode-0600 Sillage preferences
+while the private old-profile seed remained byte/mode-identical; the private
+clipboard stayed unchanged. Screenshots were viewed and shutdown gates passed.
+Earlier infrastructure/preparation failures remain preserved. This source smoke
+does not qualify six-package coinstallation or remove/reinstall persistence.
+
+The canonical Studio JS/WASM bundle was rebuilt with the pinned private
+Node 24.11.1, pnpm 9.15.9 and Dioxus 0.7.10 tools. A managed Chromium smoke
+showed the Sillage Studio Search surface; it did not connect to a daemon or
+qualify search, native latency, or installed packages.
+
+Frozen metadata retains its original `RealMaestriaTask` provenance label,
+decoded as the distinct `HistoricalWorkTask` category rather than relabeled
+as current Sillage work. Task-to-benchmark conversion preserves that category;
+historical inputs cannot qualify current sparse or Hybrid serving. Four
+authentic frozen metadata inputs passed the source-only decoder/conversion
+smoke, without replaying their queries or invoking a provider.
+
+The first canonical real-model 30-French/30-English cohort ran once with
+LLM-assisted, independently source-reviewed judgments, not human-certified
+gold. Within that cohort, passage macro recall was 20.00% → 80.00% in French
+and 53.33% → 63.33% in English. Qualification failed: only 27/28 applicable
+lexical heads were preserved, and the exact-path control regressed from rank
+2 to 7. Exact-phrase (3 → 2) and lexical-first-hit (1 → 1) controls passed.
+The cohort is closed; serving remains Shadow, with no persisted promotion.
+
+The retained head violation exposed a lane-admission accounting defect:
+aggregate lane-produced results were incorrectly deducted from the final
+result ceiling, preventing later Hybrid rewrites despite available consumable
+resources. Later lanes now retain the full result ceiling; candidate, work,
+byte, query, concurrency and deadline limits are unchanged. A failed-before
+boundary regression and a passing public-API executable control establish
+that accounting repair, not a new model qualification or an exact-path repair.
+
+Native passage text now exposes the actual full citation and excerpt through
+accessibility labels, with their semantic purposes in descriptions. An
+isolated real-component cached-row control reproduced the visibly rendered
+but inaccessible values before the repair; the distinct after-control passed
+three complete AT-SPI snapshots. Both screenshots were viewed, no queries or
+providers ran, and every child/group shutdown gate passed. This does not
+attribute the earlier canonical Return observation failure or qualify native
+search, navigation, availability, latency, or installed packages.
+
+One distinct canonical synthetic query reached passage detail and a fresh
+evidence reopen: its durable audit recorded one search and one reopen; the
+complete final AT-SPI tree and viewed screenshot exposed the full citation,
+excerpt, and copied-reopened notice. The attempt still failed because observer
+report construction raised a KeyError and its failure handler raised a
+NameError. The closed scope is not replayed; clipboard/timing acceptance and
+historical failure attribution are not inferred. All shutdown gates passed.
+
+The real source and image endpoints retain their existing GitHub and GHCR
+slugs; historical links, benchmark corpora/evidence, and the earlier Maestria-
+era changelog observations keep their original identities. The two frozen
+installed-native benchmark helper originals remain byte-exact in private
+evidence; the renamed prospective helpers have new source identities and have
+not been invoked. Renaming alone does not satisfy the existing retrieval or
+combined-release gates; PR #516 remains a draft and no release is qualified.
+
+The earlier bullets below retain results and identifiers observed before this
+cutover; they are historical records, not proof for the renamed Sillage
+artifacts.
+
 
 Maestria activates the dense embedding lane for the lexical/hybrid search
 route on benchmark evidence, adds live indexing metrics to the CLI, and
@@ -300,6 +381,18 @@ intelligence to a reviewed set of directories.
   readers.
 
 ### Changed
+- Hybrid ranking now protects the actual first eligible lexical-baseline result
+  for every Hybrid query; Fixed-K RRF (k=60) orders the remaining candidates.
+  Identity, metadata and lexical score provenance survive reranking, expansion
+  and diversity. Promotion requires the full
+  `hybrid-lexical-head-preserving-v1+fixed-k-rrf-v1:k=60` policy identity;
+  legacy or unsupported records fail closed to Shadow.
+  A new independently source-reviewed, LLM-assisted 30-French/30-English freeze
+  ran once with the real local model: passage macro recall improved from
+  4.17% to 61.00% in French and 68.89% to 74.17% in English; all 32 comparable
+  held-out lexical heads were preserved. The exact-path and contractual
+  first-hit controls failed, so qualification remains unpassed. No serving
+  promotion or native latency/availability certification is implied.
 - The current `maestria-launcher` binary now uses Slint instead of the
   Tauri/React renderer. The resident window, query focus, Preferences,
   discoverable Slint About attribution, light/dark theme, X11/Wayland
@@ -337,6 +430,20 @@ intelligence to a reviewed set of directories.
   the same privacy boundary as the generic whitelist-first indexer.
 
 ### Fixed
+- Source-grounded card retrieval now resolves structural summary cards through
+  their unique, exact same-artifact source span when the card refers to a tree
+  root rather than a chunk node. Missing or ambiguous spans remain excluded;
+  authorization, secret scanning and source-snapshot verification are retained.
+  A real-parser/index before probe demonstrated pre-score rejection, and a
+  separately registered after-fix source produced its canonical chunk evidence.
+  These diagnostics do not attribute the consumed bilingual controls or qualify
+  installed availability, navigation, latency or Hybrid serving.
+- Sillage snapshot-readiness coordination and typed-query callbacks/scheduling
+  now have focused modules without increasing repository cohesion budgets.
+  Search-path settings-lock failures use the existing launcher notice instead
+  of silently becoming an unconfigured service; catalog search remains usable.
+  Generation cancellation, catalog-before-passage publication, debounce,
+  internal deadline, and shutdown gates are unchanged.
 - Interactive source snapshots are now prepared on an awaited blocking worker
   after watcher deliveries, removals, and parser work quiesce, before indexing
   status reports ready. The scan permit is released before preparation;

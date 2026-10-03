@@ -16,19 +16,19 @@ class DependencyGraphTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            domain = root / "crates" / "kernel" / "maestria-domain"
+            domain = root / "crates" / "kernel" / "sillage-domain"
             source = domain / "src" / "lib.rs"
             source.parent.mkdir(parents=True)
             (domain / "Cargo.toml").write_text(
-                '[package]\nname = "maestria-domain"\n[dependencies]\ntokio = "1"\n',
+                '[package]\nname = "sillage-domain"\n[dependencies]\ntokio = "1"\n',
                 encoding="utf-8",
             )
-            gov = root / "crates" / "kernel" / "maestria-governance"
+            gov = root / "crates" / "kernel" / "sillage-governance"
             gov.mkdir(parents=True)
-            (gov / "Cargo.toml").write_text('[package]\nname = "maestria-governance"\n', encoding="utf-8")
-            ports = root / "crates" / "kernel" / "maestria-ports"
+            (gov / "Cargo.toml").write_text('[package]\nname = "sillage-governance"\n', encoding="utf-8")
+            ports = root / "crates" / "kernel" / "sillage-ports"
             ports.mkdir(parents=True)
-            (ports / "Cargo.toml").write_text('[package]\nname = "maestria-ports"\n', encoding="utf-8")
+            (ports / "Cargo.toml").write_text('[package]\nname = "sillage-ports"\n', encoding="utf-8")
             source.write_text(
                 "use std::fs;\n"
                 'pub fn production_failure() { panic!("forbidden"); }\n'
@@ -43,19 +43,19 @@ class DependencyGraphTests(PhilosophyCheckFixture):
             self.assertEqual(
                 manifest_violations,
                 [
-                    "crates/kernel/maestria-domain/Cargo.toml contains forbidden dependency token tokio"
+                    "crates/kernel/sillage-domain/Cargo.toml contains forbidden dependency token tokio"
                 ],
             )
             self.assertIn(
-                "crates/kernel/maestria-domain/src/lib.rs contains forbidden kernel token std::fs",
+                "crates/kernel/sillage-domain/src/lib.rs contains forbidden kernel token std::fs",
                 source_violations,
             )
             self.assertIn(
-                "crates/kernel/maestria-domain/src/lib.rs contains forbidden failure token panic!(",
+                "crates/kernel/sillage-domain/src/lib.rs contains forbidden failure token panic!(",
                 source_violations,
             )
             self.assertIn(
-                "crates/kernel/maestria-domain/src/lib.rs contains forbidden failure token unwrap(",
+                "crates/kernel/sillage-domain/src/lib.rs contains forbidden failure token unwrap(",
                 source_violations,
             )
 
@@ -83,19 +83,19 @@ dev_alias = { package = "unknown-package", version = "1" }
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            for name in ("maestria-domain", "maestria-governance", "maestria-ports"):
+            for name in ("sillage-domain", "sillage-governance", "sillage-ports"):
                 crate = root / "crates" / "kernel" / name
                 (crate / "src").mkdir(parents=True)
                 dependency = {
-                    "maestria-domain": 'sha2 = "0.10"',
-                    "maestria-governance": 'maestria_domain = { package = "maestria-domain", path = "../../domain" }',
-                    "maestria-ports": 'maestria_domain = { package = "maestria-domain", path = "../../domain" }',
+                    "sillage-domain": 'sha2 = "0.10"',
+                    "sillage-governance": 'sillage_domain = { package = "sillage-domain", path = "../../domain" }',
+                    "sillage-ports": 'sillage_domain = { package = "sillage-domain", path = "../../domain" }',
                 }[name]
                 (crate / "Cargo.toml").write_text(
                     f'[package]\nname = "test"\n[dependencies]\n{dependency}\n',
                     encoding="utf-8",
                 )
-            manifest = root / "crates" / "kernel" / "maestria-domain" / "Cargo.toml"
+            manifest = root / "crates" / "kernel" / "sillage-domain" / "Cargo.toml"
             manifest.write_text(
                 '[package]\nname = "test"\n[dependencies]\nsha2 = "0.10"\n'
                 '[target."cfg(unix)".dependencies]\nrenamed = { package = "unknown-ext", version = "1" }\n'
@@ -107,15 +107,15 @@ dev_alias = { package = "unknown-package", version = "1" }
             violations = dependency_graph.scan_kernel_manifests()
 
             self.assertIn(
-                "crates/kernel/maestria-domain/Cargo.toml contains disallowed kernel dependency unknown-ext",
+                "crates/kernel/sillage-domain/Cargo.toml contains disallowed kernel dependency unknown-ext",
                 violations,
             )
             self.assertIn(
-                "crates/kernel/maestria-domain/Cargo.toml contains disallowed kernel dependency builder",
+                "crates/kernel/sillage-domain/Cargo.toml contains disallowed kernel dependency builder",
                 violations,
             )
             self.assertIn(
-                "crates/kernel/maestria-domain/Cargo.toml contains forbidden dependency token tokio",
+                "crates/kernel/sillage-domain/Cargo.toml contains forbidden dependency token tokio",
                 violations,
             )
 
@@ -124,9 +124,9 @@ dev_alias = { package = "unknown-package", version = "1" }
             root = Path(tmp)
             self.configure_root(root)
             manifests = {
-                "maestria-domain": '[dependencies]\nsha2 = "0.10"\n',
-                "maestria-governance": '[dependencies]\nmaestria_domain = { package = "maestria-domain", path = "../../domain" }\n',
-                "maestria-ports": '[dependencies]\nmaestria_domain = { package = "maestria-domain", path = "../../domain" }\n',
+                "sillage-domain": '[dependencies]\nsha2 = "0.10"\n',
+                "sillage-governance": '[dependencies]\nsillage_domain = { package = "sillage-domain", path = "../../domain" }\n',
+                "sillage-ports": '[dependencies]\nsillage_domain = { package = "sillage-domain", path = "../../domain" }\n',
             }
             for name, dependencies in manifests.items():
                 crate = root / "crates" / "kernel" / name
@@ -141,22 +141,22 @@ dev_alias = { package = "unknown-package", version = "1" }
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            for name in ("maestria-domain", "maestria-governance", "maestria-ports"):
+            for name in ("sillage-domain", "sillage-governance", "sillage-ports"):
                 crate = root / "crates" / "kernel" / name
                 (crate / "src").mkdir(parents=True)
                 dependency = {
-                    "maestria-domain": 'sha2 = "0.10"',
-                    "maestria-governance": 'maestria_domain = { package = "maestria-domain", path = "../../domain" }',
-                    "maestria-ports": 'maestria_domain = { package = "maestria-domain", path = "../../domain" }',
+                    "sillage-domain": 'sha2 = "0.10"',
+                    "sillage-governance": 'sillage_domain = { package = "sillage-domain", path = "../../domain" }',
+                    "sillage-ports": 'sillage_domain = { package = "sillage-domain", path = "../../domain" }',
                 }[name]
                 (crate / "Cargo.toml").write_text(
                     f'[package]\nname = "test"\n[dependencies]\n{dependency}\n',
                     encoding="utf-8",
                 )
-            governance = root / "crates" / "kernel" / "maestria-governance"
+            governance = root / "crates" / "kernel" / "sillage-governance"
             (governance / "Cargo.toml").write_text(
                 '[package]\nname = "test"\n[dependencies]\n'
-                'maestria_domain = { package = "maestria-domain", path = "../../domain" }\n'
+                'sillage_domain = { package = "sillage-domain", path = "../../domain" }\n'
                 'reqwest = "1"\n',
                 encoding="utf-8",
             )
@@ -172,16 +172,16 @@ dev_alias = { package = "unknown-package", version = "1" }
             self.assertEqual(
                 dependency_graph.scan_kernel_manifests(),
                 [
-                    "crates/kernel/maestria-governance/Cargo.toml "
+                    "crates/kernel/sillage-governance/Cargo.toml "
                     "contains forbidden dependency token reqwest"
                 ],
             )
             self.assertEqual(
                 dependency_graph.scan_kernel_sources(),
                 [
-                    "crates/kernel/maestria-governance/src/lib.rs "
+                    "crates/kernel/sillage-governance/src/lib.rs "
                     "contains forbidden failure token unreachable!(",
-                    "crates/kernel/maestria-governance/src/tests.rs "
+                    "crates/kernel/sillage-governance/src/tests.rs "
                     "contains forbidden failure token unreachable!(",
                 ],
             )
@@ -190,7 +190,7 @@ dev_alias = { package = "unknown-package", version = "1" }
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            domain = root / "crates" / "kernel" / "maestria-domain"
+            domain = root / "crates" / "kernel" / "sillage-domain"
             source = domain / "src" / "network.rs"
             source.parent.mkdir(parents=True)
             source.write_text(
@@ -203,9 +203,9 @@ dev_alias = { package = "unknown-package", version = "1" }
             self.assertEqual(
                 dependency_graph.scan_kernel_sources(),
                 [
-                    "crates/kernel/maestria-domain/src/network.rs contains "
+                    "crates/kernel/sillage-domain/src/network.rs contains "
                     "forbidden kernel token std::net",
-                    "crates/kernel/maestria-domain/src/network.rs contains "
+                    "crates/kernel/sillage-domain/src/network.rs contains "
                     "forbidden unsafe Rust",
                 ],
             )
@@ -279,9 +279,9 @@ dev_alias = { package = "unknown-package", version = "1" }
                 encoding="utf-8",
             )
             for name, dependency in {
-                "maestria-domain": "network_alias = { workspace = true }",
-                "maestria-governance": 'maestria-domain = { package = "maestria-domain", path = "../../domain" }',
-                "maestria-ports": 'maestria-domain = { package = "maestria-domain", path = "../../domain" }',
+                "sillage-domain": "network_alias = { workspace = true }",
+                "sillage-governance": 'sillage-domain = { package = "sillage-domain", path = "../../domain" }',
+                "sillage-ports": 'sillage-domain = { package = "sillage-domain", path = "../../domain" }',
             }.items():
                 crate = root / "crates" / "kernel" / name
                 (crate / "src").mkdir(parents=True)
@@ -291,7 +291,7 @@ dev_alias = { package = "unknown-package", version = "1" }
                 )
             violations = dependency_graph.scan_kernel_manifests()
             self.assertIn(
-                "crates/kernel/maestria-domain/Cargo.toml contains forbidden dependency token reqwest",
+                "crates/kernel/sillage-domain/Cargo.toml contains forbidden dependency token reqwest",
                 violations,
             )
 
@@ -300,18 +300,18 @@ dev_alias = { package = "unknown-package", version = "1" }
             root = Path(tmp)
             self.configure_root(root)
             source = (
-                root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+                root / "crates" / "kernel" / "sillage-domain" / "src" / "lib.rs"
             )
             source.parent.mkdir(parents=True)
             source.write_text(
-                "use maestria_storage_sqlite::SqliteStore;\n", encoding="utf-8"
+                "use sillage_storage_sqlite::SqliteStore;\n", encoding="utf-8"
             )
 
             self.assertEqual(
                 dependency_graph.scan_kernel_imports(),
                 [
-                    "crates/kernel/maestria-domain/src/lib.rs "
-                    "imports forbidden kernel dependency maestria_storage_sqlite"
+                    "crates/kernel/sillage-domain/src/lib.rs "
+                    "imports forbidden kernel dependency sillage_storage_sqlite"
                 ],
             )
 
@@ -320,12 +320,12 @@ dev_alias = { package = "unknown-package", version = "1" }
             root = Path(tmp)
             self.configure_root(root)
             governance = (
-                root / "crates" / "kernel" / "maestria-governance" / "src" / "lib.rs"
+                root / "crates" / "kernel" / "sillage-governance" / "src" / "lib.rs"
             )
             governance.parent.mkdir(parents=True)
             governance.write_text(
-                "use maestria_domain::KernelState;\n"
-                "use maestria_domain as domain;\n",
+                "use sillage_domain::KernelState;\n"
+                "use sillage_domain as domain;\n",
                 encoding="utf-8",
             )
 
@@ -336,12 +336,12 @@ dev_alias = { package = "unknown-package", version = "1" }
             root = Path(tmp)
             self.configure_root(root)
             source = (
-                root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+                root / "crates" / "kernel" / "sillage-domain" / "src" / "lib.rs"
             )
             source.parent.mkdir(parents=True)
             source.write_text(
-                '// use maestria_tantivy::TantivyFullTextIndex;\n'
-                'const EXAMPLE: &str = "use maestria_tantivy::Index";\n',
+                '// use sillage_tantivy::TantivyFullTextIndex;\n'
+                'const EXAMPLE: &str = "use sillage_tantivy::Index";\n',
                 encoding="utf-8",
             )
 
@@ -351,7 +351,7 @@ dev_alias = { package = "unknown-package", version = "1" }
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "lib.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text("fn pick() { let _ = thread_rng(); }\n")
             violations = dependency_graph.scan_kernel_sources()
@@ -368,7 +368,7 @@ dev_alias = { package = "unknown-package", version = "1" }
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "lib.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text("fn init() { let _ = std::mem::MaybeUninit::<u8>::uninit(); }\n")
             violations = dependency_graph.scan_kernel_sources()

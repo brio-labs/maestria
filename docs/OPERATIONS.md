@@ -94,10 +94,38 @@ Sillage is in continuous development with no external release promise.
 - Each product milestone in [ROADMAP.md](./ROADMAP.md) requires its own
   observable exit evidence. Historical retrieval reports do not satisfy a
   product-milestone gate.
-- Measurement evidence (benchmark reports) is recorded in
-  `tests/contracts/benchmark_evidence_v1.json` and validated in CI. It
-  preserves historical retrieval measurements and does not certify completion
-  of the new product milestones.
+- Measurement evidence (benchmark reports) remains recorded in
+  `tests/contracts/benchmark_evidence_v1.json`. Its original source inputs are
+  archived under `tests/frozen-corpus-snapshots/benchmark-evidence-v1/` at
+  recorded source commit `193a44d4bb2800a3ee19f44728362aa5ccfdc8cc`; CI
+  validates the archived bytes against the manifest hashes only. Frozen
+  `source_paths` are provenance, not paths into active Sillage code. Historical
+  results do not qualify the renamed source or complete product-milestone gates.
+- Frozen `RealMaestriaTask` metadata decodes to the distinct
+  `HistoricalWorkTask` provenance category and keeps its original serialized
+  label. Conversion to a benchmark does not relabel it as `RealSillageTask`.
+  Historical work cannot qualify current Sillage sparse or Hybrid serving;
+  this metadata reader is not an old-name runtime/configuration fallback.
+  Doctrine checks exclude archived Rust compilation units from active-code
+  rules while general source and secret scans continue to inspect the archive.
+- The first canonical 60-need FR/EN real-model cohort completed execution but
+  failed qualification: applicable lexical heads were preserved in 27/28
+  cases, and the exact-path target regressed from rank 2 to 7. Judgments were
+  LLM-assisted and independently source-reviewed, not human-certified gold.
+  These cases/controls are consumed; serving remains Shadow, with no persisted
+  promotion. Correcting aggregate-result lane admission does not constitute
+  a new model qualification or establish an exact-path repair.
+- Full native passage citation/excerpt values are accessibility labels;
+  `Full citation` and `Full returned passage excerpt` are semantic descriptions.
+  Observers must read actual names/text rather than expect those descriptions
+  as constant names. The zero-query cached-row before/after control proves
+  content exposure, not retrieval, Return navigation, or installed latency.
+- A distinct canonical synthetic-query discriminator recorded one durable
+  search and one evidence reopen, with full detail values and the copied notice
+  in its complete final AT-SPI tree and viewed screenshot. Its observer report
+  builder and failure handler failed; the first outcome remains failed and
+  closed. No clipboard/timing acceptance, historical attribution, or installed
+  qualification is inferred from that partial evidence.
 - Lint-exemption expiries in `scripts/philosophy_check` are calendar dates
   (`YYYY-MM-DD`), enforced by `philosophy-check` on every run.
 
@@ -105,14 +133,14 @@ Sillage is in continuous development with no external release promise.
 
 The launcher package installs a desktop entry for the user to invoke; installing
 it does not launch the application or enable login autostart. The entry runs
-`maestria-launcher --activate`. Shortcut setup is user-initiated. The search
+`sillage-launcher --activate`. Shortcut setup is user-initiated. The search
 daemon is a separate foreground process and remains explicitly started and
 stopped by its operator.
 
 
 ## 7. Daemon-First Search Posture
 
-Run one daemon per instance for interactive use (`maestria start -i <dir>`).
+Run one daemon per instance for interactive use (`sillage start -i <dir>`).
 Daemon-served search is the fastest surface (measured 1.21 s versus 2.26 s
 local on the benchmark instance during the #475 campaign), because it reuses
 the daemon's warm retrieval runtime instead of assembling one per command.
@@ -142,20 +170,46 @@ resolves the declared runtime dependencies:
 
 ```bash
 # Apps only: no search daemon or worker is installed.
-sudo apt install ./target/launcher-packages/maestria-launcher_0.0.1_amd64.deb
+sudo apt install ./target/launcher-packages/sillage-launcher_0.0.1_amd64.deb
 
 # Search only: no launcher or worker is installed.
-sudo apt install ./target/search-packages/maestria-search_0.0.1_amd64.deb
+sudo apt install ./target/search-packages/sillage-search_0.0.1_amd64.deb
 
 # Combined: explicitly select both components.
 sudo apt install \
-  ./target/launcher-packages/maestria-launcher_0.0.1_amd64.deb \
-  ./target/search-packages/maestria-search_0.0.1_amd64.deb
+  ./target/launcher-packages/sillage-launcher_0.0.1_amd64.deb \
+  ./target/search-packages/sillage-search_0.0.1_amd64.deb
 ```
 
-The Debian package IDs are `io-github-briolabs-maestria-launcher` and
-`io-github-briolabs-maestria-search`; the launcher binary/desktop identity
-remain `maestria-launcher` and `io.github.briolabs.Maestria.Launcher`.
+The Debian package IDs are `io-github-briolabs-sillage-launcher` and
+`io-github-briolabs-sillage-search`; the launcher binary/desktop identity
+remain `sillage-launcher` and `io.github.briolabs.Sillage.Launcher`.
+
+This is a breaking technical-identity cutover: the Maestria executable,
+packages, IDs, environment variables, and paths have no Sillage compatibility
+aliases or automatic migration. Old settings, grants, compositor bindings,
+instances, credentials, and model assets remain where they are and are not
+imported. No retention guarantee across the rename has been verified. The
+legacy upgrade evidence later in this document covers only the old technical
+identity; the rename alone does not clear the current retrieval or release
+gates, and PR #516 remains a draft. The real GitHub/GHCR endpoints and their
+historical evidence links retain their existing slugs.
+The canonical profile gate starts the current launcher with its preference
+file absent, observes actual first-launch defaults before configuring them
+through the UI, restarts to verify the saved settings, and then tests current
+remove/reinstall persistence while preserving the old profile. Fresh exact-CI
+canonical packages have not yet exercised this gate; no package/profile
+qualification is inferred from source or helper preparation.
+
+A separate real source-built launcher/helper smoke passed the genuine defaults
+and UI-save phases, preserved the private old-profile seed byte-for-byte at
+mode 0600, and kept the private clipboard unchanged. Both public trees had no
+property/walk errors; screenshots were viewed and every shutdown gate passed.
+The private D-Bus service uses the existing read-only guest GSettings schemas;
+its first missing-schema infrastructure failure and subsequent preparation
+refusals remain preserved. This does not qualify actual package coinstallation,
+restart persistence, or removal/reinstall.
+
 Installing either package does not start the search daemon, install a service
 unit, or enable login autostart. The launcher remains useful for application
 search without a search package or daemon. The search package is headless and
@@ -212,8 +266,8 @@ the **same-run Ubuntu 24.04-built launcher Debian** installed on Ubuntu
 26.04 passed separate fresh, private KDE Wayland consent sessions without
 installing search or the extension worker. The real KDE backend received
 `CreateSession` and `BindShortcuts` for the registered
-`io.github.briolabs.Maestria.Launcher` identity and `activate-launcher` /
-`CTRL+space`. Approval returned the matching Bind response `0` with
+`io.github.briolabs.Maestria.Launcher` identity (the pre-cutover ID) and
+`activate-launcher` / `CTRL+space`. Approval returned the matching Bind response `0` with
 `Ctrl+Space` and retained `shortcutSetup = "requested"` after launcher quit;
 denial returned `1` and left settings absent. The launcher Setup and KDE
 dialog were both activated by the **private Xvfb pointer, not AT-SPI**.
@@ -236,7 +290,7 @@ and denial proved above cannot establish shortcut availability on stock Ubuntu
 
 On stock Ubuntu 24.04, do not skip host registration to make the portal
 request appear to work. Instead, if you want a global keybinding, explicitly
-add a **compositor-owned** shortcut for `maestria-launcher --activate` in your
+add a **compositor-owned** shortcut for `sillage-launcher --activate` in your
 desktop's keyboard shortcut settings. On Ubuntu GNOME, use
 [Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts → Add Shortcut](https://help.ubuntu.com/stable/ubuntu-help/keyboard-shortcuts-set.html.en#custom-shortcuts).
 Choose an unclaimed key combination; do not install a second binding for the
@@ -257,7 +311,7 @@ when creating an instance:
 ```bash
 INSTANCE="$HOME/sillage-search"
 READ_ROOT="$HOME/Documents" # Replace with the exact directory you reviewed.
-maestria-search init --instance-dir "$INSTANCE" --read-root "$READ_ROOT"
+sillage-search init --instance-dir "$INSTANCE" --read-root "$READ_ROOT"
 ```
 
 This stores the instance, index, credentials and watcher state under
@@ -265,9 +319,9 @@ This stores the instance, index, credentials and watcher state under
 remove a root later, keep the daemon running and use its owner commands:
 
 ```bash
-maestria-search owner roots status --instance-dir "$INSTANCE"
-maestria-search owner roots add --instance-dir "$INSTANCE" /absolute/reviewed/path
-maestria-search owner roots remove --instance-dir "$INSTANCE" /absolute/reviewed/path
+sillage-search owner roots status --instance-dir "$INSTANCE"
+sillage-search owner roots add --instance-dir "$INSTANCE" /absolute/reviewed/path
+sillage-search owner roots remove --instance-dir "$INSTANCE" /absolute/reviewed/path
 ```
 
 `add` and initialization reject a path that is not an existing directory or is
@@ -280,12 +334,12 @@ roots and checking the status output.
 Run the daemon in a terminal where its lifecycle is visible:
 
 ```bash
-maestria-search start --instance-dir "$INSTANCE"
+sillage-search start --instance-dir "$INSTANCE"
 # Stop it in this terminal with Ctrl-C.
 ```
 
-`maestria-search start` uses the read-only profile and no model client. There
-is no `maestria-search stop` command or package-installed service manager:
+`sillage-search start` uses the read-only profile and no model client. There
+is no `sillage-search stop` command or package-installed service manager:
 installation and launcher startup do not start it in the background. Root
 changes apply while the daemon runs; after stopping it, restart explicitly.
 
@@ -328,7 +382,7 @@ INSTANCE="$HOME/sillage-search"
 CREDENTIAL="$HOME/.config/sillage/search-client.key"
 (umask 077; mkdir -p "$(dirname "$CREDENTIAL")")
 consumer_realm="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
-maestria-search owner grant create-external --instance-dir "$INSTANCE" \
+sillage-search owner grant create-external --instance-dir "$INSTANCE" \
   --consumer-realm "$consumer_realm" --credential-file "$CREDENTIAL" \
   --access search-and-open-evidence --max-sensitivity internal \
   --read-root "$READ_ROOT" \
@@ -355,17 +409,17 @@ must not read. Root scopes cannot be edited on an issued credential.
 The command prints the grant digest and consumer realm, but not the bearer
 credential; it creates the credential file with owner-only mode `0600`. Save
 the printed grant digest for later revocation. For a headless client, give
-`maestria-search search` the provider socket, this realm and credential file:
+`sillage-search search` the provider socket, this realm and credential file:
 
 ```bash
-maestria-search search \
+sillage-search search \
   --socket-path "$INSTANCE/system/daemon.sock" \
   --consumer-realm "$consumer_realm" --credential-file "$CREDENTIAL" \
   --limit 5 "a phrase from an approved source"
 ```
 
 To opt the launcher into passages, edit its user-owned schema-1 settings file at
-`${XDG_CONFIG_HOME:-$HOME/.config}/io.github.briolabs.Maestria.Launcher/launcher.toml`.
+`${XDG_CONFIG_HOME:-$HOME/.config}/io.github.briolabs.Sillage.Launcher/launcher.toml`.
 If the file does not exist, launch the app and make a first-run shortcut choice
 (including “Not Now”) or save a preference so it writes the current settings.
 Preserve its existing settings and `schemaVersion = 1`; add this table with
@@ -380,8 +434,8 @@ credentialFile = "/home/alice/.config/sillage/search-client.key"
 
 Replace the example home paths and realm. The launcher requires an absolute
 socket path, a 64-character hexadecimal realm and an absolute credential path.
-Keep `maestria-search` installed and on `PATH`. Restart the launcher after
-editing (`maestria-launcher --quit`, then `maestria-launcher --activate`) so it
+Keep `sillage-search` installed and on `PATH`. Restart the launcher after
+editing (`sillage-launcher --quit`, then `sillage-launcher --activate`) so it
 loads the new table. Removing the optional `[search]` table and restarting
 disables launcher passage requests without uninstalling either package; revoke
 the provider grant separately if access should end for every client.
@@ -408,10 +462,10 @@ The launcher does not depend on the worker. Install it only when choosing to
 run extensions:
 
 ```bash
-sudo apt install ./target/extension-packages/maestria-extension-worker_0.0.1_amd64.deb
+sudo apt install ./target/extension-packages/sillage-extension-worker_0.0.1_amd64.deb
 ```
 
-Its package ID is `io-github-briolabs-maestria-extension-worker`; it brings
+Its package ID is `io-github-briolabs-sillage-extension-worker`; it brings
 `bubblewrap` for the launcher's OS sandbox. Installing it alone does not install
 an extension, grant extension capabilities, start a daemon, or execute extension
 code. The launcher refuses to run extensions outside the sandbox if the worker
@@ -985,39 +1039,39 @@ Bubblewrap isolation, cancellation, interactive-search admission, and the
 ### Disable, uninstall, and choose local-data retention
 
 Before removing packages, stop their processes explicitly: close active
-extension work and run `maestria-launcher --quit`; stop a foreground
-`maestria-search start` with Ctrl-C. Package removal is not a process manager and
+extension work and run `sillage-launcher --quit`; stop a foreground
+`sillage-search start` with Ctrl-C. Package removal is not a process manager and
 does not terminate an already-running application or daemon. If search access
 should be revoked, do it while the daemon is running, then stop it:
 
 ```bash
 INSTANCE="$HOME/sillage-search"
-maestria-search owner grant list --instance-dir "$INSTANCE"
+sillage-search owner grant list --instance-dir "$INSTANCE"
 grant_digest="paste-the-grant-token-digest-printed-by-create-external"
-maestria-search owner grant revoke --instance-dir "$INSTANCE" "$grant_digest"
-maestria-search owner roots remove --instance-dir "$INSTANCE" "$HOME/Documents"
+sillage-search owner grant revoke --instance-dir "$INSTANCE" "$grant_digest"
+sillage-search owner roots remove --instance-dir "$INSTANCE" "$HOME/Documents"
 ```
 
 Remove only the component being disabled, or both packages for the combined
 install:
 
 ```bash
-sudo apt remove io-github-briolabs-maestria-launcher
-sudo apt remove io-github-briolabs-maestria-search
-sudo apt remove io-github-briolabs-maestria-extension-worker
+sudo apt remove io-github-briolabs-sillage-launcher
+sudo apt remove io-github-briolabs-sillage-search
+sudo apt remove io-github-briolabs-sillage-extension-worker
 # Or remove launcher and search together:
 sudo apt remove \
-  io-github-briolabs-maestria-launcher \
-  io-github-briolabs-maestria-search
+  io-github-briolabs-sillage-launcher \
+  io-github-briolabs-sillage-search
 ```
 
 `apt remove` (and `apt purge`) removes system package files, not per-user data.
 Keeping data requires no extra step. The default local paths are the selected
 search instance (here `$HOME/sillage-search`), the credential file
 `$HOME/.config/sillage/search-client.key`, launcher settings under
-`${XDG_CONFIG_HOME:-$HOME/.config}/io.github.briolabs.Maestria.Launcher/`, and
+`${XDG_CONFIG_HOME:-$HOME/.config}/io.github.briolabs.Sillage.Launcher/`, and
 extension bundles under
-`${XDG_DATA_HOME:-$HOME/.local/share}/io.github.briolabs.Maestria.Launcher/extensions`.
+`${XDG_DATA_HOME:-$HOME/.local/share}/io.github.briolabs.Sillage.Launcher/extensions`.
 Review custom instance, credential, and XDG paths before deleting anything.
 After stopping processes and revoking any grants, remove only the local data
 you intend to discard; these interactive commands prompt before deletion:
@@ -1025,8 +1079,8 @@ you intend to discard; these interactive commands prompt before deletion:
 ```bash
 rm -ri -- "$HOME/sillage-search"
 rm -i -- "$HOME/.config/sillage/search-client.key"
-rm -i -- "${XDG_CONFIG_HOME:-$HOME/.config}/io.github.briolabs.Maestria.Launcher/launcher.toml"
-rm -ri -- "${XDG_DATA_HOME:-$HOME/.local/share}/io.github.briolabs.Maestria.Launcher/extensions"
+rm -i -- "${XDG_CONFIG_HOME:-$HOME/.config}/io.github.briolabs.Sillage.Launcher/launcher.toml"
+rm -ri -- "${XDG_DATA_HOME:-$HOME/.local/share}/io.github.briolabs.Sillage.Launcher/extensions"
 ```
 
 Deleting the search instance removes its local index and state, not source files

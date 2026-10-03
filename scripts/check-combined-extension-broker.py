@@ -261,7 +261,7 @@ if clipboard != "private Sillage broker token":
 print("INSTALLED_BROKER_UNGRANTED_SEARCH_DENIED_AND_COPY_VERIFIED", flush=True)
 action("Return to installed extensions")
 
-subprocess.run(["/usr/bin/maestria-launcher", "--quit"], check=True, capture_output=True)
+subprocess.run(["/usr/bin/sillage-launcher", "--quit"], check=True, capture_output=True)
 for attempt in range(100):
     if named("Sillage Launcher") is None:
         break
@@ -270,7 +270,7 @@ else:
     raise RuntimeError("installed resident launcher did not quit before grant-retention check")
 with (root / "restarted.log").open("w", encoding="utf-8") as log:
     restarted = subprocess.Popen(
-        ["/usr/bin/maestria-launcher", "--activate"],
+        ["/usr/bin/sillage-launcher", "--activate"],
         stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
     )
 (root / "restarted.pid").write_text(str(restarted.pid), encoding="ascii")
@@ -310,7 +310,7 @@ if named("Run command Greetings") is not None:
     raise RuntimeError("revoked installed extension still exposes an executable command")
 print("INSTALLED_BROKER_REVOKED_COMMAND_UNAVAILABLE", flush=True)
 subprocess.run(
-    ["/usr/bin/maestria-launcher", "--quit"], check=True, capture_output=True, timeout=10
+    ["/usr/bin/sillage-launcher", "--quit"], check=True, capture_output=True, timeout=10
 )
 if restarted.wait(timeout=10) != 0:
     raise RuntimeError(f"installed launcher exited abnormally after revoke: {restarted.returncode}")

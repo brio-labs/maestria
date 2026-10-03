@@ -1,5 +1,5 @@
 [application]
-name = "maestria-studio-web"
+name = "sillage-studio-web"
 out_dir = "dist"
 asset_dir = "assets"
 

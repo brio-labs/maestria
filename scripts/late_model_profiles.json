@@ -6,7 +6,7 @@
       "model": "lightonai/LateOn-multilingual",
       "repository": "lightonai/mLateOn",
       "revision": "local-export-sha256:02260bc68c4d942a3a65b1b0624c11e69b71eeb0be1a0c280ee834b39d3d5b27",
-      "model_root": ".maestria/models/mlateon",
+      "model_root": ".sillage/models/mlateon",
       "artifacts": [
         {"path": "model_int8.onnx", "sha256": "02260bc68c4d942a3a65b1b0624c11e69b71eeb0be1a0c280ee834b39d3d5b27"},
         {"path": "onnx_config.json", "sha256": "6cecf7fa55afdb85f0958d868cf8b91465ec71dc370a8f1e9801b5cf7e2925fd"},

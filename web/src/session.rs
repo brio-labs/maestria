@@ -22,7 +22,7 @@ impl Session {
         let storage = window.session_storage().ok().flatten();
         if !session.is_empty() {
             if let Some(storage) = storage.as_ref() {
-                let _ = storage.set_item("maestria.studio.bearer", &session);
+                let _ = storage.set_item("sillage.studio.bearer", &session);
             }
             let path = location_string(window.location().pathname());
             let query = location_string(window.location().search());
@@ -36,7 +36,7 @@ impl Session {
             return Self { bearer: session };
         }
         let bearer = option_string(
-            storage.and_then(|value| value.get_item("maestria.studio.bearer").ok().flatten()),
+            storage.and_then(|value| value.get_item("sillage.studio.bearer").ok().flatten()),
         );
         Self { bearer }
     }
@@ -45,35 +45,35 @@ impl Session {
     }
     pub fn remembered_notebook() -> Option<u64> {
         storage()
-            .and_then(|value| value.get_item("maestria.studio.notebook").ok().flatten())
+            .and_then(|value| value.get_item("sillage.studio.notebook").ok().flatten())
             .and_then(|value| value.parse().ok())
     }
     pub fn remember_notebook(id: u64) {
         if let Some(value) = storage() {
-            let _ = value.set_item("maestria.studio.notebook", &id.to_string());
+            let _ = value.set_item("sillage.studio.notebook", &id.to_string());
         }
     }
     pub fn clear_notebook() {
         if let Some(value) = storage() {
-            let _ = value.remove_item("maestria.studio.notebook");
+            let _ = value.remove_item("sillage.studio.notebook");
         }
     }
     pub fn remembered_agent() -> Option<String> {
-        storage().and_then(|value| value.get_item("maestria.studio.agent").ok().flatten())
+        storage().and_then(|value| value.get_item("sillage.studio.agent").ok().flatten())
     }
     pub fn remember_agent(id: String) {
         if let Some(value) = storage() {
-            let _ = value.set_item("maestria.studio.agent", &id);
+            let _ = value.set_item("sillage.studio.agent", &id);
         }
     }
     pub fn remembered_query() -> String {
         option_string(
-            storage().and_then(|value| value.get_item("maestria.studio.query").ok().flatten()),
+            storage().and_then(|value| value.get_item("sillage.studio.query").ok().flatten()),
         )
     }
     pub fn remember_query(query: &str) {
         if let Some(value) = storage() {
-            let _ = value.set_item("maestria.studio.query", query);
+            let _ = value.set_item("sillage.studio.query", query);
         }
     }
 }

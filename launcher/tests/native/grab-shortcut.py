@@ -4,7 +4,7 @@ import ctypes
 import os
 import sys
 
-if not os.environ.get("MAESTRIA_NATIVE_TEST_ROOT") or os.environ.get("GDK_BACKEND") != "x11":
+if not os.environ.get("SILLAGE_NATIVE_TEST_ROOT") or os.environ.get("GDK_BACKEND") != "x11":
     raise RuntimeError("A private native-test X11 environment is required")
 mask = int(sys.argv[1])
 if mask not in (4, 12):

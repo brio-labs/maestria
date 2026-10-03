@@ -7,7 +7,7 @@ import path from 'node:path';
 import { prepareBundleTools } from './bundle-tools.mjs';
 
 const launcherPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const nativePath = path.resolve(launcherPath, '..', 'crates', 'apps', 'maestria-launcher');
+const nativePath = path.resolve(launcherPath, '..', 'crates', 'apps', 'sillage-launcher');
 const cli = path.resolve(launcherPath, 'node_modules', '@tauri-apps', 'cli', 'tauri.js');
 const args = process.argv.slice(2);
 
@@ -17,7 +17,7 @@ const bundlesLinux = process.platform === 'linux'
 let cacheDirectory;
 try {
   if (bundlesLinux) {
-    cacheDirectory = await mkdtemp(path.join(tmpdir(), 'maestria-bundle-'));
+    cacheDirectory = await mkdtemp(path.join(tmpdir(), 'sillage-bundle-'));
     await prepareBundleTools(cacheDirectory);
   }
   const child = spawn(process.execPath, [cli, ...args], {

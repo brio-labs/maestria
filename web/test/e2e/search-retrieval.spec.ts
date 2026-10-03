@@ -79,7 +79,7 @@ const evidence = {
 const retrieval = {
   index_generation: 1,
   corpus_snapshot: 1,
-  fingerprint: 'maestria-core:deterministic-v1',
+  fingerprint: 'sillage-core:deterministic-v1',
   lanes: {
     hybrid_state: 'Active',
     hybrid_served_classes: ['DomainTerminology'],
@@ -137,7 +137,7 @@ async function installFixture(page: Page): Promise<void> {
             query_id: 7,
             trace_id: 8,
             status: 'Succeeded',
-            fingerprint: 'maestria-core:deterministic-v1',
+            fingerprint: 'sillage-core:deterministic-v1',
             index_generation: 1,
             evidence: [evidenceA, evidenceB],
             coverage: {
@@ -196,7 +196,7 @@ async function installFixture(page: Page): Promise<void> {
       });
       return;
     }
-    await route.fulfill({ status: 404, contentType: 'application/problem+json', body: JSON.stringify({ type: 'urn:maestria:studio:problem:not-found', title: 'Not found', status: 404, detail: 'The requested resource was not found' }) });
+    await route.fulfill({ status: 404, contentType: 'application/problem+json', body: JSON.stringify({ type: 'urn:sillage:studio:problem:not-found', title: 'Not found', status: 404, detail: 'The requested resource was not found' }) });
   });
 }
 
