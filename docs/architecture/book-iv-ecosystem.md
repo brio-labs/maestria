@@ -7,7 +7,7 @@ model, while evidence preserves observations without asserting that they are tru
 ## Purpose
 
 - Store event logs, blob content, full-text indexes, and parser-derived artifacts.
-- Expose stable adapters implementing `maestria-ports` contracts.
+- Expose stable adapters implementing `sillage-ports` contracts.
 - Keep projection semantics explicit and deterministic where possible.
 
 ## Core Rules

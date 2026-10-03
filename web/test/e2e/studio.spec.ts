@@ -100,7 +100,7 @@ async function installFixture(page: Page, conflict = false): Promise<void> {
         status: 409,
         contentType: 'application/problem+json',
         body: JSON.stringify({
-          type: 'urn:maestria:studio:problem:revision-conflict',
+          type: 'urn:sillage:studio:problem:revision-conflict',
           title: 'Revision conflict',
           status: 409,
           detail: 'The resource changed; reload and retry',
@@ -136,7 +136,7 @@ async function installFixture(page: Page, conflict = false): Promise<void> {
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: citation.evidence }) });
       return;
     }
-    await route.fulfill({ status: 404, contentType: 'application/problem+json', body: JSON.stringify({ type: 'urn:maestria:studio:problem:not-found', title: 'Not found', status: 404, detail: 'The requested resource was not found' }) });
+    await route.fulfill({ status: 404, contentType: 'application/problem+json', body: JSON.stringify({ type: 'urn:sillage:studio:problem:not-found', title: 'Not found', status: 404, detail: 'The requested resource was not found' }) });
   });
 }
 
@@ -204,7 +204,7 @@ test('deletes a saved draft and clears its selection', async ({ page }) => {
 test('continues only to a validated remembered notebook', async ({ page }) => {
   await installFixture(page);
   await page.addInitScript(() => {
-    window.sessionStorage.setItem('maestria.studio.notebook', '1');
+    window.sessionStorage.setItem('sillage.studio.notebook', '1');
   });
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
@@ -215,11 +215,11 @@ test('continues only to a validated remembered notebook', async ({ page }) => {
 test('clears an invalid remembered notebook instead of offering Continue', async ({ page }) => {
   await installFixture(page);
   await page.addInitScript(() => {
-    window.sessionStorage.setItem('maestria.studio.notebook', '999');
+    window.sessionStorage.setItem('sillage.studio.notebook', '999');
   });
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Continue' })).toHaveCount(0);
-  const remembered = await page.evaluate(() => window.sessionStorage.getItem('maestria.studio.notebook'));
+  const remembered = await page.evaluate(() => window.sessionStorage.getItem('sillage.studio.notebook'));
   expect(remembered).toBeNull();
 });
 

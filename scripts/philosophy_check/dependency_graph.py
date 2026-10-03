@@ -73,18 +73,19 @@ FORBIDDEN_DOMAIN_FAILURES = [
 # Crates that own a user-facing console; `println!`-family writes are their
 # legitimate interface instead of a logging violation.
 APP_CRATE_DIRS = {
-    "maestria-cli",
-    "maestria-daemon",
-    "maestria-harness-cli",
-    "maestria-tui",
-    "maestria-web",
+    "sillage-cli",
+    "sillage-daemon",
+    "sillage-harness-cli",
+    "sillage-launcher",
+    "sillage-tui",
+    "sillage-web",
 }
 
 
 KERNEL_ALLOWED_DEPENDENCIES = {
-    "maestria-domain": {"serde", "serde-json", "sha2"},
-    "maestria-governance": {"maestria-domain"},
-    "maestria-ports": {"maestria-domain", "serde", "maestria-test-support"},
+    "sillage-domain": {"serde", "serde-json", "sha2"},
+    "sillage-governance": {"sillage-domain"},
+    "sillage-ports": {"sillage-domain", "serde", "sillage-test-support"},
 }
 
 
@@ -145,7 +146,7 @@ def _manifest_dependencies(
     return dependencies
 
 
-_KERNEL_IMPORT_PATTERN = re.compile(r"\buse\s+maestria_([a-z0-9_]+)")
+_KERNEL_IMPORT_PATTERN = re.compile(r"\buse\s+sillage_([a-z0-9_]+)")
 
 
 def scan_kernel_imports() -> list[str]:
@@ -162,7 +163,7 @@ def scan_kernel_imports() -> list[str]:
         allowed_imports = {
             _normalize_dependency_name(name)
             for name in KERNEL_ALLOWED_DEPENDENCIES.get(kernel_root.name, set())
-            if _normalize_dependency_name(name).startswith("maestria-")
+            if _normalize_dependency_name(name).startswith("sillage-")
         }
         for source in (kernel_root / "src").rglob("*.rs"):
             rel = source.relative_to(shared.ROOT)
@@ -170,11 +171,11 @@ def scan_kernel_imports() -> list[str]:
             if not production:
                 continue
             for raw in _KERNEL_IMPORT_PATTERN.findall(production):
-                imported = _normalize_dependency_name(f"maestria_{raw}")
+                imported = _normalize_dependency_name(f"sillage_{raw}")
                 if imported == crate_name or imported in allowed_imports:
                     continue
                 violations.append(
-                    f"{rel} imports forbidden kernel dependency maestria_{raw}"
+                    f"{rel} imports forbidden kernel dependency sillage_{raw}"
                 )
     return violations
 

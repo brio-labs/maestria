@@ -93,7 +93,7 @@ class FormattingTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "core" / "maestria-core" / "src" / "large.rs"
+            source = root / "crates" / "core" / "sillage-core" / "src" / "large.rs"
             source.parent.mkdir(parents=True)
             source.write_text(
                 "\n".join(f"pub fn item_{index}() {{}}" for index in range(401)),
@@ -105,7 +105,7 @@ class FormattingTests(PhilosophyCheckFixture):
             self.assertEqual(
                 violations,
                 [
-                    "crates/core/maestria-core/src/large.rs has "
+                    "crates/core/sillage-core/src/large.rs has "
                     "401 module logical lines (limit 400)"
                 ],
             )
@@ -114,7 +114,7 @@ class FormattingTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "core" / "maestria-core" / "tests" / "large.rs"
+            source = root / "crates" / "core" / "sillage-core" / "tests" / "large.rs"
             source.parent.mkdir(parents=True)
             source.write_text(
                 "\n".join("fn test_case() {}" for _ in range(901)), encoding="utf-8"
@@ -125,7 +125,7 @@ class FormattingTests(PhilosophyCheckFixture):
             self.assertEqual(
                 violations,
                 [
-                    "crates/core/maestria-core/tests/large.rs has "
+                    "crates/core/sillage-core/tests/large.rs has "
                     "901 physical lines (limit 900)"
                 ],
             )

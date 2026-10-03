@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic CODEOWNERS invariant check for the Maestria repository.
+"""Deterministic CODEOWNERS invariant check for the Sillage repository.
 
 Verifies:
   1. Every required invariant-owning path has an explicit CODEOWNERS entry.
@@ -27,23 +27,23 @@ THIS_SCRIPT = Path(__file__).resolve()
 REQUIRED_OWNERSHIP_PATHS: set[str] = {
     # ── Core kernel ────────────────────────────────────────────
     "/crates/kernel/",
-    "/crates/kernel/maestria-domain/",
-    "/crates/kernel/maestria-governance/",
-    "/crates/kernel/maestria-ports/",
+    "/crates/kernel/sillage-domain/",
+    "/crates/kernel/sillage-governance/",
+    "/crates/kernel/sillage-ports/",
     "/crates/core/",
     # ── Runtime ────────────────────────────────────────────────
     "/crates/runtime/",
     # ── Retrieval ──────────────────────────────────────────────
     "/crates/ecosystem/",
-    "/crates/ecosystem/maestria-retrieval/",
+    "/crates/ecosystem/sillage-retrieval/",
     # ── Validation ─────────────────────────────────────────────
-    "/crates/ecosystem/maestria-validation/",
+    "/crates/ecosystem/sillage-validation/",
     # ── Storage ────────────────────────────────────────────────
     "/crates/storage/",
     # ── Harness ────────────────────────────────────────────────
     "/crates/harness/",
     # ── Daemon ─────────────────────────────────────────────────
-    "/crates/apps/maestria-daemon/",
+    "/crates/apps/sillage-daemon/",
     # ── Test suites ────────────────────────────────────────────
     "/tests/property/",
     "/tests/replay/",

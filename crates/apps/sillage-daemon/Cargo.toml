@@ -1,0 +1,47 @@
+[package]
+name = "sillage-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+sillage-core = { workspace = true }
+sillage-domain = { workspace = true }
+sillage-governance = { workspace = true }
+sillage-runtime = { workspace = true }
+sillage-blob-fs = { workspace = true }
+sillage-search-tantivy = { workspace = true }
+sillage-storage-sqlite = { workspace = true }
+sillage-vector-sqlite = { workspace = true }
+sillage-graph-sqlite = { workspace = true }
+sillage-web-evidence = { workspace = true }
+sillage-embedding-openai = { workspace = true }
+sillage-ocr-local = { workspace = true }
+sillage-sparse-local = { workspace = true }
+sillage-parsers = { workspace = true }
+sillage-index-selection = { workspace = true }
+sillage-harness = { workspace = true }
+sillage-ports = { workspace = true }
+sillage-retrieval = { workspace = true }
+sillage-code-intel = { workspace = true }
+
+anyhow = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+getrandom = { workspace = true }
+ignore = { workspace = true }
+parking_lot = "0.12"
+[dev-dependencies]
+sha2 = { workspace = true }
+sillage-adapter-http = { workspace = true }
+sillage-visual-local = { workspace = true }
+sillage-ports = { workspace = true, features = ["contract-tests"] }
+sillage-test-support = { workspace = true }
+lopdf = { workspace = true }

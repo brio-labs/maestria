@@ -54,7 +54,7 @@ class SecretsTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "lib.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
                 "#[cfg(test)]\n" "mod tests { const FAKE: &str = \"-----BEGIN PRIVATE KEY-----\"; }\n"

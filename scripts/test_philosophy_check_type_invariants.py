@@ -17,7 +17,7 @@ class TypeInvariantsTests(PhilosophyCheckFixture):
             root = Path(tmp)
             self.configure_root(root)
             source = (
-                root / "crates" / "kernel" / "maestria-domain" / "src" / "approval.rs"
+                root / "crates" / "kernel" / "sillage-domain" / "src" / "approval.rs"
             )
             source.parent.mkdir(parents=True)
             source.write_text(
@@ -34,10 +34,10 @@ class TypeInvariantsTests(PhilosophyCheckFixture):
             self.assertEqual(
                 type_invariants.scan_type_invariant_modeling(),
                 [
-                    "crates/kernel/maestria-domain/src/approval.rs struct `Approval` "
+                    "crates/kernel/sillage-domain/src/approval.rs struct `Approval` "
                     "represents opposite states `approved` and `denied` as booleans; "
                     "use an enum",
-                    "crates/kernel/maestria-domain/src/approval.rs function `resolve` "
+                    "crates/kernel/sillage-domain/src/approval.rs function `resolve` "
                     "accepts opposite states `approved` and `denied` as booleans; "
                     "accept an enum",
                 ],
@@ -49,7 +49,7 @@ class TypeInvariantsTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "job.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "job.rs"
             source.parent.mkdir(parents=True)
             source.write_text(
                 "pub struct Job { pub failed: bool, pub error: Option<String> }\n"
@@ -60,10 +60,10 @@ class TypeInvariantsTests(PhilosophyCheckFixture):
             self.assertEqual(
                 type_invariants.scan_type_invariant_modeling(),
                 [
-                    "crates/kernel/maestria-domain/src/job.rs struct `Job` coordinates "
+                    "crates/kernel/sillage-domain/src/job.rs struct `Job` coordinates "
                     "boolean state `failed` with optional payload `error`; put the "
                     "payload on an enum variant",
-                    "crates/kernel/maestria-domain/src/job.rs function `finish` "
+                    "crates/kernel/sillage-domain/src/job.rs function `finish` "
                     "coordinates boolean state `failed` with optional payload "
                     "`error`; accept an enum carrying the payload",
                 ],
@@ -73,7 +73,7 @@ class TypeInvariantsTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "task.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "task.rs"
             source.parent.mkdir(parents=True)
             source.write_text(
                 "pub struct Task { pub status: String, pub title: String }\n"
@@ -84,10 +84,10 @@ class TypeInvariantsTests(PhilosophyCheckFixture):
             self.assertEqual(
                 type_invariants.scan_type_invariant_modeling(),
                 [
-                    "crates/kernel/maestria-domain/src/task.rs struct `Task` "
+                    "crates/kernel/sillage-domain/src/task.rs struct `Task` "
                     "represents state field `status` as `String`; use an enum or "
                     "validated domain type",
-                    "crates/kernel/maestria-domain/src/task.rs function `transition` "
+                    "crates/kernel/sillage-domain/src/task.rs function `transition` "
                     "accepts state parameter `status` as `&str`; accept an enum or "
                     "validated domain type",
                 ],
@@ -98,7 +98,7 @@ class TypeInvariantsTests(PhilosophyCheckFixture):
             root = Path(tmp)
             self.configure_root(root)
             source = (
-                root / "crates" / "kernel" / "maestria-domain" / "src" / "relation.rs"
+                root / "crates" / "kernel" / "sillage-domain" / "src" / "relation.rs"
             )
             source.parent.mkdir(parents=True)
             source.write_text(
@@ -111,13 +111,13 @@ class TypeInvariantsTests(PhilosophyCheckFixture):
             self.assertEqual(
                 type_invariants.scan_type_invariant_modeling(),
                 [
-                    "crates/kernel/maestria-domain/src/relation.rs struct `Relation` "
+                    "crates/kernel/sillage-domain/src/relation.rs struct `Relation` "
                     "has swappable primitive identities `source_id`, `target_id` of "
                     "type `u64`; use distinct ID types",
-                    "crates/kernel/maestria-domain/src/relation.rs function `connect` "
+                    "crates/kernel/sillage-domain/src/relation.rs function `connect` "
                     "accepts swappable primitive identities `parent_id`, `child_id` "
                     "of type `u64`; use distinct ID types",
-                    "crates/kernel/maestria-domain/src/relation.rs function `link` "
+                    "crates/kernel/sillage-domain/src/relation.rs function `link` "
                     "accepts swappable primitive identities `left_id`, `right_id` "
                     "of type `u64`; use distinct ID types",
                 ],
@@ -128,7 +128,7 @@ class TypeInvariantsTests(PhilosophyCheckFixture):
             root = Path(tmp)
             self.configure_root(root)
             source = (
-                root / "crates" / "kernel" / "maestria-domain" / "src" / "search.rs"
+                root / "crates" / "kernel" / "sillage-domain" / "src" / "search.rs"
             )
             source.parent.mkdir(parents=True)
             source.write_text(
@@ -151,7 +151,7 @@ class TypeInvariantsTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "lib.rs"
             source.parent.mkdir(parents=True)
             source.write_text(
                 'let value: serde_json::Value = serde_json::json!({"a": 1});\n',
@@ -161,7 +161,7 @@ class TypeInvariantsTests(PhilosophyCheckFixture):
             self.assertEqual(
                 type_invariants.scan_domain_untyped_json(),
                 [
-                    "crates/kernel/maestria-domain/src/lib.rs "
+                    "crates/kernel/sillage-domain/src/lib.rs "
                     "uses untyped serde_json::Value in domain source"
                 ],
             )
@@ -170,7 +170,7 @@ class TypeInvariantsTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "trace.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "trace.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text("pub struct Expansion { pub strategy: String }\n")
             violations = type_invariants.scan_type_invariant_modeling()

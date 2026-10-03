@@ -1,0 +1,15 @@
+[package]
+name = "sillage-web-evidence"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sillage-ports = { workspace = true }
+sillage-domain = { workspace = true }
+ureq = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+sillage-ports = { workspace = true, features = ["contract-tests"] }

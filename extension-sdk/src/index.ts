@@ -1,0 +1,47 @@
+export {
+  type CapabilityFailure,
+  type CapabilityFailureCode,
+  type CapabilityKind,
+  type CapabilityRequest,
+  type CapabilityResponse,
+  type CapabilityResponseFor,
+  type FileSearchResult,
+  type ManifestPermission,
+} from "./capabilities.js";
+export {
+  MANIFEST_LIMITS,
+  SDK_API_VERSION,
+  type ExtensionManifest,
+  type ManifestCommand,
+  type ManifestDiagnostic,
+  type ManifestDiagnosticCode,
+  type ManifestEntrypoint,
+  type ManifestValidationResult,
+  validateManifest,
+} from "./manifest.js";
+export {
+  VIEW_LIMITS,
+  type ActionsView,
+  type CommandInvocation,
+  type DetailBlock,
+  type DetailView,
+  type ErrorView,
+  type ExtensionAction,
+  type ExtensionCommandContext,
+  type ExtensionCommandHandler,
+  type ExtensionEntrypoint,
+  type ExtensionView,
+  type FormField,
+  type FormValue,
+  type FormValues,
+  type FormView,
+  type ListItem,
+  type ListView,
+  type LoadingView,
+} from "./models.js";
+export {
+  HOST_WORKER_PROTOCOL_VERSION,
+  PROTOCOL_LIMITS,
+  type HostToWorkerMessage,
+  type WorkerToHostMessage,
+} from "./protocol.js";

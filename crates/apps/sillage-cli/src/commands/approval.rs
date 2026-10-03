@@ -1,0 +1,90 @@
+use anyhow::{Context, Result};
+use std::path::PathBuf;
+
+use sillage_ports::ApprovalRepository;
+use sillage_storage_sqlite::SqliteStore;
+
+use crate::helpers;
+
+pub fn run_list(instance_dir: PathBuf) -> Result<()> {
+    let layout = helpers::validated_instance(instance_dir)?;
+    let store = SqliteStore::open_read_only(&layout.database_path)
+        .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
+
+    let pending = store
+        .find_pending()
+        .context("failed to query pending approval requests")?;
+
+    if pending.is_empty() {
+        println!("No pending approval requests.");
+        return Ok(());
+    }
+
+    println!("Pending approval requests:\n");
+    for req in &pending {
+        let task = req
+            .task_id
+            .map_or_else(|| "-".to_string(), |task_id| task_id.to_string());
+        println!(
+            "  ID: {}  Task: {}  Kind: {}  Risk: {:?}  Status: {:?}",
+            req.id, task, req.effect_kind, req.risk_level, req.status
+        );
+    }
+    println!();
+    Ok(())
+}
+
+/// Resolve a pending approval under the instance mutation session.
+///
+/// # Cancellation
+/// Dropping this future tears down the CLI-side session (instance lock
+/// released, runtime shutdown requested). A resolution command already
+/// accepted by the runtime may still reach durable state; inspect durable
+/// state before retrying an interrupted command.
+pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Result<()> {
+    let layout = helpers::validated_instance(instance_dir)?;
+    let session = sillage_daemon::MutationSession::start(
+        layout.clone(),
+        sillage_governance::AutonomyProfile::TrustedWorkspace,
+    )
+    .await
+    .context("start mutation session")?;
+
+    let operation = async {
+        let store = SqliteStore::open_read_only(&layout.database_path)
+            .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
+        let approval_id = sillage_domain::ApprovalId::new(id);
+        let record = store
+            .find_by_id(approval_id)
+            .context("failed to query approval request")?
+            .ok_or_else(|| anyhow::anyhow!("approval request {id} not found"))?;
+
+        if record.status != sillage_ports::ApprovalStatus::Pending
+            || session.state().resolved_approvals.contains(&approval_id)
+        {
+            anyhow::bail!(
+                "approval request {id} is already resolved ({:?})",
+                record.status
+            );
+        }
+
+        // One owner of approval resolution semantics: model-agent approvals are
+        // audit acknowledgements, task-activation approvals transition the task.
+        let decision = record.to_decision(approved);
+
+        session
+            .submit(sillage_domain::DomainInput::ApprovalResolved(decision))
+            .await?;
+
+        Ok(record)
+    }
+    .await;
+
+    let record = session.finish(operation).await?;
+    let action = if approved { "Approved" } else { "Denied" };
+    println!(
+        "{action} approval request {id} for task {:?}.",
+        record.task_id
+    );
+    Ok(())
+}

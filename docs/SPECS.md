@@ -1,4 +1,4 @@
-# Maestria Initial Specification Ledger
+# Sillage Initial Specification Ledger
 
 This ledger names the invariants that bootstrap code and future crates must preserve.
 
@@ -11,7 +11,7 @@ Durable architecture is split by responsibility:
 - [MEMORY.md](MEMORY.md): source-backed memory lifecycle;
 - [SECURITY.md](SECURITY.md): scope, trust, taint, secrets, and prompt-injection boundaries;
 - [OPERATIONS.md](OPERATIONS.md): runtime lifecycle, recovery, and projection rebuilds;
-- [ROADMAP.md](ROADMAP.md): the single canonical implementation roadmap;
+- [ROADMAP.md](ROADMAP.md): the single canonical product roadmap;
 - [RESEARCH.md](RESEARCH.md): dated, non-normative evaluation candidates.
 
 `PHILOSOPHY.md` is the enforceable repository doctrine. This ledger defines the
@@ -24,7 +24,7 @@ invariants that implementation and verification must preserve.
 | `I-Domain-Pure` | Domain transitions perform no I/O and sample no clocks, randomness, filesystem, network, shell, database, or runtime state. |
 | `I-Domain-NoPanic` | Domain production code returns typed errors or failure states; it must not use `panic`, `unwrap`, or `expect`. |
 | `I-Domain-ValidStates` | Domain values make known invalid state combinations unrepresentable: exclusive states carry their payloads in enum variants, validated values and meaningful identities have distinct types, boundary conversion owns runtime validation, and state-dependent operations use exhaustive typed transitions or justified typestate. |
-| `I-Effect-Explicit` | Every side effect is represented as a `MaestriaEffect`; runtime/adapters execute effects outside the domain. |
+| `I-Effect-Explicit` | Every side effect is represented as a `SillageEffect`; runtime/adapters execute effects outside the domain. |
 | `I-Event-AuditTrail` | State changes emit append-only domain events. Replaying the event log must deterministically reconstruct exact KernelState, rejecting duplicate/invalid events. |
 | `I-Evidence-Immutable` | Evidence is immutable and points to stable source spans, snapshots, blobs, command logs, diffs, tests, or validation reports. |
 | `I-Evidence-Provenance` | Claims, memories, task reports, and answers cite evidence IDs and source provenance. |
@@ -48,6 +48,29 @@ invariants that implementation and verification must preserve.
 | `I-Search-TraceFingerprint` | Every search trace identifies the query, corpus snapshot, index generation, retrieval-model fingerprint, stages, filters, and stop reason. |
 | `I-Search-SecurityBeforeScore` | Scope, ACL, trust, sensitivity, quarantine, and prompt-injection checks run before candidate scoring or exposure. |
 | `I-Search-Evaluated` | Retrieval changes are evaluated against a versioned corpus and judgment set under quality, latency, memory, privacy, security, and energy budgets. |
+
+## Planned Product Contract
+
+This subsection defines the target product contract, not a claim that every
+launcher or extension capability ships. The native launcher has a working
+slice; target ownership, query behavior, and
+process boundaries are defined in
+[`ARCHITECTURE.md`](ARCHITECTURE.md#target-product-architecture) and the
+planned extension threat model is defined in
+[`SECURITY.md`](SECURITY.md#planned-extension-threat-model).
+
+The canonical product milestones and their exit criteria are in
+[`ROADMAP.md`](ROADMAP.md): Desktop Launcher, Extension Platform, Semantic
+File Search, and First Product Release. The launcher milestone is in progress;
+the remaining three are planned. Old retrieval reports do not satisfy their
+exit criteria.
+
+Notebook, task, validation, approval, and memory behavior remains part of the
+supporting existing subsystems described by this ledger. The extension
+package, SDK, broker, worker, and sandbox controls are target review
+requirements pending implementation and adversarial verification. This ledger
+does not claim mechanically enforced extension invariants, publish SDK
+exports, or alter the Rust domain contracts below.
 
 ## Bootstrap Books
 

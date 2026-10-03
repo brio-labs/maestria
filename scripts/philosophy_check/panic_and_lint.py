@@ -51,6 +51,14 @@ FORBIDDEN_RUST_METHODS = [
     ),
 ]
 
+# Tauri's generated Context triggers Clippy's disallowed-method/type lints at
+# the callsite. Its launcher-only lint exemption must not exempt handwritten
+# launcher source from the corresponding checks.
+LAUNCHER_DISALLOWED_SOURCE = (
+    (r"\b(?:HashMap|HashSet)\b", "a forbidden hash collection type"),
+    (r"\bInstant\s*::\s*now\s*\(", "a forbidden wall-clock instant"),
+)
+
 
 FORBIDDEN_UNBOUNDED_CHANNEL_PATTERNS = (
     r"\b(?:tokio::sync::)?mpsc::unbounded_channel\s*\(",
@@ -153,7 +161,7 @@ DEBUG_OUTPUT_PATTERNS = (
 # Rule 1/21: kernel code has no hidden global state or uncontrolled
 # concurrency. Shared ownership and interior mutability are the two Rust
 # mechanisms that introduce both; the in-memory port adapters under
-# maestria-ports are test doubles exempted by their adapter role.
+# sillage-ports are test doubles exempted by their adapter role.
 KERNEL_INTERIOR_MUTABILITY_PATTERNS = (
     r"\bRc\s*<",
     r"\bRefCell\s*<",
@@ -228,6 +236,11 @@ def scan_rust_forbidden_methods() -> list[str]:
         for pattern, description in FORBIDDEN_RUST_METHODS:
             if re.search(pattern, content):
                 violations.append(f"{source.relative_to(shared.ROOT)} contains {description}")
+        if source.is_relative_to(shared.ROOT / "crates/apps/sillage-launcher"):
+            syntax = _rust_syntax(content)
+            for pattern, description in LAUNCHER_DISALLOWED_SOURCE:
+                if re.search(pattern, syntax):
+                    violations.append(f"{source.relative_to(shared.ROOT)} contains {description}")
     return violations
 
 
@@ -421,13 +434,13 @@ def scan_kernel_interior_mutability() -> list[str]:
     `Rc`/`RefCell`/`Cell`/`Mutex`/`RwLock`/`OnceLock`/`OnceCell`/`LazyLock`
     and `thread_local!` introduce hidden global state or uncontrolled
     concurrency into deterministic code. The in-memory port adapters under
-    `maestria-ports/src/in_memory` are test doubles with an adapter role and
+    `sillage-ports/src/in_memory` are test doubles with an adapter role and
     are exempt; domain and governance are not.
     """
     violations = []
     for kernel_root in shared.KERNEL_ROOTS:
         for source in (kernel_root / "src").rglob("*.rs"):
-            if kernel_root.name == "maestria-ports" and "in_memory" in source.parts:
+            if kernel_root.name == "sillage-ports" and "in_memory" in source.parts:
                 continue
             content = read_text(source)
             if content is None:

@@ -1,0 +1,60 @@
+use super::test_helpers::{adapter, shell_request};
+use sillage_ports::HarnessAdapter;
+use std::path::PathBuf;
+
+#[tokio::test]
+async fn echo_returns_stdout() -> Result<(), Box<dyn std::error::Error>> {
+    let outcome = adapter()
+        .execute(shell_request("echo hello world", 5000))
+        .await?;
+    assert_eq!(outcome.exit_code, 0);
+    let stdout = String::from_utf8_lossy(&outcome.stdout);
+    assert!(stdout.contains("hello world"), "stdout: {stdout:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn pwd_returns_working_directory() -> Result<(), Box<dyn std::error::Error>> {
+    let mut req = shell_request("pwd", 5000);
+    req.working_directory = PathBuf::from("/tmp");
+    let outcome = adapter().execute(req).await?;
+    assert_eq!(outcome.exit_code, 0);
+    let stdout = String::from_utf8_lossy(&outcome.stdout);
+    assert!(stdout.contains("/tmp"), "stdout: {stdout:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn cat_reads_file_in_readable_root() -> Result<(), Box<dyn std::error::Error>> {
+    let path = "/tmp/sillage_harness_cat_test.txt";
+    std::fs::write(path, b"meow\n")?;
+
+    let mut req = shell_request(&format!("cat {path}"), 5000);
+    req.readable_roots = vec![PathBuf::from("/tmp")];
+    let outcome = adapter().execute(req).await?;
+    assert_eq!(outcome.exit_code, 0);
+    assert_eq!(outcome.stdout, b"meow\n");
+
+    std::fs::remove_file(path).ok();
+    Ok(())
+}
+
+#[tokio::test]
+async fn cat_preserves_ordered_multi_file_output() -> Result<(), Box<dyn std::error::Error>> {
+    let root = tempfile::tempdir()?;
+    let first = root.path().join("first.txt");
+    let second = root.path().join("second.txt");
+    std::fs::write(&first, b"first\n")?;
+    std::fs::write(&second, b"second\n")?;
+
+    let mut request = shell_request(
+        &format!("cat {} {}", first.display(), second.display()),
+        5000,
+    );
+    request.working_directory = root.path().to_path_buf();
+    request.readable_roots = vec![root.path().to_path_buf()];
+    let outcome = adapter().execute(request).await?;
+    assert_eq!(outcome.exit_code, 0);
+    assert_eq!(outcome.stdout, b"first\nsecond\n");
+    Ok(())
+}

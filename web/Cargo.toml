@@ -1,5 +1,5 @@
 [package]
-name = "maestria-studio-web"
+name = "sillage-studio-web"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,7 @@ publish = false
 path = "src/lib.rs"
 
 [[bin]]
-name = "maestria-studio-web"
+name = "sillage-studio-web"
 path = "src/main.rs"
 
 [dependencies]

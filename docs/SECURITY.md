@@ -1,15 +1,15 @@
 # Security Architecture
 
-This document defines the security boundaries and invariants for Maestria. It complements, and does not replace:
+This document defines the security boundaries and invariants for Sillage. It complements, and does not replace:
 
 - [docs/SPECS.md](SPECS.md) — system contracts and behavior
 - [docs/PHILOSOPHY.md](PHILOSOPHY.md) — architectural principles and invariant ownership
 
-Security controls are implemented through replaceable adapters and policies. No model, database, search backend, parser, provider, or algorithm is a permanent default until it has been benchmarked against Maestria’s security, correctness, and operational requirements.
+Security controls are implemented through replaceable adapters and policies. No model, database, search backend, parser, provider, or algorithm is a permanent default until it has been benchmarked against Sillage’s security, correctness, and operational requirements.
 
 ## 1. Security Objectives
 
-Maestria must:
+Sillage must:
 
 1. enforce scope and authorization before data is retrieved, ranked, or exposed;
 2. preserve provenance, source versions, and evidence boundaries;
@@ -19,7 +19,7 @@ Maestria must:
 6. provide an auditable explanation of security-relevant decisions;
 7. keep domain state transitions deterministic and policy-controlled.
 
-Maestria owns internal state integrity and provenance. It does not make an external source, claim, or model-generated assertion factually true.
+Sillage owns internal state integrity and provenance. It does not make an external source, claim, or model-generated assertion factually true.
 
 ## 2. Security Invariants
 
@@ -95,6 +95,50 @@ and no database access. Studio's middleware is browser-boundary hygiene;
 the daemon's token-and-scope check is the authority. ADR-0010 records
 this topology decision; new browser capabilities extend the typed socket
 API, never the daemon's transport.
+
+### 3.1 Planned Extension Threat Model
+
+The extension platform is planned and its isolation guarantees are target
+requirements pending implementation and adversarial verification. No
+installable extension contract exists today, and the current Studio/ACP host
+must not be treated as sandboxed extension execution.
+
+Extension packages, development directories, bundled JavaScript, indexed text,
+model output, and extension output are untrusted. The future extension manager
+validates package identity and version, SDK API compatibility, entrypoints,
+command IDs, permissions, archive boundaries, and symlink behavior before
+execution. Malformed packages, duplicate IDs, undeclared entrypoints, archive
+traversal, and symlink escapes are rejected.
+
+The worker is a separate trust boundary from the launcher renderer, daemon,
+and broker. It receives no ambient home-directory, daemon-socket, credential,
+or network access. An OS-enforced Linux isolation boundary is verified before
+third-party code starts; execution is refused if it is unavailable. A
+subprocess alone or a JavaScript permission flag is not a sandbox.
+
+The broker is a future trusted client of the existing authenticated daemon
+socket, not a new daemon network listener. It mediates typed host requests and
+checks the active extension grant on every request. Scoped file search,
+user-selected reads, granted-origin HTTP, extension-local storage,
+notifications, and explicit open/copy effects require the corresponding
+capability. Shell/process execution, background daemons, global keystroke
+observation, clipboard history, and unrestricted filesystem access are not
+part of the initial platform.
+
+Installation and updates require explicit grants. Added permissions require
+new consent; validation or approval failure retains the previous working
+version. Disable, revoke, and uninstall remove commands immediately and
+cancel active work. Uninstall removes executable code and grants and offers an
+explicit delete-or-retain choice for extension-local data, defaulting to
+delete.
+
+Worker CPU/time, memory, output, request queues, and view sizes are bounded.
+Hung or crashed workers are terminated and yield extension-local errors
+without blocking launch/search or entering an automatic restart loop.
+Side-effectful requests are never automatically retried. Workers cannot
+modify policy, promote evidence, grant capabilities, or obtain unrestricted
+instance bearer tokens. Development code uses the same boundary and
+permission model as installed code.
 
 ## 4. Scope and Authorization
 
@@ -288,7 +332,7 @@ disposition
 review status
 ```
 
-Implementations are replaceable until benchmarked against Maestria-specific injection and poisoning test sets. Detection alone is not a complete defense; capability isolation and policy enforcement remain mandatory.
+Implementations are replaceable until benchmarked against Sillage-specific injection and poisoning test sets. Detection alone is not a complete defense; capability isolation and policy enforcement remain mandatory.
 
 ## 7. Secrets and Sensitive Data
 
@@ -503,7 +547,7 @@ fail-closed behavior
 audit completeness without secret leakage
 ```
 
-Retrieval and security changes must be evaluated against versioned Maestria-specific sets, including:
+Retrieval and security changes must be evaluated against versioned Sillage-specific sets, including:
 
 ```text
 ACL leakage attempts
@@ -515,4 +559,4 @@ stale and contradictory sources
 provider failure and malformed-output cases
 ```
 
-Public benchmarks or a provider’s stated capabilities are not proof that the implementation is secure for Maestria.
+Public benchmarks or a provider’s stated capabilities are not proof that the implementation is secure for Sillage.

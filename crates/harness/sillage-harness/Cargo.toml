@@ -1,0 +1,16 @@
+[package]
+name = "sillage-harness"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+libc = { workspace = true }
+sillage-ports = { workspace = true }
+tokio = { workspace = true, features = ["time", "io-util", "rt", "macros", "fs"] }
+
+[dev-dependencies]
+sillage-ports = { workspace = true, features = ["contract-tests"] }
+tempfile = { workspace = true }

@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Maestria search is a typed, budgeted, auditable retrieval capability. It is not a fixed sequence of vector lookup, top-*k* selection, and prompting.
+Sillage search is a typed, budgeted, auditable retrieval capability. It is not a fixed sequence of vector lookup, top-*k* selection, and prompting.
 
-Search produces evidence candidates and coverage information for downstream validation, reasoning, and decisions. It does **not** establish external factual truth. Maestria can preserve source-backed observations and enforce internal state invariants; it cannot make an external claim true.
+Search produces evidence candidates and coverage information for downstream validation, reasoning, and decisions. It does **not** establish external factual truth. Sillage can preserve source-backed observations and enforce internal state invariants; it cannot make an external claim true.
 
 This document defines the search architecture. General system invariants and design principles are defined in:
 
@@ -36,8 +36,8 @@ It does not define a permanent model, database, vector index, ranking algorithm,
 6. Evidence snapshots are immutable. Trust, freshness, conflict, and validity annotations are versioned.
 7. Provider-specific payloads remain inside adapters.
 8. Search implementations are replaceable until benchmark results justify a choice.
-9. No model name, public leaderboard, or architecture diagram proves that retrieval works for Maestria.
-10. Material retrieval changes require evaluation against a versioned Maestria query set.
+9. No model name, public leaderboard, or architecture diagram proves that retrieval works for Sillage.
+10. Material retrieval changes require evaluation against a versioned Sillage query set.
 11. Original query identity is immutable; rewrites are additional typed retrieval views.
 12. Deterministic expansions precede model proposals, and stage roles restrict where each rewrite may execute.
 
@@ -329,7 +329,7 @@ Visual activation is benchmark-gated by frozen `Text`, `Table`, `Chart`, `Figure
 ### Repository Code Intelligence
 
 The deterministic repository lane is a persisted projection, not an embedding fallback.
-`maestria index repository <path>` discovers every Cargo workspace under the repository
+`sillage index repository <path>` discovers every Cargo workspace under the repository
 root with a bounded walk (skipping `.git`, `target/`, hidden directories, and
 privacy-excluded paths) and records each workspace's packages, targets, features,
 dependencies, and Rust symbols into one repository-wide index. The index is built
@@ -365,14 +365,14 @@ worktree identity, source path/range, and parser generation.
 Exact queries remain available without neural indexes:
 
 ```bash
-maestria search code symbol "RetrievalEngine"
-maestria search code path "crates/ecosystem/maestria-retrieval"
-maestria search code regex "impl .*CandidateRetriever"
-maestria search code doc "Build a fresh index"
-maestria search code markers todo
-maestria search code markers unsafe
-maestria search code changed
-maestria search code changed --since HEAD~1
+sillage search code symbol "RetrievalEngine"
+sillage search code path "crates/ecosystem/sillage-retrieval"
+sillage search code regex "impl .*CandidateRetriever"
+sillage search code doc "Build a fresh index"
+sillage search code markers todo
+sillage search code markers unsafe
+sillage search code changed
+sillage search code changed --since HEAD~1
 ```
 
 `search code doc <pattern>` matches symbols whose doc comment contains the
@@ -404,9 +404,9 @@ allowed.
 traversing the persisted relations directly instead of re-resolving source:
 
 ```bash
-maestria search code references "Repository::new"
-maestria search code references "Repository::new" --direction inbound
-maestria search code references "Repository::new" --direction outbound
+sillage search code references "Repository::new"
+sillage search code references "Repository::new" --direction inbound
+sillage search code references "Repository::new" --direction outbound
 ```
 
 The seed is every indexed symbol whose name or qualified name contains the
@@ -429,7 +429,7 @@ message as every other code query.
 Bounded repository context can expand exact/lexical seeds through typed relations:
 
 ```bash
-maestria search code context "RetrievalEngine" --depth 2 --nodes 64 --direction both
+sillage search code context "RetrievalEngine" --depth 2 --nodes 64 --direction both
 ```
 
 The index is JSON-persisted under the instance system directory. Query results expose the
@@ -443,7 +443,7 @@ node, and relation-kind caps. Missing LSP/provider support is recorded as an exp
 degraded status; unresolved edges are omitted rather than presented as facts. Live reads
 and tests are separate governed effects and must return their own evidence.
 
-`maestria index repository <path>` reports its build mode: `mode=full` (from scratch),
+`sillage index repository <path>` reports its build mode: `mode=full` (from scratch),
 `mode=incremental` (only files whose extraction inputs changed are re-parsed, and the
 result is exactly equivalent to a full rebuild at the same repository state), or
 `mode=noop` (index already current; nothing written). The summary it prints includes a
@@ -479,7 +479,7 @@ a package root; new web sources elsewhere need a manifest change to be discovere
 
 Repository-code promotion is governed by the frozen `rust-repository-frozen-v1`,
 `python-repository-frozen-v1`, and `web-repository-frozen-v1` benchmarks in
-`maestria-retrieval`. They compare the
+`sillage-retrieval`. They compare the
 Phase C route with the code-specialized route for exact-span recall, evidence-chain
 accuracy, p95 latency, freshness errors, outcome accuracy, abstention accuracy, peak
 memory, privacy violations, security violations, and energy across seven query classes:
@@ -503,7 +503,7 @@ flight (submitted but not yet awaited) at any time, and waits for the
 terminal indexed state are serialized oldest-first. The window is sized
 inside the runtime's effect-semaphore headroom (16 slots) so a mid-size
 repository never floods the input loop; it is a named constant
-(`REGISTRATION_IN_FLIGHT`) in `crates/apps/maestria-daemon/src/
+(`REGISTRATION_IN_FLIGHT`) in `crates/apps/sillage-daemon/src/
 repository_source_registration.rs` and must not be raised without fresh
 measurements of
 the runtime pipeline. Per-artifact runtime cost is dominated by the
@@ -512,7 +512,7 @@ cards, chunks, and lexical chunks); commit batching in the runtime is
 intentionally out of scope until it is proven safe with the daemon e2e.
 
 Build latency is measured by `repository_build_latency_tests` in
-`maestria-retrieval`: it generates fixture workspaces (50 and 200
+`sillage-retrieval`: it generates fixture workspaces (50 and 200
 symbol-bearing files), times cold full builds of the extraction pipeline
 over several runs, and writes p50/p95 latency to
 `target/benchmark-reports/repository-build-latency.json`, which the
@@ -777,11 +777,11 @@ snapshot or artifact retention
 validation method
 ```
 
-A search result or external provider response does not become domain truth merely because Maestria stored it.
+A search result or external provider response does not become domain truth merely because Sillage stored it.
 
 ## Runtime and Crate Boundaries
 
-`maestria-retrieval` owns:
+`sillage-retrieval` owns:
 
 ```text
 SearchPlan
@@ -794,13 +794,13 @@ evidence pack construction
 SearchTrace generation
 ```
 
-`maestria-domain` owns domain-shaped state and transitions. It may emit a task-significant effect such as:
+`sillage-domain` owns domain-shaped state and transitions. It may emit a task-significant effect such as:
 
 ```rust
-MaestriaEffect::SearchKnowledge(Box<SearchKnowledgeRequest>)
+SillageEffect::SearchKnowledge(Box<SearchKnowledgeRequest>)
 ```
 
-`maestria-runtime` executes effects, invokes adapters, and maps outputs back into `DomainInput`. It must not mutate domain state directly.
+`sillage-runtime` executes effects, invokes adapters, and maps outputs back into `DomainInput`. It must not mutate domain state directly.
 
 Provider-specific query, response, index, model, and storage types remain in adapters. App crates may compose services but must not add policy shortcuts or direct domain mutations.
 
@@ -822,7 +822,7 @@ compression methods
 hardware and deployment profiles
 ```
 
-A replacement is eligible for activation only after evaluation against the relevant Maestria workload. Evaluation must include, as applicable:
+A replacement is eligible for activation only after evaluation against the relevant Sillage workload. Evaluation must include, as applicable:
 
 ```text
 Recall@k
@@ -838,7 +838,7 @@ p50/p95/p99 latency
 RAM, disk, indexing, update, and energy cost
 ```
 
-Public benchmarks and vendor claims may inform experiments but are not acceptance evidence for Maestria.
+Public benchmarks and vendor claims may inform experiments but are not acceptance evidence for Sillage.
 
 ## Retrieval Evaluation Gate
 

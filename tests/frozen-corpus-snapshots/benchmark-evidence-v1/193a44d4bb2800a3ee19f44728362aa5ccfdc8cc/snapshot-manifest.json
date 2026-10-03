@@ -1,0 +1,103 @@
+{
+  "format": "frozen-corpus-source-snapshot-v1",
+  "source_commit": "193a44d4bb2800a3ee19f44728362aa5ccfdc8cc",
+  "snapshot_root": "tests/frozen-corpus-snapshots/benchmark-evidence-v1/193a44d4bb2800a3ee19f44728362aa5ccfdc8cc",
+  "source_sets": [
+    {
+      "benchmark": "v1.2 — Learned-Sparse Four-Profile Evaluation",
+      "source_hash": "388e29b7ba8fb2d3659b17e9022d377cedf7bad506545d0e572bb1f9ce049c75",
+      "source_paths": [
+        "tests/contracts/learned_sparse_task_corpus_v1.json"
+      ],
+      "verified_sha256": "388e29b7ba8fb2d3659b17e9022d377cedf7bad506545d0e572bb1f9ce049c75"
+    },
+    {
+      "benchmark": "v1.3 — Dense-Lane Promotion (re-justified judgment set v2)",
+      "source_hash": "4d7442df6c28c48808733a71a651a5720afb0dbf8946ab3ec913b564178634bb",
+      "source_paths": [
+        "tests/contracts/learned_sparse_task_corpus_v2.json"
+      ],
+      "verified_sha256": "4d7442df6c28c48808733a71a651a5720afb0dbf8946ab3ec913b564178634bb"
+    },
+    {
+      "benchmark": "v0.7 — Repository Intelligence",
+      "source_hash": "7b5d85566c2609675199b9c59c6890ef94c1cee152127b87a56fbd28370df869",
+      "source_paths": [
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
+        "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs",
+        "crates/ecosystem/maestria-retrieval/src/benchmark_common.rs"
+      ],
+      "verified_sha256": "7b5d85566c2609675199b9c59c6890ef94c1cee152127b87a56fbd28370df869"
+    },
+    {
+      "benchmark": "v0.8 — Visual Document Retrieval",
+      "source_hash": "92e483fed3f00eb070a32de704ba5e0ae7021a95ea4c4b1bcf57e6401f02ce1b",
+      "source_paths": [
+        "docs/ARCHITECTURE.md",
+        "crates/ecosystem/maestria-retrieval/src/visual_benchmark_metrics.rs",
+        "crates/ecosystem/maestria-retrieval/src/visual_benchmark_runner.rs",
+        "crates/ecosystem/maestria-retrieval/src/visual_benchmark_schema.rs",
+        "crates/apps/maestria-daemon/tests/maestria_visual_evaluation.rs",
+        "crates/ecosystem/maestria-retrieval/src/benchmark_common.rs",
+        "scripts/siglip_visual_server.py",
+        "scripts/requirements-visual.txt",
+        "scripts/rapidocr_server.py",
+        "scripts/requirements-rapidocr.txt",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-benchmark-v1.json",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/text-page.svg",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/table-page.svg",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/chart-page.svg",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/figure-page.svg",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/formula-page.svg",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-v1/scanned-page.svg"
+      ],
+      "verified_sha256": "92e483fed3f00eb070a32de704ba5e0ae7021a95ea4c4b1bcf57e6401f02ce1b"
+    },
+    {
+      "benchmark": "v1.0 — Python Repository Intelligence",
+      "source_hash": "c92046f696a1375b6bc5bcef7e120cc11bcd5134a9aa449f8a02eeab04343527",
+      "source_paths": [
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/pyproject.toml",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/README.md",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/src/wishlist/__init__.py",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/src/wishlist/items.py",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/src/wishlist/orders.py",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/src/wishlist/pricing.py",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/tests/test_items.py",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/tests/test_orders.py",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-benchmark-v1.json",
+        "crates/ecosystem/maestria-retrieval/tests/python_repository_benchmark_tests.rs"
+      ],
+      "verified_sha256": "c92046f696a1375b6bc5bcef7e120cc11bcd5134a9aa449f8a02eeab04343527"
+    },
+    {
+      "benchmark": "v0.4 — Deterministic Search Baseline",
+      "source_hash": "d43f55de53a7550b3e784c6c9d21ae23004e5c0820046a2d4df3dfeea08f79ca",
+      "source_paths": [
+        "README.md",
+        "docs/ARCHITECTURE.md",
+        "docs/PHILOSOPHY.md",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
+      ],
+      "verified_sha256": "d43f55de53a7550b3e784c6c9d21ae23004e5c0820046a2d4df3dfeea08f79ca"
+    },
+    {
+      "benchmark": "v1.1 — Web Repository Intelligence",
+      "source_hash": "fd8aba735823e00bba32f3570123a704be51b3165e3fa0432b438f1db89a5321",
+      "source_paths": [
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/package.json",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/README.md",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/index.ts",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/components/Button.tsx",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/components/Card.tsx",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/models/Item.ts",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/utils/format.ts",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/types.ts",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/tests/button.test.ts",
+        "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-benchmark-v1.json",
+        "crates/ecosystem/maestria-retrieval/tests/web_repository_benchmark_tests.rs"
+      ],
+      "verified_sha256": "fd8aba735823e00bba32f3570123a704be51b3165e3fa0432b438f1db89a5321"
+    }
+  ]
+}

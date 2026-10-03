@@ -1,0 +1,221 @@
+use sillage_domain::{EvidenceCandidate, EvidenceCandidateDto, RerankPosition};
+use sillage_retrieval::bounded_reranker::BoundedReranker;
+use sillage_retrieval::traits::{CandidateReranker, RerankScorer};
+use sillage_retrieval::types::{
+    RankedCandidate, RerankLimits, RerankRequest, RerankScoreComponents, RerankScorerInput,
+};
+use sillage_retrieval::{RetrievalError, RetrievalResult};
+use std::sync::Arc;
+
+use crate::common::{candidate_fixture, dummy_plan};
+
+struct MockScorer {
+    model: String,
+    fingerprint: sillage_domain::RetrievalModelFingerprint,
+}
+
+impl RerankScorer for MockScorer {
+    fn model(&self) -> String {
+        self.model.clone()
+    }
+    fn fingerprint(&self) -> sillage_domain::RetrievalModelFingerprint {
+        self.fingerprint.clone()
+    }
+
+    fn compatible_with(&self, _plan: &sillage_domain::RetrievalModelFingerprint) -> bool {
+        true
+    }
+    fn score(&self, input: RerankScorerInput) -> Result<RerankScoreComponents, RetrievalError> {
+        let id_val = input.candidate.evidence_id().value();
+        if id_val == 999 {
+            return Err(RetrievalError::Timeout);
+        }
+        if id_val == 998 {
+            return Err(RetrievalError::Cancelled);
+        }
+        Ok(RerankScoreComponents {
+            relevance: (id_val * 10) as u32,
+            constraints: vec![sillage_retrieval::types::RerankConstraintScore {
+                name: "query".into(),
+                score: (id_val * 5) as u32,
+            }],
+        })
+    }
+}
+
+fn create_test_candidate(id: u64, rank: usize) -> RetrievalResult<RankedCandidate> {
+    let base = candidate_fixture()?;
+    let candidate = EvidenceCandidate::new(EvidenceCandidateDto {
+        evidence_id: sillage_domain::EvidenceId::new(id),
+        artifact_version: base.artifact_version(),
+        source_span: base.source_span().clone(),
+        scores: base.scores().clone(),
+        trust: base.trust(),
+        freshness: base.freshness(),
+        duplicate_cluster: base.duplicate_cluster(),
+        reasons: base.reasons().to_vec(),
+        coverage_keys: base.coverage_keys().to_vec(),
+    })?;
+    Ok(RankedCandidate { candidate, rank })
+}
+
+#[test]
+fn test_bounded_reranker_limits_and_trace() -> RetrievalResult<()> {
+    let scorer = Arc::new(MockScorer {
+        model: "mock-scorer".into(),
+        fingerprint: sillage_domain::RetrievalModelFingerprint::new("v1".to_string())?,
+    });
+    let limits = RerankLimits {
+        input_cap: 5,
+        score_cap: 3,
+        output_cap: 2,
+    };
+    let reranker = BoundedReranker::new(scorer, limits);
+
+    let plan = dummy_plan()?;
+    let candidates = vec![
+        create_test_candidate(1, 0)?,
+        create_test_candidate(2, 1)?,
+        create_test_candidate(3, 2)?,
+        create_test_candidate(4, 3)?,
+        create_test_candidate(5, 4)?,
+        create_test_candidate(6, 5)?, // Exceeds input cap
+    ];
+
+    let request = RerankRequest {
+        plan: std::sync::Arc::new(plan),
+        candidates,
+        max_latency_ms: 100,
+    };
+
+    let result = reranker.rerank(request)?;
+
+    assert_eq!(result.candidates.len(), 2);
+    assert_eq!(result.candidates[0].candidate.evidence_id().value(), 3);
+    assert_eq!(result.candidates[1].candidate.evidence_id().value(), 2);
+
+    let trace = result.trace;
+    assert_eq!(trace.candidates.len(), 6);
+    assert_eq!(trace.input_cap, 5);
+    assert_eq!(trace.score_cap, 3);
+    assert_eq!(trace.output_cap, 2);
+
+    let c3 = trace
+        .candidates
+        .iter()
+        .find(|c| c.candidate_id.value() == 3)
+        .ok_or(RetrievalError::Internal(
+            "missing reranked candidate".into(),
+        ))?;
+    assert_eq!(c3.position, RerankPosition::Reranked(0));
+    assert_eq!(c3.relevance_score, Some(30));
+    assert_eq!(
+        c3.constraint_scores,
+        vec![sillage_domain::SearchTraceConstraintScore {
+            name: "query".into(),
+            score: 15,
+        }]
+    );
+
+    let c1 = trace
+        .candidates
+        .iter()
+        .find(|c| c.candidate_id.value() == 1)
+        .ok_or(RetrievalError::Internal(
+            "missing first candidate trace".into(),
+        ))?;
+    assert_eq!(c1.position, RerankPosition::SkippedCap);
+
+    let c4 = trace
+        .candidates
+        .iter()
+        .find(|c| c.candidate_id.value() == 4)
+        .ok_or(RetrievalError::Internal(
+            "missing skipped candidate trace".into(),
+        ))?;
+    assert_eq!(c4.position, RerankPosition::SkippedCap);
+    let c6 = trace
+        .candidates
+        .iter()
+        .find(|c| c.candidate_id.value() == 6)
+        .ok_or(RetrievalError::Internal(
+            "missing capped candidate trace".into(),
+        ))?;
+    assert_eq!(c6.position, RerankPosition::SkippedCap);
+    Ok(())
+}
+
+#[test]
+fn test_bounded_reranker_fallback() -> RetrievalResult<()> {
+    let scorer = Arc::new(MockScorer {
+        model: "mock-scorer".into(),
+        fingerprint: sillage_domain::RetrievalModelFingerprint::new("v1".to_string())?,
+    });
+    let limits = RerankLimits {
+        input_cap: 5,
+        score_cap: 5,
+        output_cap: 5,
+    };
+    let reranker = BoundedReranker::new(scorer, limits);
+
+    let plan = dummy_plan()?;
+    let candidates = vec![
+        create_test_candidate(1, 0)?,
+        create_test_candidate(999, 1)?, // Timeout
+        create_test_candidate(2, 2)?,
+    ];
+
+    let request = RerankRequest {
+        plan: std::sync::Arc::new(plan),
+        candidates,
+        max_latency_ms: 100,
+    };
+
+    let result = reranker.rerank(request)?;
+
+    assert_eq!(result.candidates[0].candidate.evidence_id().value(), 2);
+    assert_eq!(result.candidates[1].candidate.evidence_id().value(), 1);
+    assert_eq!(result.candidates[2].candidate.evidence_id().value(), 999);
+
+    let trace = result.trace;
+    let c999 = trace
+        .candidates
+        .iter()
+        .find(|c| c.candidate_id.value() == 999)
+        .ok_or(RetrievalError::Internal(
+            "missing fallback candidate trace".into(),
+        ))?;
+    assert!(matches!(c999.position, RerankPosition::ErrorFallback(_)));
+    assert_eq!(c999.relevance_score, None);
+    Ok(())
+}
+
+#[test]
+fn test_bounded_reranker_cancellation() -> RetrievalResult<()> {
+    let scorer = Arc::new(MockScorer {
+        model: "mock-scorer".into(),
+        fingerprint: sillage_domain::RetrievalModelFingerprint::new("v1".to_string())?,
+    });
+    let limits = RerankLimits {
+        input_cap: 5,
+        score_cap: 5,
+        output_cap: 5,
+    };
+    let reranker = BoundedReranker::new(scorer, limits);
+
+    let plan = dummy_plan()?;
+    let candidates = vec![
+        create_test_candidate(1, 0)?,
+        create_test_candidate(998, 1)?, // Cancelled
+    ];
+
+    let request = RerankRequest {
+        plan: std::sync::Arc::new(plan),
+        candidates,
+        max_latency_ms: 100,
+    };
+
+    let result = reranker.rerank(request);
+    assert!(matches!(result, Err(RetrievalError::Cancelled)));
+    Ok(())
+}

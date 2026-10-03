@@ -1,0 +1,17 @@
+[package]
+name = "sillage-ports"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+contract-tests = ["dep:sillage-test-support"]
+
+[dependencies]
+sillage-domain = { workspace = true }
+serde = { workspace = true }
+sillage-test-support = { workspace = true, optional = true }
+
+[dev-dependencies]
+sillage-test-support = { workspace = true }

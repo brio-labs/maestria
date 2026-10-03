@@ -1,6 +1,6 @@
 # Hybrid Promotion Criteria
 
-This document defines the criteria and evaluation requirements for promoting a hybrid search candidate (v0.5) over the deterministic baseline (v0.4). Consistent with the Maestria philosophy, performance claims must be grounded in measured, typed evidence against a versioned corpus, and the process remains model and backend agnostic.
+This document defines the criteria and evaluation requirements for promoting a hybrid search candidate (v0.5) over the deterministic baseline (v0.4). Consistent with the Sillage philosophy, performance claims must be grounded in measured, typed evidence against a versioned corpus, and the process remains model and backend agnostic.
 
 ## 1. Frozen Baseline (v0.4)
 

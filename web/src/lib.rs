@@ -1,4 +1,4 @@
-/// Maestria Studio browser client façade.
+/// Sillage Studio browser client façade.
 ///
 /// Responsibility map:
 /// - `api`: browser request and response boundary.

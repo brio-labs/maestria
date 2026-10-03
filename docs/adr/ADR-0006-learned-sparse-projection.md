@@ -13,7 +13,7 @@ The backend alternatives are:
 
 ## Decision
 
-Use dedicated SQLite tables in `maestria-storage-sqlite` for the research projection. Store one complete serialized sparse identity per generation and one typed persistence row per chunk vector. Keep lifecycle state as a durable mirror of the shared `IndexGenerationRegistry`; require the caller to provide the expected and next typed lifecycle states for every transition.
+Use dedicated SQLite tables in `sillage-storage-sqlite` for the research projection. Store one complete serialized sparse identity per generation and one typed persistence row per chunk vector. Keep lifecycle state as a durable mirror of the shared `IndexGenerationRegistry`; require the caller to provide the expected and next typed lifecycle states for every transition.
 
 The projection:
 

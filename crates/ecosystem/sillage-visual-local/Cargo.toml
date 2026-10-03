@@ -1,0 +1,17 @@
+[package]
+name = "sillage-visual-local"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+base64 = { workspace = true }
+sillage-adapter-http = { workspace = true }
+sillage-domain = { workspace = true }
+sillage-ports = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+[dev-dependencies]
+sillage-ports = { workspace = true, features = ["contract-tests"] }
+sillage-test-support = { workspace = true }

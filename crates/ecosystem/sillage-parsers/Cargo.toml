@@ -1,0 +1,17 @@
+[package]
+name = "sillage-parsers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+lopdf = { workspace = true }
+sillage-domain = { workspace = true }
+sillage-ports = { workspace = true }
+quick-xml = "0.41"
+zip = { version = "0.6.6", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+insta = { workspace = true }
+sillage-ports = { workspace = true, features = ["contract-tests"] }

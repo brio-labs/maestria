@@ -1,105 +1,833 @@
-# Implementation Roadmap
+# Sillage Product Roadmap
 
-This document serves as the single canonical implementation roadmap for the Maestria search architecture.
+This is the single canonical product roadmap, not a report of shipped features.
+The current developer build has a native **Slint** launcher, a locally built
+search-only Debian package, and the existing CLI/daemon with document-content
+retrieval. Legacy Tauri/React sources remain until behavioral parity and
+release criteria permit their removal. Scoped external search and authorized
+bounded, typed passage previews were exercised independently without a model.
+An opt-in Slint client displays cited passages and reopens evidence for actions;
+isolated X11 covered copied text, changed-source denial and superseded results.
+An isolated **source-built** Weston/Wayland run also exercised typed keyboard
+search, passage detail and Copy passage through its private Wayland clipboard.
+Hosted Ubuntu 24.04 CI now independently builds, installs and smokes launcher,
+search and isolated worker packages at the committed Sillage cutover; the
+Weston/Wayland passage action above used **source-built** binaries instead.
+Installed-artifact native latency, version-different upgrades, stock Ubuntu
+24.04 Wayland shortcut activation and full combined release acceptance remain
+open. The same-run **installed Ubuntu 26.04** private KDE consent pass and
+earlier source-built AT-SPI dialog pass are distinguished in M1.
+None of these packages exits a product milestone.
+[PR #516](https://github.com/brio-labs/maestria/pull/516) remains a draft
+baseline, not a release candidate.
 
-The roadmap is phased. Advancing to a subsequent phase requires meeting all observable exit criteria of the current phase.
+## Product boundaries and work order
 
-## Phase 1: Deterministic Baseline
-Establish a robust, entirely deterministic foundation for exact and structure-aware search.
-*   **Goals:** Exact identifiers, lexical candidates, source spans, provenance, and reproducible traces.
-*   **Exit Criteria:**
-    *   A versioned Maestria evaluation corpus reports exact-match precision/recall and latency against an approved baseline.
-    *   Search results map to immutable source versions and spans, with no scope or ACL leakage.
-    *   Index mutations are journaled and projections can be rebuilt from authoritative state.
+- **Content first:** find an answer-bearing passage *inside* an approved user
+  file, show its bounded source excerpt and line/page, and offer a safe action to
+  open or copy it. Filename/path search alone does not satisfy content search.
+- **Take only what you need:** the launcher runs without a daemon or model;
+  standalone content search runs without a launcher, Studio, extension broker,
+  model, or AI answer generator. The combined product uses the same search
+  engine and index owner, not a forked retrieval implementation.
+- **Explicit consent:** approved read roots, per-consumer revocable access,
+  source freshness, and authorization before retrieval, preview, and action.
+  Embeddings and OCR are separate opt-in capabilities. No arbitrary typed shell
+  evaluation, network listener, implicit indexing of the home directory, or
+  unattended daemon/autostart installation.
+- **Native experience:** replace Tauri with Slint in one clean cutover while
+  preserving the existing binary, desktop/portal identity, user settings,
+  shortcuts, and keyboard semantics. Build a distinctive, polished Sillage
+  interface informed by Raycast's usability, not a copy of its assets.
 
-## Phase 2: Hybrid Search and Reranking
-Introduce additional candidate lanes only when they improve the deterministic baseline for a measured query class.
-*   **Goals:** Fuse independently testable lexical and semantic candidates, then apply bounded reranking and evidence diversity.
-*   **Exit Criteria:**
-    *   Versioned evaluation reports show a statistically meaningful quality improvement for the target query set within declared latency, memory, privacy, security, and energy budgets.
-    *   Reranking, fusion, and model/index fingerprints are recorded in reproducible traces.
-    *   Pluggable adapters allow swapping candidate implementations without core-system changes.
+M1 (Slint) and M2 (standalone search) can progress in parallel. M3 integrates
+both and measures actual passage-finding utility. M4 (extensions) can progress
+alongside M1–M3 once the command/action contract is stable. Only M5 requires
+all four. **M2's search-only artifact can ship independently before M5; this
+does not declare the combined product released.** The historical v0.9 research
+milestone and [#60](https://github.com/brio-labs/maestria/issues/60) remain
+separate and do not unblock product milestones.
 
-## Phase 3: Adaptive Planning
-Implement dynamic query routing and bounded multi-stage retrieval.
-*   **Goals:** Select deterministic, lexical, semantic, graph, temporal, code, or visual lanes by typed intent and available budget.
-*   **Exit Criteria:**
-    *   Routing and decomposition are evaluated against a versioned judgment set and never bypass scope, ACL, trust, sensitivity, quarantine, or prompt-injection filters before scoring or exposure.
-    *   Every plan has explicit budgets, stopping conditions, evidence coverage, and abstention behavior.
-    *   Implementation of the observation/candidate/promotion lifecycle detailed in [MEMORY.md](./MEMORY.md).
+### Execution order and review gate
 
-## Phase 4: Code Intelligence
-Deep structural and contextual understanding of codebases.
-*   **Goals:** Cross-file dependency resolution, type-aware search, and semantic similarity of code blocks.
-*   **Exit Criteria:**
-    *   A versioned Rust repository benchmark reports symbol, relation, and exact-span recall for supported language features across frozen query classes.
-    *   Live freshness checks detect changed worktree sources without returning stale evidence as current.
-    *   Code retrieval preserves ACL, provenance, and deterministic trace requirements.
-    *   Specialized routing is shadowed by default and activates only for query classes with a measured evidence-quality, freshness, and latency win; unsupported or unsafe questions abstain.
-    *   The phase uses the shared Rule 44 evaluation contract: quality, latency, memory, privacy, security, and energy are measured on the versioned corpus.
-
-## Phase 5: Visual Documents
-Expand search capabilities to include visual assets and structured document regions.
-*   **Goals:** Retrieve pages, tables, charts, figures, and visual regions with source coordinates.
-*   **Exit Criteria:**
-    *   A versioned visual-document benchmark reports region recall, citation alignment, and table/figure coverage.
-    *   Visual candidates retain immutable page/region provenance and pass the same scope, trust, and quarantine gates as text.
-    *   The phase uses the shared Rule 44 evaluation contract: quality, latency, memory, privacy, security, and energy are measured on the versioned corpus.
-
-## Phase 6: Advanced Research
-Explore additional retrieval paradigms only where measured quality/cost/security frontiers justify them.
-*   **Goals:** Evaluate experimental architectures without turning candidates into permanent defaults.
-*   **Exit Criteria:**
-    *   Candidates listed in [RESEARCH.md](./RESEARCH.md) are evaluated against quality, latency, memory, privacy, security, and energy budgets.
-    *   Promotion records include reproducible corpus/index fingerprints, rollback compatibility, and a dated decision.
-
-
-
-**Current checkpoint (2026-09-11):** Phase 6 remains open. The learned-sparse
-and late-interaction evaluations are complete non-promoting decisions; the
-measured dense result promotes only `DomainTerminology`.
-The bounded supported-route run completed: repository process-RSS and
-persisted-index disk measurements now emit real values, while RAPL energy and
-serving-boundary security counters remain unavailable. The real visual
-provider now has a measured four-thread ONNX optimization that materially
-reduces inference latency, but the optimized end-to-end run still exceeds
-four of six frozen visual latency budgets and leaves resource measurement
-status unavailable. The next gate is closing those evidence gaps for the
-current exact, lexical, dense-hybrid, repository, and visual routes. No
-additional research lane is implemented solely because its issue is next in
-numeric order.
-
-## Version-to-Phase Mapping
-
-The following table maps roadmap phases to each capability surface with its
-current status.
-
-| Capability | Phase | Status |
+| Wave | Unblocked work | Gate to the next wave |
 |---|---|---|
-| Local file indexing | 1 | Stable |
-| Lexical (BM25) search | 1 | Stable |
-| Evidence opening | 1 | Stable |
-| Daemon projection | 1 | Stable |
-| Task lifecycle & validation | 1 | Stable |
-| Approval resolution | 1 | Stable |
-| Memory candidates & promotion | 1 | Stable |
-| Search observability (explain/trace/compare) | 3 | Stable |
-| Index generations observability | 3 | Stable |
-| Evidence coverage observability | 3 | Stable |
-| Repository/Cargo code indexing | 4 | Shadowed |
-| Code symbol/path/regex/context search | 4 | Shadowed |
-| Visual document region retrieval | 5 | Research-only (thread-pinned latency optimization retained; promotion blocked) |
-| Dense (embedding) retrieval | 2 | Provider-dependent |
-| Web evidence with governed adapter | 3 | Provider-dependent |
-| Advanced dense / learned-sparse reranking | 2 | Research-only |
-| Late-interaction / graph / temporal retrieval | 6 | Research-only |
-| Multimodal promotion | 6 | Research-only |
+| 0 | Fix [startup index ownership #517](https://github.com/brio-labs/maestria/issues/517), prove [Slint backend and license #518](https://github.com/brio-labs/maestria/issues/518), define [visual system #521](https://github.com/brio-labs/maestria/issues/521), and expose [standalone search boundary #524](https://github.com/brio-labs/maestria/issues/524). These are independent. | Actual behavior and licensing evidence; typed, scoped client contract. |
+| 1 | Build [resident Slint shell #519](https://github.com/brio-labs/maestria/issues/519); in parallel, [root lifecycle #525](https://github.com/brio-labs/maestria/issues/525), [cited previews #526](https://github.com/brio-labs/maestria/issues/526), and [bounded queries #527](https://github.com/brio-labs/maestria/issues/527). | App-only shell still works; authorized lexical passages arrive without a model. |
+| 2 | Port [native actions #520](https://github.com/brio-labs/maestria/issues/520) and [polished Slint UI #522](https://github.com/brio-labs/maestria/issues/522) independently after #519; add [document formats #528](https://github.com/brio-labs/maestria/issues/528). Start [extension SDK #535](https://github.com/brio-labs/maestria/issues/535) after the command contract is stable; evaluate [optional dense #533](https://github.com/brio-labs/maestria/issues/533) after #527. | Native parity, source coverage and judged quality, not mock screens or provider availability. |
+| 3 | Complete [Slint cutover #523](https://github.com/brio-labs/maestria/issues/523), [search-only acceptance #529](https://github.com/brio-labs/maestria/issues/529), [launcher content #530](https://github.com/brio-labs/maestria/issues/530), and [extension isolation #536](https://github.com/brio-labs/maestria/issues/536). | Independently usable search and visible, authorized results in the real Slint UI. |
+| 4 | Finish [source actions #531](https://github.com/brio-labs/maestria/issues/531), [ranking #532](https://github.com/brio-labs/maestria/issues/532), and [extension lifecycle #537](https://github.com/brio-labs/maestria/issues/537); then [passage-level acceptance #534](https://github.com/brio-labs/maestria/issues/534). | No exact-hit, freshness, or access regression. |
+| 5 | Deliver [modular packaging #538](https://github.com/brio-labs/maestria/issues/538) and only then [combined release proof #539](https://github.com/brio-labs/maestria/issues/539). | Published product measurements and fresh-install evidence. |
 
+Low-priority [#540–#544](https://github.com/brio-labs/maestria/issues/540)
+remain independent, non-blocking options; their dependency links are in the
+issues. This schedule follows actual prerequisites, not milestone numbers
+alone. Every implementation follows [PHILOSOPHY.md](PHILOSOPHY.md):
+deterministic kernel and acyclic dependencies; explicit governed effects,
+typed domain/DTO/port boundaries, bounded channels and cancellation; source
+snapshots and pre-score authorization; independently tested adapter contracts,
+single-owner lifecycle, clean API cutovers, and measured per-query-class
+retrieval promotion. No backend API handler mutates a database directly.
 
-## Phase Advancement
+## Milestone 1: Slint Launcher and Native Experience
 
-Phases advance when their exit criteria are met and demonstrated by the
-checked-in benchmark contracts under `tests/contracts/` and the CI jobs that
-run them. There is no release ladder: `main` is always the current build, the
-workspace version stays at `0.0.0` until the project ships, and lint-exemption
-expiries are calendar dates enforced by `philosophy-check`.
+**Status:** In progress. The native Slint binary, X11/Wayland windows, and local
+Debian/AppImage packages exist. Local X11 package smoke verified application
+launch, arithmetic/clipboard, first-run deferral, Preferences, resident
+reactivation, shortcut setup/restoration, Caps/Num-lock activation, and
+conflicting-grab rejection. An isolated packaged Weston Wayland run with a
+fake seat verified the first-run offer, AT-SPI deferral/focus, resident
+reactivation, and quit. Ubuntu 24.04's Weston 13 lacks a fake seat; the
+locally exercised no-seat package path verifies persistence, not focus.
+The final packages were built against Ubuntu 24.04 and their executables
+passed a `glibc` ≤2.39 ABI check. Ubuntu apt installation without search
+reached a visible X11 window, but the container first-run AT-SPI offer check
+timed out; X11 and nested Weston smoke passed on the host using these exact
+Ubuntu-built Debian/AppImage payloads, not inside the Ubuntu container.
+Hosted Ubuntu CI now passes independent and combined package smokes plus a
+same-run installed launcher Debian's private Ubuntu 26.04 KDE Wayland
+GlobalShortcuts approval and denial. Stock Ubuntu 24.04 compositor fallback,
+installed Wayland FileChooser, full cross-compositor accessibility, release
+performance and legacy-source removal remain open.
+
+A separate **source-built** launcher ran on nested KWin Wayland inside owned
+private Xvfb, D-Bus and XDG state with its real desktop-entry identity. Its
+Setup button requested KDE GlobalShortcuts portal v2 `CreateSession` and
+`BindShortcuts` for `activate-launcher` / `CTRL+space`, showing KDE's consent
+dialog. In one fresh session, approving with the dialog's AT-SPI “OK” action
+returned `Response=0`, `Ctrl+Space`, and persisted
+`shortcutSetup = "requested"`. In another fresh session, AT-SPI “Cancel”
+returned `Response=1`, closed the portal session and left settings absent.
+Only the private nested X11 pointer activated the launcher Setup button; the
+desktop dialog used AT-SPI. This is a real Wayland portal decision, not a
+FileChooser proxy or installed Ubuntu package shortcut smoke. No host desktop
+preferences, focus or permissions were changed.
+
+Stock Ubuntu 24.04's `xdg-desktop-portal` 1.18.4 predates host
+`Registry` (added in 1.19.4); the launcher registers its unsandboxed
+application ID before requesting GlobalShortcuts. KDE 5.27 advertises
+the shortcut backend, but skipping host registration to reach it would
+discard per-app identity. In [run 36454007556 at `4962a0d7`](https://github.com/brio-labs/maestria/actions/runs/36454007556),
+the same-run Ubuntu 24.04-built launcher Debian installed on Ubuntu 26.04
+passed fresh KDE Wayland `CreateSession` / `BindShortcuts` sessions with the
+registered launcher ID. Approval returned Bind response `0`, `Ctrl+Space`
+and a persisted preference after quit; denial returned `1` with no
+preference. Both KDE dialog decisions used only a private Xvfb pointer,
+**not AT-SPI**, and neither optional search nor worker was installed.
+This does not establish stock Ubuntu 24.04 Wayland shortcuts. Actual
+version-upgrade and first Ubuntu Copy AT-SPI activation remain separate gates.
+
+The stock Ubuntu GNOME fallback is a user-created compositor shortcut for
+`sillage-launcher --activate` ([instructions](OPERATIONS.md#8-opt-in-linux-package-onboarding));
+the launcher does not register or remove that binding. Documentation of this
+manual route does not prove a packaged compositor activation or retention
+across a version-different upgrade.
+
+[Product milestone](https://github.com/brio-labs/maestria/milestone/10).
+
+**Scope:** Decide Slint's distribution license and Linux X11/Wayland backend,
+including software fallback and accessibility. Replace the resident Tauri
+window, React/Vite renderer, plugin-owned shortcuts/dialogs/clipboard/opener,
+WebDriver-only acceptance, and Tauri packaging with one Slint implementation.
+Keep XDG application discovery, safe host commands, arithmetic, the selected-
+file chooser, generation-aware query work, global shortcut or explicit
+compositor fallback, and preferences. Define and implement an original visual
+system: compact high-density results, typography, icons, clear grouping and
+selection, action panel, keyboard hints, coherent loading/error/empty states,
+HiDPI, light/dark contrast, reduced motion, and screen-reader semantics.
+
+The [original visual reference](evidence/sillage-visual-reference.svg) is an
+annotated design mockup; actual Slint X11/Wayland windows are documented in
+[research evidence](RESEARCH.md#6-actual-slint-launcher-process-evidence-2026-09-24).
+
+**Exit criteria:** On X11 and separately on Wayland, a fresh user can invoke,
+find and launch an app, calculate `2 + 2`, copy `4`, dismiss and reopen without a
+daemon or model. `--activate` routes to the existing resident process and
+`--quit` exits cleanly. This is an intentionally breaking identity cutover:
+the executable, Debian package, desktop/portal ID, settings root, and data
+paths use new Sillage identities. Old Maestria IDs and paths are neither
+aliased nor migrated. Existing preferences, grants, compositor bindings,
+instances, credentials, and model assets remain untouched; retention or import
+across the rename has not been verified. Legacy CI/evidence below applies only
+to its original identity, and this rename does not satisfy any release gate.
+Actual Slint-window screenshots and keyboard/accessibility interactions
+demonstrate the approved visual design.
+The old Tauri/React launcher, stale native tests, build dependencies, and
+packaging are removed **only after** full behavioral parity is demonstrated;
+Studio remains a separate web surface.
+
+**Issues:** [Slint backend and license #518](https://github.com/brio-labs/maestria/issues/518)
+→ [resident shell #519](https://github.com/brio-labs/maestria/issues/519)
+→ [native actions and shortcuts #520](https://github.com/brio-labs/maestria/issues/520);
+[visual system #521](https://github.com/brio-labs/maestria/issues/521) and
+shell → [Slint UI #522](https://github.com/brio-labs/maestria/issues/522);
+then [test, CI, and package cutover #523](https://github.com/brio-labs/maestria/issues/523).
+
+## Milestone 2: Standalone Document-Content Search
+
+**Status:** In progress. Bounded authenticated `sillage.search`, provider-owned
+roots, durable watcher receipts, and external edit/delete/revoke/reapprove
+denial/restoration were exercised across independent processes and restarts.
+A separate search-only Debian artifact was built; its binary indexed an
+explicit approved root, served independent grant-scoped search/evidence/status,
+and denied an ungranted realm without launcher or model configuration.
+Search-only grants receive byte-bounded, typed cited previews without
+evidence-open permission; source edits and grant revocation deny stale content.
+Ubuntu 24.04 container apt installation and installed-process smoke passed
+locally for bounded v2 interactive Markdown, DOCX paragraph and text-PDF
+citations, image-only PDF OCR-needed reporting, evidence reopen, restart,
+revocation, and changed-source suppression. A fully indexed 10,000-file
+uninstrumented warm exact-phrase probe returned 197/200 successful requests,
+with successful separate-process CLI p95 78.42 ms and three daemon timeouts
+at the unchanged 100 ms deadline. During approval/indexing of 700 more files,
+the first six of 30 calls timed out with 429 initially pending; the later
+24 succeeded as indexing reached zero pending. A later warm run on the
+fully indexed retained corpus, after direct-path source lookup, succeeded
+199/200 with successful CLI p95 51.20 ms; one daemon timeout remained.
+With daemon tests running concurrently, 196/200 succeeded. The workloads
+differ, so no causal latency gain or 100 ms acceptance is claimed.
+The earlier runs did not pass active-indexing or native whole-path latency.
+Held-out passage relevance, portal approval/denial, extension isolation,
+and combined release proof remain open. The v2 interactive API now returns
+distinct authorized filename/path-only results for indexed text sources; it
+does not invent a passage or line number, and skips PDF paths. An independent
+search-only process found a filename-only source, suppressed an out-of-root
+name, denied a deleted source immediately, and denied removed roots and
+revoked grants. A 521-file settled private corpus initially produced four
+cold-request timeouts, and three more after restart, at the unchanged 100 ms
+daemon deadline. After query-first filename pruning, single-pass snapshot
+replay, compact watcher-state persistence, and prewarming before socket
+readiness, the rebuilt search-only daemon returned the late-position
+filename-only match in 30/30 independent-process requests immediately after
+restart (first CLI call 46.3 ms; CLI median 33.915 ms, maximum 69.0 ms).
+The first request after a watched source edit still timed out; deleting the
+source produced two timeouts before fresh queries returned no path. On a
+separate private 521-file fixture, replaying all event families took 141 ms
+during startup instrumentation; the indexed lexical-only source-event scan
+took 18–41 ms across subsequent measured startup/update rebuilds. A first
+changed-body query after indexing settled still timed out at the unchanged
+100 ms deadline: one trace reached the source snapshot at 43 ms, the root
+filter at 50 ms and the lexical result at 101 ms, before evidence reopen and
+durable audit. The warm retry returned the changed cited passage.
+
+The scoped interactive source filter now checks grant roots, manifest approval,
+and privacy exclusions in one pass, caching the final filter by manifest and
+exact grant roots rather than caching an all-roots filter then rescanning and
+intersecting. A two-root A→B→A passage regression passed. In one local
+source-built CLI run over 521 short Markdown files, the initial cold
+interactive request still timed out (111.1 ms CLI elapsed). Once indexing
+settled after a live edit, the first request returned the changed cited
+passage in 66.7 ms CLI elapsed (warm retry 52.1 ms); the first request after
+settled deletion denied it in 48.7 ms. This small-document, single-run result
+does not establish the deadline on the earlier larger corpus or during active
+indexing.
+
+Instrumenting the same source-built cold-query path exposed a separate
+readiness cost: after `indexing-status` reported 521 files settled, the request
+spent about 42 ms building its source snapshot and 7 ms on the scoped filter,
+then Tantivy's deferred writer commit took 111 ms and exceeded the deadline.
+Committing each artifact before publishing its completion was tested and
+reverted: indexing finished in 19.19 s, but the first query took 449.2 ms and
+timed out. The current ingestion-owned batch publication and feedback barrier
+were implemented later; the failed per-artifact variant is not deployed.
+
+Two bounded commit thresholds were then measured and reverted on a fresh
+521-short-Markdown-file standalone CLI fixture with an exact root grant.
+Committing after 64 artifacts indexed in 18.28 s; the first settled cold
+query (118.2 ms CLI) and first settled edit (112.9 ms) both timed out at the
+100 ms daemon deadline. At 128 artifacts, indexing took 18.09 s, with
+118.9 ms cold and 116.1 ms edit timeouts. A separate quiet-period writer
+committer improved one settled run (113.1 ms cold and 106.2 ms edit CLI
+elapsed, both returning cited passages) but timed out during active indexing
+(118.4 ms at 128/521 accepted files) and on deletion in a second run
+(119.4 ms). It was also reverted. Neither background timer nor threshold
+establishes a correct completion/reader-visibility boundary or active-indexing
+latency; both can leave multiple Tantivy segments for subsequent queries.
+
+Startup prewarming and narrower replay alone do not establish active-indexing
+latency, 200-sample native whole-path performance or combined-release acceptance.
+Version-18 grant storage now freezes a nonempty set of approved roots per new
+consumer grant; old grants retain explicit legacy all-approved semantics until
+revoked and reissued. A live two-sibling-root daemon regression exercised
+root-specific passage and filename search, direct evidence denial, consumer
+inventory, restart/replay, and root removal. With the rebuilt standalone CLI,
+two independent consumers received different frozen root scopes: A returned
+its cited passage and filename path but not B's, reported one indexed file,
+and received typed `SourceNotSelected` for B's real evidence ID. The live
+two-root integration also indexed a one-page PDF under B: B opened its
+authentic page-1 excerpt and source path; A could neither search its passage
+nor open its evidence ID (`SourceNotSelected`). After restart both scopes
+persisted; removing A's approved root reduced A's inventory to zero while B
+still retrieved its cited passage. A fresh Ubuntu 24.04 search-only Debian
+package in `target/search-packages-current/` passed payload verification and
+disposable apt-installed CLI/daemon smoke: approving B after issuing A's
+credential did not expand A's scope, inventory or direct evidence access;
+B's separate grant returned its cited passage and reopened evidence. Both
+credentials persisted across restart. Fresh Ubuntu-built launcher Debian and
+AppImage payloads passed metadata, desktop-ID and glibc-ABI verification; the
+combined apt install and bounded installed X11 Slint smoke passed in disposable
+Ubuntu 24.04. The test now enables `org.a11y.Status.IsEnabled` on its private
+bus before launching Slint: without it, AccessKit produced a visible window
+but no AT-SPI tree. The Debian and AppImage package smoke exercised the
+first-run offer, deferral, Preferences, resident reactivation, calculations
+and clipboard; X11 shortcut setup persisted across restart and rejected a
+conflicting grab. Nested Weston exercised startup, offer/deferral, reactivation
+and quit without verifying Wayland passage actions or live portal grants.
+Hosted Ubuntu 24.04 CI [run 36154676323](https://github.com/brio-labs/maestria/actions/runs/36154676323)
+rebuilt, installed and smoke-tested the launcher-only and search-only Debian
+packages, and rebuilt/smoke-tested the launcher AppImage. Its Clippy and
+philosophy jobs failed on the structural gate present at commit `fc748efe`;
+these package jobs do not test later refactors or extension installation.
+Active-indexing latency and combined-release acceptance remain open; the
+original local package directories still contain older artifacts.
+
+After the structural cutover, the local full workspace test command passed
+without editing sources during its repository benchmark; the strict philosophy
+and Clippy gates also passed after a focused PDF-region reopen regression.
+The current source-built search CLI and daemon, with two disposable Markdown
+roots and separate consumer credentials, returned both real cited passages;
+the earlier consumer could not search or open the later-approved root
+(`SourceNotSelected`), while the later consumer reopened its own evidence.
+This smoke did not install rebuilt Ubuntu packages or resolve the intermittent
+Tantivy startup `LockBusy` tracked in [#517](https://github.com/brio-labs/maestria/issues/517).
+
+The subsequent hosted Ubuntu 24.04 [run 36340469343](https://github.com/brio-labs/maestria/actions/runs/36340469343)
+at commit `a74c4cda` passed check, philosophy, strict Clippy, docs, full tests,
+nextest, launcher-native and search-package. The launcher Debian/AppImage and
+search-only Debian were rebuilt, inspected, installed and smoke-tested by
+their separate jobs. Those artifacts and results cover the committed
+structural cutover, not later visibility or extension-package changes.
+
+The source-built ingestion path, subsequently packaged by the Ubuntu search job,
+publishes Tantivy writes with `commit_and_reload` before full-text completion feedback;
+reads do not commit. A blocked-publication regression covered edit, deletion
+and restart. Watcher admission holds at most eight unconfirmed source deliveries,
+probes only enqueued receipts, and replaces durably confirmed slots during the
+same scan. A grant-scoped preview rechecks current source versions on unrelated
+revision changes rather than dropping all valid citations; the same-source
+staleness check remains. Before these fixes, 40/40 active queries timed out at
+the unchanged 100 ms deadline because durable audit waited behind ingestion.
+After them, a disposable two-passage Markdown socket fixture returned 200/200
+cited results in each class: fresh p50/p95/p99 24.50/27.83/31.29 ms, edited
+27.86/32.85/35.30 ms, and other passage after deletion
+25.32/29.30/32.57 ms. During 650 newly observed Markdown files, 200/200
+searches returned the previously indexed real excerpt with durable audit,
+p50/p95/p99 29.70/35.97/43.80 ms, maximum 79.13 ms; 610 files remained
+pending at the last interaction and the watcher reached zero pending after
+72 more seconds. These are socket-API samples from short documents, **not**
+native Slint latency, a large retained corpus, latency from the installed
+Ubuntu package, or held-out passage relevance. The intermittent `LockBusy`
+[#517](https://github.com/brio-labs/maestria/issues/517) remains open.
+
+[Product milestone](https://github.com/brio-labs/maestria/milestone/11).
+
+**Scope:** Give another application a small, versioned authenticated local
+search/evidence/status client and give the search engine a search-only service
+and CLI lifecycle. Reuse existing parser, storage, governance, retrieval, and
+source-version contracts; do not require the launcher, Studio, tasks, agents,
+extensions, or an embedding provider. Let users approve/revoke roots and
+inspect progress, exclusions, formats, index freshness, and OCR-needed state.
+Return bounded, authorized excerpts and typed file lines/PDF pages, not just
+evidence IDs or a formatted source string. Preserve exact source identity,
+revalidate before opening, and reflect edits/deletes. Add an interactive
+local-text plan with bounded, cancellable work: the general-purpose daemon
+planner's 30-second allowance and uncancelled blocking tasks are not suitable
+for every keystroke. Add safe DOCX extraction; OCR remains opt-in.
+
+**Exit criteria:** A fresh search-only install, with no launcher or model,
+indexes an approved directory and lets an independent client find an exact
+phrase *inside* a text, Markdown, PDF, or supported DOCX document, inspect its
+cited passage and open its source. Deleted, changed, revoked, unsupported, and
+OCR-needed sources are represented honestly. A client without a scoped grant
+cannot enumerate previews or open evidence. One index owner serves concurrent
+consumers, with documented service restart and no public network listener.
+
+**Issues:** [service/client boundary #524](https://github.com/brio-labs/maestria/issues/524)
+→ [approved roots and freshness #525](https://github.com/brio-labs/maestria/issues/525),
+[cited previews #526](https://github.com/brio-labs/maestria/issues/526), and
+[bounded interactive search #527](https://github.com/brio-labs/maestria/issues/527);
+[document formats and OCR state #528](https://github.com/brio-labs/maestria/issues/528)
+→ [independent-client acceptance #529](https://github.com/brio-labs/maestria/issues/529).
+Existing [Tantivy startup LockBusy #517](https://github.com/brio-labs/maestria/issues/517)
+is a separate reliability blocker, not a reason to suppress the failure.
+
+## Milestone 3: Integrated Content Discovery
+
+**Status:** In progress. An optional separately authenticated search client
+now shows grouped highlighted passages, typed citations, a document detail
+view, filter categories over returned authorized evidence, and coverage/index
+metadata in Slint. On isolated X11, a phrase inside an approved Markdown file
+was visible, freshly reopened text copied, a changed source refused by the
+old action, and the next app query replaced the passage. Nested Weston Wayland
+showed a cited passage and detail, copied both excerpt and citation through
+an isolated X11 clipboard fallback with fresh provider evidence-open audits,
+and refused Open source after a source edit. A later private X11 Slint run
+displayed a filename-only result in a separate File/Path row, copied its path
+only after a fresh provider query, then refused to replace the clipboard after
+deletion. A fresh private X11 run using Ubuntu-built launcher and search
+executables byte-identical to the final Debian payloads again displayed
+File/Path, copied the authorized path, showed an explicit denial after its
+deletion, then displayed a highlighted body-only Markdown citation with
+document detail and copied its freshly reopened excerpt. The actual native
+clipboard helper also copied text in an isolated Weston compositor with
+`DISPLAY` absent; an independent `wl-paste` read it through standard
+Wayland data-device despite no data-control protocol. Weston's fake seat
+lacks virtual-keyboard injection. A private AT-SPI session exposed the
+pure-Wayland Slint window and focused search entry, but the entry did not
+expose `EditableText` and synthesized keyboard text produced no result.
+
+With the current source-built launcher/search pair in a disposable X11 session,
+an AT-SPI-selected Markdown passage action showed the freshly reopened excerpt
+and its line range in Slint, then invoked a private default viewer for the
+approved source. A second genuine one-page PDF action showed its reopened
+page citation and passed the verified `file:` URI with numeric `#page=1` to a
+private PDF default handler. This proves the hint was dispatched, not that
+arbitrary installed PDF viewers honor it; the Slint detail remains the exact
+fallback. These were not current Ubuntu Debian payloads or pure-Wayland actions.
+
+After the structural cutover, a separate private X11 run of the freshly built
+Slint launcher exposed its offer and persisted deferral through AT-SPI, accepted
+`2 + 2` as keyboard input, displayed the calculated result, and yielded a
+visually inspected native screenshot. This launcher-only run did not exercise
+fresh passage actions or a live desktop portal.
+
+A source-built launcher/search pair was also exercised on an isolated nested
+Weston Wayland session with a real keyboard seat, private D-Bus/AT-SPI and
+`DISPLAY` absent. Typing a content-only Markdown phrase displayed its cited
+passage; Return opened its detail; the AT-SPI Copy passage action freshly
+reopened evidence and `wl-paste` read the exact text from Weston's private
+clipboard. This did not touch the host clipboard or test fresh Ubuntu Debian
+payloads. Separate source-built checks measured native keyboard-to-citation
+latency, but per-consumer native filters, exact viewer line/page jumps,
+release-scale p50/p95/p99, held-out relevance, installed-artifact portal
+integration, provider-backed paraphrase quality and installed-artifact latency
+remain unproved. M3 depends on M1's Slint command/action shell and M2's
+search-only API, **not** extensions.
+
+In a private Xvfb/JWM/D-Bus/XDG session, 200 consecutive Slint searches
+alternated between two distinct authorized Markdown passages. Every observation
+required both the new query text in the focused entry and a citation from the
+new expected file; p50/p95/p99 were 464.53/518.63/546.58 ms, maximum
+560.38 ms, while 650 other Markdown sources were queued for watcher intake
+immediately before the sample. A separate private nested-Weston Wayland
+two-document baseline passed 200/200 such transitions at
+545.09/605.31/653.75 ms, maximum 739.72 ms. Both source-built measurements
+include synthetic keyboard deletion/typing and AT-SPI observation overhead;
+neither isolates search service latency, retains a representative 10,000-file
+corpus, covers edit/deletion classes, uses installed Ubuntu packages, or proves
+the unchanged 100 ms native interactive deadline.
+
+[Product milestone](https://github.com/brio-labs/maestria/milestone/12).
+
+**Scope:** Show applications/commands immediately, then searchable filename,
+path, and *document passage* matches from the optional service. Group passages
+by document; show highlighted excerpts, source line/page, scope, freshness and
+explicit loading/unavailable states. Provide a focused content view, root/type
+filters and exact source actions: reauthorize and reopen at the matching line
+or page when supported; otherwise open the file and display/copy its location.
+Add user-controlled alias/favorite/frecency ranking without logging document
+content, while protecting exact matches and explicit commands. Optional local
+multilingual dense retrieval enriches paraphrases after lexical results; no
+provider may block or replace deterministic search. Keep experimental sparse,
+visual, late-interaction and hierarchy/STAIR approaches benchmark-gated rather
+than treating SOTA claims as a launcher promotion record.
+
+**Exit criteria:** A query whose words occur only *inside* an approved file
+finds a relevant excerpt in the Slint launcher; the user can inspect and open
+or copy the precise evidence. No daemon still leaves apps and commands usable.
+A held-out French/English paraphrase improves passage recall with an explicitly
+configured provider, without regressing exact phrase/path matches or revealing
+out-of-scope content. Edits/deletes, a provider stall, and rapid successive
+queries cannot show actionable stale or cross-query passages. Measure the
+whole path in the real native UI, not only the retrieval engine.
+
+**Issues:** [grouped launcher passage results #530](https://github.com/brio-labs/maestria/issues/530)
+→ [verified source actions #531](https://github.com/brio-labs/maestria/issues/531);
+[alias/favorite/frecency #532](https://github.com/brio-labs/maestria/issues/532),
+[optional semantic lane #533](https://github.com/brio-labs/maestria/issues/533)
+→ [passage-level product evaluation #534](https://github.com/brio-labs/maestria/issues/534).
+
+## Milestone 4: Extension Platform
+
+**Status:** In progress; mandatory for the **combined** first product release,
+not for the standalone search-only artifact. The TypeScript SDK/example,
+versioned manifest, sealed local directory/ZIP store, explicit grant-diff
+review, declarative native Slint views, capability broker, and bounded
+bubblewrap/QuickJS worker are implemented in the developer build. An isolated
+X11 session installed the example through native consent, displayed a freshly
+cited search excerpt under a separate owner-issued external provider grant,
+and copied its greeting through the actual X11 clipboard. Denying an update
+that added notification permission kept the earlier sealed package active;
+a deliberate worker exception surfaced as an error, closing a running
+infinite-loop command cancelled its worker, and revocation blocked commands
+despite the independent provider grant. Native removal retained or deleted
+private data as selected. The manager opened without the worker sibling.
+The independently built Ubuntu 24.04 worker Debian apt-installed with
+`bubblewrap` in a disposable Ubuntu container, and the Ubuntu-built worker
+ran there. Disposable Ubuntu 24.04 apt installs also confirmed independent
+launcher-only, search-only, and combined package selections, with no worker
+pulled in by the combined install; worker installation is separately opt-in.
+An installed search CLI initialized an approved root, issued a private
+consumer credential, and stopped its foreground daemon on SIGINT. The
+launcher/search Debian payloads were rebuilt on Ubuntu 24.04 with the new
+filename/path code; the launcher declares `wl-clipboard` for pure Wayland.
+A fresh combined apt install ran the installed search daemon and CLI, found
+one filename-only authorized source without invented passages, denied it
+after deletion, then stopped the daemon and removed search while retaining
+the launcher and user instance. Host X11 then ran launcher/search executables
+byte-identical to those Debian payloads: Slint rendered a filename-only row
+and a cited body-only Markdown passage, copied authorized path and reopened
+excerpt, and explicitly denied Copy Path after deletion. That earlier
+launcher/search result alone did not exercise the installed extension broker
+or Ubuntu-native passage actions. A separate hosted combined installed
+launcher/worker broker smoke is documented below; neither the source-built
+Wayland Copy passage proof nor it certifies all combined release criteria.
+
+The launcher Debian verifier rejects declared relationships that force or
+prevent co-installation with optional search/worker packages. Hosted Ubuntu
+[run 36340469343](https://github.com/brio-labs/maestria/actions/runs/36340469343)
+rebuilt and smoke-tested launcher/search at commit `a74c4cda`; it did not
+build the subsequently added `extension-worker-package` job. A disposable
+Ubuntu 24.04 Podman container **did** freshly build and apt-install this
+working-tree worker Debian from `target/extension-packages-ubuntu-current`;
+its smoke verified package identity, dependencies, installed binary ownership
+and absence of launcher/search. It then stopped **before** executing worker
+JavaScript: bubblewrap could not mount `/proc` inside nested Podman
+(`Operation not permitted`), and the script refused an unsandboxed fallback.
+The hosted [run 36349114236](https://github.com/brio-labs/maestria/actions/runs/36349114236)
+at `9ee10edd` likewise built and apt-installed the exact worker Debian and
+passed launcher-native, search-package, philosophy, tests and strict Clippy;
+its worker smoke stopped at the sandbox preflight because Ubuntu AppArmor
+denied Bubblewrap's loopback setup (`RTM_NEWADDR: Operation not permitted`).
+Hosted Ubuntu 24.04 [run 36350436748](https://github.com/brio-labs/maestria/actions/runs/36350436748)
+at commit `6583bfae` then loaded Ubuntu's **bwrap-only** AppArmor profile on
+its disposable runner; it did not relax a global sysctl or share networking.
+The full CI passed, including freshly built/installed launcher, search and
+worker jobs. The worker smoke verified exact independent dependencies and
+binary provenance, isolated user/pid/network namespaces, an inaccessible
+host-filesystem canary, a bounded real JavaScript command with no ambient
+host I/O APIs, and clean worker removal. This does not exercise the real
+broker's capabilities or actual version upgrades and retained grants.
+
+A fresh private X11 source-built launcher installed a Copy-only extension only
+after displaying its exact version, SHA-256 identity and newly granted Copy
+permission in the Slint review. Its first real launcher-broker invocation then
+**failed closed before worker JavaScript ran**: Bubblewrap could not create a
+namespace (`Resource temporarily unavailable`). The host user had 1,519
+threads, above the worker's 1,024-task `RLIMIT_NPROC`. An otherwise identical
+Bubblewrap namespace preflight reproduced the failure with that limit and
+passed without it. The source-built launcher now retains the process limit at
+4,096 UID-wide tasks while preserving user/pid/network isolation and the
+512 MiB address-space, 32-second CPU, and other worker bounds. An otherwise
+identical namespaced preflight passed under the new limit. A fresh private X11
+Slint session then reviewed the exact Copy-only package, denied an ungranted
+file-search request from the actual sandboxed worker and copied the exact text
+through the host broker to the private clipboard. The grant survived a real
+launcher quit/restart: the worker again denied ungranted search and completed
+the authorized Copy action; revocation then removed its executable command.
+The source-built exercise and independently installed worker smoke alone did
+not prove the combined package flow; the separate same-run installed package
+job below does. Neither tested preserved grants across a **version-different**
+upgrade; M1 separately records installed Ubuntu 26.04 KDE GlobalShortcuts
+approval/denial, not stock Ubuntu 24.04 support.
+
+Hosted Ubuntu 24.04
+[`adea9552`](https://github.com/brio-labs/maestria/commit/adea9552d487cf2d58e51daa9c3efe0006b4185b)
+([CI run 36421328686](https://github.com/brio-labs/maestria/actions/runs/36421328686))
+passed the separate `combined-extension-package` job. It apt-installed the
+exact same-run launcher and optional worker Debian artifacts, verified package
+ownership and absence of optional search, and launched the installed Slint UI
+in private Xvfb, D-Bus and XDG directories. A Copy-only extension exposed its
+version, digest and exact grant for native review; its Bubblewrap-isolated
+worker denied ungranted file search and copied through the host broker to
+the private clipboard. The job proved a real launcher quit/restart retained
+the grant and repeated Copy and denial; revocation removed the command, then
+worker removal left the installed launcher intact. Copy was invoked by an
+actual pointer inside **private X11**, not by AT-SPI. On private Ubuntu
+[run 36418631504](https://github.com/brio-labs/maestria/actions/runs/36418631504),
+AT-SPI `do_action(0)` returned false for the visible enabled Copy button. The
+first installed button exposed zero AT-SPI actions and the post-restart button
+exposed `click` in
+[run 36424740250](https://github.com/brio-labs/maestria/actions/runs/36424740250).
+Explicitly binding the standard Button's accessible default callback did not
+restore the first action in
+[run 36426864440](https://github.com/brio-labs/maestria/actions/runs/36426864440);
+that ineffective duplicate binding was removed; the remaining defect is
+tracked in [#545](https://github.com/brio-labs/maestria/issues/545).
+Ubuntu Copy accessibility, stock Ubuntu 24.04 Wayland shortcut activation,
+version-different upgrade, and installed native 10,000-file/reference-hardware
+latency remain open. M1 records both the private installed Ubuntu 26.04 KDE
+portal decision and separate source-built AT-SPI dialog proof.
+
+[Product milestone](https://github.com/brio-labs/maestria/milestone/13).
+
+**Scope:** Publish the Sillage-specific TypeScript SDK and versioned manifest,
+host-rendered declarative list/detail/form UI, an authenticated capability
+broker, isolated bounded workers, explicit user grants, local development and
+bundle installation, safe atomic update/rollback, disable/revoke/uninstall,
+and author examples. No Raycast, Node.js, native-addon, arbitrary DOM, or React
+compatibility is promised.
+
+**Exit criteria:** A developer uses only the published SDK to install an
+extension, show a searchable view and run an authorized action. File/network
+access denied by policy stays denied; cancellation, worker crash, permission-
+expanding update, and uninstall behave as specified. A failed or unconsented
+update preserves the previous working version.
+
+**Issues:** [SDK and declarative UI #535](https://github.com/brio-labs/maestria/issues/535)
+→ [broker and workers #536](https://github.com/brio-labs/maestria/issues/536)
+→ [safe bundle lifecycle #537](https://github.com/brio-labs/maestria/issues/537).
+
+## Milestone 5: First Combined Product Release
+
+**Status:** In progress. Ubuntu 24.04 apt installation accepted
+launcher-only, search-only, combined, and separately opted-in worker packages;
+the refreshed combined launcher/search Debian install served a filename-only
+approved result through the installed independent client, denied the deleted
+source, and removed search while leaving the launcher and instance intact.
+On isolated host X11, the byte-identical final Debian executable payloads
+displayed an approved File/Path row and a highlighted body-only cited passage
+in Slint; Copy Path and Copy Passage wrote freshly authorized content to the
+private clipboard, while a deleted path action was explicitly refused.
+`docs/OPERATIONS.md` documents root consent, grants, explicit daemon
+lifecycle, disable/uninstall, and user-data choices. A same-version settings
+reinstall and the installed **`0.0.0 → 0.0.1` three-package upgrade** passed
+on Ubuntu 24.04 at `0965269c`, retaining settings, private search grants,
+extension storage, and sandboxed Copy across the actual package replacement.
+The hosted `e81d44f3` installed run also passed first-run AT-SPI Copy,
+installed upgrade, and private Ubuntu 26.04 KDE GlobalShortcuts approval and
+denial, but **all 800 installed native benchmark interactions timed out**.
+The subsequent source-built private Slint accessibility and keyboard smoke
+does not establish installed acceptance. Remaining cross-compositor Wayland
+chooser checks, stock Ubuntu 24.04 compositor-owned shortcut activation,
+installed native 10,000-file latency/resource acceptance on qualifying
+hardware, and provider-backed FR/EN document and passage relevance remain
+open.
+Depends on M1, M2, M3 and M4.
+[Product milestone](https://github.com/brio-labs/maestria/milestone/14).
+
+**Scope:** Package launcher-only, search-only and combined installations with
+consent-based onboarding, recovery, component removal, permission and data
+lifecycle, extension-author instructions, a tested compositor matrix and
+honest product-level latency/resource/isolation evidence. Installation does
+not silently start a daemon, model, OCR provider, or desktop autostart. Keep
+CLI daemon lifecycle explicit.
+
+**Exit criteria:** A fresh Linux user can choose only the part they need:
+launch applications with no search service; independently search and open cited
+content with no launcher; or combine both and install/use/remove an extension
+without CLI repair. X11 and Wayland behaviors, unsupported compositor shortcut
+fallback, package identity, licensing/attribution, accessibility, resource
+budgets and crash recovery are verified on shipped artifacts.
+
+**Issues:** [modular packaging and onboarding #538](https://github.com/brio-labs/maestria/issues/538)
+→ [product exit evidence #539](https://github.com/brio-labs/maestria/issues/539).
+
+## Existing foundations and developer-build integrations (not a release claim)
+
+| Capability | Current status |
+|---|---|
+| CLI and authenticated per-instance daemon | Exists; lifecycle explicit, protocol embedded in daemon crate |
+| Approved read roots, supported local text/PDF ingestion, watcher | Search-only Debian and developer build with explicit owner root approval and documented daemon lifecycle; v18 per-consumer frozen root grants passed local A/B, restart, removal, and PDF-denial regressions, but current package and release latency gates remain open |
+| Lexical passage retrieval and evidence opening | Exists in the standalone CLI/daemon; an optional credential-path Slint client shows cited results and reopens actions without starting the indexer |
+| `sillage-retrieval` traits, typed plans, authorization, generations | Exists; daemon assembles the production engine |
+| Dense semantic retrieval | Provider-dependent, measured for selected daemon query classes only |
+| Native Slint launcher UI | Built and locally native-smoked on X11/Wayland and from Debian/AppImage; first-run deferral persisted across packaged X11 runs; not a release-certified product |
+| Document-result UI and standalone search install | Search-only Debian independently smoked for Markdown/DOCX/PDF on Ubuntu 24.04; combined apt install found a filename-only source and denied its deletion. Final Ubuntu-built launcher/search executables byte-identical to Debian payloads rendered native X11 File/Path and body-only cited passage rows, copied authorized path and reopened excerpt, and explicitly denied a deleted path action. Nested Weston passage action used a private X11 clipboard fallback; the native helper separately copied/denied over-limit text in pure Weston Wayland without `DISPLAY`. Full pure-Wayland Slint action and certified combined release remain open |
+| Browser-hosted Studio and external ACP | Existing secondary surface, not launcher UI or extension SDK |
+
+The current Slint launcher discovers XDG applications, offers host commands,
+calculates arithmetic, opens a file manually selected in a chooser, and can
+optionally query a separately installed authenticated search client for bounded
+typed passage previews. File/DOCX/PDF source actions re-open evidence under the
+current grant; PDF opens use a typed current-source path, while default viewers
+may not jump to the cited line/page. Ordinary images still need OCR and do not
+fabricate text. Do not relabel existing daemon retrieval scores as launcher
+quality or claim the combined product is release-certified.
+
+## Initial performance and quality acceptance targets
+
+These are **product budgets, not Raycast comparisons**. Existing latency
+percentiles below were measured on Tauri, not on the Slint release build.
+Re-measure actual window presentation
+and the search-only service independently as well as the combined install:
+
+- On a recorded Linux x86_64, SSD, at least 16 GiB RAM reference system, warm
+  shortcut-to-interactive-window p95 is ≤100 ms; keystroke-to-app/command
+  results p95 is ≤50 ms; warm first *lexical content passage* results p95 is
+  ≤100 ms. Report source-preview rendering separately from index lookup.
+- For 10,000 eligible text files capped at 100 MiB total text and 500 desktop
+  entries, optional local semantic first results p95 are ≤500 ms; exact
+  authorized path and phrase matches keep their first relevant file/passage.
+  PDF and DOCX extraction, OCR, initial indexing and reindexing have separate
+  named reference corpora and timings; never disguise ingestion as query time.
+- Resident launcher plus daemon plus broker idle RSS is ≤200 MiB, excluding
+  separately reported model-provider memory and active workers. Also report
+  launcher-only and search-only RSS. Idle CPU averages ≤1% of one logical core
+  over 60 seconds with no indexing.
+- Measure cold startup separately, with a ≤1 second window-interactive target;
+  model loading and index rebuild must not block it.
+- Capture at least 200 warm interactions per latency class, with p50/p95/p99,
+  hardware/session/provider/index identity, and a repeat while background
+  indexing is active. Also report full-process-tree memory,
+  indexing-throughput/disk-footprint, and energy where available; unavailable
+  counters stay unavailable.
+- Judge exact phrases, paths, and at least 50 held-out French/English
+  paraphrases against **document- and passage-level** relevance on a frozen
+  personal-content corpus. Require semantic passage recall@10 improvement over
+  lexical search, no exact phrase/path or first-hit regression, correct
+  preview-to-source navigation, and zero unauthorized exposure. Existing
+  retrieval promotion requirements still apply; target budgets do not
+  silently activate shadow routes.
+
+The 2026-10-01 bounded repair establishes prepared durable-audit starvation
+behind indexing and early shutdown return on watcher failure. Focused
+regressions and private source-daemon/native smokes verify those paths, not
+fresh CI-installed acceptance or this corpus-quality gate. Historical Tantivy
+writer identity remains unresolved historical evidence, not an active release
+gate. Current interaction, shutdown, hardware, and genuine French/English
+quality requirements remain unchanged; PR #516 remains draft pending them.
+
+The 2026-10-02 frozen project-work evaluation completed once on 16 documents
+(371,746 bytes), with 30 French and 30 English paraphrases. Judgments were
+LLM-assisted and independently source-reviewed, not human-certified; four
+cross-language pairs represent the same intent (56 distinct needs).
+The production-engine candidate ablation used FixedKRrf(60) and the actual
+local 384-dimensional Bekko assets, without persisting a promotion:
+
+| Query-macro metric | French lexical → Hybrid | English lexical → Hybrid |
+|---|---|---|
+| Passage Recall@10 | 23.33% → 63.33% | 70.00% → 76.67% |
+| Bounded document recall | 30.00% → 90.00% | 90.00% → 90.00% |
+
+The document metric considers ten distinct documents within the first 100
+ranked passages, not an unrestricted document Recall@10. Complete ten-document
+cuts were available for only 4/30 French lexical cases and 27/30 cases in each
+other language/route combination. Ten plan refusals and two quarantined
+observations remain in the denominator; 120 held-out plan attempts produced
+110 searches, followed by six fixed-control searches.
+Exact phrase/path controls kept rank one, but the first-hit control regressed
+from rank one to rank nine under Hybrid. **The quality gate fails.** This
+transient all-class ablation is not the currently served native/consumer
+policy, does not prove their authorization/navigation surfaces, and cannot
+justify silently activating shadow retrieval. The frozen run must not be
+warmed, tuned, or replayed.
+
+CI `36955524206` at head `193a44d4` retained its first installed-native outcome:
+794/800 observations passed. Three queries showed `Document search unavailable`;
+one passage was observed before a later list-scope lookup failed, and two
+Return actions did not open detail. Cold and edit classes each passed 200/200;
+active and delete classes each passed 197/200. Failure-inclusive keyboard-to-
+AT-SPI query p95 was 253.84 ms cold, 254.86 ms active, 1303.81 ms edit, and
+235.44 ms delete, not a measurement of the internal request deadline. The
+hosted runner also failed the ≥16 GiB/SSD reference-hardware gate. Its producing
+checkout was PR merge `3bc97ec3`; downloaded Debian hashes match the hosted
+installed-package provenance. This workload is sealed and must not be replayed
+to obtain a pass; source cohesion repairs do not explain these failures.
+
+A separate three-case, synthetic-only diagnostic confirmed that FixedKRrf(60)
+correctly implements rank-only fusion: the same lexical head moved from rank
+one to two for an exact-path and an ordinary query under the transient
+candidate. Default shadow policy excluded dense, and the actual promotion
+predicate rejected the exact-path class. A synthetic aggregate predicate input
+with unchanged MRR and improved recall was accepted; this does not certify an
+individual frozen first-hit control. No fusion implementation or served-policy
+defect, corpus result, or resource qualification is established by that probe.
+The original quality failure and serving-policy gates remain unchanged.
+
+The explicitly authorized generic lexical-head-preserving policy now wraps
+Fixed-K RRF (k=60), preserving the actual eligible lexical-baseline head through
+reranking, expansion and diversity. Semantic ranking may improve only the
+remaining results. Its full identity is
+`hybrid-lexical-head-preserving-v1+fixed-k-rrf-v1:k=60`; legacy or unsupported
+promotion identities fail closed to Shadow.
+
+A genuinely new, independently source-reviewed, LLM-assisted freeze contains
+60 distinct needs (30 French, 30 English), 126 byte-exact judgments and three
+separate controls on the same approved 16-document corpus. The corrected
+real-model run completed once after a preserved zero-query control-decoder
+setup failure; no frozen inputs changed and no query was warmed or replayed:
+
+| Query-macro metric | French lexical → Hybrid candidate | English lexical → Hybrid candidate |
+|---|---|---|
+| Passage Recall@10 | 4.17% → 61.00% | 68.89% → 74.17% |
+| Bounded document recall | 25.56% → 94.44% | 70.56% → 80.83% |
+
+All 60 cases remain in each metric denominator. The 120 held-out plan attempts
+produced 108 searches and 12 refusals; six control searches followed.
+All 32 comparable held-out lexical heads retained full identity, metadata and
+baseline score lanes. The other 28 cases have no comparable baseline head;
+they are not counted as successful preservation.
+
+The fixed exact-phrase target retained rank two. The exact-path target was
+absent from the lexical baseline but ranked second in the candidate. The
+contractual rank-one first-hit target ranked second in both routes.
+**Two controls fail; qualification remains unpassed.** These observations do
+not establish a Hybrid demotion or a native path/navigation failure. The
+document metric is still ten distinct documents within 100 ranked passages,
+not unrestricted document Recall@10. Both reopened promotion tables contain
+zero records; serving remains Shadow. Neither this candidate evaluation nor
+its ordinary 114.19-ms daemon shutdown certifies the installed native release.
+The new cases and controls are consumed and must not be retargeted or replayed.
+
+The authorized baseline investigation subsequently demonstrated a separate
+general card-association defect with a fresh synthetic source: the real parser
+attached its summary card to the document root, while the retriever required
+that root to equal a chunk node and rejected the card before scoring.
+The repair preserves direct node associations and otherwise requires one exact,
+same-artifact source-span match; missing and ambiguous matches fail closed.
+A different preregistered source then produced one card hit and its canonical
+chunk evidence, with the candidate anchored to the resolved chunk node.
+Real-index regressions also cover missing/ambiguous spans and denied evidence.
+Neither source-only probe attributes the failed frozen controls or establishes
+new bilingual quality, native reliability, latency, or installed qualification.
+The consumed quality results remain unchanged; serving stays Shadow.
+
+### Historical Tauri launcher-only X11 measurement (2026-09-23)
+
+On an Intel Core Ultra 7 258V, private Xvfb/JWM display, WebKit DPR 1,
+Noto Sans, release build, and 500 frozen desktop entries, 200 warm activations
+and 200 app queries produced:
+
+| Observation | p50 / p95 / p99 |
+| --- | --- |
+| Native activation receipt to renderer-ready acknowledgment | 24.721 / 30.715 / 33.207 ms |
+| Injected X11 shortcut dispatch to observed acknowledgment | 63.462 / 80.717 / 87.888 ms |
+| Renderer query input to results-ready acknowledgment | 10 / 19 / 22 ms |
+| Native query receipt to results-ready acknowledgment | 10.198 / 19.046 / 21.804 ms |
+
+The renderer acknowledges after React commits and requests an animation frame;
+this does **not** prove physical pixel presentation. Injected X11 keys include
+tool and monitoring overhead and do **not** measure human physical-key latency.
+A cold WebDriver-session-to-visible-interactive upper bound was **1,051.115 ms**:
+it includes automation overhead, misses the ≤1 s bound as measured, and
+neither proves nor disproves the application's standalone cold-start target.
+Hidden idle CPU over 60.087 s was 0.1165% of one core. Launcher-only RSS was
+180.434 MiB native plus 372.109 MiB WebKit subprocesses, totaling 552.543 MiB
+in summed process RSS. The launcher alone exceeds 200 MiB on that measure;
+shared-page accounting and the planned daemon/broker make this **not** a
+certification of the combined-product memory budget. Raw local measurements
+and caveats are in `target/launcher-evidence/launcher-measurements.json`.
+These measurements remain historical after migration; they are not Slint
+performance evidence.
+
+Dated Slint backend and license feasibility evidence lives in the
+[research note](RESEARCH.md#5-slint-backend-feasibility-evidence-2026-09-23).
+
+## Non-blocking product scope and research
+
+[Quicklinks #540](https://github.com/brio-labs/maestria/issues/540),
+[snippets #541](https://github.com/brio-labs/maestria/issues/541),
+[privacy-preserving clipboard history #542](https://github.com/brio-labs/maestria/issues/542),
+[Linux window management #543](https://github.com/brio-labs/maestria/issues/543), and
+[optional cited answers #544](https://github.com/brio-labs/maestria/issues/544)
+are separate, low-priority modules, not first-release dependencies. Cloud sync,
+a marketplace, other operating systems, and advanced sparse/late-interaction,
+graph, temporal, counterevidence, fusion and visual RAG research likewise do
+not block M1–M5. Structured section metadata is worth evaluating for long
+personal documents; neither STAIR fine-tuning nor text-image retrieval is a
+launcher default without a dedicated judged corpus.
+
+Product milestones advance only when their own exit criteria are demonstrated.
+An issue number, a provider adapter, a retrieved benchmark, or a draft PR does
+not constitute shipped functionality or activate an unpromoted retrieval route.

@@ -21,7 +21,7 @@ def _is_checker_source(path: Path) -> bool:
     return resolved == THIS_SCRIPT or resolved.parent == PACKAGE_DIR
 
 
-DOMAIN_ROOT = ROOT / "crates" / "kernel" / "maestria-domain"
+DOMAIN_ROOT = ROOT / "crates" / "kernel" / "sillage-domain"
 
 
 DOMAIN_SRC = DOMAIN_ROOT / "src"
@@ -31,9 +31,9 @@ DOMAIN_MANIFEST = DOMAIN_ROOT / "Cargo.toml"
 
 
 KERNEL_ROOTS = (
-    ROOT / "crates" / "kernel" / "maestria-domain",
-    ROOT / "crates" / "kernel" / "maestria-governance",
-    ROOT / "crates" / "kernel" / "maestria-ports",
+    ROOT / "crates" / "kernel" / "sillage-domain",
+    ROOT / "crates" / "kernel" / "sillage-governance",
+    ROOT / "crates" / "kernel" / "sillage-ports",
 )
 
 
@@ -46,6 +46,10 @@ SKIP_DIRS = {".git", "target", "node_modules", "dist", ".direnv", ".venv"}
 # Files exempted from the doctrine scan (e.g. vendored or legacy artifacts).
 SKIP_FILES = set()
 
+# Immutable corpus snapshots are source data, not active Rust compilation units.
+# General source and secret scans still inspect these historical bytes.
+FROZEN_SOURCE_ROOT = ROOT / "tests" / "frozen-corpus-snapshots"
+
 
 def should_skip(path: Path) -> bool:
     rel = path.relative_to(ROOT)
@@ -57,10 +61,53 @@ def should_skip(path: Path) -> bool:
     )
 
 
+def _external_patch_roots() -> set[Path]:
+    """Keep upstream Cargo patches outside first-party Rust doctrine checks.
+
+    Both an explicit path patch and a workspace exclusion are required.
+    General source and secret scans still inspect these dependency files.
+    """
+    document = _toml_document(read_text(ROOT / "Cargo.toml") or "")
+    workspace = document.get("workspace", {})
+    patches = document.get("patch", {})
+    if not isinstance(workspace, dict) or not isinstance(patches, dict):
+        return set()
+    patterns = workspace.get("exclude", [])
+    if not isinstance(patterns, list):
+        return set()
+    excluded = {
+        match.resolve()
+        for pattern in patterns
+        if isinstance(pattern, str)
+        for match in ROOT.glob(pattern)
+    }
+    roots: set[Path] = set()
+    for replacements in patches.values():
+        if not isinstance(replacements, dict):
+            continue
+        for specification in replacements.values():
+            if not isinstance(specification, dict):
+                continue
+            relative = specification.get("path")
+            if not isinstance(relative, str):
+                continue
+            candidate = (ROOT / relative).resolve()
+            if candidate == ROOT or not candidate.is_relative_to(ROOT):
+                continue
+            if any(candidate.is_relative_to(exclusion) for exclusion in excluded):
+                roots.add(candidate)
+    return roots
+
+
 def _production_rust_files(*, skip_tests: bool = True, sorted_: bool = False) -> Iterator[Path]:
+    external_patches = _external_patch_roots()
     iterator = sorted(ROOT.rglob("*.rs")) if sorted_ else ROOT.rglob("*.rs")
     for path in iterator:
         if should_skip(path):
+            continue
+        if any(path.is_relative_to(root) for root in external_patches):
+            continue
+        if path.is_relative_to(FROZEN_SOURCE_ROOT):
             continue
         if skip_tests and is_test_source(path):
             continue

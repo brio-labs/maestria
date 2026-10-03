@@ -16,7 +16,7 @@ class PanicAndLintTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "lib.rs"
             source.parent.mkdir(parents=True)
             source.write_text(
                 "// " + "TO" + "DO" + ": remove marker\n", encoding="utf-8"
@@ -24,7 +24,7 @@ class PanicAndLintTests(PhilosophyCheckFixture):
 
             self.assertEqual(
                 panic_and_lint.scan_markers(),
-                ["crates/kernel/maestria-domain/src/lib.rs"],
+                ["crates/kernel/sillage-domain/src/lib.rs"],
             )
 
     def test_scan_rust_lint_bypasses_reports_allow_attribute(self) -> None:
@@ -149,7 +149,7 @@ class PanicAndLintTests(PhilosophyCheckFixture):
             ignored.write_text(
                 "// " + "TO" + "DO" + ": never scanned\n", encoding="utf-8"
             )
-            scanned = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            scanned = root / "crates" / "kernel" / "sillage-domain" / "src" / "lib.rs"
             scanned.parent.mkdir(parents=True)
             scanned.write_text(
                 "// " + "TO" + "DO" + ": scanned\n", encoding="utf-8"
@@ -157,14 +157,14 @@ class PanicAndLintTests(PhilosophyCheckFixture):
 
             self.assertEqual(
                 panic_and_lint.scan_markers(),
-                ["crates/kernel/maestria-domain/src/lib.rs"],
+                ["crates/kernel/sillage-domain/src/lib.rs"],
             )
 
     def test_bypassable_validation_reports_serde_try_from_with_public_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "coverage.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "coverage.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
                 "use serde::{Deserialize, Serialize};\n"
@@ -197,7 +197,7 @@ class PanicAndLintTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "coverage.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "coverage.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
                 "use serde::{Deserialize, Serialize};\n"
@@ -229,7 +229,7 @@ class PanicAndLintTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "coverage.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "coverage.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
                 "pub struct Coverage {\n"
@@ -254,7 +254,7 @@ class PanicAndLintTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "decode.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "decode.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
                 "impl TryFrom<Dto> for DomainValue {\n"
@@ -269,7 +269,7 @@ class PanicAndLintTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "lib.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
                 "pub async fn run() {}\n"
@@ -281,7 +281,7 @@ class PanicAndLintTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "lib.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
                 "/// # Cancellation\n"
@@ -296,7 +296,7 @@ class PanicAndLintTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "lib.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
                 "/// Submit one command.\n"
@@ -310,10 +310,10 @@ class PanicAndLintTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            production = root / "crates" / "kernel" / "maestria-domain" / "src" / "gen.rs"
+            production = root / "crates" / "kernel" / "sillage-domain" / "src" / "gen.rs"
             production.parent.mkdir(parents=True, exist_ok=True)
             production.write_text("// DO NOT EDIT: generated by bindgen\npub fn f() {}\n")
-            test_file = root / "crates" / "kernel" / "maestria-domain" / "tests" / "gen_fixture.rs"
+            test_file = root / "crates" / "kernel" / "sillage-domain" / "tests" / "gen_fixture.rs"
             test_file.parent.mkdir(parents=True, exist_ok=True)
             test_file.write_text("// @generated fixture data\n")
             violations = panic_and_lint.scan_generated_blobs()
@@ -324,7 +324,7 @@ class PanicAndLintTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "lib.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text("fn swallow() { std::panic::catch_unwind(|| {}); }\n")
             violations = panic_and_lint.scan_rust_forbidden_methods()
@@ -421,10 +421,10 @@ class PanicAndLintTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            library = root / "crates" / "core" / "maestria-core" / "src" / "lib.rs"
+            library = root / "crates" / "core" / "sillage-core" / "src" / "lib.rs"
             library.parent.mkdir(parents=True, exist_ok=True)
             library.write_text("fn f() { std::process::exit(1); }\n")
-            app = root / "crates" / "apps" / "maestria-cli" / "src" / "main.rs"
+            app = root / "crates" / "apps" / "sillage-cli" / "src" / "main.rs"
             app.parent.mkdir(parents=True, exist_ok=True)
             app.write_text("fn main() { std::process::exit(1); }\n")
             violations = panic_and_lint.scan_process_exit()
@@ -484,24 +484,24 @@ class PanicAndLintTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            library = root / "crates" / "core" / "maestria-core" / "src" / "lib.rs"
+            library = root / "crates" / "core" / "sillage-core" / "src" / "lib.rs"
             library.parent.mkdir(parents=True, exist_ok=True)
             library.write_text("fn emit() { println!(\"hello\"); eprintln!(\"bye\"); }\n")
-            app = root / "crates" / "apps" / "maestria-cli" / "src" / "main.rs"
+            app = root / "crates" / "apps" / "sillage-cli" / "src" / "main.rs"
             app.parent.mkdir(parents=True, exist_ok=True)
             app.write_text("fn main() { println!(\"hello\"); }\n")
             violations = panic_and_lint.scan_debug_output()
             self.assertTrue(
-                any("println!" in item and "maestria-core" in item for item in violations),
+                any("println!" in item and "sillage-core" in item for item in violations),
                 violations,
             )
-            self.assertFalse(any("maestria-cli" in item for item in violations), violations)
+            self.assertFalse(any("sillage-cli" in item for item in violations), violations)
 
     def test_kernel_interior_mutability_reports_mutex_in_domain(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "lib.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
                 "use std::sync::Mutex;\n" "fn guard(m: Mutex<u64>) { let _ = m; }\n"
@@ -514,7 +514,7 @@ class PanicAndLintTests(PhilosophyCheckFixture):
             root = Path(tmp)
             self.configure_root(root)
             source = (
-                root / "crates" / "kernel" / "maestria-ports" / "src" / "in_memory" / "store.rs"
+                root / "crates" / "kernel" / "sillage-ports" / "src" / "in_memory" / "store.rs"
             )
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text("use std::sync::Mutex;\npub struct Store { inner: Mutex<Vec<u8>> }\n")
@@ -525,7 +525,7 @@ class PanicAndLintTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "core" / "maestria-core" / "src" / "lib.rs"
+            source = root / "crates" / "core" / "sillage-core" / "src" / "lib.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text("fn check(value: u8) { assert!(value > 0); }\n")
             violations = panic_and_lint.scan_production_asserts()
@@ -535,14 +535,14 @@ class PanicAndLintTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "core" / "maestria-core" / "src" / "lib.rs"
+            source = root / "crates" / "core" / "sillage-core" / "src" / "lib.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
                 "fn check(value: u8) { debug_assert!(value > 0); }\n"
                 "#[cfg(test)]\n"
                 "mod tests { fn t() { assert_eq!(1, 1); } }\n"
             )
-            test_file = root / "crates" / "core" / "maestria-core" / "tests" / "behavior.rs"
+            test_file = root / "crates" / "core" / "sillage-core" / "tests" / "behavior.rs"
             test_file.parent.mkdir(parents=True, exist_ok=True)
             test_file.write_text("fn t() { assert_ne!(1, 2); }\n")
             violations = panic_and_lint.scan_production_asserts()

@@ -16,7 +16,7 @@ class ReportingTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source = root / "crates" / "kernel" / "sillage-domain" / "src" / "lib.rs"
             source.parent.mkdir(parents=True)
             # Both kernel and domain scans flag the same forbidden token;
             # main() reports the violation once.
@@ -41,6 +41,6 @@ class ReportingTests(PhilosophyCheckFixture):
                 1,
             )
             self.assertIn(
-                "crates/kernel/maestria-domain/src/lib.rs",
+                "crates/kernel/sillage-domain/src/lib.rs",
                 output,
             )

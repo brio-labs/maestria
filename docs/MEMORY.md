@@ -1,6 +1,6 @@
 # Memory Architecture
 
-This document defines the durable contract for Maestria's memory architecture. It outlines the lifecycle of information from initial observation to long-term storage or deprecation.
+This document defines the durable contract for Sillage's memory architecture. It outlines the lifecycle of information from initial observation to long-term storage or deprecation.
 
 ## 1. Information Lifecycle
 

@@ -27,7 +27,7 @@ pub(crate) fn TasksWorkspace() -> Element {
                 LoadState::Loading => rsx! { p { "Loading tasks…" } },
                 LoadState::Failed(error) => rsx! { {alert(&error)} },
                 LoadState::Empty => rsx! {
-                    p { class: "text-ink-muted", "No tasks. Create one with `maestria task start`." }
+                    p { class: "text-ink-muted", "No tasks. Create one with `sillage task start`." }
                 },
                 LoadState::Ready(items) => rsx! {
                     div { class: "space-y-3",

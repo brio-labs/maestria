@@ -1,4 +1,4 @@
-//! Initial Maestria crate.
+//! Initial Sillage crate.
 
 //! Generated during bootstrap. Keep this crate intentionally minimal.
 //!
@@ -6,7 +6,7 @@
 //! - `version`: package version metadata.
 
 mod version;
-pub use version::MAESTRIA_VERSION;
+pub use version::SILLAGE_VERSION;
 
 #[cfg(test)]
 mod tests;

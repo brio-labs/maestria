@@ -1,0 +1,240 @@
+use std::sync::Arc;
+
+use sillage_domain::{
+    Artifact, ArtifactId, Chunk, ChunkId, ContentHash, CorpusSnapshotId, Evidence, EvidenceId,
+    EvidenceKind, IndexGenerationId, IndexStatus, LineRange, RetrievalModelFingerprint, SearchPlan,
+    SearchStatus, SnapshotRef, SourceSpan, StructureNodeId,
+};
+use sillage_ports::{
+    ArtifactRepository, BlobStore, ChunkRepository, EmbeddingIdentity, EmbeddingProvider,
+    EmbeddingRequest, EmbeddingResponse, EvidenceRepository, InMemoryArtifactRepository,
+    InMemoryBlobStore, InMemoryChunkRepository, InMemoryEvidenceRepository, InMemoryFullTextIndex,
+    InMemoryVectorIndex, PortError, ProviderDisclosure, RetentionPolicy, VectorIndex,
+};
+use sillage_retrieval::{
+    FixedKRrf, HybridExecutionPolicy, HybridLexicalHead, HybridPromotionRecord, RetrievalEngine,
+    SearchPlannerContext,
+    adapters::{
+        DenseChunkRetriever, DenseChunkRetrieverParts, EvidenceOutcomeEvaluator,
+        LexicalChunkRetriever, LexicalChunkRetrieverParts,
+    },
+    traits::CandidateRetriever,
+};
+
+struct VectorFixture {
+    artifacts: Arc<InMemoryArtifactRepository>,
+    chunks: Arc<InMemoryChunkRepository>,
+    evidence: Arc<InMemoryEvidenceRepository>,
+    blobs: Arc<InMemoryBlobStore>,
+    search_index: Arc<InMemoryFullTextIndex>,
+    vector_index: Arc<InMemoryVectorIndex>,
+    artifact_id: ArtifactId,
+    chunk_id: ChunkId,
+    evidence_id: EvidenceId,
+}
+
+fn seed_vector_artifact(
+    context: &VectorFixture,
+    source: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let artifact_id = context.artifact_id;
+    let chunk_id = context.chunk_id;
+    let evidence_id = context.evidence_id;
+    let blob_id = context.blobs.put(source.as_bytes().to_vec())?;
+    context.artifacts.put(Artifact {
+        id: artifact_id,
+        title: "semantic.md".to_string(),
+        chunk_ids: [chunk_id].into(),
+        security: sillage_domain::SecurityMetadata::default(),
+        card_ids: Default::default(),
+        claim_ids: Default::default(),
+        evidence_ids: [evidence_id].into(),
+        index_status: IndexStatus::Indexed,
+        content_hash: Some(ContentHash::new(sillage_core::content_hash(
+            source.as_bytes(),
+        ))?),
+        parse_status: None,
+    })?;
+    context.chunks.put(Chunk {
+        id: chunk_id,
+        artifact_id,
+        node_id: StructureNodeId::new(0),
+        source_span: SourceSpan::text_span(1, 1)?,
+        representations: vec![],
+        representations_digest: "sha256:fixture".to_string(),
+        order: 0,
+        text: "semantic token".to_string(),
+    })?;
+    context.evidence.put(Evidence {
+        id: evidence_id,
+        artifact_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "semantic.md".to_string(),
+            range: LineRange::new(1, 1)?,
+            snapshot: SnapshotRef::new(
+                blob_id,
+                ContentHash::new(sillage_core::content_hash(source.as_bytes()))?,
+            ),
+        },
+        excerpt: "literal source text".to_string(),
+        observed_at: sillage_domain::LogicalTick::new(1),
+        security: sillage_domain::SecurityMetadata::default(),
+    })?;
+    Ok(())
+}
+
+fn seed_vector_index(
+    vector_index: &InMemoryVectorIndex,
+    chunk_id: ChunkId,
+) -> Result<(), Box<dyn std::error::Error>> {
+    vector_index.index_embeddings(vec![sillage_ports::VectorEmbedding {
+        chunk_id,
+        vector: vec![0.0, 1.0],
+        provenance: sillage_ports::EmbeddingProvenance {
+            content_hash: "hash".to_string(),
+            identity: sillage_ports::contract_tests::fixture_embedding_identity("test-model", 2)?,
+            provider_id: "test-provider".to_string(),
+            model: "test-model".to_string(),
+            model_version: "test-v1".to_string(),
+            disclosure: sillage_ports::ProviderDisclosure {
+                remote: false,
+                retention: sillage_ports::RetentionPolicy::NoRetention,
+            },
+        },
+    }])?;
+    Ok(())
+}
+
+fn seed_vector_fixture() -> Result<VectorFixture, Box<dyn std::error::Error>> {
+    let artifact_id = ArtifactId::new(800);
+    let chunk_id = ChunkId::new(801);
+    let evidence_id = sillage_domain::evidence_id_for(artifact_id, 0);
+    let source = "literal source text\n";
+
+    let fixture = VectorFixture {
+        artifacts: Arc::new(InMemoryArtifactRepository::new()),
+        chunks: Arc::new(InMemoryChunkRepository::new()),
+        evidence: Arc::new(InMemoryEvidenceRepository::new()),
+        blobs: Arc::new(InMemoryBlobStore::new()),
+        search_index: Arc::new(InMemoryFullTextIndex::new()),
+        vector_index: Arc::new(InMemoryVectorIndex::new()),
+        artifact_id,
+        chunk_id,
+        evidence_id,
+    };
+
+    seed_vector_artifact(&fixture, source)?;
+    seed_vector_index(&fixture.vector_index, chunk_id)?;
+    Ok(fixture)
+}
+
+fn planner_context() -> Result<SearchPlannerContext, Box<dyn std::error::Error>> {
+    Ok(SearchPlannerContext {
+        corpus_snapshot: CorpusSnapshotId::new(1),
+        primary_generation: IndexGenerationId::new(1),
+        fingerprint: RetrievalModelFingerprint::new(
+            "sillage-core:hybrid-shadow-vector-fixture".to_string(),
+        )?,
+        scope: None,
+    })
+}
+
+struct DenseVectorFixtureEmbeddingProvider;
+
+impl EmbeddingProvider for DenseVectorFixtureEmbeddingProvider {
+    fn disclosure(&self) -> ProviderDisclosure {
+        ProviderDisclosure {
+            remote: false,
+            retention: RetentionPolicy::NoRetention,
+        }
+    }
+    fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, PortError> {
+        Ok(EmbeddingResponse {
+            vector: vec![0.0, 1.0],
+            provider_id: "test-provider".to_string(),
+            model: request.model,
+            model_version: "test-v1".to_string(),
+            identity: request.identity,
+            disclosure: ProviderDisclosure {
+                remote: false,
+                retention: RetentionPolicy::NoRetention,
+            },
+        })
+    }
+
+    fn identity(&self) -> Option<EmbeddingIdentity> {
+        sillage_ports::contract_tests::fixture_embedding_identity("test-model", 2).ok()
+    }
+}
+
+fn build_search_engine(
+    policy: HybridExecutionPolicy,
+) -> Result<(RetrievalEngine, SearchPlannerContext, VectorFixture), Box<dyn std::error::Error>> {
+    let fixture = seed_vector_fixture()?;
+    let context = planner_context()?;
+    let mut retrievers: Vec<Arc<dyn CandidateRetriever>> =
+        vec![Arc::new(LexicalChunkRetriever::new(
+            LexicalChunkRetrieverParts {
+                index: fixture.search_index.clone(),
+                artifacts: fixture.artifacts.clone(),
+                chunks: fixture.chunks.clone(),
+                evidence: fixture.evidence.clone(),
+                blobs: fixture.blobs.clone(),
+            },
+            context.primary_generation,
+        ))];
+    retrievers.push(Arc::new(DenseChunkRetriever::new(
+        DenseChunkRetrieverParts {
+            index: fixture.vector_index.clone(),
+            artifacts: fixture.artifacts.clone(),
+            chunks: fixture.chunks.clone(),
+            evidence: fixture.evidence.clone(),
+            blobs: fixture.blobs.clone(),
+            embedding_provider: Arc::new(DenseVectorFixtureEmbeddingProvider),
+        },
+        context.primary_generation,
+    )));
+
+    let engine = RetrievalEngine::new(
+        retrievers,
+        Arc::new(EvidenceOutcomeEvaluator::new(fixture.evidence.clone())),
+        sillage_governance::RetrievalSecurityPolicy::default(),
+    )
+    .with_fusion(Arc::new(HybridLexicalHead::new(FixedKRrf::new(60))))
+    .with_hybrid_policy(policy);
+
+    Ok((engine, context, fixture))
+}
+
+fn execute_search(
+    engine: &RetrievalEngine,
+    plan: &SearchPlan,
+) -> Result<sillage_domain::SearchOutcome, Box<dyn std::error::Error>> {
+    let outcome = (engine.search(plan))?;
+    Ok(outcome)
+}
+
+#[test]
+fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::error::Error>> {
+    let mut served = std::collections::BTreeSet::new();
+    served.insert(sillage_retrieval::LearnedSparseQueryClass::DomainTerminology);
+    let promotion_record = HybridPromotionRecord::new(
+        "eval-test".to_string(),
+        "2026-07-16".to_string(),
+        served,
+        sillage_retrieval::HYBRID_SERVING_POLICY_ID,
+    )
+    .ok_or("promotion record requires non-empty evaluation metadata")?;
+    let (engine, context, fixture) =
+        build_search_engine(HybridExecutionPolicy::Active(promotion_record))?;
+    let plan = engine.plan("unrelated query", 5, &context)?;
+    let outcome = execute_search(&engine, &plan)?;
+    assert_eq!(outcome.status, SearchStatus::Answerable);
+    assert_eq!(outcome.evidence.len(), 1);
+    let expected_version =
+        ContentHash::new(sillage_core::content_hash(b"literal source text\n"))?.version_id()?;
+    assert_eq!(outcome.evidence[0].artifact_version(), expected_version);
+    assert_eq!(outcome.evidence[0].evidence_id(), fixture.evidence_id);
+    Ok(())
+}

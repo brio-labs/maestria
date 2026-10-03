@@ -49,7 +49,13 @@ jobs:
               - '.github/actions/**'
               - 'scripts/*'
               - '!scripts/*.py'
+              - 'scripts/verify-search-packages.py'
+              - 'scripts/check-combined-extension-broker.py'
+              - 'scripts/check-version-upgrade.py'
+              - 'scripts/smoke-installed-sillage-native-benchmark.py'
               - 'web/**'
+              - 'launcher/**'
+              - 'vendor/**'
             philosophy:
               - 'README.md'
               - 'CONTRIBUTING.md'
@@ -63,6 +69,7 @@ jobs:
               - '.github/CODEOWNERS'
               - '.github/workflows/**'
               - '.github/PULL_REQUEST_TEMPLATE.md'
+              - 'vendor/**'
   studio-frontend:
     needs: [changes]
     runs-on: ubuntu-latest
@@ -83,12 +90,11 @@ jobs:
           sccache-gcs-bucket: ${{ secrets.SCCACHE_GCS_BUCKET }}
           sccache-gcs-key: ${{ secrets.SCCACHE_GCS_KEY }}
       - uses: Swatinem/rust-cache@v2.9.1
-      - name: Install Studio frontend dependencies
-        run: corepack pnpm@9.15.9 --dir web install --frozen-lockfile
+      - uses: ./.github/actions/setup-frontend
       - name: Test Studio web crate
-        run: cargo test -p maestria-studio-web
+        run: cargo test -p sillage-studio-web
       - name: Check Studio web WASM
-        run: cargo check --target wasm32-unknown-unknown -p maestria-studio-web
+        run: cargo check --target wasm32-unknown-unknown -p sillage-studio-web
       - name: Build Studio frontend
         env:
           RUSTC_WRAPPER: ""
@@ -159,7 +165,7 @@ jobs:
         with:
           tool: cargo-deny
       - name: Run dependency checks
-        run: cargo deny check all
+        run: cargo deny --workspace --all-features check all
 
   benchmark-smoke:
     needs: [changes, clippy, deny]
@@ -266,6 +272,285 @@ jobs:
       - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Run tests
         run: cargo test --workspace --all-targets --all-features
+
+  launcher-native:
+    needs: [changes]
+    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
+      - uses: ./.github/actions/setup-rust-build-dependencies
+        with:
+          native-test: 'true'
+      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Install Cargo Packager
+        run: cargo install cargo-packager --locked --version 0.11.8
+        env:
+          RUSTC_WRAPPER: ''
+      - name: Build Debian and AppImage packages
+        run: NO_STRIP=1 cargo packager --release --packages sillage-launcher --formats deb,appimage
+      - name: Inspect package contents and metadata
+        run: python3 scripts/verify-launcher-packages.py target/launcher-packages
+      - name: Install Debian package and declared runtime dependencies
+        run: sudo apt-get install --yes ./target/launcher-packages/*.deb
+      - name: Install isolated Wayland compositor for package smoke
+        run: sudo apt-get install --yes --no-install-recommends weston
+      - name: Smoke-test installed Debian and AppImage windows
+        run: xvfb-run -a -s '-screen 0 1280x1024x24' dbus-run-session -- bash scripts/smoke-launcher-packages.sh target/launcher-packages
+      - name: Retain launcher packages
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-native-packages
+          path: target/launcher-packages/
+          if-no-files-found: error
+
+  launcher-portal-package:
+    needs: [changes, launcher-native]
+    runs-on: ubuntu-26.04
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-system-dependencies
+        with:
+          native-test: 'true'
+      - uses: actions/download-artifact@v4
+        with:
+          name: launcher-native-packages
+          path: target/launcher-packages
+      - name: Install same-run Ubuntu 24.04-built launcher and private KDE Wayland portal
+        run: |
+          sudo apt-get install --yes --no-install-recommends \
+            kwin-wayland kglobalacceld xdg-desktop-portal-kde \
+            qt6-qpa-plugins qt6-wayland gir1.2-gtk-3.0 \
+            qml6-module-org-kde-kquickcontrols qml6-module-org-kde-kcmutils \
+            qml6-module-qt5compat-graphicaleffects \
+            ./target/launcher-packages/*.deb
+      - name: Exercise installed private KDE GlobalShortcuts approval and denial
+        run: timeout --kill-after=5s 210s bash scripts/smoke-launcher-portal-package.sh target/launcher-packages
+      - name: Retain private portal screenshots after failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-portal-package-diagnostics
+          path: target/launcher-portal-diagnostics/
+          if-no-files-found: ignore
+
+  search-package:
+    needs: [changes]
+    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
+      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Install Cargo Packager
+        run: cargo install cargo-packager --locked --version 0.11.8
+        env:
+          RUSTC_WRAPPER: ''
+      - name: Build search-only Debian package
+        run: cargo packager --release --packages sillage-search --formats deb
+      - name: Inspect search-only package
+        run: python3 scripts/verify-search-packages.py target/search-packages
+      - name: Install Debian package and declared runtime dependencies
+        run: sudo apt-get install --yes --no-install-recommends ./target/search-packages/*.deb
+      - name: Smoke-test installed search-only package
+        run: bash scripts/smoke-search-packages.sh target/search-packages
+      - name: Retain search packages
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: search-only-debian-package
+          path: target/search-packages/
+          if-no-files-found: error
+
+  extension-worker-package:
+    needs: [changes]
+    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
+      - uses: ./.github/actions/setup-rust-build-dependencies
+      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Install Cargo Packager
+        run: cargo install cargo-packager --locked --version 0.11.8
+        env:
+          RUSTC_WRAPPER: ''
+      - name: Build fresh extension worker Debian package
+        run: cargo packager --release --packages sillage-extension-worker --formats deb
+      - name: Install worker package and declared runtime dependencies
+        run: sudo apt-get install --yes --no-install-recommends ./target/extension-packages/*.deb
+      - name: Allow Bubblewrap namespace setup with Ubuntu's scoped AppArmor profile
+        run: |
+          sudo apt-get install --yes --no-install-recommends apparmor apparmor-profiles
+          sudo apparmor_parser -r /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+      - name: Smoke-test installed extension worker in its required sandbox
+        run: timeout --kill-after=5s 180s bash scripts/smoke-extension-packages.sh target/extension-packages
+      - name: Retain extension worker package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-worker-debian-package
+          path: target/extension-packages/
+          if-no-files-found: error
+
+  combined-extension-package:
+    needs: [changes, launcher-native, extension-worker-package]
+    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-system-dependencies
+        with:
+          native-test: 'true'
+      - uses: actions/download-artifact@v4
+        with:
+          name: launcher-native-packages
+          path: target/launcher-packages
+      - uses: actions/download-artifact@v4
+        with:
+          name: extension-worker-debian-package
+          path: target/extension-packages
+      - name: Install exact same-run launcher and worker Debian packages
+        run: |
+          sudo apt-get install --yes --no-install-recommends xclip gir1.2-gtk-3.0 \
+            ./target/launcher-packages/*.deb ./target/extension-packages/*.deb
+      - name: Allow Bubblewrap namespace setup with Ubuntu's scoped AppArmor profile
+        run: |
+          sudo apt-get install --yes --no-install-recommends apparmor apparmor-profiles
+          sudo apparmor_parser -r /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+      - name: Exercise installed launcher broker and retained/revoked extension grants
+        run: timeout --kill-after=5s 180s bash scripts/smoke-combined-extension-packages.sh target/launcher-packages target/extension-packages
+      - name: Remove only optional worker and retain installed launcher
+        run: |
+          sudo apt-get remove --yes --no-install-recommends io-github-briolabs-sillage-extension-worker
+          test "$(dpkg-query --show --showformat='${Status}' io-github-briolabs-sillage-launcher)" = 'install ok installed'
+          test -x /usr/bin/sillage-launcher
+          test ! -e /usr/bin/sillage-extension-worker
+      - name: Retain private native broker screenshot after failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: combined-extension-native-diagnostics
+          path: target/combined-extension-diagnostics/
+          if-no-files-found: ignore
+
+
+  version-upgrade-package:
+    needs: [changes, launcher-native, search-package, extension-worker-package]
+    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-system-dependencies
+        with:
+          native-test: 'true'
+      - name: Verify pinned historical Maestria 0.0.0 source and fetch its commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          old_run="$(gh api repos/${{ github.repository }}/actions/runs/36455626998 --jq '.head_sha + "|" + .conclusion')"
+          test "$old_run" = '985a8368458d7267a4b150ae52702f90fbeedbcd|success'
+          git fetch --no-tags --depth=1 origin 985a8368458d7267a4b150ae52702f90fbeedbcd
+          git cat-file -e '985a8368458d7267a4b150ae52702f90fbeedbcd^{commit}'
+      - uses: actions/download-artifact@v4
+        with:
+          name: launcher-native-packages
+          path: target/upgrade/new/launcher
+      - uses: actions/download-artifact@v4
+        with:
+          name: search-only-debian-package
+          path: target/upgrade/new/search
+      - uses: actions/download-artifact@v4
+        with:
+          name: extension-worker-debian-package
+          path: target/upgrade/new/worker
+      - uses: actions/download-artifact@v4
+        with:
+          name: launcher-native-packages
+          run-id: 36455626998
+          github-token: ${{ github.token }}
+          path: target/upgrade/old/launcher
+      - uses: actions/download-artifact@v4
+        with:
+          name: search-only-debian-package
+          run-id: 36455626998
+          github-token: ${{ github.token }}
+          path: target/upgrade/old/search
+      - uses: actions/download-artifact@v4
+        with:
+          name: extension-worker-debian-package
+          run-id: 36455626998
+          github-token: ${{ github.token }}
+          path: target/upgrade/old/worker
+      - name: Install private desktop and scoped Bubblewrap prerequisites
+        run: |
+          sudo apt-get install --yes --no-install-recommends xclip bubblewrap apparmor apparmor-profiles
+          sudo apparmor_parser -r /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+      - name: Exercise Maestria-to-Sillage package/profile isolation and Sillage remove/reinstall
+        run: |
+          timeout --kill-after=5s 720s bash scripts/smoke-version-upgrade.sh \
+            target/upgrade/old/launcher target/upgrade/old/search target/upgrade/old/worker \
+            target/upgrade/new/launcher target/upgrade/new/search target/upgrade/new/worker
+
+  installed-native-benchmark:
+    needs: [changes, launcher-native, search-package]
+    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-system-dependencies
+        with:
+          native-test: 'true'
+      - uses: actions/download-artifact@v4
+        with:
+          name: launcher-native-packages
+          path: target/launcher-packages
+      - uses: actions/download-artifact@v4
+        with:
+          name: search-only-debian-package
+          path: target/search-packages
+      - name: Install same-run native launcher and search with private desktop tools
+        run: |
+          sudo apt-get install --yes --no-install-recommends \
+            xclip x11-apps bubblewrap apparmor apparmor-profiles \
+            ./target/launcher-packages/*.deb ./target/search-packages/*.deb
+          sudo apparmor_parser -r /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+      - name: Measure installed native 10,000-file cold/active/edit/delete interactions
+        run: |
+          timeout --kill-after=10s 12600s bash scripts/smoke-installed-sillage-native-benchmark.sh \
+            target/launcher-packages target/search-packages target/installed-native-benchmark
+      - name: Retain failure-inclusive installed native observations and hardware provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installed-native-benchmark-evidence
+          path: target/installed-native-benchmark/
+          if-no-files-found: ignore
+
   golden-gate:
     needs: [changes]
     runs-on: ubuntu-latest
@@ -283,8 +568,8 @@ jobs:
       - name: Run frozen golden gate
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            cargo test -p maestria-retrieval --test retrieval -- golden_fixture
-            cargo test -p maestria-core --test golden_gate
+            cargo test -p sillage-retrieval --test retrieval -- golden_fixture
+            cargo test -p sillage-core --test golden_gate
           else
             cargo test --workspace --all-targets --all-features
           fi
@@ -375,10 +660,10 @@ jobs:
       - name: Check branch name
         run: |
           BRANCH="${{ github.head_ref }}"
-          if ! [[ "$BRANCH" =~ ^((feat|fix)/[a-z0-9-]+-[a-z0-9-]+|(docs|test|refactor|chore)/[a-z0-9-]+)$ ]]; then
+          if ! [[ "$BRANCH" =~ ^((feat|fix)/[a-z0-9-]+-[a-z0-9-]+|(docs|test|refactor|chore|dev)/[a-z0-9-]+)$ ]]; then
             echo "❌ Branch '$BRANCH' does not match CONTRIBUTING convention:"
             echo "  feat/fix: feat/<area>-<short-description>"
-            echo "  other: <type>/<short-description>"
+            echo "  other: <type>/<short-description> (including dev/ integration branches)"
             exit 1
           fi
           echo "✓ Branch name '$BRANCH' OK"

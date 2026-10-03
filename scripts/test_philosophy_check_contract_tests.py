@@ -16,11 +16,11 @@ class DocumentationContractTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            traits_dir = root / "crates" / "kernel" / "maestria-ports" / "src"
+            traits_dir = root / "crates" / "kernel" / "sillage-ports" / "src"
             traits_dir.mkdir(parents=True, exist_ok=True)
             traits_file = traits_dir / "traits.rs"
             modules = contract_tests.RESPONSIBILITY_MAPS[
-                "crates/kernel/maestria-ports/src/traits.rs"
+                "crates/kernel/sillage-ports/src/traits.rs"
             ]
 
             traits_lines = ["//! Responsibility map:"]
@@ -38,11 +38,11 @@ class DocumentationContractTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            traits_dir = root / "crates" / "kernel" / "maestria-ports" / "src"
+            traits_dir = root / "crates" / "kernel" / "sillage-ports" / "src"
             traits_dir.mkdir(parents=True, exist_ok=True)
             traits_file = traits_dir / "traits.rs"
             modules = contract_tests.RESPONSIBILITY_MAPS[
-                "crates/kernel/maestria-ports/src/traits.rs"
+                "crates/kernel/sillage-ports/src/traits.rs"
             ]
 
             traits_lines = ["//! Responsibility map:"]
@@ -59,7 +59,7 @@ class DocumentationContractTests(PhilosophyCheckFixture):
             self.assertEqual(
                 contract_tests.scan_responsibility_maps(),
                 [
-                    "crates/kernel/maestria-ports/src/traits.rs does not declare module 'repositories'"
+                    "crates/kernel/sillage-ports/src/traits.rs does not declare module 'repositories'"
                 ],
             )
 
@@ -141,7 +141,7 @@ class DocumentationContractTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            lib_dir = root / "crates" / "kernel" / "maestria-domain" / "src"
+            lib_dir = root / "crates" / "kernel" / "sillage-domain" / "src"
             lib_dir.mkdir(parents=True)
             lib_rs = lib_dir / "lib.rs"
             lib_rs.write_text(
@@ -150,7 +150,7 @@ class DocumentationContractTests(PhilosophyCheckFixture):
             )
             old_maps = contract_tests.RESPONSIBILITY_MAPS
             contract_tests.RESPONSIBILITY_MAPS = {
-                "crates/kernel/maestria-domain/src/lib.rs": ("foo",),
+                "crates/kernel/sillage-domain/src/lib.rs": ("foo",),
             }
             try:
                 violations = dependency_graph.scan_facade_boundaries()
@@ -163,7 +163,7 @@ class DocumentationContractTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            lib_dir = root / "crates" / "kernel" / "maestria-domain" / "src"
+            lib_dir = root / "crates" / "kernel" / "sillage-domain" / "src"
             lib_dir.mkdir(parents=True)
             lib_rs = lib_dir / "lib.rs"
             lib_rs.write_text(
@@ -174,7 +174,7 @@ class DocumentationContractTests(PhilosophyCheckFixture):
             (lib_dir / "bar.rs").write_text("// bar\n", encoding="utf-8")
             old_maps = contract_tests.RESPONSIBILITY_MAPS
             contract_tests.RESPONSIBILITY_MAPS = {
-                "crates/kernel/maestria-domain/src/lib.rs": ("foo", "bar"),
+                "crates/kernel/sillage-domain/src/lib.rs": ("foo", "bar"),
             }
             try:
                 violations = dependency_graph.scan_facade_boundaries()
@@ -242,7 +242,7 @@ class DocumentationContractTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            lib_dir = root / "crates" / "kernel" / "maestria-domain" / "src"
+            lib_dir = root / "crates" / "kernel" / "sillage-domain" / "src"
             lib_dir.mkdir(parents=True)
             lib_rs = lib_dir / "lib.rs"
             # 17 meaningful lines with only 1 module = high density
@@ -253,7 +253,7 @@ class DocumentationContractTests(PhilosophyCheckFixture):
             (lib_dir / "foo.rs").write_text("// foo\n", encoding="utf-8")
             old_maps = contract_tests.RESPONSIBILITY_MAPS
             contract_tests.RESPONSIBILITY_MAPS = {
-                "crates/kernel/maestria-domain/src/lib.rs": ("foo",),
+                "crates/kernel/sillage-domain/src/lib.rs": ("foo",),
             }
             try:
                 violations = formatting.scan_cohesion()
