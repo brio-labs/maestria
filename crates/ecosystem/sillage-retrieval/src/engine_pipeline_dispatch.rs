@@ -63,6 +63,28 @@ fn normalize_batch(
     batch
 }
 
+fn query_for_lane_budget(
+    query: &SearchQuery,
+    budget: SearchExecutionBudget,
+) -> RetrievalResult<SearchQuery> {
+    let mut query = query.clone();
+    query.limit = query
+        .limit
+        .min(sillage_domain::saturating_usize(budget.max_results()));
+    let max_results = sillage_domain::saturating_u64(query.limit);
+    query.execution_budget = if max_results == budget.max_results() {
+        budget
+    } else {
+        SearchExecutionBudget::with_byte_limit(
+            max_results,
+            budget.max_candidates(),
+            budget.max_work_units(),
+            budget.max_bytes_read(),
+        )?
+    };
+    Ok(query)
+}
+
 type CompletedLane = Option<(
     crate::types::RetrieverDescriptor,
     SearchExecutionBudget,
@@ -138,15 +160,12 @@ fn collect_batches_serially(
         if descriptor.modality.eq_ignore_ascii_case("web") {
             *web_requests_used = web_requests_used.saturating_add(1);
         }
-        let mut request_query = query.clone();
-        request_query.execution_budget = allocation;
-        request_query.limit = request_query
-            .limit
-            .min(sillage_domain::saturating_usize(allocation.max_results()));
+        let request_query = query_for_lane_budget(query, allocation)?;
+        let request_budget = request_query.execution_budget;
         let request = CandidateRequest {
             plan: std::sync::Arc::new(plan.clone()),
             query: request_query,
-            execution_budget: allocation,
+            execution_budget: request_budget,
             expected_generation: descriptor.generation,
             authorization: sources.authorization.clone(),
             source_filter: sources.source_filter.cloned(),
@@ -162,7 +181,7 @@ fn collect_batches_serially(
                 descriptor.clone(),
                 query,
                 plan,
-                allocation,
+                request_budget,
                 execution_usage,
             ),
             Err(error) => crate::types::CandidateBatch {
@@ -173,7 +192,10 @@ fn collect_batches_serially(
                     error: error.to_string(),
                 },
                 generation: Some(descriptor.generation),
-                execution: execution_with_budget(allocation, SearchExecutionCompletion::Complete),
+                execution: execution_with_budget(
+                    request_budget,
+                    SearchExecutionCompletion::Complete,
+                ),
             },
         };
         batches.push(batch);
@@ -231,15 +253,12 @@ fn plan_lane_dispatch(
             *web_requests_used = web_requests_used.saturating_add(1);
         }
         let retriever = Arc::clone(&retrievers[index]);
-        let mut request_query = query.clone();
-        request_query.execution_budget = allocation;
-        request_query.limit = request_query
-            .limit
-            .min(sillage_domain::saturating_usize(allocation.max_results()));
+        let request_query = query_for_lane_budget(query, allocation)?;
+        let request_budget = request_query.execution_budget;
         let request = CandidateRequest {
             plan: std::sync::Arc::new(plan.clone()),
             query: request_query,
-            execution_budget: allocation,
+            execution_budget: request_budget,
             expected_generation: generation,
             authorization: sources.authorization.clone(),
             source_filter: sources.source_filter.cloned(),
@@ -248,7 +267,7 @@ fn plan_lane_dispatch(
         jobs.push(super::lane_workers::LaneJob {
             index,
             descriptor,
-            allocation,
+            allocation: request_budget,
             retriever,
             request,
         });

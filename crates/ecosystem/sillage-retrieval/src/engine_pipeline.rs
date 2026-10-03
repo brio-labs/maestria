@@ -46,11 +46,34 @@ pub(crate) fn search_query_for_plan(
     })
 }
 
+/// Build the regular-search query window from the existing candidate budget.
+/// `SearchPlan.stop_conditions().max_results` remains the final selection cap.
+pub(crate) fn search_query_for_candidate_window(
+    plan: &SearchPlan,
+    text: &str,
+) -> Result<SearchQuery, RetrievalError> {
+    let budget = plan.execution_budget()?;
+    let candidate_limit = budget.max_candidates();
+    let execution_budget = SearchExecutionBudget::with_byte_limit(
+        candidate_limit,
+        candidate_limit,
+        budget.max_work_units(),
+        budget.max_bytes_read(),
+    )?;
+    Ok(SearchQuery {
+        q: text.to_string(),
+        limit: sillage_domain::saturating_usize(candidate_limit),
+        offset: 0,
+        execution_budget,
+    })
+}
+
 pub(super) fn collect_initial_batches_with_cancellation(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     authorization: &sillage_governance::RetrievalAuthorizationContext,
     source_filter: Option<&crate::types::CandidateSourceFilter>,
+    candidate_window: bool,
     cancellation: Option<&crate::types::SearchCancellation>,
 ) -> RetrievalResult<(
     Vec<crate::types::CandidateBatch>,
@@ -78,7 +101,11 @@ pub(super) fn collect_initial_batches_with_cancellation(
         if cancellation.is_some_and(crate::types::SearchCancellation::is_cancelled) {
             return Err(RetrievalError::Cancelled);
         }
-        let rewrite_query = search_query_for_plan(plan, &rewrite.query)?;
+        let rewrite_query = if candidate_window {
+            search_query_for_candidate_window(plan, &rewrite.query)?
+        } else {
+            search_query_for_plan(plan, &rewrite.query)?
+        };
         batches.extend(collect_batches_with_cancellation(
             retrievers,
             plan,
@@ -106,7 +133,7 @@ pub(super) fn collect_missing_slot_batches(
     web_requests_used: &mut u32,
     execution_usage: &mut SearchExecutionUsage,
 ) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
-    let query = search_query_for_plan(plan, query)?;
+    let query = search_query_for_candidate_window(plan, query)?;
     collect_batches(
         retrievers,
         plan,

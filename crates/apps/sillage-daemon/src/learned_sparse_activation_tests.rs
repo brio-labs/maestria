@@ -1,11 +1,10 @@
 //! Activation and rollback mechanics for learned-sparse promotion records.
 //!
 //! These tests drive a real instance (real SQLite projection, real runtime
-//! ingestion) with the in-memory fixture provider. Fixture evidence can never
-//! promote a real class (the gate forbids it); the mechanics under test are
-//! the contract: record presence activates the winning-class sparse lane,
-//! removal restores the hybrid route, invalid records stay shadowed, and a
-//! rolled-back generation degrades to hybrid serving.
+//! ingestion) with the in-memory fixture provider and an explicitly constructed
+//! counterfactual promotion record. They test activation, protected query
+//! classes, removal, invalid-record rejection and generation rollback, not
+//! benchmark qualification. No historical corpus is relabelled or promoted.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -14,7 +13,8 @@ use std::time::Duration;
 use sillage_core::{InstanceLayout, InstanceManifest};
 use sillage_domain::{
     ContentHash, DomainInput, IndexFingerprint, IndexGenerationId, IndexLifecycle, IndexStatus,
-    KernelState, RepresentationName, RetrievalScoreKind, StartIndexGenerationInput,
+    KernelState, RepresentationName, RetrievalScoreKind, SearchExecutionBudget,
+    StartIndexGenerationInput,
 };
 use sillage_governance::AutonomyProfile;
 use sillage_ports::{
@@ -27,25 +27,16 @@ use sillage_retrieval::adapters::{
     LearnedSparseGenerationCapability,
 };
 use sillage_retrieval::{
-    CandidateRetriever, CheckStatus, LearnedSparseBenchmarkCase, LearnedSparseBenchmarkComparison,
-    LearnedSparseBenchmarkCorpus, LearnedSparseBenchmarkIdentity, LearnedSparseEnvironment,
-    LearnedSparseExecutionPolicy, LearnedSparseExpectedOutcome, LearnedSparseOperationMeasurement,
-    LearnedSparsePromotionRecord, LearnedSparseProviderDisclosure, LearnedSparseQualityMetrics,
-    LearnedSparseQueryClass, LearnedSparseResourceMetrics, LearnedSparseRetentionPolicy,
-    LearnedSparseRetrievedCandidate, LearnedSparseRetrievedSpan, LearnedSparseRollbackTarget,
-    LearnedSparseRoute, LearnedSparseRouteConfiguration, LearnedSparseSafetyMetrics,
-    LearnedSparseTaskCorpus, Measurement, run_learned_sparse_benchmark, score_case,
+    CandidateRetriever, LearnedSparseBenchmarkBudget, LearnedSparseBenchmarkIdentity,
+    LearnedSparseClassDecision, LearnedSparseDataFidelity, LearnedSparseEnvironment,
+    LearnedSparseExecutionPolicy, LearnedSparsePromotionRecord, LearnedSparseQueryClass,
+    LearnedSparseRollbackTarget, LearnedSparseRoute, LearnedSparseRouteConfiguration,
 };
 use sillage_storage_sqlite::{SqliteLearnedSparseIndex, SqliteStore};
 
 use crate::search_executor::{SearchRuntime, SearchRuntimeParts};
 use crate::test_support::TempDir;
 use crate::vector_startup::{advance_generation, persist_input};
-
-const TASK_CORPUS: &str =
-    include_str!("../../../../tests/contracts/learned_sparse_task_corpus_v1.json");
-const ROUTE_CONFIGURATIONS: &str =
-    include_str!("../../../../tests/contracts/learned_sparse_benchmark_v2.json");
 
 const WINNING_QUERY: &str = "find similar bounded research observations";
 const EXACT_QUERY: &str = "shadow-store";
@@ -79,240 +70,80 @@ fn fixture_index_fingerprint(identity: &SparseIdentity) -> IndexFingerprint {
     }
 }
 
-fn environment() -> Result<LearnedSparseEnvironment, Box<dyn std::error::Error>> {
-    #[derive(serde::Deserialize)]
-    struct ConfigDocument {
-        environment: LearnedSparseEnvironment,
-    }
-    let document: ConfigDocument = serde_json::from_str(ROUTE_CONFIGURATIONS)?;
-    Ok(document.environment)
-}
-
-fn route_configurations()
--> Result<BTreeMap<LearnedSparseRoute, LearnedSparseRouteConfiguration>, Box<dyn std::error::Error>>
-{
-    #[derive(serde::Deserialize)]
-    struct ConfigDocument {
-        route_configurations: BTreeMap<LearnedSparseRoute, LearnedSparseRouteConfiguration>,
-    }
-    let document: ConfigDocument = serde_json::from_str(ROUTE_CONFIGURATIONS)?;
-    Ok(document.route_configurations)
-}
-
-fn benchmark_corpus(
-    identity: &SparseIdentity,
-) -> Result<LearnedSparseBenchmarkCorpus, Box<dyn std::error::Error>> {
-    let task: LearnedSparseTaskCorpus = serde_json::from_str(TASK_CORPUS)?;
-    let mut corpus = task.to_benchmark_corpus(
-        environment()?,
-        route_configurations()?,
-        identity.corpus_snapshot,
-        identity.generation_id,
-        identity.namespace.clone(),
-    )?;
-    // The activation record requires a final-evaluation corpus; the frozen
-    // corpus's final-evaluation cases still cover every query class.
-    corpus
-        .cases
-        .retain(|case| case.split == sillage_retrieval::LearnedSparseDataSplit::FinalEvaluation);
-    corpus.validate()?;
-    Ok(corpus)
-}
-
-/// The D3 fixture executor: complete telemetry (energy measured) with
-/// class-dependent quality. Only VocabularyExpansion cases see the sparse
-/// lane win; every other class ties across routes.
-struct ActivationFixtureExecutor {
-    corpus_id: String,
-    corpus_revision: String,
-    judgment_set_id: String,
-    evaluation_date: String,
-    identity: LearnedSparseBenchmarkIdentity,
-    route_configurations: BTreeMap<LearnedSparseRoute, LearnedSparseRouteConfiguration>,
-}
-
-impl ActivationFixtureExecutor {
-    fn new(
-        corpus: &LearnedSparseBenchmarkCorpus,
-        identity: &SparseIdentity,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self {
-            corpus_id: corpus.corpus_id.clone(),
-            corpus_revision: corpus.corpus_revision.clone(),
-            judgment_set_id: corpus.judgment_set_id.clone(),
-            evaluation_date: corpus.evaluation_date.clone(),
-            identity: LearnedSparseBenchmarkIdentity::from_sparse_identity(
-                identity,
-                "activation-fixture-v1",
-            )?,
-            route_configurations: corpus.route_configurations.clone(),
-        })
-    }
-
-    fn candidates(
-        &self,
-        case: &LearnedSparseBenchmarkCase,
-        route: LearnedSparseRoute,
-    ) -> Vec<LearnedSparseRetrievedCandidate> {
-        let Some(LearnedSparseExpectedOutcome::Evidence { accepted_spans, .. }) =
-            case.expected.as_ref()
-        else {
-            return Vec::new();
-        };
-        let winning = case.class == LearnedSparseQueryClass::VocabularyExpansion;
-        // The winning class: the fused route surfaces exactly the accepted
-        // spans; every baseline appends one non-overlapping noise candidate
-        // that degrades only citation precision (recall, nDCG, MAP, and
-        // diversity stay complete). Every other class ties across routes.
-        let mut candidates = accepted_spans
-            .iter()
-            .enumerate()
-            .map(|(index, span)| LearnedSparseRetrievedCandidate {
-                evidence_id: format!("{}-{index}", case.case_id),
-                lane_rank: index as u32 + 1,
-                span: LearnedSparseRetrievedSpan {
-                    source_id: span.source_id.clone(),
-                    start: span.start,
-                    end: span.end,
-                },
-                citation: Some(LearnedSparseRetrievedSpan {
-                    source_id: span.source_id.clone(),
-                    start: span.start,
-                    end: span.end,
-                }),
-                grade: Some(2),
-            })
-            .collect::<Vec<_>>();
-        if winning && route != LearnedSparseRoute::SparseFused {
-            candidates.push(LearnedSparseRetrievedCandidate {
-                evidence_id: format!("{}-noise", case.case_id),
-                lane_rank: candidates.len() as u32 + 1,
-                span: LearnedSparseRetrievedSpan {
-                    source_id: "noise-source".to_string(),
-                    start: 0,
-                    end: 1,
-                },
-                citation: Some(LearnedSparseRetrievedSpan {
-                    source_id: "noise-source".to_string(),
-                    start: 0,
-                    end: 1,
-                }),
-                grade: None,
-            });
-        }
-        candidates
-    }
-
-    fn resources(&self) -> LearnedSparseResourceMetrics {
-        let operation = LearnedSparseOperationMeasurement {
-            elapsed_ms: Measurement::measured(10),
-            throughput_items_per_second: Measurement::measured(1_000),
-            cost_micros: Measurement::measured(10_000),
-            energy_millijoules: Measurement::measured(5),
-        };
-        LearnedSparseResourceMetrics {
-            p50_latency_ms: Measurement::measured(30),
-            p95_latency_ms: Measurement::measured(40),
-            p99_latency_ms: Measurement::measured(50),
-            peak_ram_bytes: Measurement::measured(64_000_000),
-            index_disk_bytes: Measurement::measured(128_000_000),
-            initial_indexing: operation.clone(),
-            incremental_update: operation.clone(),
-            deletion: operation.clone(),
-            rebuild: operation.clone(),
-            activation: operation.clone(),
-            rollback: operation,
-        }
-    }
-
-    fn safety(&self) -> LearnedSparseSafetyMetrics {
-        LearnedSparseSafetyMetrics {
-            provider: Measurement::measured(LearnedSparseProviderDisclosure {
-                remote: false,
-                retention: LearnedSparseRetentionPolicy::NoRetention,
-            }),
-            namespace_isolation: Measurement::measured(CheckStatus::Passed),
-            acl_leakage: Measurement::measured(0),
-            attack_outcome: Measurement::measured(CheckStatus::Passed),
-            poisoning_outcome: Measurement::measured(CheckStatus::Passed),
-            secret_exposure: Measurement::measured(CheckStatus::NotDetected),
-            quarantine_outcome: Measurement::measured(CheckStatus::Passed),
-            prompt_injection_outcome: Measurement::measured(CheckStatus::Passed),
-            fail_open_count: Measurement::measured(0),
-            energy: Measurement::measured(5),
-        }
-    }
-}
-
-impl sillage_retrieval::LearnedSparseBenchmarkExecutor for ActivationFixtureExecutor {
-    fn observe(
-        &self,
-        case: LearnedSparseBenchmarkCase,
-        route: LearnedSparseRoute,
-    ) -> Result<
-        sillage_retrieval::LearnedSparseBenchmarkObservation,
-        sillage_retrieval::LearnedSparseBenchmarkError,
-    > {
-        let expected = case.expected.clone().ok_or_else(|| {
-            sillage_retrieval::LearnedSparseBenchmarkError::InvalidCorpus(
-                "case has no expected outcome".to_string(),
-            )
-        })?;
-        let candidates = self.candidates(&case, route);
-        let quality: LearnedSparseQualityMetrics =
-            score_case(&case.case_id, &expected, &candidates)?;
-        Ok(sillage_retrieval::LearnedSparseBenchmarkObservation {
-            schema_version: 2,
-            corpus_id: self.corpus_id.clone(),
-            corpus_revision: self.corpus_revision.clone(),
-            judgment_set_id: self.judgment_set_id.clone(),
-            evaluation_date: self.evaluation_date.clone(),
-            case_id: case.case_id,
-            route,
-            identity: self.identity.clone(),
-            route_configuration: self.route_configurations.get(&route).cloned().ok_or_else(
-                || {
-                    sillage_retrieval::LearnedSparseBenchmarkError::InvalidCorpus(
-                        "route configuration missing".to_string(),
-                    )
-                },
-            )?,
-            quality,
-            resources: self.resources(),
-            safety: self.safety(),
-        })
-    }
-}
-
-/// Builds a valid promotion record from fixture observations on the test
-/// instance's identity: VocabularyExpansion wins sparse-fused.
+/// A counterfactual valid record confined to the disposable mechanics instance.
+/// Its explicit fixture IDs are not evaluation evidence or a serving promotion.
 fn fixture_promotion_record(
-    corpus: &LearnedSparseBenchmarkCorpus,
     identity: &SparseIdentity,
 ) -> Result<LearnedSparsePromotionRecord, Box<dyn std::error::Error>> {
-    let executor = ActivationFixtureExecutor::new(corpus, identity)?;
-    let observations = run_learned_sparse_benchmark(corpus, &executor)?;
-    let comparison = LearnedSparseBenchmarkComparison::evaluate(corpus, &observations)?;
-    let vocabulary = comparison
-        .classes()
-        .get(&LearnedSparseQueryClass::VocabularyExpansion)
-        .ok_or("vocabulary class missing")?;
-    assert_eq!(
-        vocabulary.winning_route,
-        Some(LearnedSparseRoute::SparseFused),
-        "the activation fixture must produce a winning sparse-fused route"
-    );
-    let record = comparison.promotion(
-        "activation-test-evaluation".to_string(),
-        corpus.evaluation_date.clone(),
-        LearnedSparseRollbackTarget {
+    let mut decisions = BTreeMap::new();
+    let mut budgets = BTreeMap::new();
+    let mut class_final_real = BTreeMap::new();
+    for class in LearnedSparseQueryClass::all() {
+        let decision = match class {
+            LearnedSparseQueryClass::VocabularyExpansion => {
+                LearnedSparseClassDecision::PromoteSparseFused
+            }
+            LearnedSparseQueryClass::ExactLiteral
+            | LearnedSparseQueryClass::NoEvidence
+            | LearnedSparseQueryClass::Security => LearnedSparseClassDecision::RetainLexical,
+            _ => LearnedSparseClassDecision::RetainHybrid,
+        };
+        decisions.insert(class, decision);
+        class_final_real.insert(class, true);
+        budgets.insert(
+            class,
+            LearnedSparseBenchmarkBudget {
+                latency_ms: 250,
+                memory_bytes: 268_435_456,
+                disk_bytes: 536_870_912,
+                indexing_cost_micros: 5_000_000,
+                incremental_update_cost_micros: 5_000_000,
+                energy_millijoules: 5_000,
+            },
+        );
+    }
+    let record = LearnedSparsePromotionRecord {
+        evaluation_id: "activation-mechanics-fixture-not-evaluation".to_string(),
+        evaluation_date: "2026-10-03".to_string(),
+        corpus_id: "activation-mechanics-fixture".to_string(),
+        corpus_revision: "v1".to_string(),
+        judgment_set_id: "activation-mechanics-fixture".to_string(),
+        source_input_hash:
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        final_evaluation: true,
+        class_final_real,
+        judgment_set_hash: Some(ContentHash::new(
+            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
+        )?),
+        environment: LearnedSparseEnvironment {
+            operating_system: "linux".to_string(),
+            architecture: "x86_64".to_string(),
+            cpu_model: "in-memory activation mechanics fixture".to_string(),
+            software_revision: "activation-mechanics-fixture".to_string(),
+            warmup_policy: "not an evaluation; no benchmark warmups".to_string(),
+            sample_count: 1,
+        },
+        data_fidelity: LearnedSparseDataFidelity::RealSillageTask,
+        identity: LearnedSparseBenchmarkIdentity::from_sparse_identity(
+            identity,
+            "activation-fixture-v1",
+        )?,
+        route_configuration: LearnedSparseRouteConfiguration {
+            route: LearnedSparseRoute::SparseFused,
+            result_limit: 20,
+            candidate_limit: 50,
+            budget: SearchExecutionBudget::new(20, 50, 1_000, 0)?,
+        },
+        budgets,
+        decisions,
+        rollback_target: LearnedSparseRollbackTarget {
             route: LearnedSparseRoute::Hybrid,
             index_generation: IndexGenerationId::new(1),
         },
-        ContentHash::new(
-            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        report_hash: ContentHash::new(
+            "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_string(),
         )?,
-    )?;
+    };
     record.validate()?;
     Ok(record)
 }
@@ -623,8 +454,7 @@ async fn shadow_without_record_never_serves_sparse() -> Result<(), Box<dyn std::
 async fn active_record_fuses_winning_class_and_protects_others()
 -> Result<(), Box<dyn std::error::Error>> {
     let prepared = prepare().await?;
-    let corpus = benchmark_corpus(&prepared.identity)?;
-    let record = fixture_promotion_record(&corpus, &prepared.identity)?;
+    let record = fixture_promotion_record(&prepared.identity)?;
     prepared.store.save_promotion_record(
         &record.corpus_id,
         &record.evaluation_id,
@@ -667,8 +497,7 @@ async fn removing_the_record_restores_the_shadow_trace() -> Result<(), Box<dyn s
     )?;
     let shadow_outcome = search(&shadow_runtime, WINNING_QUERY).await?;
 
-    let corpus = benchmark_corpus(&prepared.identity)?;
-    let record = fixture_promotion_record(&corpus, &prepared.identity)?;
+    let record = fixture_promotion_record(&prepared.identity)?;
     prepared.store.save_promotion_record(
         &record.corpus_id,
         &record.evaluation_id,
@@ -699,8 +528,7 @@ async fn removing_the_record_restores_the_shadow_trace() -> Result<(), Box<dyn s
 #[tokio::test]
 async fn invalid_record_stays_shadowed() -> Result<(), Box<dyn std::error::Error>> {
     let prepared = prepare().await?;
-    let corpus = benchmark_corpus(&prepared.identity)?;
-    let mut record = fixture_promotion_record(&corpus, &prepared.identity)?;
+    let mut record = fixture_promotion_record(&prepared.identity)?;
     record.final_evaluation = false;
     prepared.store.save_promotion_record(
         &record.corpus_id,
@@ -728,8 +556,7 @@ async fn invalid_record_stays_shadowed() -> Result<(), Box<dyn std::error::Error
 #[tokio::test]
 async fn rolled_back_generation_degrades_to_hybrid() -> Result<(), Box<dyn std::error::Error>> {
     let prepared = prepare().await?;
-    let corpus = benchmark_corpus(&prepared.identity)?;
-    let record = fixture_promotion_record(&corpus, &prepared.identity)?;
+    let record = fixture_promotion_record(&prepared.identity)?;
     prepared.store.save_promotion_record(
         &record.corpus_id,
         &record.evaluation_id,

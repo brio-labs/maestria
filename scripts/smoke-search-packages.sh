@@ -110,12 +110,12 @@ fail() {
   exit 1
 }
 
-phrase='The cobalt kestrel carries a silver compass beneath northern rain'
+# Quote the literal query for Tantivy's phrase semantics; shell argument
+# quoting alone still sends an OR query. The private scope keeps runs distinct.
+phrase="The vermilion nighthawk traces a brass gnomon under autumn sleet witness ${root##*.}"
+literal_query="\"$phrase\""
 fixture="$approved_root/search-fixture.md"
-cat > "$fixture" <<'EOF'
-# Search-only package smoke fixture
-The cobalt kestrel carries a silver compass beneath northern rain.
-EOF
+printf '# Search-only package smoke fixture\n%s.\n' "$phrase" > "$fixture"
 
 # Source-aware common-document fixtures travel through the installed binary,
 # not parser test helpers or a model provider.
@@ -346,11 +346,11 @@ if [[ "$indexing_ready" != true ]]; then
 fi
 
 search_json="$root/consumer-search.json"
-if ! "$binary" search "${consumer_args[@]}" --limit 100 "$phrase" >"$search_json" 2>"$root/consumer-search.err"; then
+if ! "$binary" search "${consumer_args[@]}" --limit 100 "$literal_query" >"$search_json" 2>"$root/consumer-search.err"; then
   cat "$root/consumer-search.err" >&2
   fail "granted exact-phrase search request failed"
 fi
-evidence_id="$(python3 - "$search_json" "$phrase" "$fixture" <<'PY'
+if evidence_id="$(python3 - "$search_json" "$literal_query" "$fixture" "$phrase" <<'PY'
 import json
 import sys
 
@@ -372,7 +372,7 @@ evidence_id = match.get("evidence_id")
 if not isinstance(evidence_id, int) or evidence_id <= 0:
     raise SystemExit("search result had no valid evidence ID")
 preview = match.get("preview")
-if not isinstance(preview, dict) or sys.argv[2] not in preview.get("excerpt", ""):
+if not isinstance(preview, dict) or sys.argv[4] not in preview.get("excerpt", ""):
     raise SystemExit("granted search did not return the exact cited passage preview")
 if len(preview["excerpt"].encode("utf-8")) > 512 or not isinstance(preview.get("truncated"), bool):
     raise SystemExit("preview exceeded the grant byte bound or omitted truncation status")
@@ -387,14 +387,18 @@ if (
     raise SystemExit("preview lacked the approved typed Markdown source location")
 print(evidence_id)
 PY
-)" || fail "could not validate the bounded exact-phrase search response"
+)"; then
+  :
+else
+  fail "could not validate the bounded exact-phrase search response"
+fi
 
 interactive_json="$root/interactive-search.json"
-if ! "$binary" interactive-search "${consumer_args[@]}" --limit 1 "$phrase" >"$interactive_json" 2>"$root/interactive-search.err"; then
+if ! "$binary" interactive-search "${consumer_args[@]}" --limit 1 "$literal_query" >"$interactive_json" 2>"$root/interactive-search.err"; then
   cat "$root/interactive-search.err" >&2
   fail "v2 interactive lexical search request failed"
 fi
-python3 - "$interactive_json" "$phrase" "$fixture" <<'PY'
+python3 - "$interactive_json" "$literal_query" "$fixture" "$phrase" <<'PY'
 import json
 import sys
 
@@ -407,7 +411,7 @@ if len(evidence) != 1:
     raise SystemExit("interactive search did not honor the grant's one-result bound")
 preview = evidence[0].get("preview", {})
 location = preview.get("location", {})
-if sys.argv[2] not in preview.get("excerpt", "") or location.get("path") != sys.argv[3]:
+if sys.argv[4] not in preview.get("excerpt", "") or location.get("path") != sys.argv[3]:
     raise SystemExit("interactive search did not return the approved cited Markdown passage")
 PY
 

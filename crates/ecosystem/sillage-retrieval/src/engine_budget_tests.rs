@@ -41,23 +41,6 @@ fn plan(max_results: u32) -> Result<SearchPlan, SearchCompatibilityError> {
 }
 
 #[test]
-fn lane_budget_keeps_full_result_ceiling_for_every_lane() -> Result<(), Box<dyn std::error::Error>>
-{
-    let plan = plan(3)?;
-    let global = plan.execution_budget()?;
-    for lane in 0..3 {
-        let allocation = lane_budget(&plan, SearchExecutionUsage::default(), 3, lane)
-            .ok_or("lane budget was not allocated")?;
-        assert_eq!(
-            allocation.max_results(),
-            global.max_results(),
-            "lane {lane} must retain the plan's full result ceiling"
-        );
-    }
-    Ok(())
-}
-
-#[test]
 fn lane_budget_partitions_consumable_resources_across_lanes()
 -> Result<(), Box<dyn std::error::Error>> {
     let plan = plan(3)?;
@@ -86,7 +69,6 @@ fn aggregate_lane_results_do_not_refuse_later_lane_admission()
     let allocation = lane_budget(&plan, usage, 2, 1)
         .ok_or("aggregate lane output refused a later lane despite remaining resources")?;
 
-    assert_eq!(allocation.max_results(), 3);
     assert_eq!(
         allocation.max_candidates(),
         (global.max_candidates() - 6) / 2

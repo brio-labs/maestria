@@ -270,3 +270,173 @@ fn empty_tightly_budgeted_lane_releases_capacity_to_later_lane()
     );
     Ok(())
 }
+struct OrderedFixtureRetriever {
+    descriptor: RetrieverDescriptor,
+    candidates: Vec<sillage_domain::EvidenceCandidate>,
+}
+
+impl crate::traits::CandidateRetriever for OrderedFixtureRetriever {
+    fn descriptor(&self) -> &RetrieverDescriptor {
+        &self.descriptor
+    }
+
+    fn retrieve(
+        &self,
+        request: crate::types::CandidateRequest,
+    ) -> Result<crate::types::CandidateBatch, crate::RetrievalError> {
+        let candidates = self
+            .candidates
+            .iter()
+            .take(request.query.limit)
+            .cloned()
+            .collect::<Vec<_>>();
+        let count = sillage_domain::saturating_u64(candidates.len());
+        let status = if candidates.is_empty() {
+            sillage_domain::SearchLaneStatus::Empty
+        } else {
+            sillage_domain::SearchLaneStatus::Succeeded
+        };
+        Ok(crate::types::CandidateBatch {
+            descriptor: self.descriptor.clone(),
+            query: request.query.q,
+            candidates,
+            status,
+            generation: Some(self.descriptor.generation),
+            execution: sillage_domain::SearchExecution::new(
+                request.execution_budget,
+                sillage_domain::SearchExecutionUsage::new(count, count, count, 0),
+                sillage_domain::SearchExecutionCompletion::Complete,
+            ),
+        })
+    }
+}
+
+fn ranking_window_plan() -> Result<sillage_domain::SearchPlan, Box<dyn std::error::Error>> {
+    let query = "how might amber kites navigate the northern orchard";
+    Ok(sillage_domain::SearchPlan::builder()
+        .query_id(sillage_domain::QueryId::from_query_text(query))
+        .original_query(query.to_string())
+        .intent(sillage_domain::SearchIntent::FactualLocal)
+        .scope(sillage_domain::CorpusScope::Global)
+        .corpus_snapshot(sillage_domain::DEFAULT_CORPUS_SNAPSHOT_ID)
+        .index_generation(sillage_domain::IndexGenerationId::new(1))
+        .freshness(sillage_domain::FreshnessRequirement::Any)
+        .modalities(sillage_domain::ModalitySet::new(vec![
+            sillage_domain::Modality::Text,
+        ]))
+        .stages(vec![sillage_domain::SearchStage::InitialRetrieval])
+        .budgets(sillage_domain::SearchBudget::with_execution_limits(
+            sillage_domain::SearchBudgetLimits {
+                max_tokens: 128,
+                max_latency_ms: 30_000,
+                max_queries: 1,
+                max_stages: 1,
+                max_web_requests: 0,
+                max_bytes_read: 0,
+                max_concurrency: 2,
+                max_candidates: 4,
+                max_work_units: 100,
+            },
+        )?)
+        .stop_conditions(sillage_domain::StopConditions {
+            max_results: 1,
+            min_score_threshold: 0,
+        })
+        .evidence_requirements(sillage_domain::EvidenceRequirements {
+            require_primary_sources: false,
+            minimum_corroboration: 1,
+            required_claims: Vec::new(),
+            required_subquestions: Vec::new(),
+            minimum_sources: 0,
+            minimum_documents: 0,
+            minimum_sections: 0,
+        })
+        .fingerprint(sillage_domain::RetrievalModelFingerprint::new(
+            "sillage:test".to_string(),
+        )?)
+        .authorization(sillage_domain::RetrievalPolicySnapshot::global_default())
+        .build()?)
+}
+
+fn ranked_fixture_candidate(
+    id: u64,
+    path: &str,
+    raw_rank: u32,
+) -> Result<sillage_domain::EvidenceCandidate, Box<dyn std::error::Error>> {
+    let representation = RepresentationName::new("lexical_text_v1");
+    let scores =
+        sillage_domain::RetrievalScoreSet::new(vec![sillage_domain::RetrievalLaneScore::new(
+            sillage_domain::RetrievalScoreKind::LexicalBm25,
+            100,
+            sillage_domain::RetrievalRawRank::ranked(raw_rank),
+            sillage_domain::RetrievalScoreScale::unbounded("fixture_bm25"),
+            representation.clone(),
+            sillage_domain::RetrievalScoreFingerprint::new(
+                sillage_domain::RetrievalModelFingerprint::new(
+                    "fixture:bounded-window:v1".to_string(),
+                )?,
+                std::collections::BTreeMap::from([(
+                    "representation".to_string(),
+                    representation.0,
+                )]),
+            ),
+        )])?;
+    Ok(sillage_domain::EvidenceCandidate::new(
+        sillage_domain::EvidenceCandidateDto {
+            evidence_id: sillage_domain::EvidenceId::new(id),
+            artifact_version: sillage_domain::ArtifactVersionId::new(id),
+            source_span: sillage_domain::EvidenceSpan::new(
+                None,
+                sillage_domain::SourceLocation::file(path.to_string(), 1, 1)?,
+                sillage_domain::ContentRange::new(0, 1)?,
+            )?,
+            scores,
+            trust: sillage_domain::TrustLabel::Verified,
+            freshness: sillage_domain::FreshnessStatus::UpToDate,
+            duplicate_cluster: None,
+            reasons: vec![sillage_domain::RetrievalReason::LexicalMatch],
+            coverage_keys: Vec::new(),
+        },
+    )?)
+}
+
+#[test]
+fn final_result_ceiling_does_not_hide_cross_lane_consensus_before_fusion()
+-> Result<(), Box<dyn std::error::Error>> {
+    let first = ranked_fixture_candidate(1, "records/first-ranked.md", 1)?;
+    let second = ranked_fixture_candidate(2, "records/alternate-rank.md", 1)?;
+    let shared = ranked_fixture_candidate(3, "records/corroborated-match.md", 2)?;
+    let retrievers: Vec<Arc<dyn crate::traits::CandidateRetriever>> = vec![
+        Arc::new(OrderedFixtureRetriever {
+            descriptor: descriptor("cards", "text"),
+            candidates: vec![first, shared.clone()],
+        }),
+        Arc::new(OrderedFixtureRetriever {
+            descriptor: descriptor("lexical_chunks", "text"),
+            candidates: vec![second, shared],
+        }),
+    ];
+    let engine = super::RetrievalEngine::new(
+        retrievers,
+        Arc::new(crate::adapters::EvidenceOutcomeEvaluator::new(Arc::new(
+            sillage_ports::InMemoryEvidenceRepository::new(),
+        ))),
+        sillage_governance::RetrievalSecurityPolicy::default(),
+    )
+    .with_fusion(Arc::new(crate::HybridLexicalHead::new(
+        crate::FixedKRrf::new(60),
+    )));
+    let plan = ranking_window_plan()?;
+    let authorization = sillage_governance::RetrievalSecurityPolicy::default()
+        .authorization_context(plan.scope())?;
+
+    let outcome = engine.search_pre_authorized(&plan, authorization)?;
+
+    assert_eq!(outcome.evidence.len(), 1);
+    assert_eq!(
+        outcome.evidence[0].evidence_id(),
+        sillage_domain::EvidenceId::new(3),
+        "the shared rank-2 lexical result should win after fusion, before the one-result final cap"
+    );
+    Ok(())
+}

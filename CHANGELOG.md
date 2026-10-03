@@ -33,6 +33,38 @@ Node 24.11.1, pnpm 9.15.9 and Dioxus 0.7.10 tools. A managed Chromium smoke
 showed the Sillage Studio Search surface; it did not connect to a daemon or
 qualify search, native latency, or installed packages.
 
+The first Sillage CI run (`37083359067`, `cfcf8014`) failed the test,
+nextest, Studio frontend, and search-package jobs; those first outcomes are
+retained. Sparse activation mechanics now use an explicitly counterfactual
+test record rather than fabricated historical benchmark qualification.
+
+A cold build in the authenticated CI-image userspace reproduced Studio's
+drift. Dioxus's autodetected Tailwind 4.1.5 replaced the pinned 4.3.3 output;
+the image also lacked the local ThinLTO profile and `rust-src` source-location
+inputs. Studio now compiles `studio.css` with the pinned pnpm CLI, explicitly
+pins its Wasm Cargo profile, and requires the declared pinned `rust-src`
+component. With that real source component staged privately, the cold image
+build matched all four committed bundle hashes. The deterministic validator
+is unchanged; this is source-build evidence, not installed qualification.
+
+Regular Search now uses each lane's existing candidate allowance as its
+pre-fusion result window, retaining the final result ceiling after fusion.
+The independent consensus regression failed before and passed after; all
+86 retrieval unit tests and the Hybrid baseline-head boundary passed.
+InteractiveSearch retains its result window and 100-ms deadline. This repairs
+a generic truncation defect, not the observed package-ranking failure: both
+the exact-package diagnostic and a distinct repaired-source diagnostic still
+selected a partial DOCX match instead of the complete Markdown passage.
+Their consumed queries and first outcomes remain closed and preserved.
+An independently reserved owner-runtime trace then showed both lanes
+succeeded: Markdown was first in chunks, while DOCX won RRF with card and
+chunk support. The smoke's unquoted query used OR semantics, not literal
+phrase semantics. Future smoke inputs are scope-unique and explicitly quote
+the literal query. A fresh bounded source consumer Search passed; a separate
+fresh InteractiveSearch and evidence reopen passed at 64.42 ms CLI round-trip.
+These synthetic source observations neither recover the original CI payload
+nor qualify ordinary-query relevance, historical failures, or installed latency.
+
 Frozen metadata retains its original `RealMaestriaTask` provenance label,
 decoded as the distinct `HistoricalWorkTask` category rather than relabeled
 as current Sillage work. Task-to-benchmark conversion preserves that category;

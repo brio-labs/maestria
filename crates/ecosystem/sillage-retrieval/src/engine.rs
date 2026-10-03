@@ -233,13 +233,18 @@ impl RetrievalEngine {
                 "No retrievers configured".into()
             }));
         }
-        let query = engine_pipeline::search_query_for_plan(plan, plan.original_query())?;
+        let query = if interactive {
+            engine_pipeline::search_query_for_plan(plan, plan.original_query())?
+        } else {
+            engine_pipeline::search_query_for_candidate_window(plan, plan.original_query())?
+        };
         let (batches, rewrites, web_requests_used, mut execution_usage) =
             engine_pipeline::collect_initial_batches_with_cancellation(
                 &active_retrievers,
                 plan,
                 authorization,
                 source_filter,
+                !interactive,
                 cancellation,
             )?;
         check_interactive_budget(plan, started, cancellation)?;

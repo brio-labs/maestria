@@ -5,7 +5,7 @@
 #   - GTK3/WebKitGTK 4.1 development libraries and native launcher test tools
 #   - Node 24.11.1 with corepack (pnpm 9.15.9 pre-seeded, offline)
 #   - rustup nightly-2026-06-15 (rustfmt, clippy, rustc-codegen-cranelift,
-#     wasm32-unknown-unknown) at RUSTUP_HOME=/usr/local/rustup
+#     rust-src, wasm32-unknown-unknown) at RUSTUP_HOME=/usr/local/rustup
 #   - Dioxus CLI 0.7.10 (SHA-256 verified, same pin as ci.yml)
 #   - dx's pinned build tools pre-seeded at DX_HOME=/opt/dx-data/tools
 #     (esbuild 0.27.3, wasm-bindgen 0.2.126, binaryen; dx 0.7.10 resolves the
@@ -51,7 +51,7 @@ RUN curl -fsSL https://nodejs.org/dist/v24.11.1/node-v24.11.1-linux-x64.tar.xz \
 # Rust toolchain pinned by rust-toolchain.toml (nightly-2026-06-15).
 RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal \
         --default-toolchain nightly-2026-06-15 \
-    && rustup component add rustfmt clippy rustc-codegen-cranelift \
+    && rustup component add rustfmt clippy rustc-codegen-cranelift rust-src \
     && rustup target add wasm32-unknown-unknown \
     && rustc --version
 

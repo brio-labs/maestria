@@ -126,6 +126,33 @@ Sillage is in continuous development with no external release promise.
   builder and failure handler failed; the first outcome remains failed and
   closed. No clipboard/timing acceptance, historical attribution, or installed
   qualification is inferred from that partial evidence.
+- The first canonical CI run `37083359067` failed test, nextest, Studio, and
+  search-package jobs; its first logs/outcomes remain immutable. Activation
+  mechanics fixtures are explicitly counterfactual, not fabricated benchmark
+  qualification. The authenticated cold CI-image build identified Dioxus's
+  second CSS compiler, a different Wasm LTO profile, and absent `rust-src`.
+  `web/studio.css` avoids Dioxus Tailwind autodetection; the pnpm CSS compiler,
+  ThinLTO/16-unit Wasm profile, and pinned source component are explicit inputs.
+  A cold image build with the actual pinned component reproduced the four
+  committed bundle hashes; no bundle drift validator was weakened.
+- Regular Search retains its partitioned candidate capacity before fusion and
+  enforces the final result ceiling afterward. InteractiveSearch retains its
+  prior result window and 100-ms deadline. An independent cross-lane consensus
+  regression failed before and passed after; this does not fix unavailable
+  searches or establish historical navigation/latency causality.
+- Separate exact-package and repaired-source diagnostics returned a partial
+  DOCX match for an unquoted multiword query. A subsequent owner-only runtime
+  trace showed both lexical lanes succeeded: Markdown ranked first in chunks,
+  but DOCX won RRF with card and chunk support. Shell argument quoting is not
+  Tantivy phrase syntax: an exact literal CLI query must include double quotes,
+  for example `'"the literal passage"'`. The package smoke now sends that
+  syntax with scope-unique fixture text. Fresh bounded source Search passed;
+  a distinct source InteractiveSearch and evidence reopen passed (64.42 ms CLI
+  round-trip). The owner trace does not qualify federation authorization, and
+  none of these synthetic source results qualifies exact-installed behavior,
+  ordinary-query FR/EN relevance, failed Return, or the original unavailable
+  searches. The original CI response was not retained; it cannot be recovered
+  or causally attributed from these observations.
 - Lint-exemption expiries in `scripts/philosophy_check` are calendar dates
   (`YYYY-MM-DD`), enforced by `philosophy-check` on every run.
 
