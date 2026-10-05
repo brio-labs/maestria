@@ -5,6 +5,33 @@ pinned at `0.0.1` and `main` is always the current build.
 
 ## [Unreleased]
 
+### Reviewed external search grants
+
+- Add read-only `sillage-search owner grant review-external`, with a required
+  public consumer label, exact currently approved roots, access/sensitivity and
+  result/evidence bounds. Show expiry as a TTL from the later explicit owner
+  creation action. Do not create grants/credentials or print realms, credential
+  paths or grant digests during review; recheck authorization during issuance.
+- Share CLI policy validation with `create-external`; keep owner issuance,
+  extension permission and launcher search credentials separate. Renewal
+  requires fresh review and explicit issuance after owner revocation of the
+  expired record. This local boundary is not remote HTTP authentication.
+- Prove the installed local provider lifecycle in 32 native observations using
+  canonical Debian `0.0.1+provider.1`: SDK search/copy, exact-root and consumer
+  isolation, search-only evidence denial, provider absence/restart, independent
+  extension disable/revoke, owner revocation, natural 20-second expiry and
+  explicitly reviewed renewal. Approve Internal sensitivity for normally indexed
+  local documents; retain exact-root, two-result and 4096-byte bounds.
+- Publish a separate 28-file immutable evidence seal and verify it mounted
+  read-only. Directly inspect only the final owner-revoked denial capture pair;
+  export no successful passages, private fixtures, raw audits or credential
+  identifiers. Preserve all ten earlier preparation/runtime first outcomes
+  without replay. This is not remote HTTP or aggregate release qualification.
+- Record the deduplicated installed-alternative delivery queue in #559 and the
+  roadmap. Integrate verified issue-sized PRs into `dev/sillage`; retain Shadow
+  on `main`, draft #516 and qualification false.
+
+
 ### Daily-driver launcher workflows
 
 - Tighten result/action and preference layouts, preserve selected result identity
