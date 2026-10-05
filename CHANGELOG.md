@@ -5,6 +5,45 @@ pinned at `0.0.1` and `main` is always the current build.
 
 ## [Unreleased]
 
+### UI-only opt-in document search
+
+- Add discoverable Document search setup and Preferences controls: native folder
+  selection, separate explicit Enable, indexed/pending progress, truthful Ready,
+  visible errors and Disable. Keep consent controls reachable in a shared tab
+  viewport rather than allocating space to the hidden General pane.
+- Create scoped credentials and an owned private profile automatically after
+  approval; resume only saved explicit managed consent. Keep indexing in
+  standalone `sillage-search`, never embed daemon/indexer/model dependencies in
+  the launcher, and never start a model.
+- Preserve external connections until final Enable. Disable disconnects external
+  clients without modifying their providers; owned disable/shutdown shares one
+  absolute five-second deadline and invalidates previous document generations.
+  Audit exact canonical manifest roots before watcher startup, refuse unmarked
+  profiles, and preserve credentials across committed-settings marker failures.
+- Preserve a foreign replacement socket during daemon shutdown by checking the
+  captured bound socket's device/inode. Keep owned-child cleanup independent of
+  rollback failure. Add meaningful ownership, persistence and socket regressions.
+- Treat commas and spaces as literal `--read-root` path characters while
+  preserving repeated root arguments. Declare native desktop portal dependencies
+  in launcher Debian metadata.
+- A fresh isolated source-built X11 run passed the full 240-file UI workflow:
+  shortcut setup, pre-approval absence, Indexing/Ready, Return, exact fresh copies,
+  private default-handler source dispatch, saved-consent restart, bounded Disable
+  and app/shortcut/arithmetic use afterward, without credential entry or settings
+  editing. Actual screenshots were inspected. Earlier failures remain failures:
+  the separate 1,800-file run timed out at 120 s with 952 indexed / 848 pending.
+  This does not qualify current installed packages, Wayland, reference hardware,
+  latency, relevance or release readiness; main stays Shadow and PR #516 draft.
+- Native Ubuntu 24.04 Debian launcher/search packages passed independent payload,
+  dependency, executable-mode and GLIBC 2.39 checks, then the full fresh UI
+  workflow through ordinarily installed executables and native portal/GIO
+  infrastructure. No explicit loaders or replacement product/GIO wrappers.
+  Retain preparation failures and the earlier all-actions-pass/private-D-Bus-
+  cleanup-fail outcome; a fresh scope passed every bounded cleanup gate.
+  This closes Debian functional acceptance, not AppImage, Wayland, reference,
+  latency/relevance, Hybrid admission or release qualification.
+
+
 ### Breaking project identity cutover
 
 All active project-owned package, crate, Rust namespace, CLI/binary, desktop/
@@ -18,7 +57,8 @@ Sillage locations start independently. The installed-package CI gate installs
 the pinned Maestria suite alongside Sillage, checks separate identity-based
 profiles and the unseeded first-launch UI defaults before configuration, then
 tests Sillage-only remove/reinstall. It does not claim cross-name data migration
-or retention. That gate has not yet run on fresh exact-CI Sillage packages.
+or retention. The first current CI profile attempt failed indexing; its
+consumer failure payload was not retained, so its runtime cause is unproved.
 
 The separate real source-built launcher/helper smoke passed genuine unseeded
 defaults before configuration: shortcut setup offered, reduce-motion off,
@@ -27,6 +67,26 @@ while the private old-profile seed remained byte/mode-identical; the private
 clipboard stayed unchanged. Screenshots were viewed and shutdown gates passed.
 Earlier infrastructure/preparation failures remain preserved. This source smoke
 does not qualify six-package coinstallation or remove/reinstall persistence.
+
+A fresh private Ubuntu lifecycle passed with the six authenticated Debian
+artifacts from historical CI `36455626998` and current CI `37129751284`.
+Legacy and Sillage search now use independent instances, roots, credentials
+and grants; an old credential is denied at the current endpoint. The lifecycle
+preserved legacy profile/instance bytes and modes, observed genuine current
+defaults, and retained current state through Sillage-only remove/reinstall
+and final revocation. The UI observer waits for dismissal after its single
+asynchronous shortcut-defer action; product shutdown supervision uses a
+monotonic five-second deadline rather than polling or force-kill acceptance.
+The local run passed in 14.37 s; earlier preparation and GUI failures remain
+preserved. These source-caller diagnostics do not qualify the failed overall
+current CI run or waive the reference-hardware gate.
+
+The approved literal-query correction's first CI run `37129751284` passed
+search-package smoke, but native benchmark and cross-name profile jobs failed.
+Native completed 797/800; effective memory was 15.615 GiB, below the strict
+16-GiB minimum, and SSD provenance was not established. No rerun or hardware
+waiver was used. Local isolated runtime drives repair feedback; CI retains
+artifact provenance and first outcomes, with PR #516 still draft.
 
 The canonical Studio JS/WASM bundle was rebuilt with the pinned private
 Node 24.11.1, pnpm 9.15.9 and Dioxus 0.7.10 tools. A managed Chromium smoke

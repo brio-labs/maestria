@@ -5,11 +5,13 @@ document-content retrieval component, and extension platform.
 
 That is the target product direction. The current developer build provides a
 native **Slint** launcher, a separately built headless search-only Debian
-package, and the existing CLI/daemon/Studio. With an explicit authenticated
-search configuration, the launcher can display bounded source-backed passages
-without embedding the indexer or starting a model; app search still works
-without that configuration or service. The extension SDK and complete product
-release proof remain open.
+package, and the existing CLI/daemon/Studio. The launcher starts apps-only on
+first run. Install the optional search component, choose a folder in Preferences,
+and explicitly enable document search to see source-backed passages without
+entering credentials or editing settings. Saved explicit enablement resumes the
+separate launcher-owned search process on later starts; no model starts.
+Application search remains available with document search off or unavailable.
+The extension SDK and complete product release proof remain open.
 See [the product roadmap](docs/ROADMAP.md) for the work and GitHub issues.
 
 ## Product direction
@@ -32,7 +34,7 @@ The current build and target product remain intentionally different surfaces:
 
 | Capability | Status |
 |---|---|
-| File-content indexing, lexical passage search and evidence opening | Available in the separate CLI/daemon; optionally displayed as grouped cited passages in the native launcher after an explicit credential-path configuration. No daemon or model starts with the launcher |
+| File-content indexing, lexical passage search and evidence opening | Available in the separate CLI/daemon and native launcher. Preferences provides explicit one-folder approval, indexing progress, Ready and Disable without credential entry. The owned service starts only after approval or saved explicit managed consent; no model starts |
 | Dense semantic search | Provider-dependent in the CLI/daemon workflow; not a launcher default |
 | Native resident launcher and application catalog | Available in the Slint developer build on X11 and Wayland; Debian and AppImage packages built and native-smoked |
 | Distinctive interface and full Tauri-to-Slint parity | Slint search, Preferences, About attribution, theme and keyboard basics work; parity and release performance measurements remain open |
@@ -63,8 +65,10 @@ Sillage has no releases: the development workspace version is `0.0.1` and
 
 ### Native Linux launcher
 
-The current developer launcher uses Slint's software renderer and does not need
-Node, pnpm, GTK3, or WebKitGTK. Build it with Rust stable 1.95+ and the native
+The current developer launcher uses Slint's software renderer and does not embed
+Node, pnpm, GTK3, or WebKitGTK. Its native folder chooser uses
+`xdg-desktop-portal` with a desktop FileChooser backend; the Debian package
+declares that infrastructure. Build with Rust stable 1.95+ and the native
 X11/Wayland development libraries used by the
 [CI dependency setup](.github/actions/setup-system-dependencies/action.yml):
 
@@ -89,12 +93,12 @@ whose ELF libraries use `.relr.dyn`; it does not change runtime compatibility.
 `APPIMAGE_EXTRACT_AND_RUN=1` lets linuxdeploy's AppImage plugin run without
 FUSE inside a container; the builder also needs the `file` utility. A Debian
 installation provides `sillage-launcher` on `PATH` and a desktop entry whose
-`Exec` is
-`sillage-launcher --activate`. No daemon or model is started, and installation
-does not enable autostart. Use `sillage-launcher --activate`
-to show and focus the resident window and `sillage-launcher --quit` for an
-explicit shutdown. Closing or unfocusing the window hides it without ending
-the resident process.
+`Exec` is `sillage-launcher --activate`. Installation does not start a daemon or
+model and does not enable autostart. A fresh launcher starts apps-only; saved
+explicit managed document-search consent may start its separate owned service.
+Use `sillage-launcher --activate` to show and focus the resident window and
+`sillage-launcher --quit` for an explicit shutdown. Closing or unfocusing the
+window hides it without ending the resident process.
 
 The final Debian and AppImage were built against Ubuntu 24.04, and both
 packaged executables passed a `glibc` ≤2.39 ABI check and native X11/Wayland
@@ -137,7 +141,8 @@ Hyprland configuration using its Lua API, a portal binding can use
 this is a **user-controlled example**, not a shipped or enabled default.
 Tiling compositors can enlarge the window; configure a user-owned floating
 and size rule if desired. File selection uses a native chooser and does not
-index the selected directory.
+index a directory. Document-search folder selection likewise does not start
+indexing: a separate explicit Enable action is required.
 
 The Sillage cutover deliberately changes the executable, package, desktop/portal
 identity, and application data paths. The canonical launcher is
@@ -154,15 +159,65 @@ CI/evidence links, the `ghcr.io/brio-labs/maestria/ci` image, and frozen
 benchmark/corpus identities remain unchanged. The rename alone does not
 qualify a release; retrieval and combined-release acceptance gates remain open.
 
-To opt into document results, install `sillage-search` separately and create
-an approved root plus a `search-and-open-evidence` consumer grant as shown
-below. After launching once to create `launcher.toml`, add this table to
+#### UI-only document search
+
+Install both the launcher and `sillage-search` components; apps-only installs
+remain supported. See [combined installation](docs/OPERATIONS.md#8-opt-in-linux-package-onboarding).
+For a source build, build both binaries and keep `sillage-search` beside the
+launcher or on `PATH`.
+
+1. Open Sillage and choose **Set Up Shortcut**, or defer it and use Preferences later.
+2. Open **Document search** from the setup entry or Preferences (Ctrl+Comma).
+3. Choose a local folder in the native chooser. The canonical selected path is
+   displayed; selection alone does not start or configure search.
+4. Select **Enable document search** to approve indexing only that folder.
+   The launcher creates its private profile and scoped credential automatically,
+   then starts the separate read-only `sillage-search` process. No model starts.
+5. Observe **Indexing**, the indexed/pending counts, and **Ready** once the
+   durable scan completes with no pending files or indexing error. Large folders
+   can take time; an error is not presented as Ready.
+6. Close Preferences, search text inside a document, and press Return to inspect
+   its cited passage. Copy Citation, Copy Passage and Open Source reopen current
+   evidence under the grant before acting.
+7. **Disable document search** in Preferences removes the launcher configuration,
+   clears previous document content and stops its owned service. Application
+   launching, the configured shortcut and arithmetic remain available.
+
+Explicit managed enablement is saved and may resume only while the launcher is
+running. Changing folders retires the old managed approval and requires a new
+Enable action. There is no credential entry, settings-file editing or manual
+search initialization in this workflow. An external connection is left unchanged
+by folder selection; Disable disconnects that launcher client without modifying
+its external provider.
+
+A fresh isolated source-built X11 run completed this workflow with 240 Markdown
+files, including a folder name containing spaces and a comma, saved-consent
+restart, exact fresh copies and private default-handler dispatch. Screenshots
+were inspected. That source-route proof alone does not establish installed-package,
+Wayland, reference-hardware, latency or release qualification. The separate
+1,800-file run timed out at 120 s with 952 indexed and 848 pending; that first
+outcome remains a failure.
+
+A subsequent native Ubuntu 24.04 build and APT installation of the current
+Debian launcher/search packages passed the same complete UI workflow in a fresh
+private X11 session. Installed `/usr/bin` executables, package status and producer
+hashes were verified; both ELF requirements stay within GLIBC 2.39. No explicit
+loaders or replacement product/GIO wrappers were used. This is Debian functional
+acceptance, not AppImage, Wayland, reference-hardware, latency/relevance, Hybrid
+admission or release qualification. Preserved preparation and private desktop
+cleanup failures remain separate first outcomes.
+
+#### Advanced external connection
+
+For an independently administered provider, approve roots and create a
+`search-and-open-evidence` grant using the operations guide. After launching once
+to create `launcher.toml`, add the optional table below to
 `$XDG_CONFIG_HOME/io.github.briolabs.Sillage.Launcher/launcher.toml` (or
 `~/.config/io.github.briolabs.Sillage.Launcher/launcher.toml` without
-`XDG_CONFIG_HOME`), replacing the paths and realm with the actual absolute
-socket path, 64-character hexadecimal consumer realm and mode-0600 credential
-file. Keep `sillage-search` on `PATH`; the launcher invokes it as a separate
-bounded process and never reads the credential contents into its UI:
+`XDG_CONFIG_HOME`). Use the actual absolute socket and mode-0600 credential paths,
+and the exact 64-character hexadecimal realm. Keep `sillage-search` on `PATH`;
+the launcher invokes it as a separate bounded process and never displays the
+credential contents:
 
 ```toml
 [search]
@@ -171,8 +226,8 @@ consumerRealm = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
 credentialFile = "/home/you/.config/sillage/search-client.key"
 ```
 
-Without this table, without a running service, or after a denial, application
-search remains available. A local isolated X11 Slint run found a phrase only
+Without search enablement, with an unavailable service, or after a denial,
+application search remains available. An earlier isolated X11 Slint run found a phrase only
 inside an approved Markdown file, displayed its highlighted citation and full
 passage, copied freshly reopened evidence, refused the old copy action after
 the source changed, and showed an app result after a newer query. This is not
