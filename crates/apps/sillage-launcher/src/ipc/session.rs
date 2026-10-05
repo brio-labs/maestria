@@ -4,8 +4,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use crate::catalog::Catalog;
 use crate::errors::LauncherError;
 use crate::model::{
-    HOST_COPY_ACTIVATION, HOST_OPEN_FILE, HOST_PREFERENCES, HOST_QUIT, HOST_REFRESH_APPLICATIONS,
-    HOST_RESET_PREFERENCES, ResultKind, SELECTED_FILE_PREFIX, SearchResponse, SearchResult,
+    HOST_CLIPBOARD, HOST_COPY_ACTIVATION, HOST_OPEN_FILE, HOST_PREFERENCES, HOST_QUICKLINKS,
+    HOST_QUIT, HOST_REFRESH_APPLICATIONS, HOST_RESET_PREFERENCES, HOST_SNIPPETS, ResultKind,
+    SELECTED_FILE_PREFIX, SearchResponse, SearchResult, UtilityCollection,
 };
 use crate::settings::SettingsManager;
 
@@ -291,6 +292,13 @@ impl LauncherState {
             (HOST_PREFERENCES, "open") => Ok(ActionTarget::ShowPreferences),
             (HOST_REFRESH_APPLICATIONS, "refresh") => Ok(ActionTarget::Refresh),
             (HOST_QUIT, "quit") => Ok(ActionTarget::Quit),
+            (HOST_QUICKLINKS, "open") => {
+                Ok(ActionTarget::ShowUtilities(UtilityCollection::Quicklinks))
+            }
+            (HOST_SNIPPETS, "open") => Ok(ActionTarget::ShowUtilities(UtilityCollection::Snippets)),
+            (HOST_CLIPBOARD, "open") => {
+                Ok(ActionTarget::ShowUtilities(UtilityCollection::Clipboard))
+            }
             ("calculation", "copy-result") if matches!(result.kind, ResultKind::Calculation) => {
                 Ok(ActionTarget::CopyValue(result.title.clone()))
             }
@@ -302,6 +310,12 @@ impl LauncherState {
             }
             (_, "copy-name") if matches!(result.kind, ResultKind::Application) => {
                 Ok(ActionTarget::CopyValue(result.title.clone()))
+            }
+            (id, "copy-desktop-id") if matches!(result.kind, ResultKind::Application) => {
+                let desktop_id = id
+                    .strip_prefix("app:")
+                    .ok_or_else(|| LauncherError::invalid_request("Invalid application ID"))?;
+                Ok(ActionTarget::CopyValue(desktop_id.to_string()))
             }
             _ => Err(LauncherError::invalid_request("Action is not available")),
         }

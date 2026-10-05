@@ -7,6 +7,17 @@ pub const HOST_QUIT: &str = "host.quit";
 pub const HOST_COPY_ACTIVATION: &str = "host.copy-activation";
 pub const HOST_RESET_PREFERENCES: &str = "host.reset-preferences";
 pub const SELECTED_FILE_PREFIX: &str = "host.file.";
+pub const HOST_QUICKLINKS: &str = "host.quicklinks";
+pub const HOST_SNIPPETS: &str = "host.snippets";
+pub const HOST_CLIPBOARD: &str = "host.clipboard";
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UtilityCollection {
+    Quicklinks,
+    Snippets,
+    Clipboard,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,6 +84,8 @@ pub enum ActionOutcome {
     },
     #[serde(rename = "show_preferences")]
     ShowPreferences,
+    #[serde(rename = "show_utilities")]
+    ShowUtilities { collection: UtilityCollection },
     #[serde(rename = "file_selected")]
     FileSelected {
         #[serde(rename = "resultId")]

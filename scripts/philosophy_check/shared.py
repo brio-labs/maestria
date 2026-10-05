@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Iterator
 from pathlib import Path
@@ -99,9 +100,18 @@ def _external_patch_roots() -> set[Path]:
     return roots
 
 
+def _rust_source_paths() -> Iterator[Path]:
+    # Prune only directories whose descendants should_skip already rejects.
+    for directory, names, filenames in os.walk(ROOT):
+        names[:] = [name for name in names if name not in SKIP_DIRS]
+        for name in filenames:
+            if name.endswith(".rs"):
+                yield Path(directory) / name
+
+
 def _production_rust_files(*, skip_tests: bool = True, sorted_: bool = False) -> Iterator[Path]:
     external_patches = _external_patch_roots()
-    iterator = sorted(ROOT.rglob("*.rs")) if sorted_ else ROOT.rglob("*.rs")
+    iterator = sorted(_rust_source_paths()) if sorted_ else _rust_source_paths()
     for path in iterator:
         if should_skip(path):
             continue

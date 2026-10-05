@@ -140,6 +140,37 @@ pub fn open_local_pdf_page(path: &Path, page: u32) -> Result<(), LauncherError> 
     open_local_file_uri(path, Some(page))
 }
 
+pub fn open_uri(uri: &str) -> Result<(), LauncherError> {
+    let parsed = url::Url::parse(uri)
+        .map_err(|_| LauncherError::invalid_request("The web link is not a valid absolute URL"))?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err(LauncherError::invalid_request(
+            "Only HTTP(S) links without embedded credentials can be opened",
+        ));
+    }
+    gio::AppInfo::launch_default_for_uri(uri, None::<&gio::AppLaunchContext>)
+        .map_err(|error| LauncherError::launch_failed(error.to_string()))
+}
+
+pub fn open_containing_folder(path: &Path) -> Result<(), LauncherError> {
+    if !path.is_absolute() || !path.is_file() {
+        return Err(LauncherError::file_unavailable(
+            "The selected source is no longer available",
+        ));
+    }
+    let parent = path
+        .parent()
+        .filter(|parent| parent.is_dir())
+        .ok_or_else(|| LauncherError::file_unavailable("The source folder is unavailable"))?;
+    let uri = gio::File::for_path(parent).uri();
+    gio::AppInfo::launch_default_for_uri(&uri, None::<&gio::AppLaunchContext>)
+        .map_err(|error| LauncherError::launch_failed(error.to_string()))
+}
+
 fn open_local_file_uri(path: &Path, pdf_page: Option<u32>) -> Result<(), LauncherError> {
     if !path.is_absolute() || !path.is_file() {
         return Err(LauncherError::app_unavailable(

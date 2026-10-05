@@ -35,7 +35,12 @@ pub(super) use passage_view::{
 };
 pub(super) use result_navigation::navigate_result_selection;
 
-fn reset_search_state(frontend: &Frontend, ui: &UiWeak, query: &str, has_search_service: bool) {
+pub(super) fn reset_search_state(
+    frontend: &Frontend,
+    ui: &UiWeak,
+    query: &str,
+    has_search_service: bool,
+) {
     {
         let mut model = lock(&frontend.model);
         model.query = query.to_string();
@@ -80,6 +85,7 @@ pub(super) fn start_search(
     runtime: tokio::runtime::Handle,
     ui: UiWeak,
     query: String,
+    retained_selection: Option<slint::SharedString>,
 ) {
     let Some(generation) = advance_search_generation(&frontend) else {
         show_notice(
@@ -106,6 +112,7 @@ pub(super) fn start_search(
         ui.clone(),
         query.clone(),
         generation,
+        retained_selection,
     );
     runtime.spawn(async move {
         let _ = catalog_applied.await;
@@ -131,7 +138,12 @@ pub(super) fn start_search(
     });
 }
 
-fn apply_search_response(window: &LauncherWindow, frontend: &Frontend, response: SearchResponse) {
+fn apply_search_response(
+    window: &LauncherWindow,
+    frontend: &Frontend,
+    response: SearchResponse,
+    retained_selection: Option<slint::SharedString>,
+) {
     let status_kind = match &response.status.kind {
         SearchStatusKind::Loading | SearchStatusKind::Refreshing => "loading",
         SearchStatusKind::Ready => "ready",
@@ -141,7 +153,9 @@ fn apply_search_response(window: &LauncherWindow, frontend: &Frontend, response:
     if let Some(status_message) = &response.status.message {
         message.clone_from(status_message);
     }
-    let rows = result_rows(&response.results);
+    let rows = response.results.iter().map(result_row).collect::<Vec<_>>();
+    let selected_index =
+        result_navigation::retained_result_index(&rows, retained_selection.as_deref(), 0);
     {
         let mut model = lock(&frontend.model);
         model.accepted.clone_from(&response.results);
@@ -155,12 +169,12 @@ fn apply_search_response(window: &LauncherWindow, frontend: &Frontend, response:
             .collect();
         model.selected_file = None;
     }
-    window.set_results(rows);
+    window.set_results(ModelRc::new(VecModel::from(rows)));
     window.set_result_filter("all".into());
     window.set_passage_view_open(false);
     window.set_passage_view_results(empty_results());
-    window.set_actions(actions_for_result(response.results.first()));
-    window.set_selected_index(0);
+    window.set_actions(actions_for_result(response.results.get(selected_index)));
+    window.set_selected_index(selected_index as i32);
     window.set_selected_action_index(0);
     window.set_actions_open(false);
     window.set_status_kind(status_kind.into());
@@ -203,12 +217,6 @@ pub(super) fn update_selected_actions(window: &LauncherWindow, frontend: &Fronte
     };
     window.set_actions(actions);
     window.set_selected_action_index(0);
-}
-
-fn result_rows(results: &[SearchResult]) -> ModelRc<ResultRow> {
-    ModelRc::new(VecModel::from(
-        results.iter().map(result_row).collect::<Vec<_>>(),
-    ))
 }
 
 fn result_row(result: &SearchResult) -> ResultRow {

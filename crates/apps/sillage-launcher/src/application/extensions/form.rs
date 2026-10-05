@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sillage_extensions::{FormField, FormValue, FormValues, View};
 use thiserror::Error;
@@ -217,4 +217,63 @@ fn validate_value(
         return Err(FormInputError::Invalid(form_field_id(field).to_owned()));
     }
     Ok(())
+}
+
+pub(super) fn update_field_error(
+    errors: &mut BTreeMap<String, String>,
+    field_id: &str,
+    result: &Result<(), FormInputError>,
+) {
+    match result {
+        Ok(()) => {
+            errors.remove(field_id);
+        }
+        Err(error) => {
+            errors.insert(field_id.to_owned(), error.to_string());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn text_field(id: &str, required: bool, initial_value: Option<&str>) -> FormField {
+        FormField::Text {
+            id: id.to_owned(),
+            label: id.to_owned(),
+            required,
+            placeholder: None,
+            initial_value: initial_value.map(str::to_owned),
+            max_length: Some(8),
+        }
+    }
+
+    #[test]
+    fn invalid_field_stays_blocked_until_that_field_is_corrected() {
+        let view = View::Form {
+            title: "Example".to_owned(),
+            fields: vec![
+                text_field("query", true, Some("original")),
+                text_field("note", false, None),
+            ],
+            actions: Vec::new(),
+        };
+        let mut values = initial_values(&view);
+        let mut errors = BTreeMap::new();
+
+        let invalid = set_user_value(&view, &mut values, "query", "too long!");
+        update_field_error(&mut errors, "query", &invalid);
+        assert!(invalid.is_err());
+        assert!(validate_submission(&view, &values, &BTreeSet::new()).is_ok());
+
+        let valid_other = set_user_value(&view, &mut values, "note", "ok");
+        update_field_error(&mut errors, "note", &valid_other);
+        assert!(!errors.is_empty());
+
+        let corrected = set_user_value(&view, &mut values, "query", "updated");
+        update_field_error(&mut errors, "query", &corrected);
+        assert!(errors.is_empty());
+        assert!(validate_submission(&view, &values, &BTreeSet::new()).is_ok());
+    }
 }

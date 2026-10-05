@@ -160,9 +160,12 @@ Sillage is in continuous development with no external release promise.
 
 The launcher package installs a desktop entry for the user to invoke; installing
 it does not launch the application or enable login autostart. The entry runs
-`sillage-launcher --activate`. Shortcut setup is user-initiated. The search
-daemon is a separate foreground process and remains explicitly started and
-stopped by its operator.
+`sillage-launcher --activate`. Shortcut setup is user-initiated. A fresh launcher
+does not start document search. Explicit Enable in Document search Preferences
+starts a separate launcher-owned read-only service; saved explicit managed
+consent may resume it on later launcher starts. Disable or launcher shutdown
+stops that owned process; hiding the resident window does not. No model starts.
+An operator-managed external daemon remains under its operator's control.
 
 
 ## 7. Daemon-First Search Posture
@@ -184,9 +187,11 @@ The CLI is daemon-first and never requires the daemon:
   (task validation, approval resolution, memory promotion, retrieval audit
   retirement) flow through the daemon surface, and direct mutation commands
   fail with the lock error instead of fighting over the instance.
-- Lifecycle stays explicit (rule 28): the operator starts and stops the
-  daemon. Tooling never spawns or stops one on demand; every surface that
-  can degrade states so in its output rather than hiding the difference.
+- Operator-managed CLI lifecycle stays explicit (rule 28): the operator starts
+  and stops that daemon. Queries never spawn or stop one on demand; every surface
+  that can degrade states so in its output rather than hiding the difference.
+  The separately owned launcher workflow below requires explicit Enable or saved
+  explicit managed consent, not an implicit start triggered by a query.
 
 ## 8. Opt-in Linux package onboarding
 
@@ -208,6 +213,189 @@ sudo apt install \
   ./target/search-packages/sillage-search_0.0.1_amd64.deb
 ```
 
+### Daily-driver utilities and login behavior
+
+**Utilities** provides keyboard selection (Up/Down, Return), creation (Ctrl+N)
+and saving (Ctrl+S). Quicklinks accept one `{query}` in an HTTP(S) URL outside its
+authority and encode the argument before native dispatch. Snippets expand only
+literal `{query}` and copy on explicit request; other markers remain literal.
+Save edited templates before expanding them. These utilities do not start
+document search or a model, monitor typing, or intercept global snippet keys.
+
+Quicklinks and snippets are private plaintext in
+`${XDG_CONFIG_HOME:-$HOME/.config}/io.github.briolabs.Sillage.Launcher/utilities.toml`.
+Back up that file only if you intend to retain its text. Writes are bounded,
+no-follow and atomically published, with ownership/content revalidation;
+foreign or symlink inputs are preserved rather than replaced intentionally.
+
+Clipboard history requires **Save clipboard**, retains at most 100 entries of
+64 KiB each in memory, expires them after one monotonic hour and clears on
+restart. Select/copy, per-entry Delete and Clear are explicit. Closing or
+switching panels clears copied editor/model buffers; it does not clear the
+unexpired in-memory collection. Native capture has a 500-ms deadline and a
+64-KiB output bound. On Linux its helper caps its own soft/hard address-space
+limits at 256 MiB without raising tighter inherited limits. No secret detection,
+encrypted history or automatic capture is promised.
+
+General Preferences offers opt-in login autostart. Only the exact owned
+`${XDG_CONFIG_HOME:-$HOME/.config}/autostart/io.github.briolabs.Sillage.Launcher.desktop`
+entry is managed, using `sillage-launcher --background`. Startup stays resident
+without mapping a window; a duplicate background invocation does not activate
+it. Explicit activation shows and focuses the existing instance. Autostart and
+singleton cleanup revalidate ownership and socket identity and preserve foreign
+inputs, but POSIX checks followed by unlink are not an atomic unlink-if-inode
+guarantee against a final same-UID path race.
+
+For offline calculations, enter arithmetic or `<number> <unit> to <unit>` and
+copy with Return. Length, mass, temperature, duration and digital storage are
+supported; this is not a live currency or model-backed conversion service.
+
+The window has a 760×760 preferred size and a 640×540 logical-pixel minimum.
+Preferences use a scrolling viewport with pinned Save/Done and document
+Enable/Disable actions rather than a fixed-size window.
+Utility rows are bounded rather than stretched to fill the results viewport.
+Native control palettes initialize from the restored theme as well as later
+theme changes, so saved dark mode keeps checkbox captions readable on restart.
+
+The current daily-driver acceptance recipe targets a private Ubuntu 24.04 X11
+desktop and ordinary installed executables. Earlier Wayland/AppImage results
+are bound to their own sources and packages; they do not qualify this newer
+daily-driver payload. Physical monitor changes, hardware suspend/resume,
+current-source Wayland activation/chooser behavior and full screen-reader support
+remain unverified. Same-version payload replacement is not a version upgrade;
+the separate canonical package-version proof below closes that lifecycle item
+without an upstream workspace-version bump or retrieval/release qualification.
+
+The fresh installed `daily-driver-installed-thirty-fourth` scope completed
+61 consumer observations in 94 seconds against producer-tenth and
+archive-validation-eleventh. It used the real GTK folder chooser, browsed
+directory rows instead of accepting an autocompleted child, and kept search
+off until explicit Enable. After source/folder dispatch, the fixture uses the
+ordinary `sillage-launcher --activate` command before continuing: launching an
+external handler need not leave the launcher mapped.
+
+It covered initial Indexing/Ready, two independent freshly cited passages,
+saved-consent restart, exact source/path/folder actions and long-path copying,
+Disable, actual 640×540 and scale-two surfaces, utility/extension persistence,
+owned autostart and APT reinstall/removal. Cleanup reaped all owned children
+and proved desktop/namespace absence within five seconds without force-kill.
+The 58 original XWDs have paired decoded PNGs and individual visual notes.
+
+Evidence destination:
+`~/.local/share/sillage-release-evidence/daily-driver-packaged-result-first/`.
+Run its `verify-daily-driver-result.py` with that directory as its sole argument
+for read-only inventory/hash, source/package binding, consumer-invariant,
+capture and cleanup checks. It does not execute products or access the network,
+SQLite, private profiles, credentials or raw audits. Closed first failures,
+unused inputs and the older first-run seal are not replayed or overwritten.
+
+Fresh `version-changing-upgrade-installed-third` installed all three original
+producer-eighth canonical packages at `0.0.1`, upgraded to the real changed
+producer-tenth payloads packaged as `0.0.1+daily-driver.1`, allowed an explicit
+APT downgrade to the old packages, re-upgraded and removed the suite normally.
+The full Debian package version changes; the repository workspace stays at
+`0.0.1`, and neither frozen producer nor earlier seal was changed.
+
+Each package phase checked observed dpkg identity/version/architecture and exact
+`/usr/bin` payload hashes/mode `0755`. Saved preference, utility-definition and
+extension-grant/data bytes matched before launching each transitioned version.
+Real UI consumption checked saved dark preferences, quicklink dispatch, exact
+snippet copying and permission-backed Text Tools copying after upgrade,
+rollback and re-upgrade. Rollback kept those bytes even after the old UI consumed
+them; newer launches additionally measured compact utility rows. The search
+payload remained identical; the worker hash changed without an inferred behavior
+change. The two actual product-source changes are utility sizing/scroll stride
+and initial native palette assignment, not solely package metadata.
+
+The runtime passed 105 observations in 165 seconds, with 89 original XWD/PNG
+pairs and seven bounded normal owned shutdowns. Ordinary package removal retained
+the remaining user data. Both earlier harness first failures and unused document
+inputs remain preserved; no closed scope was replayed.
+
+Separate immutable supplement:
+`~/.local/share/sillage-release-evidence/version-upgrade-packaged-result-first/`.
+Run `verify-version-upgrade-result.py` with that directory as its sole argument.
+It checks the six actual Debian archives, real source/payload differences,
+installed upgrade/rollback/re-upgrade consumers, capture inventory and owned
+cleanup without executing products or reading private profiles/SQLite/network.
+Current-source Wayland, physical monitor/suspend, full screen-reader,
+reduced-motion and installed credential-provider qualifications remain open;
+Shadow, draft PR #516 and qualification false are unchanged.
+
+
+Preset extension form entries can expose an AT-SPI Entry role without a Text
+interface, including after focus. Native keyboard editing still works. The
+installed harness reads actual selected input through Ctrl+A/C and restores
+the exact private clipboard; it never substitutes expected text or an empty
+default. This is not full screen-reader qualification. Dynamic extension
+status, notices, permissions, details, removal identities and pending-worker
+messages expose their actual content as accessibility labels with stable
+semantic descriptions.
+
+
+### UI-only first-run document search
+
+For the combined install, open the desktop entry and set up the activation
+shortcut through the offered UI. Open **Document search** from its setup entry,
+or Preferences with Ctrl+Comma. The native chooser requires
+`xdg-desktop-portal` and a desktop FileChooser backend (GTK, GNOME or KDE);
+the launcher Debian dependencies declare them. The launcher does not embed that
+backend or install the optional search component on demand.
+
+Choose a local folder, inspect its displayed canonical path, and select
+**Enable document search**. Choosing a folder alone does not configure or start
+search. Enable approves exactly the displayed root, creates a private managed
+profile under `${XDG_DATA_HOME:-$HOME/.local/share}/sillage/launcher-search`,
+creates its bounded search/evidence credential, and starts standalone
+`sillage-search`. Private directories are mode 0700 and credentials mode 0600.
+No credential entry, manual grant/init command or launcher settings edit is
+required. Existing unmarked profiles are not adopted or chmodded.
+
+The UI shows **Indexing** with indexed/pending counts. **Ready** requires a
+completed durable scan, zero pending work and no indexing error. Close
+Preferences, search document text, and press Return to inspect the actual cited
+passage. Copy and source-open actions reopen current evidence under the grant;
+the default viewer may not jump to the cited line or page.
+
+Saved explicit managed consent resumes on later launcher starts. It does not
+enable login autostart or start a model. Choosing a replacement folder retires
+the old managed approval and requires new confirmation. **Disable document
+search** clears launcher configuration and visible document content, revokes the
+owned authority and stops the owned child within one absolute five-second
+deadline. Failed cleanup is shown as an error rather than successful disablement.
+Application launching, shortcut reactivation and arithmetic remain usable.
+Selecting a folder does not change an existing external connection; explicit
+Disable disconnects only the launcher client and does not stop, revoke or modify
+that external provider.
+
+A fresh private source-built X11 run passed the complete 240-Markdown-file
+workflow, including native selection of a comma/space folder, visible Indexing
+then Ready, Return, exact fresh copying, private default source-handler dispatch,
+saved-consent restart, Disable and real app launch/shortcut/calculator use after
+disablement. Both normal launcher shutdowns and namespace cleanup passed the
+five-second gates without explicit force-kill. These are functional source-route
+observations, not current installed-package, Wayland, reference-hardware, paint,
+p95, relevance or release qualification. Earlier first outcomes remain preserved,
+including the 1,800-file timeout at 120 s with 952 indexed and 848 pending.
+
+A subsequent native Ubuntu 24.04 build produced current Debian launcher/search
+packages with a verified GLIBC 2.39 ceiling, exact current runtime dependencies,
+independent component payloads and mode-0755 executables. APT installed them in
+a private runtime root separate from the compiler environment. A fresh X11
+session verified installed package status/version/architecture and exact producer
+hashes, then completed the full UI workflow using ordinary `/usr/bin` executables
+and native GTK/GIO infrastructure, without explicit loaders or replacement
+product/GIO wrappers. Disable took 178.081450 ms; enabled/final normal shutdowns
+took 83.501040/53.013819 ms, with every five-second absence gate passing and no
+force-kill. These are functional observations, not performance samples or
+AppImage, Wayland, reference-hardware, relevance, Hybrid or release qualification.
+The prior installed session passed all UI actions but failed private D-Bus group
+cleanup after its leader exited; that first failure and its consumed inputs stay
+closed. A fresh recipe stopped surviving owned group members within the same
+absolute cleanup deadline. No product deadline or frozen qualification was changed.
+
+
+
 The Debian package IDs are `io-github-briolabs-sillage-launcher` and
 `io-github-briolabs-sillage-search`; the launcher binary/desktop identity
 remain `sillage-launcher` and `io.github.briolabs.Sillage.Launcher`.
@@ -224,9 +412,9 @@ historical evidence links retain their existing slugs.
 The canonical profile gate starts the current launcher with its preference
 file absent, observes actual first-launch defaults before configuring them
 through the UI, restarts to verify the saved settings, and then tests current
-remove/reinstall persistence while preserving the old profile. Fresh exact-CI
-canonical packages have not yet exercised this gate; no package/profile
-qualification is inferred from source or helper preparation.
+remove/reinstall persistence while preserving the old profile. The first
+current CI attempt (`37129751284`) failed indexing and did not retain the final
+consumer failure payload; its exact runtime cause remains unproved.
 
 A separate real source-built launcher/helper smoke passed the genuine defaults
 and UI-save phases, preserved the private old-profile seed byte-for-byte at
@@ -236,6 +424,32 @@ The private D-Bus service uses the existing read-only guest GSettings schemas;
 its first missing-schema infrastructure failure and subsequent preparation
 refusals remain preserved. This does not qualify actual package coinstallation,
 restart persistence, or removal/reinstall.
+
+A distinct local Ubuntu lifecycle passed in 14.37 s using all six authenticated
+Debian artifacts from legacy CI `36455626998` and current CI `37129751284`.
+The repaired caller initializes independent old/current search instances,
+fixtures, credentials and grants; the old credential receives `Unauthorized`
+at the current endpoint. Old launcher/extension/search/credential bytes and
+modes remained unchanged through fresh current defaults, UI configuration,
+current-only remove/reinstall, restart and final current revocation.
+No old grant, profile, database or credential is imported into Sillage.
+
+AT-SPI action acceptance is not state-transition completion: after the single
+shortcut-defer action, the profile observer waits up to five seconds for the
+offer to disappear without retrying the action or weakening defaults checks.
+Normal product shutdown requires exit 0 and absence within a shared monotonic
+five-second deadline; cleanup cannot establish success through force-kill.
+Preparation removes inherited product packages only from the disposable
+guest overlay, preserving the read-only support root. First preparation and
+GUI outcomes remain retained, not replayed.
+
+This is local exact-package evidence with source-caller/helper snapshots, not
+successful overall-CI/reference release qualification. Search-package smoke
+passed in `37129751284`; native finished 797/800 and the profile job failed.
+The strict CI reference gate remains unpassed: 15.615 GiB effective memory
+was below 16 GiB and SSD provenance was unestablished. Local isolated runtime
+is the repair feedback loop; no runner provisioning, CI rerun or gate waiver
+is inferred. Serving remains Shadow and PR #516 stays draft.
 
 Installing either package does not start the search daemon, install a service
 unit, or enable login autostart. The launcher remains useful for application
@@ -367,8 +581,10 @@ sillage-search start --instance-dir "$INSTANCE"
 
 `sillage-search start` uses the read-only profile and no model client. There
 is no `sillage-search stop` command or package-installed service manager:
-installation and launcher startup do not start it in the background. Root
-changes apply while the daemon runs; after stopping it, restart explicitly.
+installation does not start it in the background. An operator-managed daemon
+must be started explicitly; the UI-owned service starts only after explicit
+Enable or saved managed consent. Root changes apply while the daemon runs;
+after stopping an operator-managed daemon, restart it explicitly.
 
 The daemon prepares the interactive source-version snapshot before announcing
 its API socket; a large history may delay startup rather than consume the
@@ -395,14 +611,14 @@ truth when an unrelated file advances the global revision; it still denies
 the cited source after its own edit/removal. The intermittent Tantivy startup
 `LockBusy` in [#517](https://github.com/brio-labs/maestria/issues/517) remains open.
 
-### Create a scoped credential and configure launcher search
+### Advanced external connection: scoped credential and launcher search
 
-For direct headless search, or for the launcher to display passages, issue an
-external grant while the provider daemon is running. Use the narrower
-`search-only` access for a client that only needs bounded search previews; the
-launcher passage flow also reopens evidence and therefore needs
-`search-and-open-evidence`. The example below uses that launcher access and
-caps it at five internal results with 4 KiB evidence and a one-day grant:
+The UI-managed workflow above does not require these manual steps. For direct
+headless search or an independently administered provider, issue an external
+grant while the provider daemon is running. Use narrower `search-only` access
+for bounded search previews; the launcher passage flow reopens evidence and
+requires `search-and-open-evidence`. The example below uses that access, capped
+at five internal results with 4 KiB evidence and a one-day grant:
 
 ```bash
 INSTANCE="$HOME/sillage-search"
@@ -445,8 +661,8 @@ sillage-search search \
   --limit 5 "a phrase from an approved source"
 ```
 
-To opt the launcher into passages, edit its user-owned schema-1 settings file at
-`${XDG_CONFIG_HOME:-$HOME/.config}/io.github.briolabs.Sillage.Launcher/launcher.toml`.
+To connect the launcher to that external provider, edit its user-owned schema-1
+settings file at `${XDG_CONFIG_HOME:-$HOME/.config}/io.github.briolabs.Sillage.Launcher/launcher.toml`.
 If the file does not exist, launch the app and make a first-run shortcut choice
 (including “Not Now”) or save a preference so it writes the current settings.
 Preserve its existing settings and `schemaVersion = 1`; add this table with
@@ -462,10 +678,11 @@ credentialFile = "/home/alice/.config/sillage/search-client.key"
 Replace the example home paths and realm. The launcher requires an absolute
 socket path, a 64-character hexadecimal realm and an absolute credential path.
 Keep `sillage-search` installed and on `PATH`. Restart the launcher after
-editing (`sillage-launcher --quit`, then `sillage-launcher --activate`) so it
-loads the new table. Removing the optional `[search]` table and restarting
-disables launcher passage requests without uninstalling either package; revoke
-the provider grant separately if access should end for every client.
+manual editing (`sillage-launcher --quit`, then `sillage-launcher --activate`).
+**Disable document search** also disconnects an external launcher connection
+without changing its provider. Alternatively, removing the optional `[search]`
+table and restarting disables its passage requests without uninstalling either
+package. Revoke the provider grant separately if access should end for every client.
 
 In search results, Up and Down move between actionable rows and stop at the
 first or last actionable result. Document-group headings are labels, not

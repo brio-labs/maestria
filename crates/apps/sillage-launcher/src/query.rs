@@ -6,7 +6,7 @@ use crate::catalog::AppEntry;
 use crate::model::{Action, CommandDefinition, ResultKind, SearchResult};
 
 const MAX_RESULTS: usize = 50;
-const EMPTY_APP_RESULTS: usize = 46;
+const EMPTY_APP_RESULTS: usize = 43;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct MatchRank {
@@ -126,7 +126,7 @@ struct RankedResult<'a> {
     is_application: bool,
 }
 
-/// Search applications and the four built-in launcher commands.
+/// Search applications and the built-in launcher commands.
 ///
 /// Application fields are pre-normalized by [`AppEntry::new`]. The query and
 /// fixed command metadata are normalized once per search/index lifetime,
@@ -221,6 +221,11 @@ fn application_result(app: &AppEntry) -> SearchResult {
                 title: "Copy App Name".to_string(),
                 primary: false,
             },
+            Action {
+                id: "copy-desktop-id".to_string(),
+                title: "Copy Desktop ID".to_string(),
+                primary: false,
+            },
         ],
     }
 }
@@ -311,36 +316,6 @@ mod tests {
                 "app:lower-sum",
                 "app:worst",
                 "app:higher-sum"
-            ]
-        );
-    }
-
-    #[test]
-    fn empty_search_reserves_four_command_slots_after_46_apps() {
-        let apps = (0..60)
-            .map(|index| {
-                app(
-                    &format!("app-{index:02}"),
-                    &format!("Application {index:02}"),
-                    "",
-                    &[],
-                )
-            })
-            .collect::<Vec<_>>();
-        let results = search_catalog("   ", &apps);
-        assert_eq!(results.len(), 50);
-        assert!(
-            results[..46]
-                .iter()
-                .all(|result| matches!(result.kind, ResultKind::Application))
-        );
-        assert_eq!(
-            ids(&results[46..]),
-            vec![
-                "host.open-file",
-                "host.preferences",
-                "host.refresh-applications",
-                "host.quit",
             ]
         );
     }

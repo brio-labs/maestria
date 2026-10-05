@@ -22,6 +22,32 @@ pub(in crate::application) fn navigate_result_selection(
     }
 }
 
+pub(super) fn retained_result_index(
+    rows: &[crate::ResultRow],
+    previous_id: Option<&str>,
+    fallback: usize,
+) -> usize {
+    if let Some(previous_id) = previous_id
+        && let Some(index) = rows
+            .iter()
+            .position(|row| row.id.as_str() == previous_id && row.kind.as_str() != "passage_group")
+    {
+        return index;
+    }
+    if rows
+        .get(fallback)
+        .is_some_and(|row| row.kind.as_str() != "passage_group")
+    {
+        return fallback;
+    }
+    for (index, row) in rows.iter().enumerate() {
+        if row.kind.as_str() != "passage_group" {
+            return index;
+        }
+    }
+    0
+}
+
 fn next_result_index(
     displayed: &[DisplayedResult],
     current: usize,
@@ -47,7 +73,7 @@ fn next_result_index(
 
 #[cfg(test)]
 mod tests {
-    use super::{DisplayedResult, next_result_index};
+    use super::{DisplayedResult, next_result_index, retained_result_index};
 
     #[test]
     fn arrows_skip_document_headers_in_both_directions() {
@@ -80,5 +106,38 @@ mod tests {
         assert_eq!(next_result_index(&[], 0, false), None);
         assert_eq!(next_result_index(&[DisplayedResult::Group], 0, true), None);
         assert_eq!(next_result_index(&[DisplayedResult::Group], 0, false), None);
+    }
+
+    fn row(id: &str, kind: &str) -> crate::ResultRow {
+        crate::ResultRow {
+            id: id.into(),
+            kind: kind.into(),
+            title: "".into(),
+            subtitle: "".into(),
+            accessible_name: "".into(),
+            excerpt_before: "".into(),
+            excerpt_match: "".into(),
+            excerpt_after: "".into(),
+            content: "".into(),
+        }
+    }
+
+    #[test]
+    fn refresh_retains_identity_when_rows_move_or_preceding_results_disappear() {
+        let rows = [
+            row("group", "passage_group"),
+            row("selected", "passage"),
+            row("other", "application"),
+        ];
+        assert_eq!(retained_result_index(&rows, Some("selected"), 2), 1);
+        assert_eq!(retained_result_index(&rows, Some("other"), 0), 2);
+    }
+
+    #[test]
+    fn removed_selection_falls_back_to_actionable_row_not_header() {
+        let rows = [row("group", "passage_group"), row("remaining", "path")];
+        assert_eq!(retained_result_index(&rows, Some("removed"), 0), 1);
+        assert_eq!(retained_result_index(&rows, Some("removed"), 1), 1);
+        assert_eq!(retained_result_index(&[], Some("removed"), 0), 0);
     }
 }

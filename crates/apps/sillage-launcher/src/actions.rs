@@ -1,8 +1,9 @@
 use crate::model::{
-    CommandDefinition, HOST_OPEN_FILE, HOST_PREFERENCES, HOST_QUIT, HOST_REFRESH_APPLICATIONS,
+    CommandDefinition, HOST_CLIPBOARD, HOST_OPEN_FILE, HOST_PREFERENCES, HOST_QUICKLINKS,
+    HOST_QUIT, HOST_REFRESH_APPLICATIONS, HOST_SNIPPETS,
 };
 
-const COMMANDS: [CommandDefinition; 4] = [
+const COMMANDS: [CommandDefinition; 7] = [
     CommandDefinition {
         id: HOST_OPEN_FILE,
         title: "Open File…",
@@ -34,6 +35,30 @@ const COMMANDS: [CommandDefinition; 4] = [
         keywords: &["quit", "exit", "close"],
         action_id: "quit",
         action_title: "Quit",
+    },
+    CommandDefinition {
+        id: HOST_QUICKLINKS,
+        title: "Quicklinks",
+        subtitle: "Manage and open parameterized web links",
+        keywords: &["link", "url", "bookmark", "quicklink"],
+        action_id: "open",
+        action_title: "Open",
+    },
+    CommandDefinition {
+        id: HOST_SNIPPETS,
+        title: "Snippets",
+        subtitle: "Expand saved text explicitly and copy it",
+        keywords: &["snippet", "text", "template", "expand"],
+        action_id: "open",
+        action_title: "Open",
+    },
+    CommandDefinition {
+        id: HOST_CLIPBOARD,
+        title: "Clipboard History",
+        subtitle: "Search text explicitly saved for one hour",
+        keywords: &["clipboard", "history", "copy", "paste"],
+        action_id: "open",
+        action_title: "Open",
     },
 ];
 

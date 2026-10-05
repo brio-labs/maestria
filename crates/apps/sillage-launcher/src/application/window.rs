@@ -32,6 +32,7 @@ pub(super) fn activate_launcher(
                 model.result_filter = "all".to_string();
             }
             window.set_query(SharedString::default());
+            window.invoke_close_utilities();
             window.set_preferences_open(false);
             window.set_reset_confirmation(false);
             window.set_about_open(false);
@@ -51,7 +52,14 @@ pub(super) fn activate_launcher(
             window.invoke_focus_search();
             let _ = state.catalog().request_refresh();
             lock(&frontend.model).catalog_ticks_until_refresh = CATALOG_REFRESH_TICKS;
-            start_search(state, frontend, runtime, window.as_weak(), String::new());
+            start_search(
+                state,
+                frontend,
+                runtime,
+                window.as_weak(),
+                String::new(),
+                None,
+            );
         }
         Ok(None) => {}
         Err(error) => show_notice(&window.as_weak(), error.message),
@@ -64,6 +72,7 @@ pub(super) fn hide_launcher(ui: &UiWeak, state: &LauncherState) {
     }
     if let Some(window) = ui.upgrade() {
         close_extension_panel(&window);
+        window.invoke_close_utilities();
         if let Err(error) = window.window().hide() {
             show_notice(ui, error.to_string());
         }

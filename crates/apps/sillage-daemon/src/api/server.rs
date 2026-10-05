@@ -20,6 +20,7 @@ mod connection;
 
 pub struct ApiServer {
     socket_path: std::path::PathBuf,
+    socket_identity: (u64, u64),
     shutdown: CancellationToken,
     task: JoinHandle<()>,
     connections: ConnectionTasks,
@@ -49,6 +50,7 @@ impl ApiServer {
         remove_stale_socket(&socket)?;
         let listener = UnixListener::bind(&socket)
             .map_err(|error| anyhow!("bind daemon socket {}: {error}", socket.display()))?;
+        let socket_identity = socket_identity(&socket)?;
         set_private_permissions(&socket)?;
         let context = Arc::new(ApiContext {
             layout,
@@ -69,6 +71,7 @@ impl ApiServer {
         ));
         Ok(Self {
             socket_path: context.socket_path.clone(),
+            socket_identity,
             shutdown,
             task,
             connections,
@@ -95,7 +98,24 @@ impl ApiServer {
 
         task_result?;
         connections_result?;
-        remove_stale_socket(&self.socket_path)
+        remove_bound_socket(&self.socket_path, self.socket_identity)
+    }
+}
+
+fn socket_identity(path: &Path) -> std::io::Result<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = std::fs::symlink_metadata(path)?;
+    Ok((metadata.dev(), metadata.ino()))
+}
+
+fn remove_bound_socket(path: &Path, expected: (u64, u64)) -> Result<()> {
+    match socket_identity(path) {
+        Ok(actual) if actual == expected => {
+            std::fs::remove_file(path).context("remove owned daemon socket")
+        }
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).context("inspect owned daemon socket before cleanup"),
     }
 }
 

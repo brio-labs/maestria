@@ -29,6 +29,16 @@ pub(super) fn passage_actions() -> ModelRc<ActionRow> {
             title: "Copy Passage".into(),
             accessible_name: "Reopen the evidence and copy its passage".into(),
         },
+        ActionRow {
+            id: "passage.reveal-source".into(),
+            title: "Open Source Folder".into(),
+            accessible_name: "Reopen the evidence and open its containing source folder".into(),
+        },
+        ActionRow {
+            id: "passage.copy-path".into(),
+            title: "Copy Source Path".into(),
+            accessible_name: "Reopen the evidence and copy its source path".into(),
+        },
     ]))
 }
 
@@ -76,7 +86,11 @@ fn begin_passage_action(
 ) -> Option<(u64, AcceptedPassage, SearchServiceConfig)> {
     if !matches!(
         action_id,
-        "passage.open-source" | "passage.copy-citation" | "passage.copy-excerpt"
+        "passage.open-source"
+            | "passage.copy-citation"
+            | "passage.copy-excerpt"
+            | "passage.reveal-source"
+            | "passage.copy-path"
     ) {
         show_notice(ui, "This passage action is not available.".to_string());
         return None;
@@ -135,6 +149,19 @@ async fn reopen_passage_action(
                 reopened.excerpt,
                 "Copied reopened passage.".to_string(),
             )),
+            "passage.copy-path" => reopened
+                .path
+                .map(|path| {
+                    PassageAction::Copy(
+                        path.display().to_string(),
+                        "Copied freshly reopened source path.".to_string(),
+                    )
+                })
+                .ok_or_else(|| "This passage has no local source path.".to_string()),
+            "passage.reveal-source" => reopened
+                .path
+                .map(PassageAction::Reveal)
+                .ok_or_else(|| "This passage has no local source folder.".to_string()),
             "passage.open-source" => Ok(PassageAction::Open {
                 path: reopened.path,
                 pdf_page: reopened.pdf_page,
@@ -174,6 +201,8 @@ fn finish_passage_action(
         Ok(PassageAction::Copy(value, confirmation)) => {
             super::super::platform::copy_text(&value).map(|()| confirmation)
         }
+        Ok(PassageAction::Reveal(path)) => crate::platform::open_containing_folder(&path)
+            .map(|()| "Opened the freshly reopened source folder.".to_string()),
         Ok(PassageAction::Open {
             path,
             pdf_page,
@@ -228,6 +257,7 @@ fn action_error(error: ReopenError) -> String {
 
 enum PassageAction {
     Copy(String, String),
+    Reveal(std::path::PathBuf),
     Open {
         path: Option<std::path::PathBuf>,
         pdf_page: Option<u32>,

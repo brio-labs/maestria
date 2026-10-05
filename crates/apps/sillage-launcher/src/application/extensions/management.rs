@@ -205,7 +205,10 @@ pub(super) fn approve(controller: &Arc<Controller>, ui: UiWeak, id: &str) {
                     );
                     refresh(&host, ui);
                 }
-                Err(error) => window.set_extension_error_message(error.into()),
+                Err(error) => {
+                    refresh(&host, ui.clone());
+                    window.set_extension_error_message(error.into());
+                }
             }
         });
     });
@@ -256,7 +259,10 @@ pub(super) fn mutate(controller: &Arc<Controller>, ui: UiWeak, id: &str, mutatio
                     window.set_extension_notice_message(notice.into());
                     refresh(&host, ui);
                 }
-                Err(error) => window.set_extension_error_message(error.into()),
+                Err(error) => {
+                    refresh(&host, ui.clone());
+                    window.set_extension_error_message(error.into());
+                }
             }
         });
     });

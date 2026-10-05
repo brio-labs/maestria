@@ -18,6 +18,8 @@ use super::{
 use crate::ipc::LauncherState;
 use crate::shortcuts::Shortcuts;
 
+mod catalog;
+
 struct TimerState {
     initialized: bool,
     last_catalog_revision: u64,
@@ -43,17 +45,20 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     }
 
     let (control_sender, control_receiver) = mpsc::sync_channel(16);
-    let Some(instance) = super::instance::PrimaryInstance::claim(control_sender)? else {
+    let background = has_argument(&arguments, "--background");
+    let Some(instance) = super::instance::PrimaryInstance::claim(control_sender, !background)?
+    else {
         return Ok(());
     };
-    run_primary(instance, control_receiver)
+    run_primary(instance, control_receiver, background)
 }
 
 fn run_primary(
     instance: super::instance::PrimaryInstance,
     control_receiver: mpsc::Receiver<RuntimeMessage>,
+    background: bool,
 ) -> Result<(), Box<dyn Error>> {
-    select_backend()?;
+    select_backend(background)?;
 
     let state = Arc::new(crate::ipc::LauncherState::new(
         crate::settings::SettingsManager::load(config_dir()),
@@ -101,6 +106,13 @@ fn run_primary(
         system_dark,
     );
     super::extensions::install_callbacks(&ui, Arc::clone(&state), runtime_handle.clone());
+    super::utilities::install(&ui, runtime_handle.clone());
+    let search_setup = super::search_setup::SearchSetupController::install(
+        &ui,
+        Arc::clone(&state),
+        Arc::clone(&frontend),
+        runtime_handle.clone(),
+    );
     install_window_handlers(&ui, Arc::clone(&state));
     let _timer = install_timer(
         ui.as_weak(),
@@ -112,20 +124,32 @@ fn run_primary(
         activation_receiver,
     );
 
-    ui.window().show()?;
-    // Hiding the only window must not terminate the resident singleton.
-    slint::run_event_loop_until_quit()?;
+    // The resident loop must not map a login window or exit when its window is hidden.
+    let ui_result = if background {
+        slint::run_event_loop_until_quit()
+    } else {
+        ui.window()
+            .show()
+            .and_then(|()| slint::run_event_loop_until_quit())
+    };
+    ui.invoke_close_utilities();
+    let search_shutdown = runtime.block_on(search_setup.shutdown());
     let _ = shortcuts.shutdown();
     drop(instance);
-    drop(runtime);
+    // Blocking utility filesystem operations must not hold resident shutdown open.
+    runtime.shutdown_background();
+    ui_result?;
+    search_shutdown.map_err(std::io::Error::other)?;
     Ok(())
 }
 
-fn select_backend() -> Result<(), Box<dyn Error>> {
+fn select_backend(background: bool) -> Result<(), Box<dyn Error>> {
     slint::BackendSelector::new()
         .backend_name("winit".into())
         .renderer_name("software".into())
-        .with_winit_window_attributes_hook(|attributes| attributes.with_decorations(false))
+        .with_winit_window_attributes_hook(move |attributes| {
+            attributes.with_decorations(false).with_active(!background)
+        })
         .select()?;
     Ok(())
 }
@@ -154,6 +178,7 @@ fn install_window_handlers(ui: &LauncherWindow, state: Arc<LauncherState>) {
         {
             if let Some(window) = close_ui.upgrade() {
                 super::window::close_extension_panel(&window);
+                window.invoke_close_utilities();
             }
             slint::CloseRequestResponse::HideWindow
         } else {
@@ -178,6 +203,7 @@ fn install_window_handlers(ui: &LauncherWindow, state: Arc<LauncherState>) {
                         Ok(()) => {
                             if let Some(window_ui) = blur_ui.upgrade() {
                                 super::window::close_extension_panel(&window_ui);
+                                window_ui.invoke_close_utilities();
                             }
                             if let Err(error) = window.hide() {
                                 eprintln!("Launcher dismissal failed: {error}");
@@ -258,11 +284,11 @@ fn on_timer_tick(timer: &mut TimerState, context: &TimerContext) {
     );
 
     if timer.initialized {
-        refresh_catalog_if_due(&ui, &context.state, &context.frontend);
+        catalog::refresh_catalog_if_due(&ui, &context.state, &context.frontend);
         timer
             .source_refresh
             .tick(&ui, &context.state, &context.frontend, &context.runtime);
-        update_catalog_status(
+        catalog::update_catalog_status(
             timer,
             &ui,
             Arc::clone(&context.state),
@@ -307,6 +333,7 @@ fn initialize_when_ready(
                 runtime.clone(),
                 ui.as_weak(),
                 query,
+                None,
             );
             configure_saved_shortcut(
                 Arc::clone(state),
@@ -349,53 +376,6 @@ fn handle_shortcut_activation(
     }
     while receiver.try_recv().is_ok() {}
     activate_launcher(ui, Arc::clone(state), Arc::clone(frontend), runtime.clone());
-}
-
-fn refresh_catalog_if_due(ui: &LauncherWindow, state: &LauncherState, frontend: &Frontend) {
-    let due = {
-        let mut model = lock(&frontend.model);
-        model.catalog_ticks_until_refresh = model.catalog_ticks_until_refresh.saturating_sub(1);
-        model.catalog_ticks_until_refresh == 0
-    };
-    if due && ui.window().is_visible() && state.catalog().request_refresh().is_ok() {
-        lock(&frontend.model).catalog_ticks_until_refresh = CATALOG_REFRESH_TICKS;
-    }
-}
-
-fn update_catalog_status(
-    timer: &mut TimerState,
-    ui: &LauncherWindow,
-    state: Arc<LauncherState>,
-    frontend: Arc<Frontend>,
-    runtime: &tokio::runtime::Handle,
-) {
-    let Ok(snapshot) = state.catalog().snapshot() else {
-        return;
-    };
-    let ready = matches!(
-        &snapshot.status.kind,
-        crate::model::SearchStatusKind::Ready | crate::model::SearchStatusKind::Error
-    );
-    if ready && snapshot.revision != timer.last_catalog_revision {
-        // Preserve an open evidence view; the pending revision refreshes once
-        // the user returns to results instead of invalidating its Copy controls.
-        if ui.get_passage_view_open() {
-            return;
-        }
-        timer.last_catalog_revision = snapshot.revision;
-        let query = lock(&frontend.model).query.clone();
-        start_search(state, frontend, runtime.clone(), ui.as_weak(), query);
-    } else if matches!(
-        &snapshot.status.kind,
-        crate::model::SearchStatusKind::Loading | crate::model::SearchStatusKind::Refreshing
-    ) {
-        ui.set_status_kind("loading".into());
-        let message = snapshot.status.message.as_deref().map_or_else(
-            || "Refreshing installed applications…".to_string(),
-            str::to_owned,
-        );
-        ui.set_status_message(message.into());
-    }
 }
 
 fn update_shortcut_status(timer: &mut TimerState, ui: &LauncherWindow, shortcuts: &Shortcuts) {

@@ -1,5 +1,6 @@
 import { AboutSlint, Button, CheckBox, LineEdit, Palette, ScrollView } from "std-widgets.slint";
 import { ExtensionPanel, ExtensionRow, ExtensionItemRow, ExtensionActionRow, ExtensionFieldRow } from "extensions.slint";
+import { UtilityPanel, UtilityRow } from "utilities.slint";
 
 export struct ResultRow {
     id: string,
@@ -21,8 +22,10 @@ export struct ActionRow {
 
 export component LauncherWindow inherits Window {
     title: "Sillage Launcher";
-    width: 760px;
-    height: 760px;
+    preferred-width: 760px;
+    preferred-height: 760px;
+    min-width: 640px;
+    min-height: 540px;
     background: root.dark-mode ? #141b20 : #f6f8f5;
 
     in-out property <bool> dark-mode: true;
@@ -53,6 +56,22 @@ export component LauncherWindow inherits Window {
     in-out property <string> notice: "";
     in-out property <bool> shortcut-offer-visible: false;
     in-out property <bool> extensions-open: false;
+    in-out property <bool> utilities-open: false;
+    in-out property <string> utility-kind: "quicklinks";
+    in-out property <[UtilityRow]> utility-rows: [];
+    in-out property <string> utility-query: "";
+    in-out property <string> utility-selected-id: "";
+    in-out property <string> utility-title: "";
+    in-out property <string> utility-content: "";
+    in-out property <string> utility-saved-content: "";
+    in-out property <string> utility-argument: "";
+    in-out property <string> utility-message: "";
+    in-out property <bool> utility-busy: false;
+    in-out property <bool> utility-available: false;
+    in-out property <bool> utility-editing: false;
+    in-out property <bool> autostart-enabled: false;
+    in-out property <string> autostart-message: "";
+    in-out property <bool> autostart-busy: false;
     in-out property <string> extension-view: "extensions";
     in-out property <[ExtensionRow]> extension-rows: [];
     in-out property <[ExtensionItemRow]> extension-items: [];
@@ -68,9 +87,33 @@ export component LauncherWindow inherits Window {
     in-out property <string> extension-error-message: "";
     in-out property <string> extension-notice-message: "";
     in-out property <bool> extension-busy: false;
+    in-out property <string> search-setup-root: "";
+    in-out property <string> search-setup-status: "";
+    in-out property <string> search-setup-detail: "";
+    in-out property <string> search-setup-error: "";
+    in-out property <bool> search-setup-busy: false;
+    in-out property <bool> search-setup-enabled: false;
+    in-out property <bool> search-setup-consent: false;
+    property <string> preferences-tab: "general";
+
+    init => {
+        Palette.color-scheme = root.dark-mode ? ColorScheme.dark : ColorScheme.light;
+    }
 
     changed dark-mode => {
         Palette.color-scheme = root.dark-mode ? ColorScheme.dark : ColorScheme.light;
+    }
+
+    changed extension-view => {
+        if (root.extensions-open) {
+            key-handler.focus();
+        }
+    }
+
+    changed extensions-open => {
+        if (root.extensions-open) {
+            key-handler.focus();
+        }
     }
 
     callback query-changed(string);
@@ -103,9 +146,47 @@ export component LauncherWindow inherits Window {
     callback extension-form-changed(string, string);
     callback extension-item-selected(string);
     callback extension-file-select-requested(string);
+    callback search-folder-requested();
+    callback search-enable-requested();
+    callback search-disable-requested();
+    callback utility-kind-requested(string);
+    callback utility-filter-requested(string);
+    callback utility-selected-requested(string);
+    callback utility-save-requested(string, string, string);
+    callback utility-remove-requested(string);
+    callback utility-expand-requested(string, string);
+    callback utility-capture-requested();
+    callback utility-clear-requested();
+    callback utilities-closed();
+    callback autostart-requested(bool);
+
+    public function focus-utility-editor() { utility-panel.focus-editor(); }
+    public function close-utilities() {
+        if (root.utilities-open) {
+            root.utilities-open = false;
+            root.utilities-closed();
+        }
+    }
+    public function open-utilities(kind: string) {
+        if (root.preferences-open) {
+            root.preferences-open = false;
+            root.preferences-closed();
+        }
+        if (root.passage-view-open) { root.passage-view-closed(); }
+        if (root.extensions-open) {
+            root.extensions-open = false;
+            root.extensions-closed();
+        }
+        root.about-open = false;
+        root.actions-open = false;
+        root.utilities-open = true;
+        root.utility-kind-requested(kind);
+        utility-panel.focus-search();
+    }
 
     function activate-selected() {
-        if (root.preferences-open || root.about-open || root.passage-view-open || root.extensions-open) {
+        if (root.preferences-open || root.about-open || root.extensions-open || root.utilities-open
+            || (root.passage-view-open && !root.actions-open)) {
             return;
         }
         if (root.actions-open && root.actions.length > 0) {
@@ -113,8 +194,7 @@ export component LauncherWindow inherits Window {
         } else if (root.results.length > 0) {
             let row = root.results[root.selected-index];
             if (row.kind == "path") {
-                root.actions-open = true;
-                root.selected-action-index = 0;
+                root.action-activated(row.id, "path.copy");
             } else if (row.kind == "passage" || row.kind == "file" || row.kind == "document") {
                 root.passage-view-requested(row.id);
             } else {
@@ -129,13 +209,33 @@ export component LauncherWindow inherits Window {
         key-handler.focus();
     }
     public function focus-preferences() {
-        shortcut-input.focus();
+        if (root.preferences-tab == "documents") {
+            search-folder-button.focus();
+        } else {
+            shortcut-input.focus();
+        }
+    }
+    function open-document-search-preferences() {
+        root.close-utilities();
+        root.about-open = false;
+        if (root.passage-view-open) {
+            root.passage-view-closed();
+        }
+        if (root.extensions-open) {
+            root.extensions-open = false;
+            root.extensions-closed();
+        }
+        root.actions-open = false;
+        root.preferences-tab = "documents";
+        root.preferences-requested();
     }
 
     forward-focus: key-handler;
     key-handler := FocusScope {
     capture-key-pressed(event) => {
-        if (event.text == Key.Escape && root.about-open) {
+        if (root.utilities-open) {
+            reject
+        } else if (event.text == Key.Escape && root.about-open) {
             root.about-open = false;
             root.focus-search();
             accept
@@ -148,11 +248,16 @@ export component LauncherWindow inherits Window {
                 root.preferences-open = false;
                 root.preferences-closed();
                 root.focus-search();
-            } else if (root.passage-view-open) {
+            } else if (root.passage-view-open && !root.actions-open) {
                 root.passage-view-closed();
                 root.focus-search();
             } else if (root.actions-open) {
                 root.actions-open = false;
+                if (root.passage-view-open) {
+                    root.focus-detail();
+                } else {
+                    root.focus-search();
+                }
             } else {
                 root.dismissed();
             }
@@ -167,14 +272,17 @@ export component LauncherWindow inherits Window {
                 root.passage-view-closed();
             }
             root.actions-open = false;
+            root.preferences-tab = "general";
             root.preferences-requested();
             accept
-        } else if (!root.preferences-open && !root.about-open && !root.passage-view-open && !root.extensions-open
+        } else if (!root.preferences-open && !root.about-open && !root.extensions-open
+            && root.actions.length > 0
             && event.modifiers.control && (event.text == "k" || event.text == "K")) {
             root.actions-open = !root.actions-open;
             root.selected-action-index = 0;
             accept
-        } else if (!root.preferences-open && !root.about-open && !root.passage-view-open && !root.extensions-open
+        } else if (!root.preferences-open && !root.about-open && !root.extensions-open
+            && (!root.passage-view-open || root.actions-open)
             && event.text == Key.DownArrow) {
             if (root.actions-open && root.actions.length > 0) {
                 if (root.selected-action-index < root.actions.length - 1) {
@@ -184,7 +292,8 @@ export component LauncherWindow inherits Window {
                 root.result-navigation-requested(true);
             }
             accept
-        } else if (!root.preferences-open && !root.about-open && !root.passage-view-open && !root.extensions-open
+        } else if (!root.preferences-open && !root.about-open && !root.extensions-open
+            && (!root.passage-view-open || root.actions-open)
             && event.text == Key.UpArrow) {
             if (root.actions-open && root.selected-action-index > 0) {
                 root.selected-action-index -= 1;
@@ -192,8 +301,10 @@ export component LauncherWindow inherits Window {
                 root.result-navigation-requested(false);
             }
             accept
-        } else if (!root.preferences-open && !root.about-open && !root.passage-view-open && !root.extensions-open
+        } else if (!root.preferences-open && !root.about-open && !root.extensions-open
+            && (!root.passage-view-open || root.actions-open)
             && event.text == Key.Return
+            && !document-search-setup-button.has-focus
             && !(root.shortcut-offer-visible
                 && (shortcut-setup-button.has-focus || shortcut-defer-button.has-focus))) {
             root.activate-selected();
@@ -210,8 +321,8 @@ export component LauncherWindow inherits Window {
         border-radius: 18px;
 
         VerticalLayout {
-            padding: 20px;
-            spacing: 12px;
+            padding: 16px;
+            spacing: 8px;
 
             HorizontalLayout {
                 height: 32px;
@@ -250,6 +361,7 @@ export component LauncherWindow inherits Window {
                     accessible-role: button;
                     accessible-label: "Open About Sillage and Slint attribution";
                     clicked => {
+                        root.close-utilities();
                         if (root.preferences-open) {
                             root.preferences-open = false;
                             root.preferences-closed();
@@ -271,6 +383,7 @@ export component LauncherWindow inherits Window {
                     accessible-role: button;
                     accessible-label: "Manage installed extensions and permissions";
                     clicked => {
+                        root.close-utilities();
                         if (root.preferences-open) {
                             root.preferences-open = false;
                             root.preferences-closed();
@@ -286,10 +399,17 @@ export component LauncherWindow inherits Window {
                     }
                 }
                 Button {
+                    text: "Utilities";
+                    accessible-role: button;
+                    accessible-label: "Manage quicklinks snippets and explicit clipboard history";
+                    clicked => { root.open-utilities("quicklinks"); }
+                }
+                Button {
                     text: "Preferences";
                     accessible-role: button;
                     accessible-label: "Open launcher preferences";
                     clicked => {
+                        root.close-utilities();
                         root.about-open = false;
                         if (root.passage-view-open) {
                             root.passage-view-closed();
@@ -298,6 +418,8 @@ export component LauncherWindow inherits Window {
                             root.extensions-open = false;
                             root.extensions-closed();
                         }
+                        root.actions-open = false;
+                        root.preferences-tab = "general";
                         root.preferences-requested();
                     }
                 }
@@ -307,18 +429,18 @@ export component LauncherWindow inherits Window {
                 vertical-stretch: 1;
                 background: transparent;
                 VerticalLayout {
-                    visible: !root.preferences-open && !root.about-open && !root.passage-view-open && !root.extensions-open;
-                    spacing: 10px;
+                    visible: !root.preferences-open && !root.about-open && !root.passage-view-open && !root.extensions-open && !root.utilities-open;
+                    spacing: 8px;
                     Rectangle {
-                        height: 64px;
+                        height: 56px;
                         border-radius: 12px;
                         background: root.dark-mode ? #202d30 : #ffffff;
                         border-color: root.dark-mode ? #5d8176 : #87b29f;
                         border-width: 1px;
                         HorizontalLayout {
-                            padding-left: 18px;
-                            padding-right: 18px;
-                            spacing: 12px;
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            spacing: 10px;
                             Text { text: "⌕"; color: #85e3bf; font-size: 24px; vertical-alignment: center; }
                             search-input := LineEdit {
                                 text <=> root.query;
@@ -423,24 +545,32 @@ export component LauncherWindow inherits Window {
                         }
                         Rectangle { horizontal-stretch: 1; background: transparent; }
                         Text {
-                            width: 230px;
+                            width: root.search-setup-enabled ? 230px : 190px;
                             text: root.index-status;
                             color: root.dark-mode ? #abc0b7 : #4a625b;
                             font-size: 10px;
                             vertical-alignment: center;
                             overflow: elide;
                         }
+                        document-search-setup-button := Button {
+                            visible: !root.search-setup-enabled;
+                            width: 150px;
+                            text: "Set up documents";
+                            accessible-role: button;
+                            accessible-label: "Set up optional local document search for a chosen folder";
+                            clicked => { root.open-document-search-preferences(); }
+                        }
                     }
 
                     ScrollView {
-                        height: root.shortcut-offer-visible ? 280px : 380px;
+                        vertical-stretch: 1;
                         accessible-role: list;
                         accessible-label: "Launcher results";
                         VerticalLayout {
                             spacing: 8px;
                             for row[index] in root.results : Rectangle {
-                                height: row.kind == "passage_group" ? 26px
-                                    : (row.kind == "passage" || row.kind == "file" ? 124px : 64px);
+                                height: row.kind == "passage_group" ? 24px
+                                    : (row.kind == "passage" || row.kind == "file" ? 112px : 60px);
                                 border-radius: row.kind == "passage_group" ? 4px : 10px;
                                 background: row.kind == "passage_group"
                                     ? transparent
@@ -465,13 +595,13 @@ export component LauncherWindow inherits Window {
                                 }
                                 HorizontalLayout {
                                     visible: row.kind != "passage_group";
-                                    padding-left: 15px;
-                                    padding-right: 15px;
-                                    spacing: 12px;
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    spacing: 10px;
                                     Rectangle {
                                         visible: row.kind != "passage";
-                                        width: 32px;
-                                        height: 32px;
+                                        width: 30px;
+                                        height: 30px;
                                         border-radius: 8px;
                                         background: root.selected-index == index ? #356554 : #2d4c54;
                                         Text {
@@ -546,9 +676,11 @@ export component LauncherWindow inherits Window {
                                     Text {
                                         text: row.kind == "document"
                                             ? (index == root.selected-index ? "Open passages  ↵" : "")
-                                            : ((row.kind == "passage" || row.kind == "file" || row.kind == "path")
-                                                ? (index == root.selected-index ? "Actions  ↵" : "")
-                                                : (index == root.selected-index ? "Open  ↵" : ""));
+                                            : (row.kind == "path"
+                                                ? (index == root.selected-index ? "Copy path  ↵" : "")
+                                                : ((row.kind == "passage" || row.kind == "file")
+                                                    ? (index == root.selected-index ? "Open details  ↵" : "")
+                                                    : (index == root.selected-index ? "Open  ↵" : "")));
                                         color: root.dark-mode ? #c4e8d8 : #17694f;
                                         font-size: 11px;
                                         vertical-alignment: center;
@@ -561,8 +693,7 @@ export component LauncherWindow inherits Window {
                                     clicked => {
                                         root.selection-changed(index);
                                         if (row.kind == "path") {
-                                            root.actions-open = true;
-                                            root.selected-action-index = 0;
+                                            root.action-activated(row.id, "path.copy");
                                         } else if (row.kind == "passage" || row.kind == "file" || row.kind == "document") {
                                             root.passage-view-requested(row.id);
                                         } else {
@@ -574,42 +705,27 @@ export component LauncherWindow inherits Window {
                         }
                     }
 
-                    if (root.actions-open && root.actions.length > 0) : Rectangle {
-                        height: 68px;
-                        border-radius: 10px;
-                        background: root.dark-mode ? #202d30 : #ffffff;
-                        border-color: root.dark-mode ? #5d8176 : #87b29f;
-                        border-width: 1px;
-                        HorizontalLayout {
-                            padding: 8px;
-                            spacing: 8px;
-                            for action[index] in root.actions : Button {
-                                text: action.title;
-                                accessible-role: button;
-                                accessible-label: action.accessible_name;
-                                clicked => {
-                                    root.selected-action-index = index;
-                                    root.action-activated(root.results[root.selected-index].id, action.id);
-                                }
-                            }
-                        }
-                    }
 
                     Text {
                         text: root.results.length == 0
                             ? (root.status-message != ""
                                 ? root.status-message
-                                : (root.query == "" ? "Type to search applications and commands."
+                                : (root.query == ""
+                                    ? (root.search-setup-enabled
+                                        ? "Type to search applications and commands."
+                                        : "Type to search applications and commands. Optional document search is available in Preferences.")
                                     : "No results. Try another search or calculate an expression."))
                             : root.status-message;
-                        color: root.status-kind == "error" ? #e29580 : (root.dark-mode ? #b2c0ba : #4a625b);
+                        color: root.status-kind == "error"
+                            ? (root.dark-mode ? #f0aa99 : #8d3828)
+                            : (root.dark-mode ? #b2c0ba : #4a625b);
                         font-size: 12px;
                     }
                 }
 
                 VerticalLayout {
                     visible: root.passage-view-open && !root.preferences-open && !root.about-open;
-                    spacing: 10px;
+                    spacing: 8px;
                     HorizontalLayout {
                         height: 34px;
                         spacing: 10px;
@@ -640,7 +756,9 @@ export component LauncherWindow inherits Window {
                         visible: root.notice != "";
                         height: root.notice != "" ? 24px : 0px;
                         text: root.notice;
-                        color: root.status-kind == "error" ? #e29580 : (root.dark-mode ? #b2c0ba : #4a625b);
+                        color: root.status-kind == "error"
+                            ? (root.dark-mode ? #f0aa99 : #8d3828)
+                            : (root.dark-mode ? #b2c0ba : #4a625b);
                         font-size: 12px;
                         accessible-role: text;
                         accessible-label: root.notice;
@@ -735,7 +853,7 @@ export component LauncherWindow inherits Window {
 
                 VerticalLayout {
                     visible: root.preferences-open && !root.about-open;
-                    spacing: 12px;
+                    spacing: 8px;
                     Text {
                         text: "PREFERENCES";
                         color: root.dark-mode ? #abc0b7 : #4a625b;
@@ -743,90 +861,303 @@ export component LauncherWindow inherits Window {
                         font-weight: 700;
                         letter-spacing: 1.6px;
                     }
-                    Text {
-                        text: "Global shortcut";
-                        color: root.dark-mode ? #f3f6f4 : #1a2b2b;
-                        font-size: 13px;
-                        font-weight: 700;
-                    }
-                    shortcut-input := LineEdit {
-                        text <=> root.shortcut;
-                        accessible-label: "Global shortcut accelerator";
-                    }
-                    Text {
-                        text: root.shortcut-status;
-                        color: root.dark-mode ? #b2c0ba : #4a625b;
-                        font-size: 12px;
-                    }
                     HorizontalLayout {
+                        height: 34px;
                         spacing: 8px;
                         Button {
-                            text: "Configure shortcut";
-                            enabled: !root.preferences-read-only;
+                            text: root.preferences-tab == "general" ? "General ✓" : "General";
                             accessible-role: button;
-                            accessible-label: "Request system permission to configure the global shortcut";
-                            clicked => { root.shortcut-configure-requested(); }
+                            accessible-label: "Show general launcher preferences";
+                            clicked => {
+                                root.preferences-tab = "general";
+                                shortcut-input.focus();
+                            }
                         }
                         Button {
-                            text: "Clear shortcut";
-                            enabled: !root.preferences-read-only;
+                            text: root.preferences-tab == "documents" ? "Document search ✓" : "Document search";
                             accessible-role: button;
-                            accessible-label: "Clear the configured global shortcut";
-                            clicked => { root.shortcut-clear-requested(); }
+                            accessible-label: "Show document search setup preferences";
+                            clicked => {
+                                root.preferences-tab = "documents";
+                                search-folder-button.focus();
+                            }
                         }
                     }
-                    Button {
-                        text: "Copy activation command";
-                        accessible-role: button;
-                        accessible-label: "Copy the launcher activation command";
-                        clicked => { root.copy-activation-requested(); }
+                    // Tab contents share one viewport; hidden layouts must not
+                    // reserve a second vertical slice.
+                    Rectangle {
+                        vertical-stretch: 1;
+                        background: transparent;
+                        ScrollView {
+                            visible: root.preferences-tab == "general";
+                            width: parent.width;
+                            height: parent.height;
+                            content-width: self.width;
+                            accessible-role: groupbox;
+                            accessible-label: "General launcher preferences";
+                            VerticalLayout {
+                                spacing: 8px;
+                            Text {
+                                text: "Global shortcut";
+                                color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                                font-size: 13px;
+                                font-weight: 700;
+                            }
+                            shortcut-input := LineEdit {
+                                text <=> root.shortcut;
+                                accessible-label: "Global shortcut accelerator";
+                            }
+                            Text {
+                                text: root.shortcut-status;
+                                color: root.dark-mode ? #b2c0ba : #4a625b;
+                                font-size: 12px;
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Button {
+                                    text: "Configure shortcut";
+                                    enabled: !root.preferences-read-only;
+                                    accessible-role: button;
+                                    accessible-label: "Request system permission to configure the global shortcut";
+                                    clicked => { root.shortcut-configure-requested(); }
+                                }
+                                Button {
+                                    text: "Clear shortcut";
+                                    enabled: !root.preferences-read-only;
+                                    accessible-role: button;
+                                    accessible-label: "Clear the configured global shortcut";
+                                    clicked => { root.shortcut-clear-requested(); }
+                                }
+                            }
+                            Button {
+                                text: "Copy activation command";
+                                accessible-role: button;
+                                accessible-label: "Copy the launcher activation command";
+                                clicked => { root.copy-activation-requested(); }
+                            }
+                            Text {
+                                text: "Appearance";
+                                color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                                font-size: 13px;
+                                font-weight: 700;
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Button {
+                                    text: root.theme-choice == "light" ? "Light ✓" : "Light";
+                                    accessible-role: button;
+                                    accessible-label: "Use the light color theme";
+                                    clicked => { root.theme-choice = "light"; root.dark-mode = false; }
+                                }
+                                Button {
+                                    text: root.theme-choice == "dark" ? "Dark ✓" : "Dark";
+                                    accessible-role: button;
+                                    accessible-label: "Use the dark color theme";
+                                    clicked => { root.theme-choice = "dark"; root.dark-mode = true; }
+                                }
+                                Button {
+                                    text: root.theme-choice == "system" ? "System ✓" : "System";
+                                    accessible-role: button;
+                                    accessible-label: "Use the system color theme";
+                                    clicked => { root.theme-choice = "system"; root.dark-mode = root.system-dark-mode; }
+                                }
+                            }
+                            CheckBox {
+                                text: "Reduce motion";
+                                checked <=> root.reduce-motion-choice;
+                                accessible-role: checkbox;
+                                accessible-label: "Reduce interface motion";
+                            }
+                            CheckBox {
+                                text: "Start Sillage at login";
+                                checked <=> root.autostart-enabled;
+                                enabled: !root.autostart-busy;
+                                accessible-role: checkbox;
+                                accessible-label: "Opt in to start Sillage in the background at login";
+                                toggled => { root.autostart-requested(self.checked); }
+                            }
+                            Text {
+                                text: root.autostart-message;
+                                visible: root.autostart-message != "";
+                                color: root.dark-mode ? #b2c0ba : #4a625b;
+                                wrap: word-wrap;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                            Text {
+                                text: root.preferences-warning;
+                                visible: root.preferences-warning != "";
+                                color: root.dark-mode ? #f0aa99 : #8d3828;
+                                font-size: 12px;
+                            }
+                            Text {
+                                text: root.notice;
+                                visible: root.notice != "";
+                                color: root.dark-mode ? #b2c0ba : #4a625b;
+                                font-size: 12px;
+                            }
+                            Rectangle { vertical-stretch: 1; background: transparent; }
+                        }
+                        }
+                        ScrollView {
+                            visible: root.preferences-tab == "documents";
+                            width: parent.width;
+                            height: parent.height;
+                            accessible-role: groupbox;
+                            accessible-label: "Document search setup and status";
+                            VerticalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: "Document search";
+                                    color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                                    font-size: 15px;
+                                    font-weight: 700;
+                                }
+                                Text {
+                                    text: root.search-setup-enabled && root.search-setup-root == ""
+                                        ? "This connection uses an externally managed service. Disabling it disconnects only the launcher; it does not stop that service."
+                                        : "Optional local search for documents in one folder you choose. It uses a separate read-only search process, with no models or cloud. It runs only while the launcher is running; explicit enablement is saved for future starts.";
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: root.search-setup-enabled && root.search-setup-root == ""
+                                        ? "Externally managed search service. Disabling disconnects only the launcher and does not stop the service."
+                                        : "Optional local document search. A separate read-only search process, no models or cloud, runs only while the launcher runs. Explicit enablement is saved for future starts.";
+                                }
+                                Text {
+                                    text: root.search-setup-enabled
+                                        ? (root.search-setup-root == ""
+                                            ? "An external document search connection is configured."
+                                            : "Document search is enabled for this folder:")
+                                        : (root.search-setup-root != ""
+                                            ? "Selected folder (not enabled yet):"
+                                            : "Document search is off. Applications and other launcher features remain available.");
+                                    color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                    accessible-role: text;
+                                    accessible-label: root.search-setup-enabled
+                                        ? (root.search-setup-root == ""
+                                            ? "An external document search connection is configured"
+                                            : "Document search is enabled for this folder")
+                                        : (root.search-setup-root != ""
+                                            ? "Selected folder is not enabled yet"
+                                            : "Document search is off; applications and other launcher features remain available");
+                                }
+                                Text {
+                                    visible: root.search-setup-root != "";
+                                    text: root.search-setup-root;
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: root.search-setup-root;
+                                    accessible-description: "Selected or currently approved folder";
+                                }
+                                search-folder-button := Button {
+                                    text: root.search-setup-root == "" ? "Choose folder…" : "Choose a different folder…";
+                                    enabled: !root.search-setup-busy && !root.preferences-read-only;
+                                    accessible-role: button;
+                                    accessible-label: root.search-setup-root == ""
+                                        ? "Choose a local folder for document search; choosing it does not enable indexing"
+                                        : "Choose a different folder; a new confirmation is required before indexing";
+                                    clicked => { root.search-folder-requested(); }
+                                }
+                                Text {
+                                    text: "Changing folders requires fresh confirmation; choosing a folder alone never starts indexing.";
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                }
+                                Text {
+                                    text: "Enable document search approves indexing only the displayed folder. Choosing or changing a folder does not enable indexing. Explicit enablement is saved for future starts.";
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: "Enablement approves indexing only the folder shown above. No other folder is included. A separate read-only search process uses no models or cloud and runs only while the launcher is running. Explicit enablement is saved for future starts.";
+                                }
+                                Text {
+                                    visible: root.search-setup-busy && root.search-setup-status == "";
+                                    text: "Document search is being updated…";
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 12px;
+                                    accessible-role: text;
+                                    accessible-label: "Document search is being updated";
+                                }
+                                Text {
+                                    visible: root.search-setup-status != "";
+                                    text: root.search-setup-status;
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: root.search-setup-status;
+                                }
+                                Text {
+                                    visible: root.search-setup-detail != "";
+                                    text: root.search-setup-detail;
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: root.search-setup-detail;
+                                }
+                                Text {
+                                    visible: root.search-setup-error != "";
+                                    text: root.search-setup-error;
+                                    color: root.dark-mode ? #f0aa99 : #8d3828;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: root.search-setup-error;
+                                }
+                            }
+                        }
                     }
-                    Text {
-                        text: "Appearance";
-                        color: root.dark-mode ? #f3f6f4 : #1a2b2b;
-                        font-size: 13px;
-                        font-weight: 700;
+                    if root.preferences-tab == "documents": Rectangle {
+                        height: 40px;
+                        background: transparent;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Button {
+                                height: 36px;
+                                visible: !root.search-setup-enabled || root.search-setup-error != "";
+                                text: root.search-setup-error != "" ? "Retry document search" : "Enable document search";
+                                enabled: root.search-setup-root != ""
+                                    && root.search-setup-consent
+                                    && !root.search-setup-busy
+                                    && (!root.search-setup-enabled || root.search-setup-error != "")
+                                    && !root.preferences-read-only;
+                                accessible-role: button;
+                                accessible-label: root.search-setup-root != ""
+                                    ? "Approve indexing only the selected folder and enable document search"
+                                    : "Choose a folder before enabling document search";
+                                clicked => {
+                                    if (root.search-setup-root != ""
+                                        && root.search-setup-consent
+                                        && !root.search-setup-busy
+                                        && (!root.search-setup-enabled || root.search-setup-error != "")
+                                        && !root.preferences-read-only) {
+                                        root.search-enable-requested();
+                                    }
+                                }
+                            }
+                            Button {
+                                height: 36px;
+                                visible: root.search-setup-enabled;
+                                text: "Disable document search";
+                                enabled: !root.search-setup-busy && !root.preferences-read-only;
+                                accessible-role: button;
+                                accessible-label: "Disable document search";
+                                clicked => { root.search-disable-requested(); }
+                            }
+                        }
                     }
                     HorizontalLayout {
-                        spacing: 8px;
-                        Button {
-                            text: root.theme-choice == "light" ? "Light ✓" : "Light";
-                            accessible-role: button;
-                            accessible-label: "Use the light color theme";
-                            clicked => { root.theme-choice = "light"; root.dark-mode = false; }
-                        }
-                        Button {
-                            text: root.theme-choice == "dark" ? "Dark ✓" : "Dark";
-                            accessible-role: button;
-                            accessible-label: "Use the dark color theme";
-                            clicked => { root.theme-choice = "dark"; root.dark-mode = true; }
-                        }
-                        Button {
-                            text: root.theme-choice == "system" ? "System ✓" : "System";
-                            accessible-role: button;
-                            clicked => { root.theme-choice = "system"; root.dark-mode = root.system-dark-mode; }
-                        }
-                    }
-                    CheckBox {
-                        text: "Reduce motion";
-                        checked <=> root.reduce-motion-choice;
-                        accessible-role: checkbox;
-                        accessible-label: "Reduce interface motion";
-                    }
-                    Text {
-                        text: root.preferences-warning;
-                        visible: root.preferences-warning != "";
-                        color: #e29580;
-                        font-size: 12px;
-                    }
-                    Text {
-                        text: root.notice;
-                        visible: root.notice != "";
-                        color: root.dark-mode ? #b2c0ba : #4a625b;
-                        font-size: 12px;
-                    }
-                    Rectangle { vertical-stretch: 1; background: transparent; }
-                    HorizontalLayout {
+                        height: 34px;
                         spacing: 8px;
                         Button {
                             text: root.reset-confirmation ? "Confirm reset" : "Reset preferences";
@@ -933,6 +1264,76 @@ export component LauncherWindow inherits Window {
                         root.focus-search();
                     }
                 }
+                utility-panel := UtilityPanel {
+                    visible: root.utilities-open;
+                    width: parent.width;
+                    height: parent.height;
+                    dark-mode: root.dark-mode;
+                    kind <=> root.utility-kind;
+                    rows: root.utility-rows;
+                    query <=> root.utility-query;
+                    selected-id <=> root.utility-selected-id;
+                    entry-title <=> root.utility-title;
+                    entry-content <=> root.utility-content;
+                    saved-content: root.utility-saved-content;
+                    argument <=> root.utility-argument;
+                    message: root.utility-message;
+                    busy: root.utility-busy;
+                    available: root.utility-available;
+                    editing <=> root.utility-editing;
+                    kind-requested(value) => { root.utility-kind-requested(value); }
+                    filter-requested(value) => { root.utility-filter-requested(value); }
+                    selected-requested(id) => { root.utility-selected-requested(id); }
+                    save-requested(id, title, content) => { root.utility-save-requested(id, title, content); }
+                    remove-requested(id) => { root.utility-remove-requested(id); }
+                    expand-requested(id, argument) => { root.utility-expand-requested(id, argument); }
+                    capture-requested() => { root.utility-capture-requested(); }
+                    clear-requested() => { root.utility-clear-requested(); }
+                    close-requested() => { root.close-utilities(); root.focus-search(); }
+                }
+                if (root.actions-open && root.actions.length > 0) : Rectangle {
+                    height: min(parent.height, 38px + root.actions.length * 40px);
+                    width: min(420px, parent.width);
+                    x: parent.width - self.width;
+                    y: max(0px, parent.height - self.height);
+                    clip: true;
+                    border-radius: 10px;
+                    background: root.dark-mode ? #202d30 : #ffffff;
+                    border-color: root.dark-mode ? #5d8176 : #87b29f;
+                    border-width: 1px;
+                    VerticalLayout {
+                        padding: 6px;
+                        spacing: 4px;
+                        Text {
+                            height: 18px;
+                            text: "ACTIONS · ↑↓ SELECT · ENTER RUN · ESC CLOSE";
+                            color: root.dark-mode ? #b2c0ba : #4a625b;
+                            font-size: 10px;
+                            font-weight: 700;
+                            vertical-alignment: center;
+                        }
+                        ScrollView {
+                            vertical-stretch: 1;
+                            content-y: min(0px, self.height - (root.selected-action-index + 1) * 40px);
+                            VerticalLayout {
+                                spacing: 4px;
+                                for action[index] in root.actions : Button {
+                                    height: 36px;
+                                    horizontal-stretch: 1;
+                                    text: index == root.selected-action-index
+                                        ? "Selected: " + action.title
+                                        : action.title;
+                                    accessible-role: button;
+                                    accessible-label: action.accessible_name;
+                                    clicked => {
+                                        root.selected-action-index = index;
+                                        root.action-activated(root.results[root.selected-index].id, action.id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             Rectangle {
@@ -940,16 +1341,52 @@ export component LauncherWindow inherits Window {
                 background: root.dark-mode ? #334441 : #d1ddd5;
             }
             HorizontalLayout {
-                height: 22px;
-                spacing: 24px;
-                Text { text: "↑ ↓  Navigate"; color: root.dark-mode ? #b2c0ba : #4a625b; font-size: 11px; }
-                Text { text: "↵  Open"; color: root.dark-mode ? #b2c0ba : #4a625b; font-size: 11px; }
-                Text { text: "Ctrl K  Actions"; color: root.dark-mode ? #b2c0ba : #4a625b; font-size: 11px; }
+                height: 36px;
+                visible: !root.utilities-open;
+                spacing: 12px;
+                Text {
+                    visible: root.actions-open && !root.passage-view-open;
+                    text: "↑ ↓  Select action";
+                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                    font-size: 11px;
+                }
+                Text {
+                    visible: !root.actions-open && !root.preferences-open && !root.about-open && !root.extensions-open;
+                    text: root.passage-view-open ? "↑ ↓  Scroll passages" : "↑ ↓  Navigate results";
+                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                    font-size: 11px;
+                }
+                Text {
+                    visible: !root.preferences-open && !root.about-open && !root.extensions-open && !root.passage-view-open;
+                    text: root.actions-open ? "↵  Run action" : "↵  Open";
+                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                    font-size: 11px;
+                }
+                Text {
+                    visible: !root.preferences-open && !root.about-open && !root.extensions-open && !root.passage-view-open;
+                    text: "Ctrl K  Actions";
+                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                    font-size: 11px;
+                }
                 Rectangle { horizontal-stretch: 1; background: transparent; }
                 Button {
-                    text: root.about-open || root.preferences-open || root.extensions-open ? "Esc  Back" : "Esc  Dismiss";
+                    text: root.actions-open
+                        ? "Esc  Close actions"
+                        : (root.about-open || root.preferences-open || root.extensions-open || root.passage-view-open
+                            ? "Esc  Back"
+                            : "Esc  Dismiss");
                     accessible-role: button;
-                    accessible-label: root.about-open ? "Close About Sillage" : (root.preferences-open ? "Close preferences" : (root.extensions-open ? "Close extensions" : "Dismiss launcher"));
+                    accessible-label: root.actions-open
+                        ? "Close the current result actions"
+                        : (root.about-open
+                            ? "Close About Sillage"
+                            : (root.preferences-open
+                                ? "Close preferences"
+                                : (root.extensions-open
+                                    ? "Close extensions"
+                                    : (root.passage-view-open
+                                        ? "Return to launcher results"
+                                        : "Dismiss launcher"))));
                     clicked => {
                         if (root.about-open) {
                             root.about-open = false;
@@ -962,6 +1399,16 @@ export component LauncherWindow inherits Window {
                             root.extensions-open = false;
                             root.extensions-closed();
                             root.focus-search();
+                        } else if (root.actions-open) {
+                            root.actions-open = false;
+                            if (root.passage-view-open) {
+                                root.focus-detail();
+                            } else {
+                                root.focus-search();
+                            }
+                        } else if (root.passage-view-open) {
+                            root.passage-view-closed();
+                            root.focus-search();
                         } else {
                             root.dismissed();
                         }
@@ -970,5 +1417,5 @@ export component LauncherWindow inherits Window {
             }
         }
     }
-}
+    }
 }

@@ -12,6 +12,7 @@ pub(in crate::application) fn start_catalog_search(
     ui: UiWeak,
     query: String,
     generation: u64,
+    retained_selection: Option<slint::SharedString>,
 ) -> tokio::sync::oneshot::Receiver<()> {
     let (applied, wait_for_application) = tokio::sync::oneshot::channel::<()>();
     runtime.spawn(async move {
@@ -21,7 +22,12 @@ pub(in crate::application) fn start_catalog_search(
                 && let Some(window) = ui.upgrade()
             {
                 match response {
-                    Ok(response) => super::apply_search_response(&window, &frontend, response),
+                    Ok(response) => super::apply_search_response(
+                        &window,
+                        &frontend,
+                        response,
+                        retained_selection,
+                    ),
                     Err(error) => super::apply_search_error(&window, &frontend, error.message),
                 }
                 let _ = applied.send(());
@@ -145,6 +151,7 @@ pub(in crate::application) fn start_typed_search(
         ui,
         query,
         generation,
+        None,
     );
     Some(TypedSearch {
         generation,

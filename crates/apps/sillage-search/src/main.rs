@@ -29,7 +29,7 @@ enum Commands {
     Init {
         #[arg(short, long, default_value = DEFAULT_INSTANCE_DIR)]
         instance_dir: PathBuf,
-        #[arg(long = "read-root", value_delimiter = ',', num_args = 1.., required = true)]
+        #[arg(long = "read-root", num_args = 1.., required = true)]
         read_roots: Vec<PathBuf>,
     },
     /// Start the index-owning daemon in read-only mode, without a model client.
@@ -136,7 +136,7 @@ enum GrantCommands {
         #[arg(long, value_parser = parse_max_evidence_bytes)]
         max_evidence_bytes: usize,
         /// Limit the grant to an explicitly approved read root; repeat as needed.
-        #[arg(long = "read-root", value_delimiter = ',', num_args = 1..)]
+        #[arg(long = "read-root", num_args = 1..)]
         read_roots: Vec<PathBuf>,
         #[arg(long, default_value_t = 86_400, value_parser = parse_expiry_seconds)]
         expires_in_seconds: u64,
@@ -319,7 +319,7 @@ mod tests {
             "--max-evidence-bytes".to_string(),
             "1".to_string(),
             "--read-root".to_string(),
-            "/tmp/approved-a".to_string(),
+            "/tmp/approved-a, reviewed".to_string(),
             "--read-root".to_string(),
             "/tmp/approved-b".to_string(),
         ];
@@ -337,10 +337,21 @@ mod tests {
         assert_eq!(
             read_roots,
             vec![
-                PathBuf::from("/tmp/approved-a"),
+                PathBuf::from("/tmp/approved-a, reviewed"),
                 PathBuf::from("/tmp/approved-b"),
             ]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn initialization_preserves_commas_and_spaces_in_approved_root() -> Result<()> {
+        let root = "/tmp/document notes, reviewed";
+        let cli = Cli::try_parse_from(["sillage-search", "init", "--read-root", root])?;
+        let Commands::Init { read_roots, .. } = cli.command else {
+            return Err(anyhow!("arguments did not select initialization"));
+        };
+        assert_eq!(read_roots, vec![PathBuf::from(root)]);
         Ok(())
     }
 }

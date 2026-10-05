@@ -48,6 +48,80 @@ does not declare the combined product released.** The historical v0.9 research
 milestone and [#60](https://github.com/brio-labs/maestria/issues/60) remain
 separate and do not unblock product milestones.
 
+### Daily-driver delivery worklist
+
+This worklist tracks the requested Raycast-inspired daily-driver improvements;
+it does not replace M1–M5 or their exit gates. Work starts on
+`feat/sillage-daily-driver`, based on the existing `dev/sillage` integration
+work because its uncommitted first-run repairs are prerequisites. Preserve
+those repairs and unrelated worktree files; do not reset, stash, force-push,
+merge to `main`, or change PR #516's draft status to obtain a clean baseline.
+Use scoped conventional commits after behavioral verification. Keep product
+implementation, its regression tests, and its documentation together.
+
+- [x] **Core interaction (M1):** reliable activation/focus, stable result
+  selection, primary Return action, consistent action menu, layered Escape,
+  and distinct loading/empty/error/unavailable states.
+- [ ] **Visual system (M1):** compact results/detail/settings, clear selection,
+  coherent typography/icons/actions, readable long paths, light/dark contrast,
+  scaling/small-window behavior, and reduced motion.
+- [x] **Applications (M1):** discovery, sensible ranking, actual launch and
+  useful secondary actions.
+- [x] **Calculator (M1):** bounded arithmetic and offline unit conversions,
+  actionable errors and exact copying.
+- [x] **Files/documents (M2–M3):** scoped results, source provenance and fresh
+  open/reveal/copy actions; optional search never blocks app launching.
+- [x] **Clipboard history (#542):** explicit capture consent, search/copy,
+  bounded retention, deletion and sensitive-data controls.
+- [x] **Quicklinks (#540):** create/edit/delete, parameterized search and
+  native URI launch without arbitrary shell execution.
+- [x] **Snippets (#541):** create/edit/delete, search and predictable explicit
+  expansion/insertion without implicit global input surveillance.
+- [ ] **Desktop integration (M1):** declare a supported X11/Wayland matrix;
+  prove activation, focus, monitors and suspend/restart on supported sessions.
+- [x] **Lifecycle/packaging (M1/M5):** opt-in autostart, resident single
+  instance, native clipboard/portals, install/upgrade/uninstall/restart.
+- [ ] **Extension contract (M4):** commands/arguments/views/actions, explicit
+  permissions/credentials, cancellation and worker isolation.
+- [x] **Extension lifecycle (M4):** install/update/remove, useful integrations
+  and actionable errors without silently granting new capabilities.
+- [x] **Installed core-loop evidence:** shortcut → app search → launch →
+  reactivate → document search → passage action → dismiss, with exact
+  user-visible criteria, inspected actual screenshots and read-only verifier.
+- [x] **Delivery:** existing docs updated; compatibility and unavailable
+  hardware evidence explicit; Shadow and retrieval/release gates unchanged.
+
+Fresh `daily-driver-installed-thirty-fourth` completed the combined ordinary
+installed Ubuntu 24.04 X11 runtime: 61 consumer observations, approved document
+Indexing/Ready and two independently cited passages, source actions, saved
+consent, long-path copying, Disable, scale two and APT removal/cleanup.
+All 58 capture pairs were decoded and inspected, including compact utility
+rows and readable native controls after saved-dark restart. Earlier closed
+scopes retain their first outcomes and unused inputs; none was replayed.
+
+The lifecycle/packaging item now has separate real canonical version-changing
+proof: `version-changing-upgrade-installed-third` passed `0.0.1 →
+0.0.1+daily-driver.1 → 0.0.1 → 0.0.1+daily-driver.1` and removal, with actual
+installed payload/metadata checks, retained preference/utility/extension-grant
+bytes and real UI/Copy consumers after every transition. Its 105 observations,
+89 paired native captures and seven bounded owned shutdowns are separate from
+the immutable daily-driver seal. The newer launcher contains actual layout/theme
+fixes; this private Debian build version is not an upstream workspace bump.
+The supplement is `version-upgrade-packaged-result-first`, with a read-only
+`verify-version-upgrade-result.py`; both earlier harness failures remain preserved.
+
+Desktop and full extension-contract qualification remain open:
+current-source Wayland/physical monitor/suspend, full screen-reader evidence and
+a current installed credential provisioning/provider integration are not
+established by these private X11 runs. Reduced-motion compatibility is not
+separately qualified. Shadow, draft PR #516 and qualification false remain.
+
+Every unchecked item remains open even if a backend module exists. Functional
+slices require actual native/UI exercise; source-only inspection and unit
+tests do not establish desktop compatibility or performance qualification.
+Use fresh isolated evidence scopes, preserve first outcomes and unused inputs,
+and never replay the frozen retrieval trials or closed acceptance scopes.
+
 ### Execution order and review gate
 
 | Wave | Unblocked work | Gate to the next wave |

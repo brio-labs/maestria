@@ -201,6 +201,16 @@ fn dispatch_immediate_action(
                 window.invoke_focus_preferences();
             }
         }
+        Ok(ActionOutcome::ShowUtilities { collection }) => {
+            if let Some(window) = ui.upgrade() {
+                let kind = match collection {
+                    crate::model::UtilityCollection::Quicklinks => "quicklinks",
+                    crate::model::UtilityCollection::Snippets => "snippets",
+                    crate::model::UtilityCollection::Clipboard => "clipboard",
+                };
+                window.invoke_open_utilities(kind.into());
+            }
+        }
         Ok(ActionOutcome::Refreshed) => {
             if let Some(window) = ui.upgrade() {
                 window.set_notice("Refreshing installed applications…".into());
@@ -227,6 +237,7 @@ fn perform_action(
         ActionTarget::OpenFile | ActionTarget::ResetPreferences => Err(
             LauncherError::invalid_request("Action requires asynchronous dispatch"),
         ),
+        ActionTarget::ShowUtilities(collection) => Ok(ActionOutcome::ShowUtilities { collection }),
         ActionTarget::ShowPreferences => {
             state.enter_preferences()?;
             Ok(ActionOutcome::ShowPreferences)

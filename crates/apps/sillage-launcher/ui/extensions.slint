@@ -72,8 +72,8 @@ export component ExtensionPanel inherits Rectangle {
     callback close-requested();
 
     VerticalLayout {
-        padding: 16px;
-        spacing: 10px;
+        padding: 14px;
+        spacing: 8px;
 
         HorizontalLayout {
             height: 36px;
@@ -115,7 +115,8 @@ export component ExtensionPanel inherits Rectangle {
                 wrap: word-wrap;
                 vertical-alignment: center;
                 accessible-role: text;
-                accessible-label: "Extension error";
+                accessible-label: root.error-message;
+                accessible-description: "Extension error";
             }
         }
 
@@ -137,7 +138,8 @@ export component ExtensionPanel inherits Rectangle {
                 wrap: word-wrap;
                 vertical-alignment: center;
                 accessible-role: text;
-                accessible-label: "Extension notice";
+                accessible-label: root.notice-message;
+                accessible-description: "Extension notice";
             }
         }
 
@@ -148,7 +150,7 @@ export component ExtensionPanel inherits Rectangle {
 
             VerticalLayout {
                 visible: root.view == "extensions";
-                spacing: 10px;
+                spacing: 8px;
                 Text {
                     text: "Install from a local extension package, then review its requested permissions before approval.";
                     color: root.dark-mode ? #b2c0ba : #4a625b;
@@ -193,7 +195,7 @@ export component ExtensionPanel inherits Rectangle {
                         }
                         for extension in root.extensions : Rectangle {
                             vertical-stretch: 0;
-                            height: 180px;
+                            height: 168px;
                             border-radius: 10px;
                             background: root.dark-mode ? #202d30 : #ffffff;
                             border-color: extension.id == root.selected-extension-id
@@ -224,8 +226,10 @@ export component ExtensionPanel inherits Rectangle {
                                         color: root.dark-mode ? #b2c0ba : #4a625b;
                                         font-size: 11px;
                                         vertical-alignment: center;
+                                        overflow: elide;
                                         accessible-role: text;
-                                        accessible-label: "Extension status";
+                                        accessible-label: extension.status;
+                                        accessible-description: "Extension status";
                                     }
                                 }
                                 Text {
@@ -234,7 +238,8 @@ export component ExtensionPanel inherits Rectangle {
                                     font-size: 11px;
                                     wrap: word-wrap;
                                     accessible-role: text;
-                                    accessible-label: "Requested extension permissions";
+                                    accessible-label: self.text;
+                                    accessible-description: "Requested extension permissions";
                                 }
                                 HorizontalLayout {
                                     Text {
@@ -293,22 +298,24 @@ export component ExtensionPanel inherits Rectangle {
                         spacing: 8px;
                         for extension in root.extensions : Rectangle {
                             vertical-stretch: 0;
-                            height: extension.id == root.selected-extension-id ? 180px : 0px;
+                            height: extension.id == root.selected-extension-id ? 168px : 0px;
                             visible: extension.id == root.selected-extension-id;
                             border-radius: 10px;
                             background: root.dark-mode ? #202d30 : #ffffff;
                             border-color: root.dark-mode ? #5d8176 : #87b29f;
                             border-width: 1px;
                             VerticalLayout {
-                                padding: 12px;
-                                spacing: 8px;
+                                padding: 10px;
+                                spacing: 6px;
                                 Text {
                                     text: extension.title;
+                                    wrap: word-wrap;
                                     color: root.dark-mode ? #f3f6f4 : #1a2b2b;
                                     font-size: 17px;
                                     font-weight: 700;
                                     accessible-role: text;
-                                    accessible-label: "Selected extension";
+                                    accessible-label: self.text;
+                                    accessible-description: "Selected extension";
                                 }
                                 Text {
                                     text: "Status: " + extension.status;
@@ -322,7 +329,8 @@ export component ExtensionPanel inherits Rectangle {
                                     font-size: 12px;
                                     wrap: word-wrap;
                                     accessible-role: text;
-                                    accessible-label: "Requested extension permissions";
+                                    accessible-label: self.text;
+                                    accessible-description: "Requested extension permissions";
                                 }
                                 HorizontalLayout {
                                     Text {
@@ -474,7 +482,8 @@ export component ExtensionPanel inherits Rectangle {
                     font-size: 17px;
                     font-weight: 700;
                     accessible-role: text;
-                    accessible-label: "Confirm extension removal";
+                    accessible-label: self.text;
+                    accessible-description: "Confirm extension removal";
                 }
                 Text {
                     text: "Removing an extension revokes its grants and deletes its installed package. Choose whether to retain its private storage.";
@@ -555,7 +564,8 @@ export component ExtensionPanel inherits Rectangle {
                             font-size: 11px;
                             wrap: word-wrap;
                             accessible-role: text;
-                            accessible-label: "Selected item details";
+                            accessible-label: self.text;
+                            accessible-description: "Selected item details";
                         }
                         if (root.selected-item-id != "") : Button {
                             height: 36px;
@@ -608,7 +618,8 @@ export component ExtensionPanel inherits Rectangle {
                             font-size: 12px;
                             wrap: word-wrap;
                             accessible-role: text;
-                            accessible-label: "Extension detail";
+                            accessible-label: self.text;
+                            accessible-description: "Extension detail";
                         }
                         for item in root.items : Rectangle {
                             height: 120px;
@@ -737,12 +748,17 @@ export component ExtensionPanel inherits Rectangle {
                     VerticalLayout {
                         spacing: 8px;
                         for field in root.fields : Rectangle {
+                            height: field.kind == "select" ? 40px + field.choices.length * 40px
+                                : field.kind == "checkbox" ? 54px : 80px;
+                            vertical-stretch: 0;
                             border-radius: 8px;
                             background: root.dark-mode ? #202d30 : #ffffff;
                             VerticalLayout {
                                 padding: 9px;
                                 spacing: 5px;
                                 if (field.kind != "checkbox") : Text {
+                                    height: 18px;
+                                    vertical-stretch: 0;
                                     text: field.label;
                                     color: root.dark-mode ? #eaf5ef : #1a2b2b;
                                     font-size: 12px;
@@ -770,6 +786,7 @@ export component ExtensionPanel inherits Rectangle {
                                     }
                                 }
                                 if (field.kind == "text" || field.kind == "number") : LineEdit {
+                                    height: 36px;
                                     text: field.value;
                                     placeholder-text: field.placeholder == "" ? "Enter " + field.label : field.placeholder;
                                     accessible-label: field.label;
@@ -808,7 +825,8 @@ export component ExtensionPanel inherits Rectangle {
                     color: root.dark-mode ? #b2c0ba : #4a625b;
                     font-size: 13px;
                     accessible-role: text;
-                    accessible-label: "Extension is loading";
+                    accessible-label: self.text;
+                    accessible-description: "Extension is loading";
                 }
             }
 
@@ -830,7 +848,8 @@ export component ExtensionPanel inherits Rectangle {
                     font-size: 13px;
                     wrap: word-wrap;
                     accessible-role: text;
-                    accessible-label: "Extension error details";
+                    accessible-label: self.text;
+                    accessible-description: "Extension error details";
                 }
                 for action in root.actions : Button {
                     height: 32px;

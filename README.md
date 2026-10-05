@@ -5,11 +5,13 @@ document-content retrieval component, and extension platform.
 
 That is the target product direction. The current developer build provides a
 native **Slint** launcher, a separately built headless search-only Debian
-package, and the existing CLI/daemon/Studio. With an explicit authenticated
-search configuration, the launcher can display bounded source-backed passages
-without embedding the indexer or starting a model; app search still works
-without that configuration or service. The extension SDK and complete product
-release proof remain open.
+package, and the existing CLI/daemon/Studio. The launcher starts apps-only on
+first run. Install the optional search component, choose a folder in Preferences,
+and explicitly enable document search to see source-backed passages without
+entering credentials or editing settings. Saved explicit enablement resumes the
+separate launcher-owned search process on later starts; no model starts.
+Application search remains available with document search off or unavailable.
+The extension SDK and complete product release proof remain open.
 See [the product roadmap](docs/ROADMAP.md) for the work and GitHub issues.
 
 ## Product direction
@@ -32,14 +34,14 @@ The current build and target product remain intentionally different surfaces:
 
 | Capability | Status |
 |---|---|
-| File-content indexing, lexical passage search and evidence opening | Available in the separate CLI/daemon; optionally displayed as grouped cited passages in the native launcher after an explicit credential-path configuration. No daemon or model starts with the launcher |
+| File-content indexing, lexical passage search and evidence opening | Available in the separate CLI/daemon and native launcher. Preferences provides explicit one-folder approval, indexing progress, Ready and Disable without credential entry. The owned service starts only after approval or saved explicit managed consent; no model starts |
 | Dense semantic search | Provider-dependent in the CLI/daemon workflow; not a launcher default |
 | Native resident launcher and application catalog | Available in the Slint developer build on X11 and Wayland; Debian and AppImage packages built and native-smoked |
 | Distinctive interface and full Tauri-to-Slint parity | Slint search, Preferences, About attribution, theme and keyboard basics work; parity and release performance measurements remain open |
 | Search-only installable service and scoped third-party client | `sillage-search` is a separate headless Debian package; local Unix-socket search/evidence works without the launcher or a model. Hosted Ubuntu 24.04 installed-binary smoke passed. Provider-backed relevance and combined release acceptance remain open |
 | X11 global shortcut | Available after user setup in Preferences |
 | Wayland global shortcut | Private installed Ubuntu 26.04 KDE GlobalShortcuts consent passed; stock Ubuntu 24.04 lacks the required host-app Registry, so use a user-created compositor binding for `sillage-launcher --activate` where needed |
-| Extension lifecycle, SDK, isolated workers and capability broker | Opt-in developer build; same-run installed Ubuntu 24.04 launcher/worker Bubblewrap broker smoke passed with a private pointer. First installed extension Copy AT-SPI activation and version-different upgrade remain open |
+| Extension lifecycle, SDK, isolated workers and capability broker | Opt-in. Fresh installed Ubuntu 24.04 X11 Text Tools conversion/review/explicit Copy, 1.0.0→1.0.1 extension update, disable/revoke/reapprove/remove/reinstall, cancellation and restart persistence passed. Canonical binary-package upgrade/rollback/re-upgrade also retained grants and Copy; installed credential-provider provisioning remains unqualified |
 
 The existing CLI and daemon quick start below is for the current developer
 build, not launcher onboarding. Notebook, task, and memory workflows remain
@@ -63,8 +65,10 @@ Sillage has no releases: the development workspace version is `0.0.1` and
 
 ### Native Linux launcher
 
-The current developer launcher uses Slint's software renderer and does not need
-Node, pnpm, GTK3, or WebKitGTK. Build it with Rust stable 1.95+ and the native
+The current developer launcher uses Slint's software renderer and does not embed
+Node, pnpm, GTK3, or WebKitGTK. Its native folder chooser uses
+`xdg-desktop-portal` with a desktop FileChooser backend; the Debian package
+declares that infrastructure. Build with Rust stable 1.95+ and the native
 X11/Wayland development libraries used by the
 [CI dependency setup](.github/actions/setup-system-dependencies/action.yml):
 
@@ -89,12 +93,12 @@ whose ELF libraries use `.relr.dyn`; it does not change runtime compatibility.
 `APPIMAGE_EXTRACT_AND_RUN=1` lets linuxdeploy's AppImage plugin run without
 FUSE inside a container; the builder also needs the `file` utility. A Debian
 installation provides `sillage-launcher` on `PATH` and a desktop entry whose
-`Exec` is
-`sillage-launcher --activate`. No daemon or model is started, and installation
-does not enable autostart. Use `sillage-launcher --activate`
-to show and focus the resident window and `sillage-launcher --quit` for an
-explicit shutdown. Closing or unfocusing the window hides it without ending
-the resident process.
+`Exec` is `sillage-launcher --activate`. Installation does not start a daemon or
+model and does not enable autostart. A fresh launcher starts apps-only; saved
+explicit managed document-search consent may start its separate owned service.
+Use `sillage-launcher --activate` to show and focus the resident window and
+`sillage-launcher --quit` for an explicit shutdown. Closing or unfocusing the
+window hides it without ending the resident process.
 
 The final Debian and AppImage were built against Ubuntu 24.04, and both
 packaged executables passed a `glibc` ≤2.39 ABI check and native X11/Wayland
@@ -137,7 +141,8 @@ Hyprland configuration using its Lua API, a portal binding can use
 this is a **user-controlled example**, not a shipped or enabled default.
 Tiling compositors can enlarge the window; configure a user-owned floating
 and size rule if desired. File selection uses a native chooser and does not
-index the selected directory.
+index a directory. Document-search folder selection likewise does not start
+indexing: a separate explicit Enable action is required.
 
 The Sillage cutover deliberately changes the executable, package, desktop/portal
 identity, and application data paths. The canonical launcher is
@@ -154,15 +159,173 @@ CI/evidence links, the `ghcr.io/brio-labs/maestria/ci` image, and frozen
 benchmark/corpus identities remain unchanged. The rename alone does not
 qualify a release; retrieval and combined-release acceptance gates remain open.
 
-To opt into document results, install `sillage-search` separately and create
-an approved root plus a `search-and-open-evidence` consumer grant as shown
-below. After launching once to create `launcher.toml`, add this table to
+#### Daily-driver utilities
+
+Use **Utilities**, or search for **Quicklinks**, **Snippets** or **Clipboard
+History**. Up/Down selects entries, Return opens the selected entry, Ctrl+N
+creates one and Ctrl+S saves it. Edited templates must be saved before expansion.
+Quicklinks and snippets persist privately in `utilities.toml` beside launcher
+preferences; clipboard history never persists.
+
+- **Quicklinks:** save an HTTP(S) URL containing exactly one `{query}` outside
+  its authority. The supplied parameter is percent-encoded before native URL
+  dispatch; it is never interpreted as shell input.
+- **Snippets:** save literal text with optional `{query}`, supply its argument,
+  then explicitly expand and copy. Other markers such as `{date}` remain
+  literal. No global keyboard interception or automatic expansion.
+- **Clipboard:** explicitly save the current clipboard, select/copy an entry,
+  delete it or clear the collection. No monitoring or automatic capture.
+  Memory-only history holds at most 100 entries of 64 KiB each, expires entries
+  after one monotonic hour and clears on restart. Capture has a 500-ms deadline;
+  cancelling a capture cannot publish a late result. These controls are not a
+  secret detector: do not explicitly save sensitive clipboard contents.
+
+Arithmetic and offline conversions run without search or a model. Use
+`<number> <unit> to <unit>` (optionally prefixed with `=`), for example
+`2.5 hours to minutes`, `32 F to C` or `1 GiB to MiB`. Supported dimensions are
+length, mass, temperature, duration and digital storage; incompatible dimensions
+and non-finite results produce errors. Return copies the selected result.
+
+Login autostart is an explicit General preference, off until selected. It writes
+only the launcher-owned `io.github.briolabs.Sillage.Launcher.desktop` entry with
+`Exec=sillage-launcher --background`; background startup does not map a window.
+Disabling removes the exact owned entry and preserves foreign files or symlinks.
+
+The local **Text Tools** SDK example converts upper/lower/title/camel/snake/kebab
+case, then presents editable output for an explicit Copy action. It requests
+only `copy(text)`: conversion never copies automatically. With the existing
+locked launcher TypeScript toolchain installed, run
+`node extension-sdk/scripts/package-text-tools.mjs` from the repository root.
+Install the printed unique package directory through **Extensions**, review its
+exact identity and permissions, then run **Text Tools**. The generator does not
+overwrite an existing output directory.
+
+The window prefers 760×760 logical pixels and can resize down to 640×540.
+Preferences scroll while Save/Done and document Enable/Disable stay reachable.
+Utility results stay compact even when only one entry matches. Saved themes
+also initialize native controls on restart, including scale-two dark mode.
+
+Current daily-driver package acceptance uses a private Ubuntu 24.04 X11 desktop.
+Earlier Wayland/AppImage observations are source/package-specific, not proof for
+this newer payload. Physical monitor changes, hardware suspend/resume,
+current-source Wayland activation/chooser behavior, full screen-reader support
+and current installed credential-provider provisioning remain unverified.
+Same-version APT replacement is not a version upgrade; the separate canonical
+version-changing proof below does not imply retrieval or release qualification.
+
+Fresh installed acceptance `daily-driver-installed-thirty-fourth` completed
+61 consumer observations in 94 seconds using all three ordinary Ubuntu 24.04
+packages: core keyboard/app/calculator workflows, explicit utilities, native
+Text Tools lifecycle, approved documents and saved-consent restart, source
+actions, Disable, scale two, same-version APT replacement/removal and bounded
+cleanup without a force kill. All 58 paired native captures were decoded and
+visually inspected. Earlier first failures and unused inputs remain preserved.
+
+The daily-driver evidence bundle destination is
+`~/.local/share/sillage-release-evidence/daily-driver-packaged-result-first/`.
+Its verifier only reads the sealed files; it launches no product, performs no
+network or SQLite access and does not repeat the retrieval trials:
+
+```sh
+EVIDENCE="$HOME/.local/share/sillage-release-evidence/daily-driver-packaged-result-first"
+python3 "$EVIDENCE/verify-daily-driver-result.py" "$EVIDENCE"
+```
+
+#### Canonical version-changing package evidence
+
+Fresh `version-changing-upgrade-installed-third` verified all three canonical
+Debian packages through `0.0.1 → 0.0.1+daily-driver.1 → 0.0.1 →
+0.0.1+daily-driver.1`, then ordinary removal. APT ordered the newer build above
+the old version and performed the explicit allowed downgrade for rollback.
+The workspace remains pinned at `0.0.1`: this is a private Debian build-version
+upgrade, not an upstream version bump or an official release.
+
+This is not metadata-only replacement: the newer launcher contains real compact
+utility-row and saved-theme initialization changes from frozen producer-tenth,
+while the old packages retain producer-eighth's original bytes. The search
+payload is unchanged; the worker payload differs without a behavior-change claim.
+Each transition checked actual installed versions, identities, payload hashes
+and modes, identical saved preference/utility/extension-grant-and-data bytes,
+and consumption through Preferences, quicklink launch, snippet Copy and
+permission-backed Text Tools Copy. Newer utility rows were measured through
+native bounds after both upgrades; rollback deliberately restores the old layout.
+
+The run completed 105 consumer observations in 165 seconds, with 89 paired
+original native captures and seven normal owned shutdowns. Package removal
+preserved remaining user data and bounded cleanup needed no force-kill.
+Both earlier harness failures and their unused document inputs remain preserved.
+The separate evidence supplement does not modify either older seal:
+
+```sh
+EVIDENCE="$HOME/.local/share/sillage-release-evidence/version-upgrade-packaged-result-first"
+python3 "$EVIDENCE/verify-version-upgrade-result.py" "$EVIDENCE"
+```
+
+Its read-only verifier inspects the actual Debian archives, source differences,
+installed transition receipts, capture pairs and cleanup; no product execution,
+network, SQLite access or retrieval replay. Qualification remains false, `main`
+serves Shadow and PR #516 remains draft.
+
+
+#### UI-only document search
+
+Install both the launcher and `sillage-search` components; apps-only installs
+remain supported. See [combined installation](docs/OPERATIONS.md#8-opt-in-linux-package-onboarding).
+For a source build, build both binaries and keep `sillage-search` beside the
+launcher or on `PATH`.
+
+1. Open Sillage and choose **Set Up Shortcut**, or defer it and use Preferences later.
+2. Open **Document search** from the setup entry or Preferences (Ctrl+Comma).
+3. Choose a local folder in the native chooser. The canonical selected path is
+   displayed; selection alone does not start or configure search.
+4. Select **Enable document search** to approve indexing only that folder.
+   The launcher creates its private profile and scoped credential automatically,
+   then starts the separate read-only `sillage-search` process. No model starts.
+5. Observe **Indexing**, the indexed/pending counts, and **Ready** once the
+   durable scan completes with no pending files or indexing error. Large folders
+   can take time; an error is not presented as Ready.
+6. Close Preferences, search text inside a document, and press Return to inspect
+   its cited passage. Copy Citation, Copy Passage and Open Source reopen current
+   evidence under the grant before acting.
+7. **Disable document search** in Preferences removes the launcher configuration,
+   clears previous document content and stops its owned service. Application
+   launching, the configured shortcut and arithmetic remain available.
+
+Explicit managed enablement is saved and may resume only while the launcher is
+running. Changing folders retires the old managed approval and requires a new
+Enable action. There is no credential entry, settings-file editing or manual
+search initialization in this workflow. An external connection is left unchanged
+by folder selection; Disable disconnects that launcher client without modifying
+its external provider.
+
+A fresh isolated source-built X11 run completed this workflow with 240 Markdown
+files, including a folder name containing spaces and a comma, saved-consent
+restart, exact fresh copies and private default-handler dispatch. Screenshots
+were inspected. That source-route proof alone does not establish installed-package,
+Wayland, reference-hardware, latency or release qualification. The separate
+1,800-file run timed out at 120 s with 952 indexed and 848 pending; that first
+outcome remains a failure.
+
+A subsequent native Ubuntu 24.04 build and APT installation of the current
+Debian launcher/search packages passed the same complete UI workflow in a fresh
+private X11 session. Installed `/usr/bin` executables, package status and producer
+hashes were verified; both ELF requirements stay within GLIBC 2.39. No explicit
+loaders or replacement product/GIO wrappers were used. This is Debian functional
+acceptance, not AppImage, Wayland, reference-hardware, latency/relevance, Hybrid
+admission or release qualification. Preserved preparation and private desktop
+cleanup failures remain separate first outcomes.
+
+#### Advanced external connection
+
+For an independently administered provider, approve roots and create a
+`search-and-open-evidence` grant using the operations guide. After launching once
+to create `launcher.toml`, add the optional table below to
 `$XDG_CONFIG_HOME/io.github.briolabs.Sillage.Launcher/launcher.toml` (or
 `~/.config/io.github.briolabs.Sillage.Launcher/launcher.toml` without
-`XDG_CONFIG_HOME`), replacing the paths and realm with the actual absolute
-socket path, 64-character hexadecimal consumer realm and mode-0600 credential
-file. Keep `sillage-search` on `PATH`; the launcher invokes it as a separate
-bounded process and never reads the credential contents into its UI:
+`XDG_CONFIG_HOME`). Use the actual absolute socket and mode-0600 credential paths,
+and the exact 64-character hexadecimal realm. Keep `sillage-search` on `PATH`;
+the launcher invokes it as a separate bounded process and never displays the
+credential contents:
 
 ```toml
 [search]
@@ -171,8 +334,8 @@ consumerRealm = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
 credentialFile = "/home/you/.config/sillage/search-client.key"
 ```
 
-Without this table, without a running service, or after a denial, application
-search remains available. A local isolated X11 Slint run found a phrase only
+Without search enablement, with an unavailable service, or after a denial,
+application search remains available. An earlier isolated X11 Slint run found a phrase only
 inside an approved Markdown file, displayed its highlighted citation and full
 passage, copied freshly reopened evidence, refused the old copy action after
 the source changed, and showed an app result after a newer query. This is not

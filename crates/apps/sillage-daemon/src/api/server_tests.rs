@@ -51,6 +51,7 @@ async fn shutdown_joins_blocked_connection_handler() -> Result<()> {
     ));
     remove_stale_socket(&socket_path)?;
     let listener = UnixListener::bind(&socket_path)?;
+    let socket_identity = socket_identity(&socket_path)?;
     let shutdown = CancellationToken::new();
     let connections = ConnectionTasks::default();
     let task = tokio::spawn(serve(
@@ -74,6 +75,7 @@ async fn shutdown_joins_blocked_connection_handler() -> Result<()> {
     let remaining = connections.clone();
     let server = ApiServer {
         socket_path: socket_path.clone(),
+        socket_identity,
         shutdown,
         task,
         connections,
@@ -99,6 +101,42 @@ async fn shutdown_joins_blocked_connection_handler() -> Result<()> {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn shutdown_preserves_replacement_socket() -> Result<()> {
+    let directory = crate::test_support::TempDir::create()?;
+    let socket_path = directory.path().join("daemon.sock");
+    let listener = UnixListener::bind(&socket_path)?;
+    let socket_identity = socket_identity(&socket_path)?;
+    let shutdown = CancellationToken::new();
+    let connections = ConnectionTasks::default();
+    let task = tokio::spawn(serve(
+        listener,
+        test_context(socket_path.clone())?,
+        shutdown.clone(),
+        connections.clone(),
+    ));
+    let server = ApiServer {
+        socket_path: socket_path.clone(),
+        socket_identity,
+        shutdown,
+        task,
+        connections,
+    };
+
+    std::fs::remove_file(&socket_path)?;
+    let replacement = UnixListener::bind(&socket_path)?;
+    timeout(Duration::from_secs(1), server.shutdown()).await??;
+
+    let mut client = UnixStream::connect(&socket_path).await?;
+    let (mut peer, _) = timeout(Duration::from_secs(1), replacement.accept()).await??;
+    client.write_all(b"replacement service").await?;
+    let mut received = [0u8; 19];
+    timeout(Duration::from_secs(1), peer.read_exact(&mut received)).await??;
+    assert_eq!(&received, b"replacement service");
+    Ok(())
+}
+
 #[tokio::test]
 async fn search_api_protocol_mismatch_is_typed() -> Result<()> {
     let (mut client, mut server) = UnixStream::pair()?;

@@ -5,6 +5,102 @@ pinned at `0.0.1` and `main` is always the current build.
 
 ## [Unreleased]
 
+### Daily-driver launcher workflows
+
+- Tighten result/action and preference layouts, preserve selected result identity
+  across refreshes, skip document headers during navigation, and layer Escape
+  through actions, cited detail and the resident window. Add native HTTP(S),
+  containing-folder, fresh-authorized source-path and desktop-ID actions.
+- Add bounded offline length, mass, temperature, duration and digital-storage
+  conversions through the existing calculator API.
+- Add asynchronous private quicklink/snippet CRUD and explicit expansion/copy,
+  with safely encoded URL parameters and unsaved-template guards. Clipboard
+  history is explicit, memory-only, capped at 100 × 64 KiB, expires after one
+  monotonic hour and clears on restart; no monitoring or secret-detection claim.
+  Bound native capture to 500 ms and cap the Linux helper's address space
+  without raising inherited limits.
+- Add opt-in owned login autostart and background startup that never maps
+  initially. Preserve foreign entries and replacement sockets; keep singleton
+  command handling and shutdown stop-aware and bounded.
+- Ship the local Text Tools SDK package generator and review/edit/explicit-copy
+  integration. Preserve per-field validation errors, expose actual extension
+  status/error/notice values to accessibility clients and bound form-row sizes.
+  Omit absent action item IDs on the host wire instead of sending `null` to a
+  worker that correctly rejects it.
+- Make the 760×760 default a preferred size with a resizable 640×540 minimum.
+  Restore the root keyboard scope on extension opening/view changes so Escape
+  can cancel a pending worker after its previously focused control disappears.
+  Expose dynamic permission, selection, removal-identity and pending-worker
+  content rather than fixed labels that conceal those values.
+- Keep utility results in compact 66-pixel rows instead of stretching a single
+  result across the viewport; match keyboard scrolling to the row stride.
+  Initialize native control palettes on construction as well as theme changes,
+  fixing unreadable saved-dark checkbox captions after restart/scale two.
+- Complete fresh ordinary installed Ubuntu 24.04 X11 daily-driver acceptance:
+  61 consumer observations, 58 decoded/inspected native capture pairs, approved
+  document search and saved-consent restart, utilities/Text Tools lifecycle,
+  scaling, APT reinstall/removal and bounded cleanup without force-kill.
+  Preserve all earlier first outcomes and qualification/desktop/hardware limits.
+- Verify a real canonical three-package Debian build-version upgrade
+  `0.0.1 → 0.0.1+daily-driver.1`, explicit rollback and re-upgrade, followed by
+  ordinary removal in a fresh private Ubuntu 24.04 X11 desktop. Bind the older
+  and newer frozen native payloads to actual layout/theme source differences,
+  not metadata-only identical binaries; keep the workspace version at `0.0.1`.
+  Retain exact preference, utility-definition and extension-grant/data bytes and
+  consume them through the installed UI/clipboard after all transitions.
+  Record 105 consumer observations, 89 native capture pairs, seven bounded
+  normal shutdowns and a separate read-only evidence verifier. Preserve both
+  earlier harness failures, unused inputs, old seals and remaining qualification
+  limits; do not infer a worker behavior change solely from its different hash.
+
+### Source-check traversal
+
+- Prune already-excluded directories while discovering Rust source files, rather
+  than walking their build trees before filtering. Preserve the existing skip
+  policy, optional test inclusion and discovery of later-added source files;
+  introduce no cache or new exclusion. The full philosophy check passed in
+  48.34 seconds after earlier 300- and 600-second timeouts; its 107 checker tests
+  passed.
+
+### UI-only opt-in document search
+
+- Add discoverable Document search setup and Preferences controls: native folder
+  selection, separate explicit Enable, indexed/pending progress, truthful Ready,
+  visible errors and Disable. Keep consent controls reachable in a shared tab
+  viewport rather than allocating space to the hidden General pane.
+- Create scoped credentials and an owned private profile automatically after
+  approval; resume only saved explicit managed consent. Keep indexing in
+  standalone `sillage-search`, never embed daemon/indexer/model dependencies in
+  the launcher, and never start a model.
+- Preserve external connections until final Enable. Disable disconnects external
+  clients without modifying their providers; owned disable/shutdown shares one
+  absolute five-second deadline and invalidates previous document generations.
+  Audit exact canonical manifest roots before watcher startup, refuse unmarked
+  profiles, and preserve credentials across committed-settings marker failures.
+- Preserve a foreign replacement socket during daemon shutdown by checking the
+  captured bound socket's device/inode. Keep owned-child cleanup independent of
+  rollback failure. Add meaningful ownership, persistence and socket regressions.
+- Treat commas and spaces as literal `--read-root` path characters while
+  preserving repeated root arguments. Declare native desktop portal dependencies
+  in launcher Debian metadata.
+- A fresh isolated source-built X11 run passed the full 240-file UI workflow:
+  shortcut setup, pre-approval absence, Indexing/Ready, Return, exact fresh copies,
+  private default-handler source dispatch, saved-consent restart, bounded Disable
+  and app/shortcut/arithmetic use afterward, without credential entry or settings
+  editing. Actual screenshots were inspected. Earlier failures remain failures:
+  the separate 1,800-file run timed out at 120 s with 952 indexed / 848 pending.
+  This does not qualify current installed packages, Wayland, reference hardware,
+  latency, relevance or release readiness; main stays Shadow and PR #516 draft.
+- Native Ubuntu 24.04 Debian launcher/search packages passed independent payload,
+  dependency, executable-mode and GLIBC 2.39 checks, then the full fresh UI
+  workflow through ordinarily installed executables and native portal/GIO
+  infrastructure. No explicit loaders or replacement product/GIO wrappers.
+  Retain preparation failures and the earlier all-actions-pass/private-D-Bus-
+  cleanup-fail outcome; a fresh scope passed every bounded cleanup gate.
+  This closes Debian functional acceptance, not AppImage, Wayland, reference,
+  latency/relevance, Hybrid admission or release qualification.
+
+
 ### Breaking project identity cutover
 
 All active project-owned package, crate, Rust namespace, CLI/binary, desktop/
@@ -18,7 +114,8 @@ Sillage locations start independently. The installed-package CI gate installs
 the pinned Maestria suite alongside Sillage, checks separate identity-based
 profiles and the unseeded first-launch UI defaults before configuration, then
 tests Sillage-only remove/reinstall. It does not claim cross-name data migration
-or retention. That gate has not yet run on fresh exact-CI Sillage packages.
+or retention. The first current CI profile attempt failed indexing; its
+consumer failure payload was not retained, so its runtime cause is unproved.
 
 The separate real source-built launcher/helper smoke passed genuine unseeded
 defaults before configuration: shortcut setup offered, reduce-motion off,
@@ -27,6 +124,26 @@ while the private old-profile seed remained byte/mode-identical; the private
 clipboard stayed unchanged. Screenshots were viewed and shutdown gates passed.
 Earlier infrastructure/preparation failures remain preserved. This source smoke
 does not qualify six-package coinstallation or remove/reinstall persistence.
+
+A fresh private Ubuntu lifecycle passed with the six authenticated Debian
+artifacts from historical CI `36455626998` and current CI `37129751284`.
+Legacy and Sillage search now use independent instances, roots, credentials
+and grants; an old credential is denied at the current endpoint. The lifecycle
+preserved legacy profile/instance bytes and modes, observed genuine current
+defaults, and retained current state through Sillage-only remove/reinstall
+and final revocation. The UI observer waits for dismissal after its single
+asynchronous shortcut-defer action; product shutdown supervision uses a
+monotonic five-second deadline rather than polling or force-kill acceptance.
+The local run passed in 14.37 s; earlier preparation and GUI failures remain
+preserved. These source-caller diagnostics do not qualify the failed overall
+current CI run or waive the reference-hardware gate.
+
+The approved literal-query correction's first CI run `37129751284` passed
+search-package smoke, but native benchmark and cross-name profile jobs failed.
+Native completed 797/800; effective memory was 15.615 GiB, below the strict
+16-GiB minimum, and SSD provenance was not established. No rerun or hardware
+waiver was used. Local isolated runtime drives repair feedback; CI retains
+artifact provenance and first outcomes, with PR #516 still draft.
 
 The canonical Studio JS/WASM bundle was rebuilt with the pinned private
 Node 24.11.1, pnpm 9.15.9 and Dioxus 0.7.10 tools. A managed Chromium smoke
