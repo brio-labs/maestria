@@ -3,8 +3,8 @@ mod linux;
 
 #[cfg(target_os = "linux")]
 pub use linux::{
-    DisplayBackend, detect_display_backend, enumerate_apps, launch_app, open_local_file,
-    open_local_pdf_page, window_identifier,
+    DisplayBackend, detect_display_backend, enumerate_apps, launch_app, open_containing_folder,
+    open_local_file, open_local_pdf_page, open_uri, window_identifier,
 };
 
 #[cfg(not(target_os = "linux"))]
@@ -49,4 +49,18 @@ pub fn detect_display_backend(
     _window: &slint::Window,
 ) -> Result<DisplayBackend, crate::errors::LauncherError> {
     Ok(DisplayBackend::Unavailable)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn open_uri(_uri: &str) -> Result<(), crate::errors::LauncherError> {
+    Err(crate::errors::LauncherError::platform_unavailable(
+        "Opening web links is unavailable on this platform",
+    ))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn open_containing_folder(_path: &std::path::Path) -> Result<(), crate::errors::LauncherError> {
+    Err(crate::errors::LauncherError::platform_unavailable(
+        "Opening source folders is unavailable on this platform",
+    ))
 }

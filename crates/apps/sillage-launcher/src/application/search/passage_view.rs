@@ -49,6 +49,7 @@ pub(in crate::application) fn open_passage_view(
     if passage_indices.is_empty() {
         return;
     }
+    select_action_target(window, frontend, result_id);
     window.set_notice("".into());
     window.set_passage_view_title(title.into());
     window.set_passage_view_results(ModelRc::new(VecModel::from(rows)));
@@ -79,6 +80,7 @@ pub(super) fn show_reopened_passage(
         model.content_view_passages = vec![index];
         (title, row)
     };
+    select_action_target(window, frontend, &accepted.result_id);
     window.set_notice("".into());
     window.set_passage_view_title(title.into());
     window.set_passage_view_results(ModelRc::new(VecModel::from(vec![row])));
@@ -159,4 +161,20 @@ pub(in crate::application) fn path_result_is_visible(frontend: &Frontend, result
         .displayed
         .iter()
         .any(|entry| matches!(entry, DisplayedResult::Path(displayed) if *displayed == index))
+}
+
+fn select_action_target(window: &LauncherWindow, frontend: &Frontend, result_id: &str) {
+    let displayed_index = {
+        let model = lock(&frontend.model);
+        model.displayed.iter().position(|entry| match entry {
+            DisplayedResult::Passage(index) => {
+                model.accepted_passages[*index].result_id == result_id
+            }
+            _ => false,
+        })
+    };
+    if let Some(index) = displayed_index {
+        window.set_selected_index(index as i32);
+        super::update_selected_actions(window, frontend, index);
+    }
 }

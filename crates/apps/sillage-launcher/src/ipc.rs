@@ -18,4 +18,5 @@ pub enum ActionTarget {
     CopySelectedPath { path: PathBuf, result_id: String },
     CopyValue(String),
     OpenApplication(String),
+    ShowUtilities(crate::model::UtilityCollection),
 }

@@ -226,6 +226,7 @@ impl SearchSetupController {
             self.ui.clone(),
             query,
             generation,
+            None,
         ));
     }
 
@@ -322,6 +323,7 @@ impl SearchSetupController {
                     controller.runtime.clone(),
                     ui,
                     query,
+                    None,
                 );
             }
         });
