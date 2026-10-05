@@ -182,6 +182,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "catalog",
         "actions",
         "settings",
+        "search_setup",
         "shortcuts",
         "platform",
         "errors",

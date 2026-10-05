@@ -136,3 +136,123 @@ fn future_schema_preferences_are_read_only_and_preserved() -> io::Result<()> {
     fs::remove_dir_all(directory)?;
     Ok(())
 }
+
+#[test]
+fn legacy_external_search_configuration_loads_without_managed_consent() -> io::Result<()> {
+    let directory = test_directory()?;
+    let path = directory.join(SETTINGS_FILE);
+    let realm = "a".repeat(64);
+    let contents = format!(
+        r#"
+schemaVersion = 1
+shortcut = "Control+Space"
+shortcutSetup = "unconfigured"
+reduceMotion = false
+theme = "system"
+
+[search]
+socketPath = "/tmp/sillage-search.sock"
+consumerRealm = "{realm}"
+credentialFile = "/tmp/sillage-search.token"
+"#
+    );
+    fs::write(&path, contents)?;
+
+    let settings = SettingsManager::load(Ok(directory.clone()));
+
+    assert!(settings.warning.is_none());
+    assert_eq!(settings.managed_search(), None);
+    let service = settings.search_service().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidData, "legacy search service missing")
+    })?;
+    assert_eq!(
+        service.socket_path,
+        PathBuf::from("/tmp/sillage-search.sock")
+    );
+    assert_eq!(service.consumer_realm, realm);
+    assert_eq!(
+        service.credential_file,
+        PathBuf::from("/tmp/sillage-search.token")
+    );
+    assert_eq!(service.program, None);
+    fs::remove_dir_all(directory)?;
+    Ok(())
+}
+
+#[test]
+fn explicit_managed_search_consent_is_persisted() -> io::Result<()> {
+    let directory = test_directory()?;
+    let profile_root = directory.join("data/sillage");
+    let service = SearchServiceConfig {
+        socket_path: profile_root.join("system/daemon.sock"),
+        consumer_realm: "b".repeat(64),
+        credential_file: profile_root.join("system/launcher-search-0123456789abcdef.credential"),
+        program: Some(PathBuf::from("/usr/bin/sillage-search")),
+    };
+    let managed = ManagedSearchConfig {
+        enabled: true,
+        root: PathBuf::from("/tmp/approved-documents"),
+        profile_root,
+        profile_identity: "a".repeat(64),
+        grant_token_digest: "c".repeat(64),
+        grant_expires_at_unix_seconds: 1_800_000_000,
+    };
+    let mut settings = SettingsManager::load(Ok(directory.clone()));
+    let revision = settings.search_revision();
+    settings
+        .set_search_configuration_if_revision(
+            revision,
+            Some(service.clone()),
+            Some(managed.clone()),
+        )
+        .map_err(io::Error::other)?;
+
+    let reloaded = SettingsManager::load(Ok(directory.clone()));
+
+    assert_eq!(reloaded.search_service(), Some(service));
+    assert_eq!(reloaded.managed_search(), Some(managed));
+    assert!(
+        reloaded
+            .managed_search()
+            .is_some_and(|managed| managed.enabled)
+    );
+    fs::remove_dir_all(directory)?;
+    Ok(())
+}
+
+#[test]
+fn managed_search_settings_roll_back_when_persistence_fails() -> io::Result<()> {
+    let directory = test_directory()?;
+    let mut settings = SettingsManager::load(Ok(directory.clone()));
+    let profile_root = directory.join("managed-profile");
+    let service = SearchServiceConfig {
+        socket_path: profile_root.join("system/daemon.sock"),
+        consumer_realm: "b".repeat(64),
+        credential_file: profile_root.join("system/launcher-search-0123456789abcdef.credential"),
+        program: Some(PathBuf::from("/usr/bin/sillage-search")),
+    };
+    let managed = ManagedSearchConfig {
+        enabled: true,
+        root: PathBuf::from("/tmp/approved-documents"),
+        profile_root,
+        profile_identity: "a".repeat(64),
+        grant_token_digest: "c".repeat(64),
+        grant_expires_at_unix_seconds: 1_800_000_000,
+    };
+    let revision = settings.search_revision();
+    let blocked_temporary = directory.join(format!(".{SETTINGS_FILE}.tmp-{}", std::process::id()));
+    fs::create_dir(&blocked_temporary)?;
+
+    assert!(
+        settings
+            .set_search_configuration_if_revision(revision, Some(service), Some(managed))
+            .is_err()
+    );
+    assert_eq!(settings.search_service(), None);
+    assert_eq!(settings.managed_search(), None);
+    assert_eq!(settings.search_revision(), revision);
+    assert!(settings.warning.is_some());
+
+    fs::remove_dir_all(directory)?;
+    Ok(())
+}

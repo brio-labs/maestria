@@ -101,6 +101,12 @@ fn run_primary(
         system_dark,
     );
     super::extensions::install_callbacks(&ui, Arc::clone(&state), runtime_handle.clone());
+    let search_setup = super::search_setup::SearchSetupController::install(
+        &ui,
+        Arc::clone(&state),
+        Arc::clone(&frontend),
+        runtime_handle.clone(),
+    );
     install_window_handlers(&ui, Arc::clone(&state));
     let _timer = install_timer(
         ui.as_weak(),
@@ -112,12 +118,17 @@ fn run_primary(
         activation_receiver,
     );
 
-    ui.window().show()?;
     // Hiding the only window must not terminate the resident singleton.
-    slint::run_event_loop_until_quit()?;
+    let ui_result = ui
+        .window()
+        .show()
+        .and_then(|()| slint::run_event_loop_until_quit());
+    let search_shutdown = runtime.block_on(search_setup.shutdown());
     let _ = shortcuts.shutdown();
     drop(instance);
     drop(runtime);
+    ui_result?;
+    search_shutdown.map_err(std::io::Error::other)?;
     Ok(())
 }
 

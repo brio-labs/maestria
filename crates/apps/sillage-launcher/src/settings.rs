@@ -23,14 +23,30 @@ struct PersistedSettings {
     theme: String,
     #[serde(default)]
     search: Option<SearchServiceConfig>,
+    #[serde(default)]
+    managed_search: Option<ManagedSearchConfig>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SearchServiceConfig {
     pub(crate) socket_path: PathBuf,
     pub(crate) consumer_realm: String,
     pub(crate) credential_file: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) program: Option<PathBuf>,
+}
+
+/// Provenance for the launcher-owned profile and its explicit user consent.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ManagedSearchConfig {
+    pub(crate) enabled: bool,
+    pub(crate) root: PathBuf,
+    pub(crate) profile_root: PathBuf,
+    pub(crate) profile_identity: String,
+    pub(crate) grant_token_digest: String,
+    pub(crate) grant_expires_at_unix_seconds: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +57,7 @@ pub struct SettingsManager {
     read_only: bool,
     preserve_existing: bool,
     reset_confirmed: bool,
+    search_revision: u64,
 }
 
 fn default_theme() -> String {
@@ -56,6 +73,7 @@ impl Default for PersistedSettings {
             reduce_motion: false,
             theme: default_theme(),
             search: None,
+            managed_search: None,
         }
     }
 }
@@ -73,6 +91,7 @@ impl SettingsManager {
                 read_only: false,
                 preserve_existing: false,
                 reset_confirmed: false,
+                search_revision: 0,
             };
         };
 
@@ -85,6 +104,7 @@ impl SettingsManager {
                     read_only: false,
                     preserve_existing: false,
                     reset_confirmed: false,
+                    search_revision: 0,
                 },
                 Err(ParseSettingsError::UnknownVersion(version)) => Self {
                     path: Some(path),
@@ -95,6 +115,7 @@ impl SettingsManager {
                     read_only: true,
                     preserve_existing: true,
                     reset_confirmed: false,
+                    search_revision: 0,
                 },
                 Err(ParseSettingsError::Malformed(message)) => Self {
                     path: Some(path),
@@ -105,6 +126,7 @@ impl SettingsManager {
                     read_only: false,
                     preserve_existing: true,
                     reset_confirmed: false,
+                    search_revision: 0,
                 },
             },
             Err(error) if error.kind() == io::ErrorKind::NotFound => Self {
@@ -114,6 +136,7 @@ impl SettingsManager {
                 read_only: false,
                 preserve_existing: false,
                 reset_confirmed: false,
+                search_revision: 0,
             },
             Err(error) => Self {
                 path: Some(path),
@@ -124,6 +147,7 @@ impl SettingsManager {
                 read_only: false,
                 preserve_existing: true,
                 reset_confirmed: false,
+                search_revision: 0,
             },
         }
     }
@@ -210,6 +234,7 @@ impl SettingsManager {
         self.read_only = false;
         self.preserve_existing = false;
         self.reset_confirmed = false;
+        self.search_revision = self.search_revision.saturating_add(1);
         let _ = self.persist();
         Ok(())
     }
@@ -223,9 +248,6 @@ impl SettingsManager {
     }
     pub fn theme(&self) -> &str {
         &self.values.theme
-    }
-    pub(crate) fn search_service(&self) -> Option<SearchServiceConfig> {
-        self.values.search.clone()
     }
 
     fn persist(&mut self) -> Result<(), String> {
@@ -266,19 +288,11 @@ fn parse_settings(contents: &str) -> Result<PersistedSettings, ParseSettingsErro
         .map_err(|error| ParseSettingsError::Malformed(error.to_string()))?;
     validate_shortcut(&settings.shortcut).map_err(ParseSettingsError::Malformed)?;
     validate_theme(&settings.theme).map_err(ParseSettingsError::Malformed)?;
-    if let Some(search) = &settings.search
-        && (!search.socket_path.is_absolute()
-            || !search.credential_file.is_absolute()
-            || search.consumer_realm.len() != 64
-            || !search
-                .consumer_realm
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit()))
-    {
-        return Err(ParseSettingsError::Malformed(
-            "search requires absolute socketPath and credentialFile, and a 64-character hexadecimal consumerRealm".to_string(),
-        ));
-    }
+    search::validate_search_configuration(
+        settings.search.as_ref(),
+        settings.managed_search.as_ref(),
+    )
+    .map_err(ParseSettingsError::Malformed)?;
     Ok(settings)
 }
 
@@ -297,6 +311,7 @@ fn validate_theme(theme: &str) -> Result<(), String> {
     }
 }
 
+mod search;
 #[cfg(test)]
 #[path = "settings/tests.rs"]
 mod tests;
@@ -319,11 +334,14 @@ fn atomic_replace(path: &Path, settings: &PersistedSettings) -> io::Result<()> {
             )
         })?;
     let temporary = directory.join(format!(".{file_name}.tmp-{}", std::process::id()));
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .truncate(true)
-        .open(&temporary)?;
+    let mut options = OpenOptions::new();
+    options.create_new(true).write(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&temporary)?;
     let contents = toml::to_string_pretty(settings)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
     if let Err(error) = file

@@ -35,7 +35,12 @@ pub(super) use passage_view::{
 };
 pub(super) use result_navigation::navigate_result_selection;
 
-fn reset_search_state(frontend: &Frontend, ui: &UiWeak, query: &str, has_search_service: bool) {
+pub(super) fn reset_search_state(
+    frontend: &Frontend,
+    ui: &UiWeak,
+    query: &str,
+    has_search_service: bool,
+) {
     {
         let mut model = lock(&frontend.model);
         model.query = query.to_string();

@@ -13,6 +13,7 @@
 //! - `catalog`: discover installed desktop applications.
 //! - `actions`: define native command actions.
 //! - `settings`: persist launcher preferences.
+//! - `search_setup`: own explicit folder consent and the separate read-only search process.
 //! - `shortcuts`: bind X11 and portal activation.
 //! - `platform`: isolate native desktop APIs.
 //! - `errors`: define native launcher errors.
@@ -32,6 +33,7 @@ mod ipc;
 mod model;
 mod platform;
 mod query;
+mod search_setup;
 mod settings;
 mod shortcuts;
 

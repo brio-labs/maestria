@@ -21,6 +21,7 @@ mod platform;
 mod preferences;
 mod runtime;
 mod search;
+mod search_setup;
 mod source_refresh;
 mod window;
 

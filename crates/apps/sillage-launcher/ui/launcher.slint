@@ -68,6 +68,14 @@ export component LauncherWindow inherits Window {
     in-out property <string> extension-error-message: "";
     in-out property <string> extension-notice-message: "";
     in-out property <bool> extension-busy: false;
+    in-out property <string> search-setup-root: "";
+    in-out property <string> search-setup-status: "";
+    in-out property <string> search-setup-detail: "";
+    in-out property <string> search-setup-error: "";
+    in-out property <bool> search-setup-busy: false;
+    in-out property <bool> search-setup-enabled: false;
+    in-out property <bool> search-setup-consent: false;
+    property <string> preferences-tab: "general";
 
     changed dark-mode => {
         Palette.color-scheme = root.dark-mode ? ColorScheme.dark : ColorScheme.light;
@@ -103,6 +111,9 @@ export component LauncherWindow inherits Window {
     callback extension-form-changed(string, string);
     callback extension-item-selected(string);
     callback extension-file-select-requested(string);
+    callback search-folder-requested();
+    callback search-enable-requested();
+    callback search-disable-requested();
 
     function activate-selected() {
         if (root.preferences-open || root.about-open || root.passage-view-open || root.extensions-open) {
@@ -129,7 +140,24 @@ export component LauncherWindow inherits Window {
         key-handler.focus();
     }
     public function focus-preferences() {
-        shortcut-input.focus();
+        if (root.preferences-tab == "documents") {
+            search-folder-button.focus();
+        } else {
+            shortcut-input.focus();
+        }
+    }
+    function open-document-search-preferences() {
+        root.about-open = false;
+        if (root.passage-view-open) {
+            root.passage-view-closed();
+        }
+        if (root.extensions-open) {
+            root.extensions-open = false;
+            root.extensions-closed();
+        }
+        root.actions-open = false;
+        root.preferences-tab = "documents";
+        root.preferences-requested();
     }
 
     forward-focus: key-handler;
@@ -166,7 +194,7 @@ export component LauncherWindow inherits Window {
             if (root.passage-view-open) {
                 root.passage-view-closed();
             }
-            root.actions-open = false;
+            root.preferences-tab = "general";
             root.preferences-requested();
             accept
         } else if (!root.preferences-open && !root.about-open && !root.passage-view-open && !root.extensions-open
@@ -194,6 +222,7 @@ export component LauncherWindow inherits Window {
             accept
         } else if (!root.preferences-open && !root.about-open && !root.passage-view-open && !root.extensions-open
             && event.text == Key.Return
+            && !document-search-setup-button.has-focus
             && !(root.shortcut-offer-visible
                 && (shortcut-setup-button.has-focus || shortcut-defer-button.has-focus))) {
             root.activate-selected();
@@ -298,6 +327,7 @@ export component LauncherWindow inherits Window {
                             root.extensions-open = false;
                             root.extensions-closed();
                         }
+                        root.preferences-tab = "general";
                         root.preferences-requested();
                     }
                 }
@@ -423,12 +453,20 @@ export component LauncherWindow inherits Window {
                         }
                         Rectangle { horizontal-stretch: 1; background: transparent; }
                         Text {
-                            width: 230px;
+                            width: root.search-setup-enabled ? 230px : 190px;
                             text: root.index-status;
                             color: root.dark-mode ? #abc0b7 : #4a625b;
                             font-size: 10px;
                             vertical-alignment: center;
                             overflow: elide;
+                        }
+                        document-search-setup-button := Button {
+                            visible: !root.search-setup-enabled;
+                            width: 150px;
+                            text: "Set up documents";
+                            accessible-role: button;
+                            accessible-label: "Set up optional local document search for a chosen folder";
+                            clicked => { root.open-document-search-preferences(); }
                         }
                     }
 
@@ -599,7 +637,10 @@ export component LauncherWindow inherits Window {
                         text: root.results.length == 0
                             ? (root.status-message != ""
                                 ? root.status-message
-                                : (root.query == "" ? "Type to search applications and commands."
+                                : (root.query == ""
+                                    ? (root.search-setup-enabled
+                                        ? "Type to search applications and commands."
+                                        : "Type to search applications and commands. Optional document search is available in Preferences.")
                                     : "No results. Try another search or calculate an expression."))
                             : root.status-message;
                         color: root.status-kind == "error" ? #e29580 : (root.dark-mode ? #b2c0ba : #4a625b);
@@ -735,7 +776,7 @@ export component LauncherWindow inherits Window {
 
                 VerticalLayout {
                     visible: root.preferences-open && !root.about-open;
-                    spacing: 12px;
+                    spacing: 10px;
                     Text {
                         text: "PREFERENCES";
                         color: root.dark-mode ? #abc0b7 : #4a625b;
@@ -743,90 +784,280 @@ export component LauncherWindow inherits Window {
                         font-weight: 700;
                         letter-spacing: 1.6px;
                     }
-                    Text {
-                        text: "Global shortcut";
-                        color: root.dark-mode ? #f3f6f4 : #1a2b2b;
-                        font-size: 13px;
-                        font-weight: 700;
-                    }
-                    shortcut-input := LineEdit {
-                        text <=> root.shortcut;
-                        accessible-label: "Global shortcut accelerator";
-                    }
-                    Text {
-                        text: root.shortcut-status;
-                        color: root.dark-mode ? #b2c0ba : #4a625b;
-                        font-size: 12px;
-                    }
                     HorizontalLayout {
+                        height: 34px;
                         spacing: 8px;
                         Button {
-                            text: "Configure shortcut";
-                            enabled: !root.preferences-read-only;
+                            text: root.preferences-tab == "general" ? "General ✓" : "General";
                             accessible-role: button;
-                            accessible-label: "Request system permission to configure the global shortcut";
-                            clicked => { root.shortcut-configure-requested(); }
+                            accessible-label: "Show general launcher preferences";
+                            clicked => {
+                                root.preferences-tab = "general";
+                                shortcut-input.focus();
+                            }
                         }
                         Button {
-                            text: "Clear shortcut";
-                            enabled: !root.preferences-read-only;
+                            text: root.preferences-tab == "documents" ? "Document search ✓" : "Document search";
                             accessible-role: button;
-                            accessible-label: "Clear the configured global shortcut";
-                            clicked => { root.shortcut-clear-requested(); }
+                            accessible-label: "Show document search setup preferences";
+                            clicked => {
+                                root.preferences-tab = "documents";
+                                search-folder-button.focus();
+                            }
                         }
                     }
-                    Button {
-                        text: "Copy activation command";
-                        accessible-role: button;
-                        accessible-label: "Copy the launcher activation command";
-                        clicked => { root.copy-activation-requested(); }
+                    // Tab contents share one viewport; hidden layouts must not
+                    // reserve a second vertical slice.
+                    Rectangle {
+                        vertical-stretch: 1;
+                        background: transparent;
+                        VerticalLayout {
+                            visible: root.preferences-tab == "general";
+                            width: parent.width;
+                            height: parent.height;
+                            spacing: 10px;
+                            Text {
+                                text: "Global shortcut";
+                                color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                                font-size: 13px;
+                                font-weight: 700;
+                            }
+                            shortcut-input := LineEdit {
+                                text <=> root.shortcut;
+                                accessible-label: "Global shortcut accelerator";
+                            }
+                            Text {
+                                text: root.shortcut-status;
+                                color: root.dark-mode ? #b2c0ba : #4a625b;
+                                font-size: 12px;
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Button {
+                                    text: "Configure shortcut";
+                                    enabled: !root.preferences-read-only;
+                                    accessible-role: button;
+                                    accessible-label: "Request system permission to configure the global shortcut";
+                                    clicked => { root.shortcut-configure-requested(); }
+                                }
+                                Button {
+                                    text: "Clear shortcut";
+                                    enabled: !root.preferences-read-only;
+                                    accessible-role: button;
+                                    accessible-label: "Clear the configured global shortcut";
+                                    clicked => { root.shortcut-clear-requested(); }
+                                }
+                            }
+                            Button {
+                                text: "Copy activation command";
+                                accessible-role: button;
+                                accessible-label: "Copy the launcher activation command";
+                                clicked => { root.copy-activation-requested(); }
+                            }
+                            Text {
+                                text: "Appearance";
+                                color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                                font-size: 13px;
+                                font-weight: 700;
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Button {
+                                    text: root.theme-choice == "light" ? "Light ✓" : "Light";
+                                    accessible-role: button;
+                                    accessible-label: "Use the light color theme";
+                                    clicked => { root.theme-choice = "light"; root.dark-mode = false; }
+                                }
+                                Button {
+                                    text: root.theme-choice == "dark" ? "Dark ✓" : "Dark";
+                                    accessible-role: button;
+                                    accessible-label: "Use the dark color theme";
+                                    clicked => { root.theme-choice = "dark"; root.dark-mode = true; }
+                                }
+                                Button {
+                                    text: root.theme-choice == "system" ? "System ✓" : "System";
+                                    accessible-role: button;
+                                    accessible-label: "Use the system color theme";
+                                    clicked => { root.theme-choice = "system"; root.dark-mode = root.system-dark-mode; }
+                                }
+                            }
+                            CheckBox {
+                                text: "Reduce motion";
+                                checked <=> root.reduce-motion-choice;
+                                accessible-role: checkbox;
+                                accessible-label: "Reduce interface motion";
+                            }
+                            Text {
+                                text: root.preferences-warning;
+                                visible: root.preferences-warning != "";
+                                color: #e29580;
+                                font-size: 12px;
+                            }
+                            Text {
+                                text: root.notice;
+                                visible: root.notice != "";
+                                color: root.dark-mode ? #b2c0ba : #4a625b;
+                                font-size: 12px;
+                            }
+                            Rectangle { vertical-stretch: 1; background: transparent; }
+                        }
+                        ScrollView {
+                            visible: root.preferences-tab == "documents";
+                            width: parent.width;
+                            height: parent.height;
+                            accessible-role: groupbox;
+                            accessible-label: "Document search setup and status";
+                            VerticalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: "Document search";
+                                    color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                                    font-size: 15px;
+                                    font-weight: 700;
+                                }
+                                Text {
+                                    text: root.search-setup-enabled && root.search-setup-root == ""
+                                        ? "This connection uses an externally managed service. Disabling it disconnects only the launcher; it does not stop that service."
+                                        : "Optional local search for documents in one folder you choose. It uses a separate read-only search process, with no models or cloud. It runs only while the launcher is running; explicit enablement is saved for future starts.";
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: root.search-setup-enabled && root.search-setup-root == ""
+                                        ? "Externally managed search service. Disabling disconnects only the launcher and does not stop the service."
+                                        : "Optional local document search. A separate read-only search process, no models or cloud, runs only while the launcher runs. Explicit enablement is saved for future starts.";
+                                }
+                                Text {
+                                    text: root.search-setup-enabled
+                                        ? (root.search-setup-root == ""
+                                            ? "An external document search connection is configured."
+                                            : "Document search is enabled for this folder:")
+                                        : (root.search-setup-root != ""
+                                            ? "Selected folder (not enabled yet):"
+                                            : "Document search is off. Applications and other launcher features remain available.");
+                                    color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                    accessible-role: text;
+                                    accessible-label: root.search-setup-enabled
+                                        ? (root.search-setup-root == ""
+                                            ? "An external document search connection is configured"
+                                            : "Document search is enabled for this folder")
+                                        : (root.search-setup-root != ""
+                                            ? "Selected folder is not enabled yet"
+                                            : "Document search is off; applications and other launcher features remain available");
+                                }
+                                Text {
+                                    visible: root.search-setup-root != "";
+                                    text: root.search-setup-root;
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: root.search-setup-root;
+                                    accessible-description: "Selected or currently approved folder";
+                                }
+                                search-folder-button := Button {
+                                    text: root.search-setup-root == "" ? "Choose folder…" : "Choose a different folder…";
+                                    enabled: !root.search-setup-busy && !root.preferences-read-only;
+                                    accessible-role: button;
+                                    accessible-label: root.search-setup-root == ""
+                                        ? "Choose a local folder for document search; choosing it does not enable indexing"
+                                        : "Choose a different folder; a new confirmation is required before indexing";
+                                    clicked => { root.search-folder-requested(); }
+                                }
+                                Text {
+                                    text: "Changing folders requires fresh confirmation; choosing a folder alone never starts indexing.";
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                }
+                                Text {
+                                    text: "Enable document search approves indexing only the displayed folder. Choosing or changing a folder does not enable indexing. Explicit enablement is saved for future starts.";
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: "Enablement approves indexing only the folder shown above. No other folder is included. A separate read-only search process uses no models or cloud and runs only while the launcher is running. Explicit enablement is saved for future starts.";
+                                }
+                                Text {
+                                    visible: root.search-setup-busy && root.search-setup-status == "";
+                                    text: "Document search is being updated…";
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 12px;
+                                    accessible-role: text;
+                                    accessible-label: "Document search is being updated";
+                                }
+                                Text {
+                                    visible: root.search-setup-status != "";
+                                    text: root.search-setup-status;
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: root.search-setup-status;
+                                }
+                                Text {
+                                    visible: root.search-setup-detail != "";
+                                    text: root.search-setup-detail;
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: root.search-setup-detail;
+                                }
+                                Text {
+                                    visible: root.search-setup-error != "";
+                                    text: root.search-setup-error;
+                                    color: #e29580;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: root.search-setup-error;
+                                }
+                            }
+                        }
                     }
-                    Text {
-                        text: "Appearance";
-                        color: root.dark-mode ? #f3f6f4 : #1a2b2b;
-                        font-size: 13px;
-                        font-weight: 700;
+                    if root.preferences-tab == "documents": Rectangle {
+                        height: 34px;
+                        background: transparent;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Button {
+                                visible: !root.search-setup-enabled || root.search-setup-error != "";
+                                text: root.search-setup-error != "" ? "Retry document search" : "Enable document search";
+                                enabled: root.search-setup-root != ""
+                                    && root.search-setup-consent
+                                    && !root.search-setup-busy
+                                    && (!root.search-setup-enabled || root.search-setup-error != "")
+                                    && !root.preferences-read-only;
+                                accessible-role: button;
+                                accessible-label: root.search-setup-root != ""
+                                    ? "Approve indexing only the selected folder and enable document search"
+                                    : "Choose a folder before enabling document search";
+                                clicked => {
+                                    if (root.search-setup-root != ""
+                                        && root.search-setup-consent
+                                        && !root.search-setup-busy
+                                        && (!root.search-setup-enabled || root.search-setup-error != "")
+                                        && !root.preferences-read-only) {
+                                        root.search-enable-requested();
+                                    }
+                                }
+                            }
+                            Button {
+                                visible: root.search-setup-enabled;
+                                text: "Disable document search";
+                                enabled: !root.search-setup-busy && !root.preferences-read-only;
+                                accessible-role: button;
+                                accessible-label: "Disable document search";
+                                clicked => { root.search-disable-requested(); }
+                            }
+                        }
                     }
                     HorizontalLayout {
-                        spacing: 8px;
-                        Button {
-                            text: root.theme-choice == "light" ? "Light ✓" : "Light";
-                            accessible-role: button;
-                            accessible-label: "Use the light color theme";
-                            clicked => { root.theme-choice = "light"; root.dark-mode = false; }
-                        }
-                        Button {
-                            text: root.theme-choice == "dark" ? "Dark ✓" : "Dark";
-                            accessible-role: button;
-                            accessible-label: "Use the dark color theme";
-                            clicked => { root.theme-choice = "dark"; root.dark-mode = true; }
-                        }
-                        Button {
-                            text: root.theme-choice == "system" ? "System ✓" : "System";
-                            accessible-role: button;
-                            clicked => { root.theme-choice = "system"; root.dark-mode = root.system-dark-mode; }
-                        }
-                    }
-                    CheckBox {
-                        text: "Reduce motion";
-                        checked <=> root.reduce-motion-choice;
-                        accessible-role: checkbox;
-                        accessible-label: "Reduce interface motion";
-                    }
-                    Text {
-                        text: root.preferences-warning;
-                        visible: root.preferences-warning != "";
-                        color: #e29580;
-                        font-size: 12px;
-                    }
-                    Text {
-                        text: root.notice;
-                        visible: root.notice != "";
-                        color: root.dark-mode ? #b2c0ba : #4a625b;
-                        font-size: 12px;
-                    }
-                    Rectangle { vertical-stretch: 1; background: transparent; }
-                    HorizontalLayout {
+                        height: 34px;
                         spacing: 8px;
                         Button {
                             text: root.reset-confirmation ? "Confirm reset" : "Reset preferences";
@@ -970,5 +1201,5 @@ export component LauncherWindow inherits Window {
             }
         }
     }
-}
+    }
 }

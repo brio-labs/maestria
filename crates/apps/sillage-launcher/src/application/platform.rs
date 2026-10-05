@@ -130,6 +130,25 @@ pub(super) fn validate_selected_path(path: &Path) -> Result<(), LauncherError> {
     }
     Ok(())
 }
+pub(super) fn validate_selected_folder(path: &Path) -> Result<PathBuf, LauncherError> {
+    if !path.is_absolute() || path.to_str().is_none() || !path.is_dir() {
+        return Err(LauncherError::file_unavailable(
+            "The selected local folder is unavailable or has an invalid path",
+        ));
+    }
+    let canonical_path = path.canonicalize().map_err(|error| {
+        LauncherError::file_unavailable(format!("The selected folder is unavailable: {error}"))
+    })?;
+    if !canonical_path.is_absolute()
+        || canonical_path.to_str().is_none()
+        || !canonical_path.is_dir()
+    {
+        return Err(LauncherError::file_unavailable(
+            "The selected local folder is unavailable or has an invalid path",
+        ));
+    }
+    Ok(canonical_path)
+}
 
 #[cfg(target_os = "linux")]
 pub(super) async fn choose_file(
@@ -156,6 +175,42 @@ pub(super) async fn choose_file(
     uri.to_file_path()
         .map(Some)
         .map_err(|()| LauncherError::file_unavailable("The chooser returned a non-local file"))
+}
+
+#[cfg(target_os = "linux")]
+pub(super) async fn choose_folder(
+    parent: Option<ashpd::WindowIdentifier>,
+) -> Result<Option<PathBuf>, LauncherError> {
+    use ashpd::desktop::file_chooser::OpenFileRequest;
+
+    let request = OpenFileRequest::default()
+        .title("Choose a folder for document search")
+        .accept_label("Choose")
+        .modal(true)
+        .directory(true)
+        .identifier(parent)
+        .send()
+        .await
+        .map_err(|error| LauncherError::file_unavailable(error.to_string()))?;
+    let response = match request.response() {
+        Ok(response) => response,
+        Err(ashpd::Error::Response(ashpd::desktop::ResponseError::Cancelled)) => return Ok(None),
+        Err(error) => return Err(LauncherError::file_unavailable(error.to_string())),
+    };
+    let Some(uri) = response.uris().first() else {
+        return Ok(None);
+    };
+    let path = uri
+        .to_file_path()
+        .map_err(|()| LauncherError::file_unavailable("The chooser returned a non-local folder"))?;
+    validate_selected_folder(&path).map(Some)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(super) async fn choose_folder(_parent: Option<()>) -> Result<Option<PathBuf>, LauncherError> {
+    Err(LauncherError::platform_unavailable(
+        "The native folder chooser is unavailable on this platform",
+    ))
 }
 
 #[cfg(not(target_os = "linux"))]

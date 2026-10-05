@@ -1,6 +1,7 @@
 mod evidence;
 mod evidence_open;
 
+use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -241,7 +242,11 @@ pub(super) enum ReopenError {
 }
 
 fn base_command(config: &SearchServiceConfig, subcommand: &str) -> Command {
-    let mut command = Command::new("sillage-search");
+    let program = match config.program.as_deref() {
+        Some(program) => program,
+        None => Path::new("sillage-search"),
+    };
+    let mut command = Command::new(program);
     command
         .arg(subcommand)
         .arg("--socket-path")
