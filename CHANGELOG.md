@@ -41,6 +41,17 @@ pinned at `0.0.1` and `main` is always the current build.
   document search and saved-consent restart, utilities/Text Tools lifecycle,
   scaling, APT reinstall/removal and bounded cleanup without force-kill.
   Preserve all earlier first outcomes and qualification/desktop/hardware limits.
+- Verify a real canonical three-package Debian build-version upgrade
+  `0.0.1 → 0.0.1+daily-driver.1`, explicit rollback and re-upgrade, followed by
+  ordinary removal in a fresh private Ubuntu 24.04 X11 desktop. Bind the older
+  and newer frozen native payloads to actual layout/theme source differences,
+  not metadata-only identical binaries; keep the workspace version at `0.0.1`.
+  Retain exact preference, utility-definition and extension-grant/data bytes and
+  consume them through the installed UI/clipboard after all transitions.
+  Record 105 consumer observations, 89 native capture pairs, seven bounded
+  normal shutdowns and a separate read-only evidence verifier. Preserve both
+  earlier harness failures, unused inputs, old seals and remaining qualification
+  limits; do not infer a worker behavior change solely from its different hash.
 
 ### Source-check traversal
 

@@ -79,7 +79,7 @@ implementation, its regression tests, and its documentation together.
   expansion/insertion without implicit global input surveillance.
 - [ ] **Desktop integration (M1):** declare a supported X11/Wayland matrix;
   prove activation, focus, monitors and suspend/restart on supported sessions.
-- [ ] **Lifecycle/packaging (M1/M5):** opt-in autostart, resident single
+- [x] **Lifecycle/packaging (M1/M5):** opt-in autostart, resident single
   instance, native clipboard/portals, install/upgrade/uninstall/restart.
 - [ ] **Extension contract (M4):** commands/arguments/views/actions, explicit
   permissions/credentials, cancellation and worker isolation.
@@ -99,11 +99,22 @@ All 58 capture pairs were decoded and inspected, including compact utility
 rows and readable native controls after saved-dark restart. Earlier closed
 scopes retain their first outcomes and unused inputs; none was replayed.
 
-The desktop, package-upgrade and full extension-contract items remain open:
-current-source Wayland/physical monitor/suspend and full screen-reader evidence,
-version-changing binary package upgrades and a current installed credential
-provisioning/provider integration are not established by the private X11
-Text Tools run. Reduced-motion compatibility is not separately qualified.
+The lifecycle/packaging item now has separate real canonical version-changing
+proof: `version-changing-upgrade-installed-third` passed `0.0.1 →
+0.0.1+daily-driver.1 → 0.0.1 → 0.0.1+daily-driver.1` and removal, with actual
+installed payload/metadata checks, retained preference/utility/extension-grant
+bytes and real UI/Copy consumers after every transition. Its 105 observations,
+89 paired native captures and seven bounded owned shutdowns are separate from
+the immutable daily-driver seal. The newer launcher contains actual layout/theme
+fixes; this private Debian build version is not an upstream workspace bump.
+The supplement is `version-upgrade-packaged-result-first`, with a read-only
+`verify-version-upgrade-result.py`; both earlier harness failures remain preserved.
+
+Desktop and full extension-contract qualification remain open:
+current-source Wayland/physical monitor/suspend, full screen-reader evidence and
+a current installed credential provisioning/provider integration are not
+established by these private X11 runs. Reduced-motion compatibility is not
+separately qualified. Shadow, draft PR #516 and qualification false remain.
 
 Every unchecked item remains open even if a backend module exists. Functional
 slices require actual native/UI exercise; source-only inspection and unit

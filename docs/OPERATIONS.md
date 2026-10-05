@@ -261,9 +261,10 @@ The current daily-driver acceptance recipe targets a private Ubuntu 24.04 X11
 desktop and ordinary installed executables. Earlier Wayland/AppImage results
 are bound to their own sources and packages; they do not qualify this newer
 daily-driver payload. Physical monitor changes, hardware suspend/resume,
-current-source Wayland activation/chooser behavior and version-changing binary
-package upgrades remain unverified. Same-version payload replacement is not a
-version upgrade.
+current-source Wayland activation/chooser behavior and full screen-reader support
+remain unverified. Same-version payload replacement is not a version upgrade;
+the separate canonical package-version proof below closes that lifecycle item
+without an upstream workspace-version bump or retrieval/release qualification.
 
 The fresh installed `daily-driver-installed-thirty-fourth` scope completed
 61 consumer observations in 94 seconds against producer-tenth and
@@ -287,6 +288,40 @@ for read-only inventory/hash, source/package binding, consumer-invariant,
 capture and cleanup checks. It does not execute products or access the network,
 SQLite, private profiles, credentials or raw audits. Closed first failures,
 unused inputs and the older first-run seal are not replayed or overwritten.
+
+Fresh `version-changing-upgrade-installed-third` installed all three original
+producer-eighth canonical packages at `0.0.1`, upgraded to the real changed
+producer-tenth payloads packaged as `0.0.1+daily-driver.1`, allowed an explicit
+APT downgrade to the old packages, re-upgraded and removed the suite normally.
+The full Debian package version changes; the repository workspace stays at
+`0.0.1`, and neither frozen producer nor earlier seal was changed.
+
+Each package phase checked observed dpkg identity/version/architecture and exact
+`/usr/bin` payload hashes/mode `0755`. Saved preference, utility-definition and
+extension-grant/data bytes matched before launching each transitioned version.
+Real UI consumption checked saved dark preferences, quicklink dispatch, exact
+snippet copying and permission-backed Text Tools copying after upgrade,
+rollback and re-upgrade. Rollback kept those bytes even after the old UI consumed
+them; newer launches additionally measured compact utility rows. The search
+payload remained identical; the worker hash changed without an inferred behavior
+change. The two actual product-source changes are utility sizing/scroll stride
+and initial native palette assignment, not solely package metadata.
+
+The runtime passed 105 observations in 165 seconds, with 89 original XWD/PNG
+pairs and seven bounded normal owned shutdowns. Ordinary package removal retained
+the remaining user data. Both earlier harness first failures and unused document
+inputs remain preserved; no closed scope was replayed.
+
+Separate immutable supplement:
+`~/.local/share/sillage-release-evidence/version-upgrade-packaged-result-first/`.
+Run `verify-version-upgrade-result.py` with that directory as its sole argument.
+It checks the six actual Debian archives, real source/payload differences,
+installed upgrade/rollback/re-upgrade consumers, capture inventory and owned
+cleanup without executing products or reading private profiles/SQLite/network.
+Current-source Wayland, physical monitor/suspend, full screen-reader,
+reduced-motion and installed credential-provider qualifications remain open;
+Shadow, draft PR #516 and qualification false are unchanged.
+
 
 Preset extension form entries can expose an AT-SPI Entry role without a Text
 interface, including after focus. Native keyboard editing still works. The

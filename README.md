@@ -41,7 +41,7 @@ The current build and target product remain intentionally different surfaces:
 | Search-only installable service and scoped third-party client | `sillage-search` is a separate headless Debian package; local Unix-socket search/evidence works without the launcher or a model. Hosted Ubuntu 24.04 installed-binary smoke passed. Provider-backed relevance and combined release acceptance remain open |
 | X11 global shortcut | Available after user setup in Preferences |
 | Wayland global shortcut | Private installed Ubuntu 26.04 KDE GlobalShortcuts consent passed; stock Ubuntu 24.04 lacks the required host-app Registry, so use a user-created compositor binding for `sillage-launcher --activate` where needed |
-| Extension lifecycle, SDK, isolated workers and capability broker | Opt-in. Fresh installed Ubuntu 24.04 X11 Text Tools conversion/review/explicit Copy, 1.0.0→1.0.1 extension update, disable/revoke/reapprove/remove/reinstall, cancellation and restart persistence passed. Earlier same-run Bubblewrap broker smoke remains separately source-bound; version-changing binary package upgrades remain open |
+| Extension lifecycle, SDK, isolated workers and capability broker | Opt-in. Fresh installed Ubuntu 24.04 X11 Text Tools conversion/review/explicit Copy, 1.0.0→1.0.1 extension update, disable/revoke/reapprove/remove/reinstall, cancellation and restart persistence passed. Canonical binary-package upgrade/rollback/re-upgrade also retained grants and Copy; installed credential-provider provisioning remains unqualified |
 
 The existing CLI and daemon quick start below is for the current developer
 build, not launcher onboarding. Notebook, task, and memory workflows remain
@@ -209,9 +209,9 @@ Current daily-driver package acceptance uses a private Ubuntu 24.04 X11 desktop.
 Earlier Wayland/AppImage observations are source/package-specific, not proof for
 this newer payload. Physical monitor changes, hardware suspend/resume,
 current-source Wayland activation/chooser behavior, full screen-reader support
-and version-changing binary package upgrades remain unverified. The installed
-fixture's same-version APT replacement is not a version upgrade; no retrieval
-or release qualification follows from functional UI acceptance.
+and current installed credential-provider provisioning remain unverified.
+Same-version APT replacement is not a version upgrade; the separate canonical
+version-changing proof below does not imply retrieval or release qualification.
 
 Fresh installed acceptance `daily-driver-installed-thirty-fourth` completed
 61 consumer observations in 94 seconds using all three ordinary Ubuntu 24.04
@@ -230,6 +230,42 @@ network or SQLite access and does not repeat the retrieval trials:
 EVIDENCE="$HOME/.local/share/sillage-release-evidence/daily-driver-packaged-result-first"
 python3 "$EVIDENCE/verify-daily-driver-result.py" "$EVIDENCE"
 ```
+
+#### Canonical version-changing package evidence
+
+Fresh `version-changing-upgrade-installed-third` verified all three canonical
+Debian packages through `0.0.1 → 0.0.1+daily-driver.1 → 0.0.1 →
+0.0.1+daily-driver.1`, then ordinary removal. APT ordered the newer build above
+the old version and performed the explicit allowed downgrade for rollback.
+The workspace remains pinned at `0.0.1`: this is a private Debian build-version
+upgrade, not an upstream version bump or an official release.
+
+This is not metadata-only replacement: the newer launcher contains real compact
+utility-row and saved-theme initialization changes from frozen producer-tenth,
+while the old packages retain producer-eighth's original bytes. The search
+payload is unchanged; the worker payload differs without a behavior-change claim.
+Each transition checked actual installed versions, identities, payload hashes
+and modes, identical saved preference/utility/extension-grant-and-data bytes,
+and consumption through Preferences, quicklink launch, snippet Copy and
+permission-backed Text Tools Copy. Newer utility rows were measured through
+native bounds after both upgrades; rollback deliberately restores the old layout.
+
+The run completed 105 consumer observations in 165 seconds, with 89 paired
+original native captures and seven normal owned shutdowns. Package removal
+preserved remaining user data and bounded cleanup needed no force-kill.
+Both earlier harness failures and their unused document inputs remain preserved.
+The separate evidence supplement does not modify either older seal:
+
+```sh
+EVIDENCE="$HOME/.local/share/sillage-release-evidence/version-upgrade-packaged-result-first"
+python3 "$EVIDENCE/verify-version-upgrade-result.py" "$EVIDENCE"
+```
+
+Its read-only verifier inspects the actual Debian archives, source differences,
+installed transition receipts, capture pairs and cleanup; no product execution,
+network, SQLite access or retrieval replay. Qualification remains false, `main`
+serves Shadow and PR #516 remains draft.
+
 
 #### UI-only document search
 
