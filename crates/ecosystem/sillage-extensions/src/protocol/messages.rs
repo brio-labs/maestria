@@ -29,7 +29,7 @@ pub enum HostMessage {
         command_id: String,
         #[serde(rename = "actionId")]
         action_id: String,
-        #[serde(rename = "itemId", default)]
+        #[serde(rename = "itemId", default, skip_serializing_if = "Option::is_none")]
         item_id: Option<String>,
         values: FormValues,
     },

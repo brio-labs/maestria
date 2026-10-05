@@ -68,7 +68,7 @@ pub(super) fn action(controller: &Arc<Controller>, ui: UiWeak, action_id: &str, 
             );
             return;
         }
-        if let Some(error) = model.form_error.as_ref() {
+        if let Some(error) = model.form_errors.values().next() {
             set_error(&ui, error.clone());
             return;
         }
@@ -152,7 +152,7 @@ fn begin(controller: &Arc<Controller>, ui: UiWeak, invocation: Invocation) {
                     let mut model = lock(&host.model);
                     model.values = form::initial_values(&view);
                     model.selected_files.clear();
-                    model.form_error = None;
+                    model.form_errors.clear();
                     model.selected_extension = Some(extension_id);
                     model.selected_command = Some(command_id);
                     model.current_view = Some(view.clone());

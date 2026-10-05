@@ -27,7 +27,7 @@ pub(super) struct PanelModel {
     pub(super) values: FormValues,
     pub(super) selected_files: BTreeMap<String, broker::SelectedFile>,
     pub(super) next_selection: u64,
-    pub(super) form_error: Option<String>,
+    pub(super) form_errors: BTreeMap<String, String>,
     pub(super) worker: Option<JoinHandle<()>>,
 }
 
@@ -50,7 +50,7 @@ impl Controller {
         model.selected_command = None;
         model.values.clear();
         model.selected_files.clear();
-        model.form_error = None;
+        model.form_errors.clear();
     }
 
     pub(super) fn store_root(&self) -> Result<PathBuf, String> {
@@ -94,7 +94,7 @@ pub(super) fn install_callbacks(
             values: FormValues::new(),
             selected_files: BTreeMap::new(),
             next_selection: 0,
-            form_error: None,
+            form_errors: BTreeMap::new(),
             worker: None,
         }),
     });
@@ -205,12 +205,12 @@ fn register_form_callbacks(ui: &LauncherWindow, controller: &Arc<Controller>) {
     let weak = ui.as_weak();
     let host = Arc::clone(controller);
     ui.on_extension_form_changed(move |field_id, value| {
-        let result = {
+        let error_message = {
             let mut model = lock(&host.model);
             let PanelModel {
                 current_view,
                 values,
-                form_error,
+                form_errors,
                 ..
             } = &mut *model;
             let result = current_view
@@ -219,14 +219,18 @@ fn register_form_callbacks(ui: &LauncherWindow, controller: &Arc<Controller>) {
                 .and_then(|view| {
                     form::set_user_value(view, values, field_id.as_str(), value.as_str())
                 });
-            *form_error = result.as_ref().err().map(ToString::to_string);
+            form::update_field_error(form_errors, field_id.as_str(), &result);
             result
+                .as_ref()
+                .err()
+                .map(ToString::to_string)
+                .or_else(|| form_errors.values().next().cloned())
         };
         if let Some(ui) = weak.upgrade() {
-            match result {
-                Ok(()) => ui.set_extension_error_message("".into()),
-                Err(error) => ui.set_extension_error_message(error.to_string().into()),
-            }
+            ui.set_extension_error_message(match error_message {
+                Some(message) => message.into(),
+                None => "".into(),
+            });
         }
     });
 
@@ -292,7 +296,7 @@ fn request_file_selection(controller: &Arc<Controller>, ui: UiWeak, field_id: &s
                         current_view,
                         values,
                         selected_files,
-                        form_error,
+                        form_errors,
                         ..
                     } = &mut *model;
                     let Some(view) = current_view.as_ref() else {
@@ -302,8 +306,9 @@ fn request_file_selection(controller: &Arc<Controller>, ui: UiWeak, field_id: &s
                         FormValue::Text(id) => Some(id.clone()),
                         _ => None,
                     });
-                    if let Err(error) = form::set_host_file(view, values, &field_id, &selection_id)
-                    {
+                    let result = form::set_host_file(view, values, &field_id, &selection_id);
+                    form::update_field_error(form_errors, &field_id, &result);
+                    if let Err(error) = result {
                         window.set_extension_error_message(error.to_string().into());
                         return;
                     }
@@ -311,9 +316,11 @@ fn request_file_selection(controller: &Arc<Controller>, ui: UiWeak, field_id: &s
                         selected_files.remove(&replaced_id);
                     }
                     selected_files.insert(selection_id, file);
-                    *form_error = None;
                     view::sync_form_values(&window, view, values);
-                    window.set_extension_error_message("".into());
+                    window.set_extension_error_message(match form_errors.values().next() {
+                        Some(message) => message.as_str().into(),
+                        None => "".into(),
+                    });
                     window.set_extension_notice_message(
                         "File selected for this extension action.".into(),
                     );
