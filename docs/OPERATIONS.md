@@ -213,6 +213,91 @@ sudo apt install \
   ./target/search-packages/sillage-search_0.0.1_amd64.deb
 ```
 
+### Daily-driver utilities and login behavior
+
+**Utilities** provides keyboard selection (Up/Down, Return), creation (Ctrl+N)
+and saving (Ctrl+S). Quicklinks accept one `{query}` in an HTTP(S) URL outside its
+authority and encode the argument before native dispatch. Snippets expand only
+literal `{query}` and copy on explicit request; other markers remain literal.
+Save edited templates before expanding them. These utilities do not start
+document search or a model, monitor typing, or intercept global snippet keys.
+
+Quicklinks and snippets are private plaintext in
+`${XDG_CONFIG_HOME:-$HOME/.config}/io.github.briolabs.Sillage.Launcher/utilities.toml`.
+Back up that file only if you intend to retain its text. Writes are bounded,
+no-follow and atomically published, with ownership/content revalidation;
+foreign or symlink inputs are preserved rather than replaced intentionally.
+
+Clipboard history requires **Save clipboard**, retains at most 100 entries of
+64 KiB each in memory, expires them after one monotonic hour and clears on
+restart. Select/copy, per-entry Delete and Clear are explicit. Closing or
+switching panels clears copied editor/model buffers; it does not clear the
+unexpired in-memory collection. Native capture has a 500-ms deadline and a
+64-KiB output bound. On Linux its helper caps its own soft/hard address-space
+limits at 256 MiB without raising tighter inherited limits. No secret detection,
+encrypted history or automatic capture is promised.
+
+General Preferences offers opt-in login autostart. Only the exact owned
+`${XDG_CONFIG_HOME:-$HOME/.config}/autostart/io.github.briolabs.Sillage.Launcher.desktop`
+entry is managed, using `sillage-launcher --background`. Startup stays resident
+without mapping a window; a duplicate background invocation does not activate
+it. Explicit activation shows and focuses the existing instance. Autostart and
+singleton cleanup revalidate ownership and socket identity and preserve foreign
+inputs, but POSIX checks followed by unlink are not an atomic unlink-if-inode
+guarantee against a final same-UID path race.
+
+For offline calculations, enter arithmetic or `<number> <unit> to <unit>` and
+copy with Return. Length, mass, temperature, duration and digital storage are
+supported; this is not a live currency or model-backed conversion service.
+
+The window has a 760×760 preferred size and a 640×540 logical-pixel minimum.
+Preferences use a scrolling viewport with pinned Save/Done and document
+Enable/Disable actions rather than a fixed-size window.
+Utility rows are bounded rather than stretched to fill the results viewport.
+Native control palettes initialize from the restored theme as well as later
+theme changes, so saved dark mode keeps checkbox captions readable on restart.
+
+The current daily-driver acceptance recipe targets a private Ubuntu 24.04 X11
+desktop and ordinary installed executables. Earlier Wayland/AppImage results
+are bound to their own sources and packages; they do not qualify this newer
+daily-driver payload. Physical monitor changes, hardware suspend/resume,
+current-source Wayland activation/chooser behavior and version-changing binary
+package upgrades remain unverified. Same-version payload replacement is not a
+version upgrade.
+
+The fresh installed `daily-driver-installed-thirty-fourth` scope completed
+61 consumer observations in 94 seconds against producer-tenth and
+archive-validation-eleventh. It used the real GTK folder chooser, browsed
+directory rows instead of accepting an autocompleted child, and kept search
+off until explicit Enable. After source/folder dispatch, the fixture uses the
+ordinary `sillage-launcher --activate` command before continuing: launching an
+external handler need not leave the launcher mapped.
+
+It covered initial Indexing/Ready, two independent freshly cited passages,
+saved-consent restart, exact source/path/folder actions and long-path copying,
+Disable, actual 640×540 and scale-two surfaces, utility/extension persistence,
+owned autostart and APT reinstall/removal. Cleanup reaped all owned children
+and proved desktop/namespace absence within five seconds without force-kill.
+The 58 original XWDs have paired decoded PNGs and individual visual notes.
+
+Evidence destination:
+`~/.local/share/sillage-release-evidence/daily-driver-packaged-result-first/`.
+Run its `verify-daily-driver-result.py` with that directory as its sole argument
+for read-only inventory/hash, source/package binding, consumer-invariant,
+capture and cleanup checks. It does not execute products or access the network,
+SQLite, private profiles, credentials or raw audits. Closed first failures,
+unused inputs and the older first-run seal are not replayed or overwritten.
+
+Preset extension form entries can expose an AT-SPI Entry role without a Text
+interface, including after focus. Native keyboard editing still works. The
+installed harness reads actual selected input through Ctrl+A/C and restores
+the exact private clipboard; it never substitutes expected text or an empty
+default. This is not full screen-reader qualification. Dynamic extension
+status, notices, permissions, details, removal identities and pending-worker
+messages expose their actual content as accessibility labels with stable
+semantic descriptions.
+
+
 ### UI-only first-run document search
 
 For the combined install, open the desktop entry and set up the activation

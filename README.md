@@ -41,7 +41,7 @@ The current build and target product remain intentionally different surfaces:
 | Search-only installable service and scoped third-party client | `sillage-search` is a separate headless Debian package; local Unix-socket search/evidence works without the launcher or a model. Hosted Ubuntu 24.04 installed-binary smoke passed. Provider-backed relevance and combined release acceptance remain open |
 | X11 global shortcut | Available after user setup in Preferences |
 | Wayland global shortcut | Private installed Ubuntu 26.04 KDE GlobalShortcuts consent passed; stock Ubuntu 24.04 lacks the required host-app Registry, so use a user-created compositor binding for `sillage-launcher --activate` where needed |
-| Extension lifecycle, SDK, isolated workers and capability broker | Opt-in developer build; same-run installed Ubuntu 24.04 launcher/worker Bubblewrap broker smoke passed with a private pointer. First installed extension Copy AT-SPI activation and version-different upgrade remain open |
+| Extension lifecycle, SDK, isolated workers and capability broker | Opt-in. Fresh installed Ubuntu 24.04 X11 Text Tools conversion/review/explicit Copy, 1.0.0→1.0.1 extension update, disable/revoke/reapprove/remove/reinstall, cancellation and restart persistence passed. Earlier same-run Bubblewrap broker smoke remains separately source-bound; version-changing binary package upgrades remain open |
 
 The existing CLI and daemon quick start below is for the current developer
 build, not launcher onboarding. Notebook, task, and memory workflows remain
@@ -158,6 +158,78 @@ directory: no replacement GitHub repository URL is verified. Historical
 CI/evidence links, the `ghcr.io/brio-labs/maestria/ci` image, and frozen
 benchmark/corpus identities remain unchanged. The rename alone does not
 qualify a release; retrieval and combined-release acceptance gates remain open.
+
+#### Daily-driver utilities
+
+Use **Utilities**, or search for **Quicklinks**, **Snippets** or **Clipboard
+History**. Up/Down selects entries, Return opens the selected entry, Ctrl+N
+creates one and Ctrl+S saves it. Edited templates must be saved before expansion.
+Quicklinks and snippets persist privately in `utilities.toml` beside launcher
+preferences; clipboard history never persists.
+
+- **Quicklinks:** save an HTTP(S) URL containing exactly one `{query}` outside
+  its authority. The supplied parameter is percent-encoded before native URL
+  dispatch; it is never interpreted as shell input.
+- **Snippets:** save literal text with optional `{query}`, supply its argument,
+  then explicitly expand and copy. Other markers such as `{date}` remain
+  literal. No global keyboard interception or automatic expansion.
+- **Clipboard:** explicitly save the current clipboard, select/copy an entry,
+  delete it or clear the collection. No monitoring or automatic capture.
+  Memory-only history holds at most 100 entries of 64 KiB each, expires entries
+  after one monotonic hour and clears on restart. Capture has a 500-ms deadline;
+  cancelling a capture cannot publish a late result. These controls are not a
+  secret detector: do not explicitly save sensitive clipboard contents.
+
+Arithmetic and offline conversions run without search or a model. Use
+`<number> <unit> to <unit>` (optionally prefixed with `=`), for example
+`2.5 hours to minutes`, `32 F to C` or `1 GiB to MiB`. Supported dimensions are
+length, mass, temperature, duration and digital storage; incompatible dimensions
+and non-finite results produce errors. Return copies the selected result.
+
+Login autostart is an explicit General preference, off until selected. It writes
+only the launcher-owned `io.github.briolabs.Sillage.Launcher.desktop` entry with
+`Exec=sillage-launcher --background`; background startup does not map a window.
+Disabling removes the exact owned entry and preserves foreign files or symlinks.
+
+The local **Text Tools** SDK example converts upper/lower/title/camel/snake/kebab
+case, then presents editable output for an explicit Copy action. It requests
+only `copy(text)`: conversion never copies automatically. With the existing
+locked launcher TypeScript toolchain installed, run
+`node extension-sdk/scripts/package-text-tools.mjs` from the repository root.
+Install the printed unique package directory through **Extensions**, review its
+exact identity and permissions, then run **Text Tools**. The generator does not
+overwrite an existing output directory.
+
+The window prefers 760×760 logical pixels and can resize down to 640×540.
+Preferences scroll while Save/Done and document Enable/Disable stay reachable.
+Utility results stay compact even when only one entry matches. Saved themes
+also initialize native controls on restart, including scale-two dark mode.
+
+Current daily-driver package acceptance uses a private Ubuntu 24.04 X11 desktop.
+Earlier Wayland/AppImage observations are source/package-specific, not proof for
+this newer payload. Physical monitor changes, hardware suspend/resume,
+current-source Wayland activation/chooser behavior, full screen-reader support
+and version-changing binary package upgrades remain unverified. The installed
+fixture's same-version APT replacement is not a version upgrade; no retrieval
+or release qualification follows from functional UI acceptance.
+
+Fresh installed acceptance `daily-driver-installed-thirty-fourth` completed
+61 consumer observations in 94 seconds using all three ordinary Ubuntu 24.04
+packages: core keyboard/app/calculator workflows, explicit utilities, native
+Text Tools lifecycle, approved documents and saved-consent restart, source
+actions, Disable, scale two, same-version APT replacement/removal and bounded
+cleanup without a force kill. All 58 paired native captures were decoded and
+visually inspected. Earlier first failures and unused inputs remain preserved.
+
+The daily-driver evidence bundle destination is
+`~/.local/share/sillage-release-evidence/daily-driver-packaged-result-first/`.
+Its verifier only reads the sealed files; it launches no product, performs no
+network or SQLite access and does not repeat the retrieval trials:
+
+```sh
+EVIDENCE="$HOME/.local/share/sillage-release-evidence/daily-driver-packaged-result-first"
+python3 "$EVIDENCE/verify-daily-driver-result.py" "$EVIDENCE"
+```
 
 #### UI-only document search
 

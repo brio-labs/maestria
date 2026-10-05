@@ -5,6 +5,43 @@ pinned at `0.0.1` and `main` is always the current build.
 
 ## [Unreleased]
 
+### Daily-driver launcher workflows
+
+- Tighten result/action and preference layouts, preserve selected result identity
+  across refreshes, skip document headers during navigation, and layer Escape
+  through actions, cited detail and the resident window. Add native HTTP(S),
+  containing-folder, fresh-authorized source-path and desktop-ID actions.
+- Add bounded offline length, mass, temperature, duration and digital-storage
+  conversions through the existing calculator API.
+- Add asynchronous private quicklink/snippet CRUD and explicit expansion/copy,
+  with safely encoded URL parameters and unsaved-template guards. Clipboard
+  history is explicit, memory-only, capped at 100 × 64 KiB, expires after one
+  monotonic hour and clears on restart; no monitoring or secret-detection claim.
+  Bound native capture to 500 ms and cap the Linux helper's address space
+  without raising inherited limits.
+- Add opt-in owned login autostart and background startup that never maps
+  initially. Preserve foreign entries and replacement sockets; keep singleton
+  command handling and shutdown stop-aware and bounded.
+- Ship the local Text Tools SDK package generator and review/edit/explicit-copy
+  integration. Preserve per-field validation errors, expose actual extension
+  status/error/notice values to accessibility clients and bound form-row sizes.
+  Omit absent action item IDs on the host wire instead of sending `null` to a
+  worker that correctly rejects it.
+- Make the 760×760 default a preferred size with a resizable 640×540 minimum.
+  Restore the root keyboard scope on extension opening/view changes so Escape
+  can cancel a pending worker after its previously focused control disappears.
+  Expose dynamic permission, selection, removal-identity and pending-worker
+  content rather than fixed labels that conceal those values.
+- Keep utility results in compact 66-pixel rows instead of stretching a single
+  result across the viewport; match keyboard scrolling to the row stride.
+  Initialize native control palettes on construction as well as theme changes,
+  fixing unreadable saved-dark checkbox captions after restart/scale two.
+- Complete fresh ordinary installed Ubuntu 24.04 X11 daily-driver acceptance:
+  61 consumer observations, 58 decoded/inspected native capture pairs, approved
+  document search and saved-consent restart, utilities/Text Tools lifecycle,
+  scaling, APT reinstall/removal and bounded cleanup without force-kill.
+  Preserve all earlier first outcomes and qualification/desktop/hardware limits.
+
 ### Source-check traversal
 
 - Prune already-excluded directories while discovering Rust source files, rather
