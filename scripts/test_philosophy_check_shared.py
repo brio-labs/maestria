@@ -12,6 +12,36 @@ from philosophy_check_testbase import PhilosophyCheckFixture
 
 class SharedHelpersTests(PhilosophyCheckFixture):
 
+    def test_rust_inventory_keeps_live_sources_and_excludes_build_trees(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            names = (
+                "src/lib.rs",
+                "src/nested/worker.rs",
+                "tests/behavior.rs",
+                "target/generated.rs",
+                "src/target/hidden.rs",
+                "node_modules/dependency.rs",
+            )
+            for name in names:
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("fn sample() {}\n", encoding="utf-8")
+            inventory = {
+                path.relative_to(root).as_posix()
+                for path in shared._production_rust_files()
+            }
+            self.assertEqual(inventory, {"src/lib.rs", "src/nested/worker.rs"})
+            complete = {
+                path.relative_to(root).as_posix()
+                for path in shared._production_rust_files(skip_tests=False)
+            }
+            self.assertEqual(complete, inventory | {"tests/behavior.rs"})
+            added = root / "src/added.rs"
+            added.write_text("fn later() {}\n", encoding="utf-8")
+            self.assertIn(added, tuple(shared._production_rust_files()))
+
     def test_external_patches_keep_secret_scanning_and_first_party_doctrine(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

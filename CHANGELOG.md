@@ -5,6 +5,15 @@ pinned at `0.0.1` and `main` is always the current build.
 
 ## [Unreleased]
 
+### Source-check traversal
+
+- Prune already-excluded directories while discovering Rust source files, rather
+  than walking their build trees before filtering. Preserve the existing skip
+  policy, optional test inclusion and discovery of later-added source files;
+  introduce no cache or new exclusion. The full philosophy check passed in
+  48.34 seconds after earlier 300- and 600-second timeouts; its 107 checker tests
+  passed.
+
 ### UI-only opt-in document search
 
 - Add discoverable Document search setup and Preferences controls: native folder
