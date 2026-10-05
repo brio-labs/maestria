@@ -119,27 +119,24 @@ enum RootCommands {
 
 #[derive(Subcommand)]
 enum GrantCommands {
+    /// Review an external search grant without creating a grant or credential.
+    ReviewExternal {
+        #[arg(short, long, default_value = DEFAULT_INSTANCE_DIR)]
+        instance_dir: PathBuf,
+        #[command(flatten)]
+        request: ExternalGrantArgs,
+        /// Public name for the consumer, such as an extension identifier.
+        #[arg(long, value_parser = parse_consumer_label)]
+        consumer_label: String,
+    },
     /// Issue a search grant to an external realm and save its secret privately.
     CreateExternal {
         #[arg(short, long, default_value = DEFAULT_INSTANCE_DIR)]
         instance_dir: PathBuf,
-        #[arg(long)]
-        consumer_realm: String,
+        #[command(flatten)]
+        request: ExternalGrantArgs,
         #[arg(long)]
         credential_file: PathBuf,
-        #[arg(long, value_enum)]
-        access: GrantAccess,
-        #[arg(long, value_enum)]
-        max_sensitivity: GrantSensitivity,
-        #[arg(long, value_parser = parse_max_results)]
-        max_results: usize,
-        #[arg(long, value_parser = parse_max_evidence_bytes)]
-        max_evidence_bytes: usize,
-        /// Limit the grant to an explicitly approved read root; repeat as needed.
-        #[arg(long = "read-root", num_args = 1..)]
-        read_roots: Vec<PathBuf>,
-        #[arg(long, default_value_t = 86_400, value_parser = parse_expiry_seconds)]
-        expires_in_seconds: u64,
     },
     /// List current provider grants.
     List {
@@ -152,6 +149,25 @@ enum GrantCommands {
         instance_dir: PathBuf,
         grant_token_digest: String,
     },
+}
+
+#[derive(Args)]
+struct ExternalGrantArgs {
+    #[arg(long)]
+    consumer_realm: String,
+    #[arg(long, value_enum)]
+    access: GrantAccess,
+    #[arg(long, value_enum)]
+    max_sensitivity: GrantSensitivity,
+    #[arg(long, value_parser = parse_max_results)]
+    max_results: usize,
+    #[arg(long, value_parser = parse_max_evidence_bytes)]
+    max_evidence_bytes: usize,
+    /// Limit the grant to an explicitly approved read root; repeat as needed.
+    #[arg(long = "read-root", num_args = 1..)]
+    read_roots: Vec<PathBuf>,
+    #[arg(long, default_value_t = 86_400, value_parser = parse_expiry_seconds)]
+    expires_in_seconds: u64,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -295,6 +311,15 @@ fn parse_expiry_seconds(value: &str) -> std::result::Result<u64, &'static str> {
     }
     Ok(value)
 }
+fn parse_consumer_label(value: &str) -> std::result::Result<String, &'static str> {
+    if value.trim().is_empty()
+        || value.len() > 128
+        || value.bytes().any(|byte| !(b' '..=b'~').contains(&byte))
+    {
+        return Err("consumer label must be 1..=128 printable ASCII bytes");
+    }
+    Ok(value.to_string())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,7 +352,7 @@ mod tests {
         let Commands::Owner {
             command:
                 OwnerCommands::Grant {
-                    command: GrantCommands::CreateExternal { read_roots, .. },
+                    command: GrantCommands::CreateExternal { request, .. },
                 },
         } = cli.command
         else {
@@ -335,12 +360,69 @@ mod tests {
         };
 
         assert_eq!(
-            read_roots,
+            request.read_roots,
             vec![
                 PathBuf::from("/tmp/approved-a, reviewed"),
                 PathBuf::from("/tmp/approved-b"),
             ]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn review_and_create_reject_the_same_invalid_policy_bounds() -> Result<()> {
+        for command in ["review-external", "create-external"] {
+            for (invalid_option, invalid_value) in [
+                ("--max-results", "0"),
+                ("--max-results", "101"),
+                ("--max-evidence-bytes", "0"),
+                ("--max-evidence-bytes", "65537"),
+                ("--expires-in-seconds", "0"),
+                ("--expires-in-seconds", "31536001"),
+            ] {
+                let mut args = vec![
+                    "sillage-search".to_string(),
+                    "owner".to_string(),
+                    "grant".to_string(),
+                    command.to_string(),
+                    "--consumer-realm".to_string(),
+                    "a".repeat(64),
+                    "--access".to_string(),
+                    "search-only".to_string(),
+                    "--max-sensitivity".to_string(),
+                    "public".to_string(),
+                ];
+                for (option, valid_value) in [
+                    ("--max-results", "2"),
+                    ("--max-evidence-bytes", "4096"),
+                    ("--expires-in-seconds", "1800"),
+                ] {
+                    let value = if option == invalid_option {
+                        invalid_value
+                    } else {
+                        valid_value
+                    };
+                    args.extend([option.to_string(), value.to_string()]);
+                }
+                if command == "create-external" {
+                    args.extend([
+                        "--credential-file".to_string(),
+                        "/tmp/grant-credential".to_string(),
+                    ]);
+                } else {
+                    args.extend([
+                        "--consumer-label".to_string(),
+                        "org.example.policy-consumer".to_string(),
+                    ]);
+                }
+                assert!(
+                    Cli::try_parse_from(args).is_err(),
+                    "invalid {invalid_option} value passed through {command}"
+                );
+            }
+        }
+        assert!(parse_consumer_label("\nconsumer").is_err());
+        assert!(parse_consumer_label(&"x".repeat(129)).is_err());
         Ok(())
     }
 

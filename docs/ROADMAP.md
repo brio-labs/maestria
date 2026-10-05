@@ -122,6 +122,58 @@ tests do not establish desktop compatibility or performance qualification.
 Use fresh isolated evidence scopes, preserve first outcomes and unused inputs,
 and never replay the frozen retrieval trials or closed acceptance scopes.
 
+### Issue-driven integration into `dev/sillage`
+
+[Execution umbrella #559](https://github.com/brio-labs/maestria/issues/559)
+tracks the complete installed-alternative backlog and its dependency order.
+The verified daily-driver increment landed through
+[PR #546](https://github.com/brio-labs/maestria/pull/546), merge `97ae66f3`.
+Reuse existing issues rather than creating duplicate feature or evidence gates.
+
+| Delivery area | Concrete issues |
+|---|---|
+| Installed desktop reliability | [Wayland #547](https://github.com/brio-labs/maestria/issues/547), [physical mixed-DPI/monitor/suspend #548](https://github.com/brio-labs/maestria/issues/548), alongside native actions #520 |
+| Accessible interaction and visual consistency | [keyboard/screen-reader/reduced-motion #549](https://github.com/brio-labs/maestria/issues/549), alongside visual system #521 and implemented surfaces #522 |
+| Independent provider authorization | [installed local search grants #550](https://github.com/brio-labs/maestria/issues/550), [scoped remote HTTP credentials #551](https://github.com/brio-labs/maestria/issues/551); these are different boundaries |
+| Useful reviewed integrations | [GitHub #552](https://github.com/brio-labs/maestria/issues/552), [bookmarks #553](https://github.com/brio-labs/maestria/issues/553), [SSH profiles #554](https://github.com/brio-labs/maestria/issues/554), [typed system controls #555](https://github.com/brio-labs/maestria/issues/555), and existing window actions #543 |
+| Personalization and utility transfer | Existing aliases/favorites/frecency #532, explicit URL/file/folder/project targets and shared import/export #540, typed dynamic snippet preview/copy #541, explicit clipboard #542, [command shortcuts/primary actions #557](https://github.com/brio-labs/maestria/issues/557) |
+| Trustworthy distribution and recovery | Existing SDK #535, broker #536, local lifecycle #537 and modular install/recovery #538; [curated opt-in catalog #556](https://github.com/brio-labs/maestria/issues/556) |
+| Product outcomes and measurements | Existing native latency/resource/release gate #539 and [task completion/keystrokes #558](https://github.com/brio-labs/maestria/issues/558); optional answers #544 remain deferred |
+
+For each delivery slice:
+
+1. Select an issue with actionable prerequisites; create a scoped branch from
+   current `dev/sillage`, using a separate worktree when user changes are present.
+2. Bind the actual source/package revision, reproduce the affected behavior with
+   fresh private inputs, then update all affected callers, behavior tests and docs.
+3. Exercise the real installed workflow and inspect its native surface. Record
+   failures and limitations; no mock success, frozen private trial replay, new
+   lint/scanner exemptions or qualification inferred from compilation.
+4. Open an issue-linked PR against `dev/sillage`, review observed checks and merge
+   only the verified head. Close the issue only when every named acceptance
+   criterion has integrated proof; otherwise post precise progress and keep it open.
+5. Continue with the next actionable issue. Explicitly track unavailable physical
+   hardware, external approvals and other prerequisites rather than waiving gates.
+
+The user authorized incremental `dev/sillage` integration, not a `main` merge or
+release promotion. `main` remains Shadow, PR #516 remains draft and qualification
+stays false. Clipboard capture and snippet expansion remain explicit; ordinary
+workflows stay model-free. The private local search-owner grant milestone #550
+does not establish OAuth or remote-service credentials in #551.
+
+Local provider #550 now has a fresh installed `0.0.1+provider.1` acceptance:
+32 native observations covering real owner review/issuance, SDK search/copy,
+exact-root and consumer denial, provider absence/restart, independent extension
+disable/revoke, owner revoke, natural expiry and reviewed renewal. One safe
+denial capture pair was directly inspected. The independent 28-file
+`extension-provider-packaged-result-first` seal passed read-only-mounted
+verification; ten earlier preparation/runtime first outcomes are preserved.
+This proof uses explicit Internal sensitivity for normally indexed documents,
+not a document-classification bypass. Issue closure still requires integration
+of the verified increment into `dev/sillage`; #551 and broader qualification
+remain separate and open.
+
+
 ### Execution order and review gate
 
 | Wave | Unblocked work | Gate to the next wave |
@@ -133,10 +185,14 @@ and never replay the frozen retrieval trials or closed acceptance scopes.
 | 4 | Finish [source actions #531](https://github.com/brio-labs/maestria/issues/531), [ranking #532](https://github.com/brio-labs/maestria/issues/532), and [extension lifecycle #537](https://github.com/brio-labs/maestria/issues/537); then [passage-level acceptance #534](https://github.com/brio-labs/maestria/issues/534). | No exact-hit, freshness, or access regression. |
 | 5 | Deliver [modular packaging #538](https://github.com/brio-labs/maestria/issues/538) and only then [combined release proof #539](https://github.com/brio-labs/maestria/issues/539). | Published product measurements and fresh-install evidence. |
 
-Low-priority [#540–#544](https://github.com/brio-labs/maestria/issues/540)
-remain independent, non-blocking options; their dependency links are in the
-issues. This schedule follows actual prerequisites, not milestone numbers
-alone. Every implementation follows [PHILOSOPHY.md](PHILOSOPHY.md):
+The installed-alternative queue now includes the daily-use utility acceptance
+in [#540](https://github.com/brio-labs/maestria/issues/540),
+[#541](https://github.com/brio-labs/maestria/issues/541) and
+[#542](https://github.com/brio-labs/maestria/issues/542), not merely optional
+backend presence. Compositor-specific window actions #543 remain scoped to
+supported environments; optional model-based answers #544 remain deferred.
+This schedule follows actual prerequisites, not milestone numbers alone.
+Every implementation follows [PHILOSOPHY.md](PHILOSOPHY.md):
 deterministic kernel and acyclic dependencies; explicit governed effects,
 typed domain/DTO/port boundaries, bounded channels and cancellation; source
 snapshots and pre-score authorization; independently tested adapter contracts,
