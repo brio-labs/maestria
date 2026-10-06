@@ -5,6 +5,31 @@ pinned at `0.0.1` and `main` is always the current build.
 
 ## [Unreleased]
 
+### Host-owned scoped HTTP integration credentials (#551)
+
+- Implement host-owned HTTP credential integration backed by the system Secret
+  Service. Require pre-approval scope review, masked token entry, exact extension
+  ID, package SHA-256, canonical HTTPS origin without trailing slash, method,
+  exact path, and expiry TTL. Extension workers receive only opaque host-issued
+  handles (`{ scheme: "bearer", handle }`), never raw secret bytes.
+- Enforce fail-closed Secret Service access without automatic keyring unlock,
+  plaintext fallback, or discovery of foreign secrets. Invalidate previously
+  authorized handles when an extension package updates; enforce fresh review and
+  token re-entry upon credential renewal.
+- Enforce DNS pinning, public-address policies, redirect rejection (no 3xx following),
+  response size limits (16 KiB), and raw-token reflection rejection using native
+  TLS roots exclusively.
+- Verify installed lifecycle in 45 native observations on canonical Debian
+  `0.0.1+http.1`: authenticated GET/POST/redirect/oversize/reflection endpoints,
+  all scope and identity denials, Secret Service lock/unlock/stop fail-closed
+  states, active search independence preserved across HTTP revoke, and clean
+  five-second shutdown without force-kill.
+- Publish and verify an independent 30-file immutable evidence seal mounted read-only.
+  Inspect only the final safe revoked-denial capture pair; export no credentials,
+  live handles, raw audits, or secret bytes. Retain qualification false, `main`
+  serving Shadow, and draft PR #516.
+
+
 ### Reviewed external search grants
 
 - Add read-only `sillage-search owner grant review-external`, with a required

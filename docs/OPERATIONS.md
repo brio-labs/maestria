@@ -346,9 +346,8 @@ execution, network, SQLite or private profile access. Only the directly
 inspected final owner-revoked native denial pair is included; no approval or
 successful passage captures, fixtures, raw audits or credential identifiers.
 All ten earlier preparation/runtime first outcomes remain preserved and no
-closed scope was replayed. This does not qualify remote HTTP credentials,
+closed scope was replayed. Extension disable/revoke does not qualify
 launcher Document Search Disable or independently administered-provider shutdown.
-
 Preset extension form entries can expose an AT-SPI Entry role without a Text
 interface, including after focus. Native keyboard editing still works. The
 installed harness reads actual selected input through Ctrl+A/C and restores
@@ -357,6 +356,38 @@ default. This is not full screen-reader qualification. Dynamic extension
 status, notices, permissions, details, removal identities and pending-worker
 messages expose their actual content as accessibility labels with stable
 semantic descriptions.
+
+### Host-owned HTTP credentials and Secret Service vault binding
+
+The #551 installed lifecycle verified host-owned HTTP credential integration across
+45 native observations on canonical Debian `0.0.1+http.1`: freshly built
+`sillage-launcher` and `sillage-extension-worker`, with unchanged `sillage-search`.
+
+#### Operating constraints
+
+1. **Existing Secret Service facility**: The host must provide an active user Secret
+   Service implementation (e.g. GNOME Keyring) with an unlocked default collection.
+   The launcher never prompts for master passwords, creates or unlocks keyrings,
+   discovers unassociated application passwords, or falls back to plaintext storage.
+   Missing or locked vaults fail closed with an explicit error view.
+2. **Bearer-only authorization**: Only `Authorization: Bearer` is supported. Workers
+   receive an opaque handle referencing host metadata; secret bytes are never
+   returned to extension sandboxes. Unsupported schemes fail strictly at the worker.
+3. **Scope and identity binding**: Every grant binds extension ID, validated package
+   SHA-256, canonical HTTPS origin without trailing slash, method, exact path, and
+   expiry TTL. Updating an extension package invalidates previously authorized handles.
+4. **Network controls**: Requests enforce public IP validation, DNS pinning, strict
+   redirect rejection (redirects are never followed), response size ceilings (16 KiB),
+   and direct raw-token reflection rejection using native TLS roots exclusively.
+
+Separate immutable supplement:
+`~/.local/share/sillage-release-evidence/http-credential-packaged-result-first/`.
+Run `verify-http-credential-result.py` with that directory as its sole argument.
+Its 30-file seal passed read-only verification without product execution, network,
+SQLite, or private profile access. Only the directly inspected revoked-denial
+capture pair is exported; no credentials, live handles, raw audits, or secret bytes.
+All runtime first outcomes remain preserved without replay. This does not qualify
+desktop Wayland, multi-monitor/suspend, or aggregate release gates.
 
 
 ### UI-only first-run document search

@@ -1,6 +1,7 @@
 import { AboutSlint, Button, CheckBox, LineEdit, Palette, ScrollView } from "std-widgets.slint";
 import { ExtensionPanel, ExtensionRow, ExtensionItemRow, ExtensionActionRow, ExtensionFieldRow } from "extensions.slint";
 import { UtilityPanel, UtilityRow } from "utilities.slint";
+import { HttpIntegrationPanel, HttpIntegrationExtension, HttpIntegrationGrant } from "http-integrations.slint";
 
 export struct ResultRow {
     id: string,
@@ -87,6 +88,21 @@ export component LauncherWindow inherits Window {
     in-out property <string> extension-error-message: "";
     in-out property <string> extension-notice-message: "";
     in-out property <bool> extension-busy: false;
+    in-out property <bool> http-integrations-open: false;
+    in-out property <bool> http-busy: false;
+    in-out property <[HttpIntegrationExtension]> http-extensions: [];
+    in-out property <[HttpIntegrationGrant]> http-grants: [];
+    in-out property <string> http-mode: "list";
+    in-out property <string> http-extension-id: "";
+    in-out property <string> http-provider-label: "";
+    in-out property <string> http-origin: "";
+    in-out property <string> http-path: "";
+    in-out property <string> http-method: "GET";
+    in-out property <string> http-ttl: "3600";
+    in-out property <string> http-secret: "";
+    in-out property <string> http-reviewed-scope: "";
+    in-out property <string> http-error-message: "";
+    in-out property <string> http-notice-message: "";
     in-out property <string> search-setup-root: "";
     in-out property <string> search-setup-status: "";
     in-out property <string> search-setup-detail: "";
@@ -146,6 +162,14 @@ export component LauncherWindow inherits Window {
     callback extension-form-changed(string, string);
     callback extension-item-selected(string);
     callback extension-file-select-requested(string);
+    callback http-integrations-requested();
+    callback http-integrations-closed();
+    callback http-grant-review-requested();
+    callback http-grant-approve-requested();
+    callback http-grant-revoke-requested(string);
+    callback http-grant-renew-requested(string);
+    callback http-grant-copy-handle-requested(string);
+    callback http-grant-reset-requested();
     callback search-folder-requested();
     callback search-enable-requested();
     callback search-disable-requested();
@@ -240,7 +264,9 @@ export component LauncherWindow inherits Window {
             root.focus-search();
             accept
         } else if (event.text == Key.Escape) {
-            if (root.extensions-open) {
+            if (root.extensions-open && root.http-integrations-open) {
+                root.http-integrations-closed();
+            } else if (root.extensions-open) {
                 root.extensions-open = false;
                 root.extensions-closed();
                 root.focus-search();
@@ -1228,7 +1254,7 @@ export component LauncherWindow inherits Window {
                     }
                 }
                 ExtensionPanel {
-                    visible: root.extensions-open;
+                    visible: root.extensions-open && !root.http-integrations-open;
                     width: parent.width;
                     height: parent.height;
                     dark-mode: root.dark-mode;
@@ -1258,11 +1284,39 @@ export component LauncherWindow inherits Window {
                     form-changed(field-id, value) => { root.extension-form-changed(field-id, value); }
                     item-selected(item-id) => { root.extension-item-selected(item-id); }
                     file-select-requested(field-id) => { root.extension-file-select-requested(field-id); }
+                    http-credentials-requested() => { root.http-integrations-requested(); }
                     close-requested() => {
                         root.extensions-open = false;
                         root.extensions-closed();
                         root.focus-search();
                     }
+                }
+                HttpIntegrationPanel {
+                    visible: root.extensions-open && root.http-integrations-open;
+                    width: parent.width;
+                    height: parent.height;
+                    dark-mode: root.dark-mode;
+                    busy: root.http-busy;
+                    extensions: root.http-extensions;
+                    grants: root.http-grants;
+                    mode <=> root.http-mode;
+                    extension-id <=> root.http-extension-id;
+                    provider-label <=> root.http-provider-label;
+                    origin <=> root.http-origin;
+                    path <=> root.http-path;
+                    method <=> root.http-method;
+                    ttl <=> root.http-ttl;
+                    secret <=> root.http-secret;
+                    reviewed-scope: root.http-reviewed-scope;
+                    error-message: root.http-error-message;
+                    notice-message: root.http-notice-message;
+                    review-requested() => { root.http-grant-review-requested(); }
+                    approve-requested() => { root.http-grant-approve-requested(); }
+                    revoke-requested(handle) => { root.http-grant-revoke-requested(handle); }
+                    renew-requested(handle) => { root.http-grant-renew-requested(handle); }
+                    copy-handle-requested(handle) => { root.http-grant-copy-handle-requested(handle); }
+                    reset-requested() => { root.http-grant-reset-requested(); }
+                    close-requested() => { root.http-integrations-closed(); }
                 }
                 utility-panel := UtilityPanel {
                     visible: root.utilities-open;
@@ -1383,7 +1437,7 @@ export component LauncherWindow inherits Window {
                             : (root.preferences-open
                                 ? "Close preferences"
                                 : (root.extensions-open
-                                    ? "Close extensions"
+                                    ? (root.http-integrations-open ? "Return from HTTP credentials to extensions" : "Close extensions")
                                     : (root.passage-view-open
                                         ? "Return to launcher results"
                                         : "Dismiss launcher"))));
@@ -1395,6 +1449,8 @@ export component LauncherWindow inherits Window {
                             root.preferences-open = false;
                             root.preferences-closed();
                             root.focus-search();
+                        } else if (root.extensions-open && root.http-integrations-open) {
+                            root.http-integrations-closed();
                         } else if (root.extensions-open) {
                             root.extensions-open = false;
                             root.extensions-closed();

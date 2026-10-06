@@ -3,6 +3,8 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
+use crate::http_credentials::HttpGrantStore;
+
 mod desktop;
 mod executor;
 mod network;
@@ -70,6 +72,7 @@ pub struct BrokerContext {
     storage_root: PathBuf,
     selected_files: BTreeMap<String, SelectedFile>,
     search_consumer: Option<SearchConsumerConfig>,
+    http_credentials: Option<(String, HttpGrantStore)>,
 }
 
 impl BrokerContext {
@@ -93,6 +96,7 @@ impl BrokerContext {
             storage_root,
             selected_files: BTreeMap::new(),
             search_consumer: None,
+            http_credentials: None,
         })
     }
 
@@ -124,6 +128,22 @@ impl BrokerContext {
         self.search_consumer = Some(config);
         Ok(self)
     }
+
+    pub fn with_http_credentials(
+        mut self,
+        package_sha256: String,
+        root: PathBuf,
+    ) -> Result<Self, BrokerConfigError> {
+        if package_sha256.len() != 64
+            || !package_sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+            || !root.is_absolute()
+            || self.http_credentials.is_some()
+        {
+            return Err(BrokerConfigError::HttpConfig);
+        }
+        self.http_credentials = Some((package_sha256, HttpGrantStore::new(root)));
+        Ok(self)
+    }
 }
 
 /// Invalid host-side broker configuration. No capability request has run.
@@ -133,6 +153,8 @@ pub enum BrokerConfigError {
     Context,
     #[error("invalid per-extension search consumer configuration")]
     SearchConfig,
+    #[error("invalid per-extension HTTP credential configuration")]
+    HttpConfig,
     #[error("invalid or duplicate host-selected file authorization")]
     Selection,
 }

@@ -12,6 +12,7 @@ export const PROTOCOL_LIMITS = {
   formValueFields: 32,
   formValueTextCharacters: 4_096,
   capabilityTextCharacters: 16_384,
+  httpAuthenticationHandleBytes: 128,
   capabilityResponseBytes: 65_536,
 } as const;
 

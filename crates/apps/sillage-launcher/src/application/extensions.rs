@@ -7,6 +7,7 @@ use crate::ipc::LauncherState;
 mod broker;
 mod callbacks;
 mod form;
+mod http_credentials;
 mod invoke;
 mod management;
 mod sandbox;

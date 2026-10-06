@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 use sillage_extensions::{
     CapabilityError, CapabilityFailure, CapabilityRequest, CapabilityResponse, CapabilitySuccess,
-    FileSearchResult, FormValue, HostMessage, Manifest, ProtocolError, StorageOperation,
-    WorkerMessage,
+    FileSearchResult, FormValue, HostMessage, HttpAuthentication, HttpAuthenticationScheme,
+    Manifest, ProtocolError, StorageOperation, WorkerMessage, validate_capability_request,
 };
 
 const EXAMPLE: &[u8] =
@@ -86,13 +86,45 @@ fn worker_views_are_strictly_versioned_and_bounded() -> Result<(), Box<dyn std::
 }
 
 #[test]
-fn http_request_method_keeps_uppercase_sdk_wire_encoding() -> Result<(), Box<dyn std::error::Error>>
-{
-    let request: CapabilityRequest = serde_json::from_str(
-        r#"{"capability":"http","url":"https://api.example.test","method":"GET"}"#,
-    )?;
-    assert_eq!(serde_json::to_value(request)?["method"], "GET");
-    Ok(())
+fn http_requests_reject_unsupported_authentication_and_secret_fields() {
+    for invalid_request in [
+        r#"{"capability":"http","url":"https://api.example.test","method":"GET","authentication":{"scheme":"basic","handle":"grant-ref-123"}}"#,
+        r#"{"capability":"http","url":"https://api.example.test","method":"GET","authentication":{"scheme":"bearer","handle":"grant-ref-123","token":"forbidden"}}"#,
+        r#"{"capability":"http","url":"https://api.example.test","method":"GET","token":"forbidden"}"#,
+    ] {
+        assert!(serde_json::from_str::<CapabilityRequest>(invalid_request).is_err());
+        let line = format!(
+            r#"{{"protocolVersion":1,"kind":"capability.request","commandId":"greetings","requestId":"http-auth","request":{invalid_request}}}"#
+        );
+        assert!(WorkerMessage::parse_line(line.as_bytes()).is_err());
+    }
+}
+
+#[test]
+fn http_authentication_handle_is_nonempty_printable_ascii_and_at_most_128_bytes() {
+    let request = |handle: String| CapabilityRequest::Http {
+        url: "https://api.example.test".into(),
+        method: sillage_extensions::HttpMethod::Get,
+        authentication: Some(HttpAuthentication {
+            scheme: HttpAuthenticationScheme::Bearer,
+            handle,
+        }),
+        body: None,
+    };
+    assert!(validate_capability_request(&request("x".repeat(128))).is_ok());
+    assert!(validate_capability_request(&request(" ".into())).is_ok());
+
+    for handle in [
+        String::new(),
+        "x".repeat(129),
+        "line\nbreak".into(),
+        "référence".into(),
+    ] {
+        assert!(matches!(
+            validate_capability_request(&request(handle)),
+            Err(ProtocolError::Invalid(_))
+        ));
+    }
 }
 
 #[test]

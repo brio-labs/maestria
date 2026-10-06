@@ -1,0 +1,250 @@
+import { Button, LineEdit, ScrollView } from "std-widgets.slint";
+
+export struct HttpIntegrationExtension {
+    id: string,
+    title: string,
+}
+
+export struct HttpIntegrationGrant {
+    handle: string,
+    title: string,
+    scope: string,
+    details: string,
+    state: string,
+}
+
+component ScopeField inherits VerticalLayout {
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <bool> dark-mode;
+    in-out property <string> value;
+    spacing: 3px;
+    Text {
+        text: root.label;
+        font-size: 12px;
+        color: root.dark-mode ? #eaf5ef : #1a2b2b;
+        accessible-role: text;
+        accessible-label: self.text;
+    }
+    LineEdit {
+        height: 32px;
+        text <=> root.value;
+        enabled: root.enabled;
+        accessible-label: root.label;
+    }
+}
+
+export component HttpIntegrationPanel inherits Rectangle {
+    width: 680px;
+    height: 620px;
+    background: root.dark-mode ? #141b20 : #f6f8f5;
+    border-color: root.dark-mode ? #344442 : #d1ddd5;
+    border-width: 1px;
+    border-radius: 16px;
+    clip: true;
+    in property <bool> dark-mode: true;
+    in property <bool> busy: false;
+    in property <string> error-message;
+    in property <string> notice-message;
+    in property <[HttpIntegrationExtension]> extensions;
+    in property <[HttpIntegrationGrant]> grants;
+    in property <string> reviewed-scope;
+    in-out property <string> mode: "list";
+    in-out property <string> extension-id;
+    in-out property <string> provider-label;
+    in-out property <string> origin;
+    in-out property <string> path;
+    in-out property <string> method: "GET";
+    in-out property <string> ttl: "3600";
+    in-out property <string> secret;
+    callback review-requested();
+    callback approve-requested();
+    callback revoke-requested(string);
+    callback renew-requested(string);
+    callback copy-handle-requested(string);
+    callback reset-requested();
+    callback close-requested();
+
+    VerticalLayout {
+        padding: 14px;
+        spacing: 8px;
+        HorizontalLayout {
+            height: 36px;
+            Text {
+                text: "HTTP INTEGRATIONS";
+                font-size: 14px;
+                font-weight: 700;
+                color: root.dark-mode ? #eaf5ef : #1a2b2b;
+                accessible-role: text;
+                accessible-label: "Host-owned HTTP integration credentials";
+            }
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+            Button {
+                text: "Back to extensions";
+                accessible-label: "Return from HTTP credentials to extensions";
+                clicked => { root.secret = ""; root.close-requested(); }
+            }
+        }
+        Text {
+            text: "Secrets stay in your desktop credential store, never in extension code. HTTP, extension permissions and local search grants are independent.";
+            wrap: word-wrap;
+            font-size: 12px;
+            color: root.dark-mode ? #b2c0ba : #4a625b;
+            accessible-role: text;
+            accessible-label: self.text;
+        }
+        if (root.error-message != "") : Text {
+            text: root.error-message;
+            wrap: word-wrap;
+            color: root.dark-mode ? #f0aa99 : #8d3828;
+            accessible-role: text;
+            accessible-label: self.text;
+            accessible-description: "HTTP credential error";
+        }
+        if (root.notice-message != "") : Text {
+            text: root.notice-message;
+            wrap: word-wrap;
+            color: root.dark-mode ? #b2c0ba : #4a625b;
+            accessible-role: text;
+            accessible-label: self.text;
+            accessible-description: "HTTP credential status";
+        }
+        if (root.mode == "list") : VerticalLayout {
+            spacing: 8px;
+            Button {
+                text: "Add credential";
+                enabled: !root.busy && root.extensions.length > 0;
+                accessible-label: "Review a new host-owned HTTP credential grant";
+                clicked => { root.reset-requested(); }
+            }
+            ScrollView {
+                vertical-stretch: 1;
+                content-width: self.width;
+                VerticalLayout {
+                    spacing: 8px;
+                    if (root.grants.length == 0) : Text {
+                        text: "No HTTP integration grants. Add a reviewed HTTPS extension first.";
+                        color: root.dark-mode ? #b2c0ba : #4a625b;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                    }
+                    for grant in root.grants : Rectangle {
+                        height: 156px;
+                        background: root.dark-mode ? #202d30 : #ffffff;
+                        border-radius: 8px;
+                        VerticalLayout {
+                            padding: 8px;
+                            spacing: 4px;
+                            Text {
+                                text: grant.title + " — " + grant.state;
+                                color: root.dark-mode ? #eaf5ef : #1a2b2b;
+                                font-weight: 700;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                            Text {
+                                text: grant.scope;
+                                wrap: word-wrap;
+                                color: root.dark-mode ? #b2c0ba : #4a625b;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                            Text {
+                                text: grant.details;
+                                wrap: word-wrap;
+                                font-size: 11px;
+                                color: root.dark-mode ? #b2c0ba : #4a625b;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                            HorizontalLayout {
+                                Button {
+                                    text: "Copy handle";
+                                    enabled: !root.busy && grant.state == "Active";
+                                    accessible-label: "Copy opaque integration handle for " + grant.title;
+                                    clicked => { root.copy-handle-requested(grant.handle); }
+                                }
+                                Button {
+                                    text: "Review renewal";
+                                    enabled: !root.busy;
+                                    accessible-label: "Review explicit credential renewal for " + grant.title;
+                                    clicked => { root.renew-requested(grant.handle); }
+                                }
+                                Button {
+                                    text: "Revoke";
+                                    enabled: !root.busy && grant.state != "Revoked";
+                                    accessible-label: "Revoke HTTP credential grant for " + grant.title;
+                                    clicked => { root.revoke-requested(grant.handle); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (root.mode != "list") : ScrollView {
+            vertical-stretch: 1;
+            content-width: self.width;
+            VerticalLayout {
+                spacing: 8px;
+                Text {
+                    text: "Select the exact reviewed extension package";
+                    color: root.dark-mode ? #eaf5ef : #1a2b2b;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                for extension in root.extensions : Button {
+                    text: extension.id == root.extension-id ? "Selected: " + extension.title : extension.title;
+                    enabled: !root.busy && root.reviewed-scope == "";
+                    accessible-label: "Select credential extension " + extension.title;
+                    clicked => { root.extension-id = extension.id; }
+                }
+                ScopeField { label: "Integration provider label"; value <=> root.provider-label; dark-mode: root.dark-mode; enabled: !root.busy && root.reviewed-scope == ""; }
+                ScopeField { label: "Exact HTTPS origin"; value <=> root.origin; dark-mode: root.dark-mode; enabled: !root.busy && root.reviewed-scope == ""; }
+                ScopeField { label: "Exact HTTP path"; value <=> root.path; dark-mode: root.dark-mode; enabled: !root.busy && root.reviewed-scope == ""; }
+                HorizontalLayout {
+                    Button { text: root.method == "GET" ? "Read (GET) ✓" : "Read (GET)"; enabled: !root.busy && root.reviewed-scope == ""; accessible-label: "Limit HTTP credential to read GET requests"; clicked => { root.method = "GET"; } }
+                    Button { text: root.method == "POST" ? "Write (POST) ✓" : "Write (POST)"; enabled: !root.busy && root.reviewed-scope == ""; accessible-label: "Permit HTTP credential for write POST requests"; clicked => { root.method = "POST"; } }
+                }
+                ScopeField { label: "Credential grant lifetime in seconds"; value <=> root.ttl; dark-mode: root.dark-mode; enabled: !root.busy && root.reviewed-scope == ""; }
+                Button {
+                    text: "Review scope";
+                    enabled: !root.busy && root.extension-id != "" && root.reviewed-scope == "";
+                    accessible-label: "Review exact HTTP credential audience action and expiry before approval";
+                    clicked => { root.review-requested(); }
+                }
+                if (root.reviewed-scope != "") : VerticalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: root.reviewed-scope;
+                        wrap: word-wrap;
+                        color: root.dark-mode ? #eaf5ef : #1a2b2b;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                        accessible-description: "HTTP credential approval scope";
+                    }
+                    Text { text: "Bearer secret — host-only masked entry"; color: root.dark-mode ? #eaf5ef : #1a2b2b; accessible-role: text; accessible-label: self.text; }
+                    LineEdit {
+                        height: 32px;
+                        text <=> root.secret;
+                        input-type: InputType.password;
+                        enabled: !root.busy;
+                        accessible-label: "Host-only Bearer secret";
+                    }
+                    Button {
+                        text: root.method == "POST" ? "Approve scoped write credential" : "Approve scoped read credential";
+                        enabled: !root.busy && root.secret != "";
+                        accessible-label: "Explicitly approve the reviewed HTTP credential grant";
+                        clicked => { root.approve-requested(); }
+                    }
+                }
+                Button {
+                    text: "Cancel";
+                    enabled: !root.busy;
+                    accessible-label: "Cancel HTTP credential approval without saving a secret";
+                    clicked => { root.secret = ""; root.reset-requested(); root.mode = "list"; }
+                }
+            }
+        }
+    }
+}

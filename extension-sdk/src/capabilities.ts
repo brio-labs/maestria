@@ -17,6 +17,13 @@ export type ManifestPermission =
   | { readonly type: "open"; readonly targets: readonly ("url" | "selectedFile")[] }
   | { readonly type: "copy"; readonly formats: readonly "text"[] };
 
+/** Opaque non-secret grant reference; the host bounds this to 1–128 printable ASCII bytes. */
+export interface HttpAuthentication {
+  readonly scheme: "bearer";
+  readonly handle: string;
+}
+
+
 /** Opaque IDs and bounded strings are validated and authorized by the host. */
 export type CapabilityRequest =
   | { readonly capability: "fileSearch"; readonly query: string; readonly limit: number }
@@ -29,6 +36,7 @@ export type CapabilityRequest =
       readonly capability: "http";
       readonly url: string;
       readonly method: "GET" | "POST";
+      readonly authentication?: HttpAuthentication;
       readonly body?: string;
     }
   | {

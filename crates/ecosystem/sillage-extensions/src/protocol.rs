@@ -4,7 +4,8 @@ mod views;
 
 pub use capabilities::{
     CapabilityError, CapabilityFailure, CapabilityRequest, CapabilityResponse, CapabilitySuccess,
-    FileSearchResult, HttpMethod, OpenRequestTarget, StorageOperation, validate_capability_request,
+    FileSearchResult, HttpAuthentication, HttpAuthenticationScheme, HttpMethod, OpenRequestTarget,
+    StorageOperation, validate_capability_request,
 };
 pub use messages::{HostMessage, ProtocolError, WorkerMessage};
 pub use views::{
