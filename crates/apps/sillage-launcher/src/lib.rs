@@ -15,6 +15,7 @@
 //! - `settings`: persist launcher preferences.
 //! - `search_setup`: own explicit folder consent and the separate read-only search process.
 //! - `utilities`: own saved quicklinks/snippets and explicit memory-only clipboard history.
+//! - `http_credentials`: scope host-only HTTP credentials in the desktop Secret Service.
 //! - `autostart`: manage only the opt-in owned desktop startup entry.
 //! - `clipboard`: bound native clipboard reads in an isolated helper process.
 //! - `shortcuts`: bind X11 and portal activation.
@@ -25,7 +26,8 @@
 mod ui;
 pub use ui::{
     ActionRow, ExtensionActionRow, ExtensionChoiceRow, ExtensionFieldRow, ExtensionItemRow,
-    ExtensionRow, LauncherWindow, ResultRow, UtilityRow,
+    ExtensionRow, HttpIntegrationExtension, HttpIntegrationGrant, LauncherWindow, ResultRow,
+    UtilityRow,
 };
 mod actions;
 mod application;
@@ -36,6 +38,7 @@ mod utilities;
 pub use clipboard::export_clipboard_text;
 mod catalog;
 mod errors;
+mod http_credentials;
 mod ipc;
 mod model;
 mod platform;

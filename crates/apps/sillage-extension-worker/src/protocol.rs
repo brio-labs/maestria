@@ -298,3 +298,26 @@ fn valid_key(value: &str) -> bool {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::parse_capability_request;
+
+    #[test]
+    fn worker_rejects_http_secret_fields_unknown_schemes_and_invalid_handles() {
+        for encoded in [
+            r#"{"capability":"http","url":"https://api.example.test","method":"GET","authentication":{"scheme":"basic","handle":"grant-ref-123"}}"#,
+            r#"{"capability":"http","url":"https://api.example.test","method":"GET","authentication":{"scheme":"bearer","handle":"grant-ref-123","token":"forbidden"}}"#,
+            r#"{"capability":"http","url":"https://api.example.test","method":"GET","token":"forbidden"}"#,
+            r#"{"capability":"http","url":"https://api.example.test","method":"GET","authentication":{"scheme":"bearer","handle":"line\nbreak"}}"#,
+        ] {
+            assert!(parse_capability_request(encoded).is_err());
+        }
+
+        let oversized = format!(
+            r#"{{"capability":"http","url":"https://api.example.test","method":"GET","authentication":{{"scheme":"bearer","handle":"{}"}}}}"#,
+            "x".repeat(129)
+        );
+        assert!(parse_capability_request(&oversized).is_err());
+    }
+}

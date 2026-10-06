@@ -4,6 +4,8 @@ use std::time::Duration;
 use sillage_extensions::HttpMethod;
 use url::{Host, Url};
 
+use crate::http_credentials::SecretBytes;
+
 use super::text::decode_bounded;
 
 const MAX_HTTP_BODY_BYTES: usize = 16_384;
@@ -25,31 +27,34 @@ pub(super) struct NetworkResponse {
     pub(super) truncated: bool,
 }
 
+pub(super) fn parse_url(raw_url: &str) -> Result<Url, NetworkError> {
+    if raw_url.len() > 4096 {
+        return Err(NetworkError::InvalidRequest);
+    }
+    let url = Url::parse(raw_url).map_err(|_| NetworkError::InvalidRequest)?;
+    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+        return Err(NetworkError::InvalidRequest);
+    }
+    Ok(url)
+}
+
 pub(super) async fn request(
-    raw_url: &str,
+    url: Url,
     method: HttpMethod,
     body: Option<&str>,
+    secret: Option<&SecretBytes>,
 ) -> Result<NetworkResponse, NetworkError> {
     if body.is_some_and(|value| value.len() > MAX_HTTP_BODY_BYTES)
         || (matches!(method, HttpMethod::Get) && body.is_some())
     {
         return Err(NetworkError::InvalidRequest);
     }
-    let url = Url::parse(raw_url).map_err(|_| NetworkError::InvalidRequest)?;
-    if url.scheme() != "https"
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || raw_url.len() > 4096
-    {
-        return Err(NetworkError::InvalidRequest);
-    }
     let (host, addresses) = resolve_public(&url).await?;
-    let url = url.to_string();
     let body = match body {
         Some(body) => body.as_bytes().to_vec(),
         None => Vec::new(),
     };
-    let request = request_pinned(url, host, addresses, method, body);
+    let request = request_pinned(url, host, addresses, method, body, secret);
     match tokio::time::timeout(HTTP_TIMEOUT, request).await {
         Ok(result) => result,
         Err(_) => Err(NetworkError::Unavailable),
@@ -85,14 +90,17 @@ async fn resolve_public(url: &Url) -> Result<(String, Vec<SocketAddr>), NetworkE
 }
 
 async fn request_pinned(
-    url: String,
+    url: Url,
     host: String,
     addresses: Vec<SocketAddr>,
     method: HttpMethod,
     body: Vec<u8>,
+    secret: Option<&SecretBytes>,
 ) -> Result<NetworkResponse, NetworkError> {
     let client = reqwest::Client::builder()
         .https_only(true)
+        .tls_built_in_root_certs(false)
+        .tls_built_in_native_certs(true)
         .redirect(reqwest::redirect::Policy::none())
         .no_proxy()
         .connect_timeout(Duration::from_secs(3))
@@ -102,16 +110,29 @@ async fn request_pinned(
         .resolve_to_addrs(&host, &addresses)
         .build()
         .map_err(|_| NetworkError::Unavailable)?;
-    let request = match method {
-        HttpMethod::Get => client.get(&url),
-        HttpMethod::Post => client.post(&url).body(body),
+    let mut request = match method {
+        HttpMethod::Get => client.get(url),
+        HttpMethod::Post => client.post(url).body(body),
     };
+    if let Some(secret) = secret {
+        let mut value = bytes::BytesMut::with_capacity(7 + secret.as_bytes().len());
+        value.extend_from_slice(b"Bearer ");
+        value.extend_from_slice(secret.as_bytes());
+        let mut header = reqwest::header::HeaderValue::from_maybe_shared(value.freeze())
+            .map_err(|_| NetworkError::InvalidRequest)?;
+        header.set_sensitive(true);
+        request = request.header(reqwest::header::AUTHORIZATION, header);
+    }
     let mut response = request
         .send()
         .await
         .map_err(|_| NetworkError::Unavailable)?;
     if response_header_bytes(&response) > 32_768 {
         return Err(NetworkError::Failed);
+    }
+    // No authenticated redirect is followed or returned as an approved request.
+    if secret.is_some() && response.status().is_redirection() {
+        return Err(NetworkError::Denied);
     }
     let status = response.status().as_u16();
     let mut bytes = Vec::with_capacity(MAX_HTTP_BODY_BYTES + 1);
@@ -129,8 +150,18 @@ async fn request_pinned(
             break;
         }
     }
+    // Truncation must not forward a partial reflected credential.
+    if secret.is_some() && bytes.len() > MAX_HTTP_BODY_BYTES {
+        return Err(NetworkError::Failed);
+    }
     let (body, truncated) =
         decode_bounded(bytes, MAX_HTTP_BODY_BYTES, false).map_err(|_| NetworkError::Failed)?;
+    if let Some(secret) = secret {
+        let token = std::str::from_utf8(secret.as_bytes()).map_err(|_| NetworkError::Failed)?;
+        if body.contains(token) {
+            return Err(NetworkError::Failed);
+        }
+    }
     Ok(NetworkResponse {
         status,
         body,

@@ -336,6 +336,9 @@ fn broker_context(
             .with_selected_file(selection_id, file)
             .map_err(|error| error.to_string())?;
     }
+    context = context
+        .with_http_credentials(bundle.package.sha256.clone(), root.join("http-credentials"))
+        .map_err(|error| error.to_string())?;
     if let Some(search) = search {
         let credential = root
             .join("search-credentials")

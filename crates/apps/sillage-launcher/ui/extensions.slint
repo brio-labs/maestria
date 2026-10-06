@@ -69,6 +69,7 @@ export component ExtensionPanel inherits Rectangle {
     callback form-changed(string, string);
     callback item-selected(string);
     callback file-select-requested(string);
+    callback http-credentials-requested();
     callback close-requested();
 
     VerticalLayout {
@@ -89,6 +90,12 @@ export component ExtensionPanel inherits Rectangle {
                 accessible-label: "Extensions";
             }
             Rectangle { horizontal-stretch: 1; background: transparent; }
+            Button {
+                text: "HTTP credentials";
+                enabled: !root.busy;
+                accessible-label: "Inspect approve or revoke independent HTTP integration credentials";
+                clicked => { root.http-credentials-requested(); }
+            }
             Button {
                 text: "Close";
                 accessible-role: button;

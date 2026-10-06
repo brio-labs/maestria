@@ -119,11 +119,11 @@ subprocess alone or a JavaScript permission flag is not a sandbox.
 The broker is a future trusted client of the existing authenticated daemon
 socket, not a new daemon network listener. It mediates typed host requests and
 checks the active extension grant on every request. Scoped file search,
-user-selected reads, granted-origin HTTP, extension-local storage,
-notifications, and explicit open/copy effects require the corresponding
-capability. Shell/process execution, background daemons, global keystroke
-observation, clipboard history, and unrestricted filesystem access are not
-part of the initial platform.
+user-selected reads, granted-origin HTTP, host-owned HTTP integration
+credentials, extension-local storage, notifications, and explicit open/copy
+effects require the corresponding capability. Shell/process execution,
+background daemons, global keystroke observation, clipboard history, and
+unrestricted filesystem access are not part of the platform.
 
 Installation and updates require explicit grants. Added permissions require
 new consent; validation or approval failure retains the previous working
@@ -139,6 +139,28 @@ Side-effectful requests are never automatically retried. Workers cannot
 modify policy, promote evidence, grant capabilities, or obtain unrestricted
 instance bearer tokens. Development code uses the same boundary and
 permission model as installed code.
+
+### 3.2 Host-Owned HTTP Credentials and Secret Service
+
+Extensions requiring authenticated HTTP operations never handle secret bytes.
+Authentication is mediated by the host launcher and backed by the user's
+existing Secret Service:
+
+1. **Opaque handle separation**: The host grants an opaque handle
+   `{ scheme: "bearer", handle: "<ascii>" }` to the extension upon user review.
+   Extension workers pass only this handle; secret material remains zeroized
+   in host memory and in the system credential vault.
+2. **Strict scope binding**: Each grant binds the exact extension ID, package
+   SHA-256, canonical HTTPS origin without trailing slash, HTTP method, and
+   exact path. Updating an extension package or altering the destination path
+   fails closed.
+3. **Fail-closed vault access**: The launcher requires an already unlocked,
+   healthy Secret Service default collection. It never attempts to unlock,
+   create collections, prompt for master credentials, or fall back to plaintext.
+4. **Network isolation**: The host broker enforces DNS pinning, prohibits
+   private/loopback/carrier IP destinations, rejects HTTP redirects (no 3xx
+   following), caps responses at 16 KiB, and refuses direct raw-token
+   reflection using native TLS roots exclusively.
 
 ## 4. Scope and Authorization
 
