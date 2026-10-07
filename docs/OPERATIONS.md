@@ -240,6 +240,24 @@ package-smoke helpers. `philosophy` also matches its documentation/checker
 paths. `changes` always runs on PRs; `commit-branch-check` runs on every PR
 regardless of path. CI has no standalone TypeScript extension-SDK build/test.
 
+The separate `Conventional Commits` workflow also covers pull requests targeting
+`main` or `dev/sillage` on `opened`, `edited`, and `synchronize`. Its title and
+commit-message expression and base-to-head range are unchanged; this is not a
+push workflow or a waiver for historical subjects. Parsed event-selection
+checks and the actual documentary range `4fb3a65e..7b26a0ec` matched the unchanged
+expression locally; a live GitHub event is a separate observation.
+
+Run `37692230283` remains failed: its pull-request event belongs to draft
+PR #516 (`dev/sillage` targeting `main`), with base
+`99c825146c17077a66a0f9d9d4f30daf65998e4e` and head
+`7b26a0ece217964f4a56c8f5b3acaed69725d0e0`. Its retained validation log rejects
+the published historical subject
+`Merge branch 'feat/sillage-mandate-governance-source-20261007' into dev/sillage`.
+The observed cause is that nonconforming historical merge subject, not a
+push-range error or the new documentary subjects. History is not rewritten,
+the validator is not weakened, PR #516 remains draft, and qualification remains
+false.
+
 
 ### First outcomes and source binding
 
