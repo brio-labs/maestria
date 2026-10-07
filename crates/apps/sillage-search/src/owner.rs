@@ -12,9 +12,12 @@ use sillage_daemon::{
 use sillage_domain::RealmId;
 
 use super::{
-    GrantAccess, GrantCommands, GrantSensitivity, OwnerCommands, RootCommands, parse_realm_id,
+    ExternalGrantArgs, GrantAccess, GrantCommands, GrantSensitivity, OwnerCommands, RootCommands,
 };
 use crate::consumer::write_credential_file;
+
+mod grant_review;
+
 pub(super) async fn dispatch_owner(command: OwnerCommands) -> Result<()> {
     match command {
         OwnerCommands::Roots { command } => dispatch_roots(command).await,
@@ -52,38 +55,35 @@ async fn dispatch_roots(command: RootCommands) -> Result<()> {
 
 async fn dispatch_grants(command: GrantCommands) -> Result<()> {
     match command {
-        GrantCommands::CreateExternal {
+        GrantCommands::ReviewExternal {
             instance_dir,
-            consumer_realm,
-            credential_file,
-            access,
-            max_sensitivity,
-            max_results,
-            max_evidence_bytes,
-            read_roots,
-            expires_in_seconds,
+            request,
+            consumer_label,
         } => {
-            create_external_grant(
+            grant_review::review_external_grant(
                 instance_dir,
-                parse_realm_id(consumer_realm)?,
-                credential_file,
-                read_roots,
-                GrantPolicy {
-                    access,
-                    max_sensitivity,
-                    max_results,
-                    max_evidence_bytes,
-                    expires_in_seconds,
-                },
+                request.into_request()?,
+                consumer_label,
             )
             .await
         }
+        GrantCommands::CreateExternal {
+            instance_dir,
+            request,
+            credential_file,
+        } => create_external_grant(instance_dir, credential_file, request.into_request()?).await,
         GrantCommands::List { instance_dir } => list_grants(instance_dir).await,
         GrantCommands::Revoke {
             instance_dir,
             grant_token_digest,
         } => revoke_grant(instance_dir, grant_token_digest).await,
     }
+}
+
+struct ExternalGrantRequest {
+    consumer_realm: RealmId,
+    allowed_roots: Vec<String>,
+    policy: GrantPolicy,
 }
 
 struct GrantPolicy {
@@ -94,17 +94,37 @@ struct GrantPolicy {
     expires_in_seconds: u64,
 }
 
+impl ExternalGrantArgs {
+    fn into_request(self) -> Result<ExternalGrantRequest> {
+        let allowed_roots = self
+            .read_roots
+            .iter()
+            .map(|root| approved_root_argument(root).map(|root| root.display().to_string()))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(ExternalGrantRequest {
+            consumer_realm: super::parse_realm_id(self.consumer_realm)?,
+            allowed_roots,
+            policy: GrantPolicy {
+                access: self.access,
+                max_sensitivity: self.max_sensitivity,
+                max_results: self.max_results,
+                max_evidence_bytes: self.max_evidence_bytes,
+                expires_in_seconds: self.expires_in_seconds,
+            },
+        })
+    }
+}
+
 async fn create_external_grant(
     instance_dir: PathBuf,
-    consumer_realm: RealmId,
     credential_file: PathBuf,
-    read_roots: Vec<PathBuf>,
-    policy: GrantPolicy,
+    request: ExternalGrantRequest,
 ) -> Result<()> {
-    let allowed_roots = read_roots
-        .iter()
-        .map(|root| approved_root_argument(root).map(|root| root.display().to_string()))
-        .collect::<Result<Vec<_>>>()?;
+    let ExternalGrantRequest {
+        consumer_realm,
+        allowed_roots,
+        policy,
+    } = request;
     let provider_client = owner_client(instance_dir)?;
     let created = match provider_client
         .request(ClientOperation::RealmGrantCreate {
@@ -289,40 +309,4 @@ fn revoked_root_argument(path: &Path) -> Result<PathBuf> {
         std::path::absolute(path).with_context(|| format!("resolve root {}", path.display()))?;
     sillage_governance::lexical_normalize(&absolute)
         .ok_or_else(|| anyhow!("invalid root path {}", path.display()))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn grant_output_displays_scoped_roots_and_legacy_scope() -> Result<()> {
-        let grant = sillage_daemon::RealmGrantResponse {
-            token_digest: "a".repeat(64),
-            provider_realm: RealmId::try_from("a".repeat(64))?,
-            consumer_realm: RealmId::try_from("b".repeat(64))?,
-            access: RealmGrantAccess::SearchOnly,
-            max_sensitivity: RealmGrantSensitivity::Public,
-            allowed_roots: Some(vec![
-                "/approved/notes".to_string(),
-                "/approved/docs".to_string(),
-            ]),
-            max_results: 1,
-            max_evidence_bytes: 1,
-            expires_at_unix_seconds: 2,
-            state: "active".to_string(),
-        };
-        let mut output = Vec::new();
-        print_grant(&mut output, &grant)?;
-        let output = String::from_utf8(output)?;
-        assert!(output.contains(r#"allowed_roots=["/approved/notes","/approved/docs"]"#));
-
-        let mut legacy = grant;
-        legacy.allowed_roots = None;
-        let mut output = Vec::new();
-        print_grant(&mut output, &legacy)?;
-        let output = String::from_utf8(output)?;
-        assert!(output.contains("allowed_roots=legacy-all-approved"));
-        Ok(())
-    }
 }

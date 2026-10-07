@@ -6,6 +6,7 @@ export {
   type CapabilityResponse,
   type CapabilityResponseFor,
   type FileSearchResult,
+  type HttpAuthentication,
   type ManifestPermission,
 } from "./capabilities.js";
 export {

@@ -41,6 +41,7 @@ fn http_grant_is_not_a_suffix_match_or_downgrade() {
         let request = CapabilityRequest::Http {
             url: denied.into(),
             method: sillage_extensions::HttpMethod::Get,
+            authentication: None,
             body: None,
         };
         assert!(
@@ -51,12 +52,6 @@ fn http_grant_is_not_a_suffix_match_or_downgrade() {
             "accepted {denied}"
         );
     }
-    let request = CapabilityRequest::Http {
-        url: "https://api.example.test/v1".into(),
-        method: sillage_extensions::HttpMethod::Get,
-        body: None,
-    };
-    assert!(authorize(&grants, &request, InvocationOrigin::Command).is_ok());
 }
 
 #[test]

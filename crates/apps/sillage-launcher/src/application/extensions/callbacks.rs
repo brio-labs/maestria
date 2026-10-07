@@ -10,7 +10,7 @@ use tokio::task::JoinHandle;
 
 use super::super::platform::choose_file;
 use super::super::{LauncherWindow, UiWeak, lock};
-use super::{broker, form, invoke, management, view};
+use super::{broker, form, http_credentials, invoke, management, view};
 use crate::ipc::LauncherState;
 
 pub(super) struct PendingInstall {
@@ -37,6 +37,7 @@ pub(super) struct Controller {
     pub(super) runtime: tokio::runtime::Handle,
     pub(super) epoch: AtomicU64,
     pub(super) model: Mutex<PanelModel>,
+    pub(super) http_credentials: Mutex<http_credentials::PanelState>,
 }
 
 impl Controller {
@@ -86,6 +87,7 @@ pub(super) fn install_callbacks(
         state,
         runtime,
         epoch: AtomicU64::new(0),
+        http_credentials: Mutex::new(http_credentials::PanelState::default()),
         model: Mutex::new(PanelModel {
             pending: None,
             selected_extension: None,
@@ -102,16 +104,22 @@ pub(super) fn install_callbacks(
     register_management_callbacks(ui, &controller);
     register_invocation_callbacks(ui, &controller);
     register_form_callbacks(ui, &controller);
+    http_credentials::install_callbacks(ui, &controller);
 }
 
 fn register_management_callbacks(ui: &LauncherWindow, controller: &Arc<Controller>) {
     let weak = ui.as_weak();
     let host = Arc::clone(controller);
-    ui.on_extensions_requested(move || management::refresh(&host, weak.clone()));
+    ui.on_extensions_requested(move || {
+        http_credentials::clear(&host, &weak);
+        management::refresh(&host, weak.clone());
+    });
 
+    let weak = ui.as_weak();
     let host = Arc::clone(controller);
     ui.on_extensions_closed(move || {
         host.cancel_command();
+        http_credentials::clear(&host, &weak);
         lock(&host.model).pending = None;
     });
 

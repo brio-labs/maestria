@@ -319,10 +319,35 @@ It checks the six actual Debian archives, real source/payload differences,
 installed upgrade/rollback/re-upgrade consumers, capture inventory and owned
 cleanup without executing products or reading private profiles/SQLite/network.
 Current-source Wayland, physical monitor/suspend, full screen-reader,
-reduced-motion and installed credential-provider qualifications remain open;
+reduced-motion and remote HTTP credential-provider qualifications remain open;
 Shadow, draft PR #516 and qualification false are unchanged.
 
 
+### Installed local provider grant evidence
+
+The #550 installed lifecycle passed 32 native observations on canonical Debian
+`0.0.1+provider.1`. Only search was rebuilt; launcher and worker payloads remain
+the earlier independently inspected native binaries. Actual read-only owner
+review preceded each explicit issuance. SDK search/copy, exact-root controls,
+different-consumer denial, search-only evidence-open denial, absence/restart,
+independent extension disable/permission revoke, owner revoke, natural
+20-second expiry and freshly reviewed renewal all passed.
+
+The approved policy was search-only, Internal sensitivity, one exact root,
+two results and 4096 evidence bytes. Local ingestion retains its existing
+Internal classification; no synthetic document was reclassified to bypass it.
+The launcher grant remained independent and active during extension checks.
+
+Separate immutable supplement:
+`~/.local/share/sillage-release-evidence/extension-provider-packaged-result-first/`.
+Run `verify-extension-provider-result.py` with that directory as its sole
+argument. Its 28-file seal passed a read-only-mounted run without product
+execution, network, SQLite or private profile access. Only the directly
+inspected final owner-revoked native denial pair is included; no approval or
+successful passage captures, fixtures, raw audits or credential identifiers.
+All ten earlier preparation/runtime first outcomes remain preserved and no
+closed scope was replayed. Extension disable/revoke does not qualify
+launcher Document Search Disable or independently administered-provider shutdown.
 Preset extension form entries can expose an AT-SPI Entry role without a Text
 interface, including after focus. Native keyboard editing still works. The
 installed harness reads actual selected input through Ctrl+A/C and restores
@@ -331,6 +356,38 @@ default. This is not full screen-reader qualification. Dynamic extension
 status, notices, permissions, details, removal identities and pending-worker
 messages expose their actual content as accessibility labels with stable
 semantic descriptions.
+
+### Host-owned HTTP credentials and Secret Service vault binding
+
+The #551 installed lifecycle verified host-owned HTTP credential integration across
+45 native observations on canonical Debian `0.0.1+http.1`: freshly built
+`sillage-launcher` and `sillage-extension-worker`, with unchanged `sillage-search`.
+
+#### Operating constraints
+
+1. **Existing Secret Service facility**: The host must provide an active user Secret
+   Service implementation (e.g. GNOME Keyring) with an unlocked default collection.
+   The launcher never prompts for master passwords, creates or unlocks keyrings,
+   discovers unassociated application passwords, or falls back to plaintext storage.
+   Missing or locked vaults fail closed with an explicit error view.
+2. **Bearer-only authorization**: Only `Authorization: Bearer` is supported. Workers
+   receive an opaque handle referencing host metadata; secret bytes are never
+   returned to extension sandboxes. Unsupported schemes fail strictly at the worker.
+3. **Scope and identity binding**: Every grant binds extension ID, validated package
+   SHA-256, canonical HTTPS origin without trailing slash, method, exact path, and
+   expiry TTL. Updating an extension package invalidates previously authorized handles.
+4. **Network controls**: Requests enforce public IP validation, DNS pinning, strict
+   redirect rejection (redirects are never followed), response size ceilings (16 KiB),
+   and direct raw-token reflection rejection using native TLS roots exclusively.
+
+Separate immutable supplement:
+`~/.local/share/sillage-release-evidence/http-credential-packaged-result-first/`.
+Run `verify-http-credential-result.py` with that directory as its sole argument.
+Its 30-file seal passed read-only verification without product execution, network,
+SQLite, or private profile access. Only the directly inspected revoked-denial
+capture pair is exported; no credentials, live handles, raw audits, or secret bytes.
+All runtime first outcomes remain preserved without replay. This does not qualify
+desktop Wayland, multi-monitor/suspend, or aggregate release gates.
 
 
 ### UI-only first-run document search
@@ -625,11 +682,17 @@ INSTANCE="$HOME/sillage-search"
 CREDENTIAL="$HOME/.config/sillage/search-client.key"
 (umask 077; mkdir -p "$(dirname "$CREDENTIAL")")
 consumer_realm="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
-sillage-search owner grant create-external --instance-dir "$INSTANCE" \
-  --consumer-realm "$consumer_realm" --credential-file "$CREDENTIAL" \
-  --access search-and-open-evidence --max-sensitivity internal \
-  --read-root "$READ_ROOT" \
+grant_policy=(
+  --instance-dir "$INSTANCE" --consumer-realm "$consumer_realm"
+  --access search-and-open-evidence --max-sensitivity internal
+  --read-root "$READ_ROOT"
   --max-results 5 --max-evidence-bytes 4096 --expires-in-seconds 86400
+)
+sillage-search owner grant review-external "${grant_policy[@]}" \
+  --consumer-label "Headless search client"
+# Inspect provider, exact roots, access, bounds and TTL before approving.
+sillage-search owner grant create-external "${grant_policy[@]}" \
+  --credential-file "$CREDENTIAL"
 stat -c '%a %n' "$CREDENTIAL" # The credential file must be mode 600.
 ```
 
@@ -642,6 +705,24 @@ listed in a grant. Search passages, filename-only paths, evidence opens and
 consumer indexing inventory are limited to the granted roots before content
 I/O. Provider observer progress still describes the entire provider.
 Each grant is bounded to 64 roots and 8 KiB total root-path bytes.
+
+`review-external` is a read-only owner operation: it checks current approved
+roots and existing consumer grants but creates no grant or credential. Its
+output omits realms, grant digests and credential paths. The required public
+consumer label is display metadata, not authorization identity; for an
+extension, use its reviewed extension identifier. Expiry is explicitly a TTL
+starting at the subsequent owner creation action, not an absolute timestamp
+bound during review. Reuse the same explicit root set and policy arguments for
+creation; do not omit roots and silently approve a changed provider inventory.
+Creation rechecks current authorization and may fail if provider state changed.
+
+For renewal, revoke any unrevoked old grant, run a fresh review and explicitly
+create the newly approved grant. Extension permission and provider-owner grants
+remain independent: extension disable/revoke does not revoke the separately
+owned provider grant, and owner grant revoke denies later provider requests
+without uninstalling the extension. This local-provider boundary is
+[#550](https://github.com/brio-labs/maestria/issues/550), not the remote HTTP
+credential work in [#551](https://github.com/brio-labs/maestria/issues/551).
 
 Pre-v18 grants retain legacy **all currently approved roots** semantics,
 including roots added later. `owner grant list` labels them

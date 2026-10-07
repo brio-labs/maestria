@@ -25,6 +25,22 @@ pub enum HttpMethod {
     Post,
 }
 
+/// Supported HTTP authentication scheme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HttpAuthenticationScheme {
+    Bearer,
+}
+
+/// References a host-managed bearer credential without carrying secret bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HttpAuthentication {
+    pub scheme: HttpAuthenticationScheme,
+    /// Opaque, non-secret random grant reference (1–128 printable ASCII bytes).
+    pub handle: String,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum StorageOperation {
@@ -49,6 +65,8 @@ pub enum CapabilityRequest {
     Http {
         url: String,
         method: HttpMethod,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        authentication: Option<HttpAuthentication>,
         #[serde(default)]
         body: Option<String>,
     },
@@ -173,6 +191,12 @@ pub fn validate_capability_request(request: &CapabilityRequest) -> Result<(), Pr
         {
             Err(ProtocolError::Invalid("HTTP request bounds"))
         }
+        CapabilityRequest::Http {
+            authentication: Some(authentication),
+            ..
+        } if !valid_http_authentication_handle(&authentication.handle) => {
+            Err(ProtocolError::Invalid("HTTP authentication handle bounds"))
+        }
         CapabilityRequest::Storage { key, value, .. }
             if !valid_key(key) || value.as_ref().is_some_and(|value| !bounded(value, 16_384)) =>
         {
@@ -204,6 +228,12 @@ pub fn validate_capability_request(request: &CapabilityRequest) -> Result<(), Pr
         }
         _ => Ok(()),
     }
+}
+
+fn valid_http_authentication_handle(handle: &str) -> bool {
+    !handle.is_empty()
+        && handle.len() <= 128
+        && handle.bytes().all(|byte| (0x20..=0x7e).contains(&byte))
 }
 
 pub(super) fn validate_capability_response(

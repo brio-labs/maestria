@@ -1,7 +1,7 @@
 use sillage_extensions::{
     CapabilityError, CapabilityFailure, CapabilityRequest, CapabilityResponse, CapabilitySuccess,
-    GrantError, HttpMethod, InvocationOrigin, OpenRequestTarget, Permission, StorageOperation,
-    authorize,
+    GrantError, HttpAuthentication, HttpAuthenticationScheme, HttpMethod, InvocationOrigin,
+    OpenRequestTarget, Permission, StorageOperation, authorize,
 };
 
 use super::{
@@ -38,8 +38,20 @@ impl CapabilityBroker {
                 selection_id,
                 max_bytes,
             } => self.user_file_read(request, selection_id, *max_bytes),
-            CapabilityRequest::Http { url, method, body } => {
-                self.http(request, url, *method, body.as_deref()).await
+            CapabilityRequest::Http {
+                url,
+                method,
+                authentication,
+                body,
+            } => {
+                self.http(
+                    request,
+                    url,
+                    *method,
+                    authentication.as_ref(),
+                    body.as_deref(),
+                )
+                .await
             }
             CapabilityRequest::Storage {
                 operation,
@@ -113,11 +125,48 @@ impl CapabilityBroker {
     async fn http(
         &self,
         request: &CapabilityRequest,
-        url: &str,
+        raw_url: &str,
         method: HttpMethod,
+        authentication: Option<&HttpAuthentication>,
         body: Option<&str>,
     ) -> CapabilityResponse {
-        match network::request(url, method, body).await {
+        let url = match network::parse_url(raw_url) {
+            Ok(url) => url,
+            Err(_) => {
+                return failure(
+                    request,
+                    CODE_INVALID_REQUEST,
+                    "The HTTP destination must be a bounded HTTPS URL without embedded credentials.",
+                );
+            }
+        };
+        let secret = if let Some(authentication) = authentication {
+            let Some((package_sha256, store)) = &self.context.http_credentials else {
+                return failure(
+                    request,
+                    CODE_UNAVAILABLE,
+                    "Host-owned HTTP credential storage is not configured.",
+                );
+            };
+            match authentication.scheme {
+                HttpAuthenticationScheme::Bearer => match store
+                    .resolve(
+                        &self.context.extension_id,
+                        package_sha256,
+                        &authentication.handle,
+                        &url,
+                        method,
+                    )
+                    .await
+                {
+                    Ok(secret) => Some(secret),
+                    Err(error) => return failure(request, error.code(), &error.to_string()),
+                },
+            }
+        } else {
+            None
+        };
+        match network::request(url, method, body, secret.as_ref()).await {
             Ok(response) => CapabilityResponse::Success(CapabilitySuccess::Http {
                 ok: true,
                 status: response.status,

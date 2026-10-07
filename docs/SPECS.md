@@ -12,7 +12,9 @@ Durable architecture is split by responsibility:
 - [SECURITY.md](SECURITY.md): scope, trust, taint, secrets, and prompt-injection boundaries;
 - [OPERATIONS.md](OPERATIONS.md): runtime lifecycle, recovery, and projection rebuilds;
 - [ROADMAP.md](ROADMAP.md): the single canonical product roadmap;
-- [RESEARCH.md](RESEARCH.md): dated, non-normative evaluation candidates.
+- [RESEARCH.md](RESEARCH.md): dated, non-normative evaluation candidates;
+- [ORCHESTRATION.md](ORCHESTRATION.md): execution ownership, assignment, evidence, and stop/closure procedure; no product priority;
+- [ADR-0011](adr/ADR-0011-source-retention-public-api.md): adopted source-retention and public-version doctrine; implementation pending.
 
 `PHILOSOPHY.md` is the enforceable repository doctrine. This ledger defines the
 invariants that implementation and verification must preserve.
@@ -25,7 +27,7 @@ invariants that implementation and verification must preserve.
 | `I-Domain-NoPanic` | Domain production code returns typed errors or failure states; it must not use `panic`, `unwrap`, or `expect`. |
 | `I-Domain-ValidStates` | Domain values make known invalid state combinations unrepresentable: exclusive states carry their payloads in enum variants, validated values and meaningful identities have distinct types, boundary conversion owns runtime validation, and state-dependent operations use exhaustive typed transitions or justified typestate. |
 | `I-Effect-Explicit` | Every side effect is represented as a `SillageEffect`; runtime/adapters execute effects outside the domain. |
-| `I-Event-AuditTrail` | State changes emit append-only domain events. Replaying the event log must deterministically reconstruct exact KernelState, rejecting duplicate/invalid events. |
+| `I-Event-AuditTrail` | Important domain state changes emit append-only events and replay reconstructs exact KernelState. This does not require a durable event for each search or a persistent query history; search traces follow source-retention policy. |
 | `I-Evidence-Immutable` | Evidence is immutable and points to stable source spans, snapshots, blobs, command logs, diffs, tests, or validation reports. |
 | `I-Evidence-Provenance` | Claims, memories, task reports, and answers cite evidence IDs and source provenance. |
 | `I-Ingestion-Idempotent` | Reindexing unchanged content produces no duplicate artifacts, chunks, evidence, or events; incomplete ingestion can be retried without falsely reporting completion. |
@@ -45,32 +47,110 @@ invariants that implementation and verification must preserve.
 | `I-DTO-Boundary` | Domain type, database row, API response, and harness payload are separate boundary objects. |
 | `I-Dependency-Layered` | Kernel crates cannot depend on heavyweight adapter/provider/runtime crates. |
 | `I-Search-TypedBudgeted` | Search plans and outcomes are typed boundary values carrying scope, freshness, modalities, stages, budgets, stop conditions, and evidence requirements. |
-| `I-Search-TraceFingerprint` | Every search trace identifies the query, corpus snapshot, index generation, retrieval-model fingerprint, stages, filters, and stop reason. |
+| `I-Search-TraceFingerprint` | A runtime trace identifies query and retrieval context (corpus snapshot, index generation, model fingerprint, stages, filters, budgets, stop reason) during its authorized lifetime; traces are ephemeral by default and do not persist query/path/content/catalogue data in a no-document-persistence scope. |
 | `I-Search-SecurityBeforeScore` | Scope, ACL, trust, sensitivity, quarantine, and prompt-injection checks run before candidate scoring or exposure. |
 | `I-Search-Evaluated` | Retrieval changes are evaluated against a versioned corpus and judgment set under quality, latency, memory, privacy, security, and energy budgets. |
+| `I-Source-PolicyAxes` | Scope, execution place, timing, documentary retention, representation, and budgets are independent per-source choices; preferences and grants are control state, and local consent never implies remote authorization. |
+| `I-Source-NoDocumentPersistence` | When selected, no Sillage-controlled store persists the source's query, document paths, discovered-file catalogue, content, derivatives, or query-linked trace. An approved-root preference or grant may persist only as separately chosen control state; OS and external-service limits are named. |
+| `I-Source-Retirement` | Pause, disable, or retirement does not mean purge. Purge is separate, explicit, and governed; where required, removal and its verification consequence are explicit without silently rewriting append-only history. |
+| `I-API-VersionTransition` | Public protocol negotiation is intentional and versioned; a dated bounded transition requires a separately approved ADR and removal criterion. Internal changes are clean cutovers; permanent aliases and shims are prohibited. |
+| `I-Platform-Qualification` | Linux, Windows, and macOS are mandatory product targets, but installed qualification is OS/configuration-specific; compilation or proof on another OS does not qualify a platform. |
 
 ## Planned Product Contract
 
 This subsection defines the target product contract, not a claim that every
-launcher or extension capability ships. The native launcher has a working
-slice; target ownership, query behavior, and
+launcher or extension capability ships. Sillage's core is a native retrieval
+launcher and reusable search boundary; generation and chat are optional
+clients/plugins. Local use does not require an account, model, or pre-existing
+document index. Declining preparation remains a useful bounded retrieval path,
+not an exhaustive instant semantic scan of the computer.
+
+Linux, Windows, and macOS are all mandated. Qualification is distinct from
+that target: existing Linux evidence is bounded to its named configurations
+and tasks; Windows and macOS remain unqualified. This section is the canonical
+objective/profile ledger ([`SPECS.md#mandated-product-objectives`](SPECS.md#mandated-product-objectives)).
+[`ORCHESTRATION.md`](ORCHESTRATION.md) is the execution-only ticket crosswalk;
+it does not define acceptance or completion profiles. The launcher and
 process boundaries are defined in
-[`ARCHITECTURE.md`](ARCHITECTURE.md#target-product-architecture) and the
-planned extension threat model is defined in
+[`ARCHITECTURE.md`](ARCHITECTURE.md#target-product-architecture), and the
+planned extension threat model is in
 [`SECURITY.md`](SECURITY.md#planned-extension-threat-model).
 
-The canonical product milestones and their exit criteria are in
-[`ROADMAP.md`](ROADMAP.md): Desktop Launcher, Extension Platform, Semantic
-File Search, and First Product Release. The launcher milestone is in progress;
-the remaining three are planned. Old retrieval reports do not satisfy their
-exit criteria.
+Source policies keep scope, execution place, computation timing, documentary
+retention, representation, and resource budgets independent per source. A
+source choice is not one indivisible profile: a local source may be searched
+on demand without a durable index, and representation choice does not silently
+change source scope. Approved-root preferences and provider/consumer grants are
+control state, distinct from document content; their persistence requires a
+separate explicit choice, and session-only control is available. Local approval
+does not authorize remote disclosure.
 
-Notebook, task, validation, approval, and memory behavior remains part of the
-supporting existing subsystems described by this ledger. The extension
-package, SDK, broker, worker, and sandbox controls are target review
-requirements pending implementation and adversarial verification. This ledger
-does not claim mechanically enforced extension invariants, publish SDK
-exports, or alter the Rust domain contracts below.
+When a no-document-persistence choice applies, Sillage-controlled stores must
+not retain that source's query, document paths, discovered-file catalogue,
+content, derivatives, temporary copies, caches, or query-linked traces.
+Approved-root or grant control state may persist only when its separate
+retention choice allows it. Traces are ephemeral by default. Ordinary
+telemetry export is opt-in; evidence for a voluntary experiment requires
+separate consent and purpose. OS caches, swap, external-provider logs, and
+backups outside Sillage's control are named limitations, not permission to
+leave data in controlled stores.
+
+Pause, disable, retirement, and purge are distinct. Retirement stops serving a
+representation but does not erase it. Purge is an explicit, separately
+authorized retention action; where deletion is required, removal and its
+verification consequence are explicit without silently rewriting append-only
+domain events. A refusal to index or persist does not promise exhaustive
+coverage: report search scope, depth, stop reason, and partial coverage so that
+no result is not misrepresented as proof that nothing exists.
+
+The canonical product milestones and current exit criteria/status are in
+[`ROADMAP.md`](ROADMAP.md), the sole product-priority authority; this
+specification does not maintain a second schedule.
+
+The current Linux source includes extension SDK/callbacks, brokered capability
+dispatch, installed-bundle loading, and sandboxed-worker execution paths.
+Complete target-contract details and adversarial security, native/OS, and
+installed-product qualification remain pending. These source paths are evidence
+of implementation, not proof of target-contract compliance or release
+qualification. This specification does not claim all extension invariants are
+mechanically enforced, publish SDK exports, or invent exact API/wire schemas.
+
+## Mandated Product Objectives
+
+This is the canonical acceptance matrix for the 18 objectives in the adopted
+mandate. It records required outcomes and evidence, not implementation status.
+The static audit and kit do not qualify these objectives; current delivery
+status belongs to [`ROADMAP.md`](ROADMAP.md) and linked GitHub issues. An
+intermediate lexical release must satisfy all criteria applicable to its
+shipped OS and path, including lexical relevance, rights, budgets, packaging,
+and UX. It does not close the full product/mandate and requires no neural
+promotion.
+
+| ID | Required outcome and evidence | Completion profile |
+|---|---|---|
+| OBJ-01 | Open-source native launcher; evidence of an installed package, applications and commands usable offline, and observed process tree/dependencies. No account, model, or pre-existing index prerequisite for local use. | Full product |
+| OBJ-02 | Keyboard-first palette; native tasks demonstrate stable selection, source preview/action, IME, themes, zoom, and screen-reader accessibility on each claimed OS. | Full product |
+| OBJ-03 | Find and open the intended source and passage using held-out tasks; bind preview to source/version/location, report exact opening or explicit fallback, and report errors in the denominator. | Full product |
+| OBJ-04 | Per-source choices for existing, on-demand, manual, authorized background, or team preparation; persist choices only as selected and offer session scope; test refusal and choice changes. | Full product |
+| OBJ-05 | Test all Sillage-controlled destinations, including temporary copies and caches, for absence of query, document path/content, discovered-file catalogue, and derivatives after session/crash; document OS/external limits. Approved-root/grant control state is separately chosen. | Full product |
+| OBJ-06 | Measure during typing, compilation, battery use, and low disk; prove pause/resume/cancel, throughput and partial coverage, saturation handling, and reconciliation within interactive and CPU/battery/I/O/RAM/disk budgets. | Full product |
+| OBJ-07 | Demonstrate representation migration A→B, interruption and resumption, conditional rollback, revocation/deletion during migration, and preservation of approved APIs/preferences. | Full product |
+| OBJ-08 | Installed external client performs search, provenance, read, and cancellation without Slint or generation dependence; errors and versions are documented. | Full product |
+| OBJ-09 | Demonstrate real install/activation/removal/revocation, isolated worker, declarative UI, proven denied access, and extension-failure containment without launcher loss. | Full product |
+| OBJ-10 | Record an OS/version/architecture/package matrix and run installed native user tasks on Linux, Windows, and macOS; a stub or cross-OS compilation is not qualification. | Full product |
+| OBJ-11 | Revalidate authorization/freshness at retrieval, preview, read/release, and action; a known revocation invalidates results, extracts, caches, graphs, and generations, while offline rules/detection delays are displayed. | Full product |
+| OBJ-12 | Preserve without omission or weakening every applicable target from ROADMAP's complete `Initial performance and quality acceptance targets` block at the audited SHA; verify hot/cold, latency, memory, CPU, corpus, interactions, paraphrases, and rights. Keep the internal 100 ms deadline distinct; unavailable measurements cannot pass. | Full product |
+| OBJ-13 | A non-specialist completes the authorized-source → policy → rights-test → search → reusable-excerpt path without coding or putting administrative keys in the client. | Full product |
+| OBJ-14 | Compare optional retrieval by task class against faithful baselines and budgets; unqualified methods remain disabled and lexical success needs no neural promotion. | Research readiness |
+| OBJ-15 | Link errata to original claims; verify exact SHAs and artifact availability; preserve negative outcomes and closed scopes; prohibit replay. | Full product and research readiness |
+| OBJ-16 | For each claimed experiment, retain the protocol, corpus, all attempts, identities, costs/status, measurement state, and resolvable artifacts; preserve v1 history and actually validate v2. | Full product and research readiness |
+| OBJ-17 | For a separately authorized campaign, define a falsifiable question; include negative results, reviewer-regenerated tables, limitations, and licenses; assign no badge or publication automatically. | Conditional research package |
+| OBJ-18 | Close against the integrated revision and explicitly chosen profile with actual CI/package evidence; cover its objectives, expose gaps, hide no blocker in a `done` status, and distinguish intermediate release from the full mandate. | Full product |
+
+Full mandate completion requires the full-product and research-readiness
+profiles. OBJ-17 is conditional on an independently authorized campaign.
+[`ORCHESTRATION.md`](ORCHESTRATION.md) maps these IDs to the kit's proposed
+ticket keys and existing issue work without setting status or priority.
 
 ## Bootstrap Books
 
@@ -120,7 +200,12 @@ exports, or alter the Rust domain contracts below.
 
 ## Durable Local Indexing Slice
 
-The local MVP now treats file evidence as immutable source-backed data:
+This section describes the existing durable local-indexing contract only when
+the source policy explicitly selects prepared persistence. It does not make an
+index mandatory, define on-demand mode, or weaken the no-document-persistence
+requirements above.
+
+For that selected durable profile, the local MVP treats file evidence as immutable source-backed data:
 
 - file-span evidence may reference an immutable blob snapshot;
 - snapshot hashes are verified before search hits or opened evidence are returned;

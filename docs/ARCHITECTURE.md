@@ -2,11 +2,14 @@
 
 ## 1. Purpose and Scope
 
-Sillage's target product is an open-source, Linux-first keyboard launcher and
-extension platform with local semantic search. The current build includes a
-focused native Linux launcher and a governed runtime for maintaining auditable
-domain state from source observations, evidence, claims, memory, decisions,
-tasks, and validation results.
+Sillage's target product is an open-source native retrieval launcher and
+reusable retrieval API for Linux, Windows, and macOS. Its core user path is
+explicit search, authorized results, a source-grounded preview, and an explicit
+action; generation and chat are optional plugin or API-client capabilities.
+Local use does not require an account, model, or pre-existing document index.
+The current build includes a focused native Linux launcher and a governed
+runtime for maintaining auditable domain state from source observations,
+evidence, claims, memory, decisions, tasks, and validation results.
 
 This document defines:
 
@@ -21,12 +24,16 @@ This document defines:
 - evidence and validation invariants;
 - DTO and persistence rules.
 
-The native Linux launcher is a current application crate. Daemon-backed
-launcher file search, the extension manager, broker, and isolated workers remain
-target boundaries rather than shipped functionality. This document does not
-replace the normative
-requirements in [`docs/SPECS.md`](SPECS.md) or the design principles in
-[`docs/PHILOSOPHY.md`](PHILOSOPHY.md).
+The native Linux launcher and extension SDK/callbacks, installed-bundle
+loading, brokered capability dispatch, and sandboxed-worker execution paths
+exist in source. Their existence is not qualification of the full extension
+target contract, its security controls, or installed-product behavior.
+Daemon-backed file search through the launcher and native Windows/macOS
+support remain product targets. Extension security, native, and product
+qualification remain pending. Existing Linux evidence is bounded
+to named configurations and tasks; Windows and macOS remain unqualified. This
+document does not replace the normative requirements in [`docs/SPECS.md`](SPECS.md)
+or the design principles in [`docs/PHILOSOPHY.md`](PHILOSOPHY.md).
 
 Specific storage engines, search indexes, models, parsers, GUI libraries, JavaScript
 engines, and harness implementations are replaceable until benchmarked against
@@ -36,17 +43,32 @@ Sillage's versioned evaluation sets.
 
 ## 2. System Identity
 
-Sillage's product center is a resident keyboard launcher that makes explicit
-local actions fast: application and command discovery, safe calculations,
-file search, open/copy actions, and capability-scoped extensions. Local
-semantic search enriches deterministic results when its configured provider
-and index are available.
+Sillage's product center is a native retrieval launcher and reusable search
+boundary. It makes explicit local actions fast: application and command
+discovery, safe calculations, source-scoped retrieval, a sourced preview, and
+open/copy actions. Generation and chat may be provided by optional plugins or
+API clients; neither is the required search response.
+
+The installed local path must remain useful without an account, model, or
+pre-existing index. Declining preparation leaves bounded retrieval available;
+it does not promise an exhaustive, instantaneous semantic scan of the computer.
+Search status and coverage distinguish a bounded or incomplete result from a
+claim that no matching source exists.
 
 The current build provides a native Linux launcher with application discovery,
 host commands, calculations, selected-file actions, and X11/Wayland shortcut
-integration. It also provides a CLI, authenticated daemon, browser-hosted Studio,
-and retrieval, indexing, evidence, task, memory, and ACP infrastructure. The
-launcher does not yet integrate daemon-backed file search or an extension runtime.
+integration. It also provides a CLI, authenticated daemon, browser-hosted
+Studio, and retrieval, indexing, evidence, task, memory, and ACP infrastructure.
+Source also includes the extension SDK/callbacks, installed-bundle loading,
+sandboxed-worker launch, and brokered capability dispatch. The launcher does
+not yet integrate daemon-backed file search. These source paths do not establish
+security, native, or installed-product qualification for the full extension
+contract. Linux evidence is limited to its recorded configurations and tasks;
+Windows and macOS are mandatory targets but remain unqualified. The canonical
+objective/profile authority is
+[`SPECS.md#mandated-product-objectives`](SPECS.md#mandated-product-objectives);
+[`ORCHESTRATION.md`](ORCHESTRATION.md) provides the execution-only ticket
+crosswalk, and [`ROADMAP.md`](ROADMAP.md) provides live product status.
 
 The architecture retains four concerns:
 
@@ -113,13 +135,14 @@ The following boundaries are logical contracts. Crate names may change without c
 
 ### 4.1 Current Runtime Ownership
 
-The current build includes a native Linux launcher but no general extension
-runtime. The launcher owns its resident window, application catalog, shortcut
-integration, and accepted action IDs. The daemon owns instance state,
-authorization, file indexing, retrieval,
-projection generations, and supervised work behind the authenticated per-instance
-Unix socket. Its warm retrieval service is the reuse boundary for clients;
-callers must not assemble a second retrieval engine.
+The current build includes a native Linux launcher and the extension execution
+paths described above. Their full target security and installed-product
+qualification remain pending. The launcher owns its resident window,
+application catalog, shortcut integration, and accepted action IDs. The daemon
+owns instance state, authorization, file indexing, retrieval, projection
+generations, and supervised work behind the authenticated per-instance Unix
+socket. Its warm retrieval service is the reuse boundary for clients; callers
+must not assemble a second retrieval engine.
 
 Studio is browser-hosted and is a stateless proxy to the daemon. ACP profiles
 and compiled Rust adapter traits are external-agent or internal adapter
@@ -146,32 +169,99 @@ worker-level cancellation and independent termination of non-cooperative code.
 | Studio server | Browser-facing HTTP: UI assets, REST shape, origin/bearer checks; stateless proxy to the daemon socket | Durable state, database access, capability authority (ADR-0010) |
 | Daemon | Typed socket API with token auth and scope enforcement; no network transport | HTTP/browser serving, static assets (ADR-0010) |
 
+ADR-0009 (retrieval audit retirement) and ADR-0010 (Studio proxy topology)
+remain **Proposed**, with approval and their stated decision scope pending.
+Existing runtime behavior does not change either status. This architecture
+does not imply that documentary adoption approved or implemented their
+proposals. ADR-0011 records separate source-retention and API-transition
+doctrine, with implementation pending.
+
 ## Target Product Architecture
 
 The target architecture is specified as logical process and ownership
-boundaries. Some launcher components exist today; daemon-backed launcher file
-search and extension components are still target contracts.
+boundaries. Linux, Windows, and macOS are all required product targets, but
+support qualification is OS- and configuration-specific. Existing Linux
+evidence is bounded to its named tasks; Windows and macOS remain unqualified.
 
 | Component | Target ownership |
 |---|---|
 | Native resident launcher | Transient window, keyboard navigation, focus/dismissal, host-rendered results, app catalog and shortcut integration; no model inference or index writes on its UI thread |
-| Existing daemon/runtime | Single owner of instance state, authorization, file indexing, retrieval, projection generations, and supervised work |
+| Existing daemon/runtime | Composition and execution owner for authorized retrieval, instance state, prepared indexing, and persistent projection generations; no second retrieval engine |
 | Desktop action adapter | Governed app/file opening and copy actions; correct desktop-entry argument handling, never shell interpolation |
 | Extension manager and broker | Package/version identity, installation, grants, lifecycle, typed host requests, and per-extension storage namespaces |
 | Isolated extension workers | Execute bundled JavaScript, emit declarative views, receive cancellation, and request capabilities through the broker; no database, instance token, or internal domain access |
 | Existing Studio/ACP | Secondary browser/agent surfaces; neither becomes the launcher or general extension API |
+| Native OS integration | Platform-specific launcher activation, app/action integration, packaging, and user experience under each OS's native security and permission model |
 
 Native means a desktop-integrated resident window, not a browser tab. These
-ownership boundaries do not mandate a GUI library or JavaScript engine.
-Implemented launcher behavior and planned integrations are distinguished in the
-canonical roadmap. The normative architecture remains model- and
-backend-agnostic under Rule 45.
+ownership boundaries do not mandate a GUI library or JavaScript engine. The
+Sillage identity is canonical: the explicit no-alias/no-Maestria-migration
+cutover remains as recorded in
+[`ROADMAP.md`](ROADMAP.md#milestone-1-slint-launcher-and-native-experience);
+legacy scientific records and their historical identities remain unchanged
+under [`RESEARCH.md`](RESEARCH.md). Implemented behavior and planned
+integrations are distinguished in the roadmap. The normative architecture
+remains model- and backend-agnostic under Rule 45.
+
+### Source preparation, locality, and retention
+
+Source policy keeps scope, execution place, computation timing, documentary
+retention, representation, and resource budgets independent for each source.
+The selected profile is a visible combination, not a coupling that makes an
+index, model, or remote service mandatory. An on-demand source path remains
+bounded and useful without a pre-existing durable index; it is not an
+exhaustive whole-PC semantic promise. Exact API types and wire schemas belong
+to versioned implementation specifications, not this architecture.
+
+Approved roots and consumer/provider grants are separate controls. Local
+approval does not imply a remote grant, data export, or broader scope. Empty
+scope denies. The current authorization and source version are revalidated
+before dispatch, read, result release, preview, and action. Coverage and stop
+reason remain explicit; no result from a partial scope does not prove that no
+source exists elsewhere.
+
+Preferences and grants are control state, not documentary content. Their
+persistence is separately chosen and disclosed; session-only control is
+available when the user's choice must not be remembered. If a source selects
+no document persistence, no Sillage-controlled store retains its query,
+document paths, discovered-file catalogue, content, derivatives, temporary
+copies, caches, or query-linked traces. An approved-root manifest or grant may
+persist only when its separately disclosed control-state retention choice
+allows it. This applies across indexes, logs, provider caches, crash/recovery
+state, and other application-controlled destinations; avoiding embeddings
+alone is insufficient.
+
+Search traces are ephemeral by default and do not become durable domain events
+merely to explain a search. Ordinary telemetry export is opt-in. A voluntary
+experiment has a separate consent and purpose; ordinary user sessions do not
+silently become research data. OS caches, swap, external-provider logs, and
+backups outside Sillage control are explicit limits, not permission to retain
+data in Sillage-controlled stores.
+
+Pause, disable, retirement, and purge are distinct. Retirement removes a
+representation from serving; it does not erase stored bytes or history. Purge
+is a separate, explicit, authorized retention action. Where policy requires
+deletion, remove the controlled artifact and make the resulting absence and
+verification limit explicit without silently rewriting append-only domain
+events.
+
+### Public API evolution
+
+Public retrieval versions may negotiate explicitly. A dated, bounded
+transition requires a separately approved ADR naming versions, scope,
+migration, end date, and removal criterion. This is not blanket permission for
+compatibility code; permanent aliases and shims remain prohibited. Internal
+API and persisted-representation changes use clean cutover. Exact APIs and wire
+schemas remain implementation-specification work under
+[`ADR-0011`](adr/ADR-0011-source-retention-public-api.md).
 
 ### Query and interaction contract
 
 - Apps, registered commands, and calculations use a bounded deterministic path
-  independent of daemon or model availability. File search reuses the daemon's
-  warm retrieval service rather than assembling a second engine.
+  independent of daemon or model availability. Prepared retrieval reuses the
+  canonical warm retrieval service; on-demand retrieval uses the same governed
+  search boundary without requiring a pre-existing durable index or duplicate
+  engine.
 - File-name/path and lexical results appear before optional semantic
   enrichment. Semantic unavailability leaves usable deterministic results plus
   explicit provider/index status; it never starts a download or waits for
@@ -200,9 +290,21 @@ backend-agnostic under Rule 45.
   directory. Missing files and denied paths report errors; there is no
   implicit broader-scope retry.
 
+### Native platform qualification
+
+The product target includes installed native use on all three systems.
+Qualification names the tested OS version, architecture, package, and user
+tasks; portability or compilation is not qualification.
+
+| Operating system | Target | Evidence status |
+|---|---|---|
+| Linux | Native launcher, retrieval path, actions, and supported desktop integration | Existing evidence is bounded to the configurations and tasks recorded in [`ROADMAP.md`](ROADMAP.md). |
+| Windows | Native installed launcher and retrieval workflows | Unqualified. |
+| macOS | Native installed launcher and retrieval workflows | Unqualified. |
+
 ### Linux integration target
 
-The target integrates XDG desktop entries for applications and a
+The Linux target integrates XDG desktop entries for applications and a
 user-configurable shortcut. Use the Wayland global-shortcut portal where
 supported and X11 registration where applicable. If a compositor cannot grant
 a global shortcut, provide a documented compositor-configured binding to the
@@ -211,11 +313,13 @@ universal shortcut support. Failed or conflicting shortcut registration remains
 visible. Explicit onboarding may enable user-session startup; it does not
 silently change the existing CLI daemon lifecycle.
 
-## Extension Platform Contract
-
-The extension platform is a first-release requirement and a planned logical
-contract. No installable extension contract exists in the current build; this
-section does not describe ACP or compiled Rust adapter traits.
+The extension platform is a first-release requirement. The current Linux
+source contains extension callbacks, installed-bundle loading, sandboxed-worker
+launch, and capability dispatch; this establishes bounded source implementation,
+not the full target contract or its security/installed-product qualification.
+This section defines the target logical contract, not a claim that every listed
+invariant is implemented or qualified. It does not describe ACP or compiled
+Rust adapter traits.
 
 ### Package and SDK boundary
 
@@ -246,14 +350,16 @@ from the initial SDK.
 
 ### Broker, workers, and lifecycle
 
-Workers execute bundled JavaScript under an OS-enforced Linux isolation
-boundary with no ambient home-directory, daemon-socket, credential, or
-network access. Filesystem and network access go through the authenticated
-broker; package code is read-only and extension-local storage is
-extension-scoped. The future implementation must verify the sandbox before
-starting third-party code and refuse execution if it is unavailable. A
-subprocess alone or a JavaScript permission flag is not an adequate sandbox
-claim.
+Workers execute bundled JavaScript under an OS-enforced isolation boundary
+appropriate to the supported host platform, with no ambient home-directory,
+daemon-socket, credential, or network access. Filesystem and network access go
+through the authenticated broker; package code is read-only and extension-local
+storage is extension-scoped. The implementation must verify the sandbox
+before starting third-party code and refuse execution if it is unavailable.
+Existing Linux sandboxed-worker source paths do not establish adversarial or
+installed-product qualification. Isolation is qualified independently on Linux,
+Windows, and macOS; a subprocess alone or a JavaScript permission flag is not
+an adequate sandbox claim.
 
 Local bundles and explicit development directories are the first installation
 sources. Development code uses the same isolation and permission model. A
@@ -278,9 +384,10 @@ restart loop. Side-effectful commands are never automatically retried.
 
 Indexed text, model output, and extension output remain untrusted data.
 Extensions cannot modify policy, promote evidence, grant themselves
-capabilities, or obtain unrestricted instance bearer tokens. All isolation,
-broker, and lifecycle guarantees in this section are target requirements
-pending implementation and adversarial verification.
+capabilities, or obtain unrestricted instance bearer tokens. The source
+includes some extension execution paths on Linux; full target isolation, broker,
+and lifecycle guarantees remain unqualified and require adversarial review and
+installed-product verification on every supported OS.
 
 ---
 
@@ -513,6 +620,11 @@ pub struct SearchPlan {
 }
 ```
 
+The plan and its raw query are runtime execution data, not permission to
+persist a search history. Retention follows the selected source policy; a
+no-document-persistence scope keeps the query and linked trace out of every
+Sillage-controlled persistent store.
+
 A model may propose a plan. Runtime validates it against:
 
 - available capabilities;
@@ -559,8 +671,8 @@ Retrieval providers remain behind adapters. Search plans, outcomes, and traces a
 5. Conflicting and counterevidence results are surfaced, not silently collapsed.
 6. Top-k is a resource ceiling, not a completeness guarantee.
 7. Search may stop with incomplete evidence, conflict, or abstention.
-8. The trace records plans, rewrites, stages, scores, filters, expansions, budgets, and stop reasons.
-9. A search trace explains retrieval behavior but is not authoritative domain state.
+8. A runtime trace captures plans, rewrites, stages, scores, filters, expansions, budgets, and stop reasons for its authorized execution lifetime. It is ephemeral by default and cannot persist query, path, content, or catalogue data when the source policy forbids them.
+9. A trace explains retrieval behavior but is not authoritative domain state or a required append-only event for each search.
 
 Search implementations are replaceable until evaluated on Sillage’s versioned query set. No model name, public leaderboard, architecture diagram, or backend selection proves that retrieval works for Sillage.
 
@@ -568,7 +680,9 @@ Search implementations are replaceable until evaluated on Sillage’s versioned 
 
 ## 10. Document and Retrieval Projections
 
-Source material is preserved before it is projected into retrieval units:
+When retention is authorized, source material may be projected into retrieval
+units; this pipeline does not imply that source material or its derivatives
+must be stored:
 
 ```text
 source artifact
@@ -589,10 +703,12 @@ code module/symbol/test
 web heading/code block
 ```
 
-Nodes retain source offsets, coordinates, parentage, section paths, parser generation, modality, and content hashes.
+Nodes carry source offsets, coordinates, parentage, section paths, parser generation, modality, and content hashes during their authorized lifetime; persistent projections retain them only when source policy permits.
 
 There is no universal chunk size. Implementations may use structural chunks, summaries, propositions, symbols, table entries, visual regions, or other representations, provided each derived unit retains exact source lineage.
 
+These representation roles do not imply persistent storage. Documentary
+retention is controlled per source.
 Representations are distinct:
 
 ```text
@@ -610,6 +726,9 @@ Generated representations are rebuildable and never authoritative over raw evide
 ## 11. Adapters, Projections, and Index Generations
 
 Storage and retrieval systems are replaceable implementations of contracts.
+
+The logical stores below are optional categories, not a required persisted
+bundle; selected source policy determines which exist and what they may retain.
 
 Logical stores may include:
 
@@ -630,14 +749,16 @@ The architecture does not require a particular database, filesystem, search engi
 
 ### 11.1 Projection Rules
 
-- Metadata and current state are queryable through a storage contract.
-- Large immutable content is addressed by content hash.
+- Where persistent metadata is selected, current state is queryable through a storage contract.
+- Large immutable content is addressed by content hash only when documentary retention permits it.
 - Indexes and graph structures are projections.
 - Projections can be rebuilt from authoritative source state and snapshots.
 - Each index generation records corpus snapshot, schema, model, preprocessing, and representation fingerprints.
 - Activation is atomic.
-- Previous active generations remain available for rollback until validated.
+- Under a selected durable representation policy, the previous active generation remains available for rollback only as long as retention policy permits.
 - Old representations are never reinterpreted under a new fingerprint.
+- A source's representation is persisted only when its retention policy allows it; a no-document-persistence source creates no Sillage-controlled durable index, blob, catalogue, or query-linked trace.
+- Retirement removes a generation from serving eligibility but does not erase its records or bytes. Physical purge is a separate authorized retention action and must not be implied by retirement.
 
 Implementations are replaceable until benchmarked for quality, latency, resource use, correctness, migration, and recovery.
 
@@ -750,17 +871,23 @@ Harnesses:
 
 ## 15. Observability, Replay, and Evaluation
 
-The system records:
+Runtime observations may include:
 
-- transition journals;
-- domain events;
+- transition journals and append-only domain events for important state changes;
 - effect and adapter outcomes;
-- search traces;
+- ephemeral search traces for the authorized execution lifetime;
 - validation reports;
 - index and model fingerprints;
-- artifact and corpus snapshots;
+- artifact and corpus snapshots where the selected retention policy permits them;
 - policy decisions;
 - generation identifiers.
+
+Search traces are not domain events and are not durably retained by default.
+Ordinary telemetry export is opt-in; a voluntary experiment has separate
+consent and purpose. For a no-document-persistence source, no Sillage-controlled
+store may retain its query, document paths, content, discovered-file catalogue,
+derivatives, or query-linked trace. Approved-root or grant control state may
+persist only under a separate explicit retention choice.
 
 Given the same initial state and ordered `DomainInput` stream, domain replay must produce the same events and final state. Runtime timestamps and external outputs are replay inputs, not hidden reducer behavior.
 

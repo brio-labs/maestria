@@ -266,7 +266,76 @@ installed transition receipts, capture pairs and cleanup; no product execution,
 network, SQLite access or retrieval replay. Qualification remains false, `main`
 serves Shadow and PR #516 remains draft.
 
+#### Installed external local search grants
 
+The #550 private installed increment passed 32 native observations using the
+canonical Debian suite `0.0.1+provider.1`: freshly built `sillage-search`, with
+unchanged launcher/worker payloads from the earlier inspected producer. Actual
+owner `review-external` preceded each explicit grant creation. The scenario
+exercised SDK search and explicit copy, exact-root and different-consumer denial,
+search-only evidence-open denial, provider absence/restart, independent extension
+disable/permission revoke, owner revocation, natural 20-second expiry and fresh
+reviewed renewal. Grants explicitly approved Internal sensitivity for the
+existing local ingestion classification, two results and 4096 evidence bytes.
+
+One final owner-revoked denial XWD/PNG pair was directly inspected; no approval
+or successful passage image, credential identifier, raw audit or document
+fixture is exported. Ten earlier preparation/runtime first outcomes remain
+preserved, with wholly fresh inputs between scopes.
+
+```sh
+EVIDENCE="$HOME/.local/share/sillage-release-evidence/extension-provider-packaged-result-first"
+python3 "$EVIDENCE/verify-extension-provider-result.py" "$EVIDENCE"
+```
+
+The independently published 28-file seal passed verification mounted read-only,
+without product execution, network, SQLite or private profile access. Extension
+disable/revoke is not launcher Document Search Disable or qualification of
+independently administered-provider shutdown.
+
+
+#### Host-owned HTTP credentials and Secret Service vault binding
+
+The #551 private installed increment passed 45 native observations using the
+canonical Debian suite `0.0.1+http.1`: freshly built `sillage-launcher` and
+`sillage-extension-worker`, with unchanged `sillage-search` from the earlier
+inspected producer. Host-owned HTTP credential integration requires an existing,
+unlocked user Secret Service facility; the launcher never creates or unlocks
+vault collections, discovers foreign application credentials, or falls back to
+plaintext storage.
+
+Credential approval binds an exact extension ID, validated package SHA-256,
+canonical HTTPS origin, method, exact path, and expiry TTL. Extension workers
+receive only opaque host-issued handles (`{ scheme: "bearer", handle }`), never
+raw secret bytes. Unsupported schemes and malformed handles are rejected strictly
+at the worker parser. The host broker enforces DNS pinning, public-address
+policies, redirect rejection, response size limits (16 KiB), and direct
+raw-token reflection rejection using native TLS roots exclusively.
+
+The installed acceptance scenario verified:
+- Pre-approval scope review and masked host-only secret entry.
+- Fail-closed denials for locked and missing Secret Service states.
+- Authenticated HTTPS GET, POST, redirect (302, not followed), oversize, and
+  reflected-token responses against an owned synthetic TLS endpoint.
+- Strict denials for wrong origin, path, method, and HTTP downgrade attempts.
+- Re-rejection of previously authorized handles after extension package update.
+- Grant expiration enforcement and reviewed renewal replacing old handles.
+- Independent extension disable and permission revocation preserving active
+  host credentials and separate local search-provider grants.
+
+One safe revoked-denial XWD/PNG pair was directly inspected (706x760); no
+secret bytes, live grant references, derived realms, raw audits, or approval
+screens are exported. All earlier preparation and runtime first outcomes remain
+preserved without replay.
+
+```sh
+EVIDENCE="$HOME/.local/share/sillage-release-evidence/http-credential-packaged-result-first"
+python3 "$EVIDENCE/verify-http-credential-result.py" "$EVIDENCE"
+```
+
+The independently published 30-file seal passed verification mounted read-only,
+without product execution, network, SQLite, or private profile access. Desktop,
+hardware, and aggregate release gates remain open; qualification is false.
 #### UI-only document search
 
 Install both the launcher and `sillage-search` components; apps-only installs
@@ -566,10 +635,17 @@ sillage-search init --instance-dir ~/provider --read-root ~/Documents
 sillage-search start --instance-dir ~/provider
 # In a second terminal, generate a 64-character lowercase hexadecimal realm:
 consumer_realm="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
-sillage-search owner grant create-external --instance-dir ~/provider \
-  --consumer-realm "$consumer_realm" --credential-file ./search-client.key \
-  --access search-and-open-evidence --max-sensitivity internal \
-  --max-results 5 --max-evidence-bytes 4096
+grant_policy=(
+  --instance-dir ~/provider --consumer-realm "$consumer_realm"
+  --access search-and-open-evidence --max-sensitivity internal
+  --read-root ~/Documents --max-results 5 --max-evidence-bytes 4096
+  --expires-in-seconds 86400
+)
+sillage-search owner grant review-external "${grant_policy[@]}" \
+  --consumer-label "Headless search client"
+# Review the exact roots, policy and TTL before explicit owner approval:
+sillage-search owner grant create-external "${grant_policy[@]}" \
+  --credential-file ./search-client.key
 sillage-search search --socket-path ~/provider/system/daemon.sock \
   --consumer-realm "$consumer_realm" --credential-file ./search-client.key \
   --limit 5 "source-grounded phrase"
@@ -583,8 +659,10 @@ sillage-search interactive-search --socket-path ~/provider/system/daemon.sock \
 The provider's index has one owner; `start` uses the read-only profile without
 a model client, and installation does not start a service or enable autostart.
 Use `owner roots status|add|remove` to inspect or change approved read roots,
-`owner grant list|revoke` to inspect or revoke grants, and
-`indexing-status` to inspect live indexing freshness. A client without a
+`owner grant review-external` for a read-only scope/TTL preview before creation,
+`owner grant list|revoke` to inspect or revoke grants, and `indexing-status` to
+inspect live indexing freshness. The review label is required public display
+metadata, not authentication; expiry starts at explicit creation. A client without a
 matching, live grant is denied. In a disposable Ubuntu 24.04 container the
 apt-installed `/usr/bin/sillage-search` indexed Markdown, DOCX paragraphs and
 a text-bearing PDF, reported an image-only PDF as OCR-needed, and served

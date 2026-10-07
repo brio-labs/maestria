@@ -15,7 +15,10 @@ sillage-core = { path = "../../core/sillage-core" }
 sillage-domain.workspace = true
 sillage-extensions = { path = "../../ecosystem/sillage-extensions" }
 thiserror.workspace = true
-reqwest = { version = "=0.12.28", default-features = false, features = ["http2", "rustls-tls"] }
+bytes = "=1.12.1"
+getrandom = "=0.4.3"
+zeroize = "=1.9.0"
+reqwest = { version = "=0.12.28", default-features = false, features = ["http2", "rustls-tls-native-roots"] }
 url.workspace = true
 toml.workspace = true
 sha2.workspace = true
@@ -29,6 +32,9 @@ futures-util = "0.3"
 gio = "0.20"
 glib = "0.20"
 global-hotkey = "0.8"
+zbus = { version = "=5.19.0", default-features = false, features = ["tokio"] }
+
+[target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
 [build-dependencies]

@@ -184,6 +184,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "settings",
         "search_setup",
         "utilities",
+        "http_credentials",
         "autostart",
         "clipboard",
         "shortcuts",

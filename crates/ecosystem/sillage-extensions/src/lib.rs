@@ -23,8 +23,8 @@ pub use manifest::{
 pub use protocol::{
     Action, ActionRole, CapabilityError, CapabilityFailure, CapabilityRequest, CapabilityResponse,
     CapabilitySuccess, DetailBlock, FileSearchResult, FormField, FormValue, FormValues,
-    HostMessage, HttpMethod, ListItem, MAX_ACTIVE_REQUESTS_PER_COMMAND,
-    MAX_CAPABILITY_RESPONSE_BYTES, MAX_JSON_LINE_BYTES, OpenRequestTarget, PROTOCOL_VERSION,
-    PropertyRow, ProtocolError, SelectChoice, StorageOperation, View, WorkerMessage,
-    validate_capability_request, validate_view,
+    HostMessage, HttpAuthentication, HttpAuthenticationScheme, HttpMethod, ListItem,
+    MAX_ACTIVE_REQUESTS_PER_COMMAND, MAX_CAPABILITY_RESPONSE_BYTES, MAX_JSON_LINE_BYTES,
+    OpenRequestTarget, PROTOCOL_VERSION, PropertyRow, ProtocolError, SelectChoice,
+    StorageOperation, View, WorkerMessage, validate_capability_request, validate_view,
 };
