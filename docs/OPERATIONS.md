@@ -58,21 +58,39 @@ python3 scripts/generated-storage-maintenance.py guard \
 ```
 
 The defaults are a **15% high watermark**, **10% low watermark**, and **10%
-minimum filesystem-available capacity**. The watermark uses the entire target's
-apparent bytes, including current, pinned, leased, and unknown roots; apparent
-inventory is not safely reclaimable space. Capacity is measured from
-filesystem `statvfs` available bytes. Dry-runs report unchanged pre-maintenance
-capacity. After a triggered apply, the post-maintenance value is measured after
-the guard `fsync`s the target directory; apparent bytes removed do not promise
-an equal physical-capacity increase.
+minimum filesystem-available capacity**.
 
-No pruning occurs without explicit `--apply`. A complete, triggered dry-run
-exits 2 with `dry-run-maintenance-required`; an incomplete inventory or unsafe
-mount boundary blocks pruning. A triggered apply exits 0 only when the guard's
+For a complete inventory, the watermark uses the entire target's apparent-byte
+metric: regular-file `st_size` plus non-followed symlink pathname lengths
+across current, pinned, leased, and unknown roots. Known FIFO, socket,
+character-device, and block-device entries are reported separately as
+`retained_special_entry_count`; their unspecified `st_size` is not treated as
+apparent bytes, and they remain preserved. This metric is not physical or
+safely reclaimable space. Physical headroom uses filesystem `statvfs`
+available bytes. Dry-runs report unchanged pre-maintenance capacity. After a
+triggered apply, post-maintenance capacity is measured after the guard
+`fsync`s the target directory; apparent bytes removed do not promise an equal
+physical-capacity increase.
+
+No pruning occurs without explicit `--apply`. An unsupported inode type, mount
+boundary, or metadata-access failure in preflight blocks candidate discovery
+with exit 2 and `measurement-blocked`. Incomplete target totals are null; a
+separately labeled `known_apparent_bytes_lower_bound` is provided only when
+available, and `watermark_ok` is null rather than a pass. If inventory becomes
+incomplete after apply, completed prune/modify history and the measured
+post-`fsync` `statvfs` capacity remain in the report, but the result is still
+`measurement-blocked`. A complete, triggered dry-run exits 2 with
+`dry-run-maintenance-required`. A triggered apply exits 0 only when the guard's
 capacity and watermark gates pass; otherwise it exits 2 with the blocking
-status and preserved or skipped roots. Inspect that result rather than
-treating attempted deletion as reclaimed capacity. Unknown roots are not
-inferred as disposable, so unresolved pressure remains blocked.
+status and preserved or skipped roots. Unknown roots are not inferred as
+disposable, so unresolved pressure remains blocked.
+
+When ordinary permissions deny metadata traversal of an owned subtree, the
+guard remains measurement-blocked. An operator may choose an already
+owner-authorized UID/GID-mapped, read-only namespace for metadata-only
+inventory if that existing mapping grants traversal. The guard does not
+create mappings, elevate privileges, change modes or ownership, or infer
+pruning approval from this route; without it, `EACCES` remains blocking.
 
 Declare additional current roots with repeatable `--pinned-root` and live build
 inputs with `--lease-root`. `--cargo-target-root` authorizes only the
