@@ -44,6 +44,47 @@ operational evidence.
 | Memory candidates per instance | 1,024 max |
 | Concurrent harness effects | 4 (bounded by runtime worker pool) |
 
+### Generated target storage maintenance
+
+Before large producer or consumer operations, use
+`scripts/generated-storage-maintenance.py guard` to measure generated `target`
+storage. The invocation is read-only by default. Replace these example paths
+with the existing target directory and its current useful root:
+
+```bash
+python3 scripts/generated-storage-maintenance.py guard \
+  --target-root /absolute/path/to/target \
+  --current-root /absolute/path/to/target/current-useful-root
+```
+
+The defaults are a **15% high watermark**, **10% low watermark**, and **10%
+minimum filesystem-available capacity**. The watermark uses the entire target's
+apparent bytes, including current, pinned, leased, and unknown roots; apparent
+inventory is not safely reclaimable space. Capacity is measured from
+filesystem `statvfs` available bytes. Dry-runs report unchanged pre-maintenance
+capacity. After a triggered apply, the post-maintenance value is measured after
+the guard `fsync`s the target directory; apparent bytes removed do not promise
+an equal physical-capacity increase.
+
+No pruning occurs without explicit `--apply`. A complete, triggered dry-run
+exits 2 with `dry-run-maintenance-required`; an incomplete inventory or unsafe
+mount boundary blocks pruning. A triggered apply exits 0 only when the guard's
+capacity and watermark gates pass; otherwise it exits 2 with the blocking
+status and preserved or skipped roots. Inspect that result rather than
+treating attempted deletion as reclaimed capacity. Unknown roots are not
+inferred as disposable, so unresolved pressure remains blocked.
+
+Declare additional current roots with repeatable `--pinned-root` and live build
+inputs with `--lease-root`. `--cargo-target-root` authorizes only the
+`incremental` and `.fingerprint` cache children; `deps` and `build` outputs
+remain in place. An explicitly retired root via `--retired-root` is required
+to authorize whole-profile Cargo `deps`/`build` pruning. Any relevant Cargo
+locks are acquired and revalidated before each destructive candidate. Current,
+pinned, and leased roots; source files; Cargo lock files; and small canonical
+first-outcome records remain preserved. Linux `/proc/self/fdinfo` mount-ID
+evidence is required. If mount identity or boundaries cannot be verified, the
+guard fails closed rather than pruning.
+
 ### Pause and resume
 
 Continuous ingestion pauses when the daemon is stopped (`SIGINT`/`SIGTERM` or
