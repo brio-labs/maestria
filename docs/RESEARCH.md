@@ -734,3 +734,64 @@ pixels. This is neither release RSS nor a matched Tauri comparison. Actual
 painted-pixel cold/activation percentiles, full AT-SPI navigation, Wayland
 portal-grant interaction, and fresh-install package behavior remain
 unmeasured. Do not close #518 or #523 on this evidence alone.
+
+## 7. Historical material accessibility register (2026-10-07)
+
+This is a documentary register, not an experiment or retrospective qualification.
+Public PR metadata and repository directory metadata were read; no model,
+dataset, private original, capture, or report payload was acquired or replayed.
+The existing BGE-M3 and sampled-subcorpus corrections above remain unchanged.
+
+### 7.1. Separate chronology and original/derived material
+
+| Claim source | Original material → derived material | Current access boundary |
+|---|---|---|
+| [#90](https://github.com/brio-labs/maestria/issues/90) foundation; [PR #425](https://github.com/brio-labs/maestria/pull/425) | July-30 v1 task freeze → initial sparse report and ledger v1.2 | PR #425 is closed, not merged. The current v1 corpus is publicly listed; retention of the initial report revision is unverified. |
+| [PR #426](https://github.com/brio-labs/maestria/pull/426), complete-telemetry revision | The same v1 freeze → a distinct fp32 report revision | Merged August 8. The earlier report bytes are not established by today's terminal report with the same filename. |
+| [PR #426](https://github.com/brio-labs/maestria/pull/426), int8 revision | The same v1 freeze and changed provider profile → a separate int8 report revision | Preserve this revision separately from both complete-telemetry fp32 and optimized #428. Exact historical bytes remain unverified here. |
+| [PR #428](https://github.com/brio-labs/maestria/pull/428) | The v1 freeze and optimized sparse lane → terminal v1 report | Merged August 9. The terminal report is publicly listed; no sparse promotion was produced. |
+| [#90](https://github.com/brio-labs/maestria/issues/90), multilingual observations; §2.1.0a | Historical checkpoint/export inspection and CPU timings → narrative/table | Earlier observations remain reported, not reproduced. The published head-shape correction does not verify historical checkpoint bytes. |
+| [#90](https://github.com/brio-labs/maestria/issues/90), sampled comparison; §2.1.0b | EN/FR queries, qrels and conditioned 5k sample → cross-model report | The derived report is publicly listed. Exact sampled inputs, caches, vectors and original run output remain unverified; this is not the 147-chunk task campaign. |
+| [PR #429](https://github.com/brio-labs/maestria/pull/429) | New v2 judgments and budgets → dense v2 report and historical promotion | Merged August 9. V2 corpus/report are publicly listed; the actual historical instance promotion record is unverified here. |
+| [PR #445](https://github.com/brio-labs/maestria/pull/445) | Distinct hybrid corpus and six-class evaluation → manual report and instance-store promotion | Merged August 17. The corpus is publicly listed; the exact manual report and uncommitted instance record are not established by the earlier v2 report. |
+| [#91](https://github.com/brio-labs/maestria/issues/91), [PR #511](https://github.com/brio-labs/maestria/pull/511), Stage A | Separate late-interaction corpus/profile → measured Stage A report | PR #511 merged September 10. Corpus and Stage A report are publicly listed; this merges evidence, not the rejected implementation. |
+| [PR #511](https://github.com/brio-labs/maestria/pull/511), Stage B | Stage A evidence → negative Stage B authorization decision | The decision is publicly listed. Stage B is a decision, not an executed indexed-retrieval experiment; the implementation remains separately archived. |
+| [#512](https://github.com/brio-labs/maestria/issues/512) | Historical reports/ledger → product-exit matrix | A derived checkpoint, not a new measurement or current product qualification. |
+| [#513](https://github.com/brio-labs/maestria/issues/513), §4.5.1 | Supported-route suites → generated reports and summary | Issue and documentation give different source/run bindings. Generated `target/` paths do not prove durable report retention or the identity of a single run. |
+| [#514](https://github.com/brio-labs/maestria/issues/514), §4.5.2 | Separate four-thread visual profile → generated report and timing tables | A committed visual report is publicly listed, but its exact association with the declared generated report is unverified. Removal of services/temporary environments does not establish report deletion or archival. |
+| [PR #515](https://github.com/brio-labs/maestria/pull/515), [#515](https://github.com/brio-labs/maestria/issues/515) | Resource telemetry proposal → declared checks/evidence linkage | PR #515 is open and unmerged. Proposal/check lists do not establish retained report bytes or a qualified route. |
+
+Public [PR API metadata](https://api.github.com/repos/brio-labs/maestria/pulls/425)
+established the merge-state distinctions; a non-null merge-commit field alone
+does not mean a closed PR merged. Public
+[directory metadata at the published source](https://api.github.com/repos/brio-labs/maestria/contents/tests/contracts?ref=4fb3a65e815e365ca5ca8e271b09dc7dacfa5520)
+listed the v1/v2 sparse corpora/reports, hybrid corpus, cross-model report,
+late-interaction corpus/Stage A report/Stage B decision, and visual report.
+Listing establishes public repository entries only: no payload hash agreement,
+historical execution reproduction, or identity with an earlier report revision.
+
+### 7.2. Availability is not retention permission
+
+The historical ledger and frozen snapshots are documentary derivatives; retain
+their original corpus/task labels and report revisions. Public access to a
+committed derivative or a repository license does not establish original-by-
+original permission to retain or share private tasks, external dataset inputs,
+provider requests, caches, captures, or instance-store promotion records.
+Those permissions remain unverified unless an explicit applicable grant exists.
+Provider no-input-retention declarations are not grants to archive their inputs.
+
+Distinguish **public metadata observed**, **private access established**,
+**absence explicitly reported**, and **availability unverified**. Do not infer
+private status merely from a real-task label. The original unavailable-search CI
+response is explicitly reported unretained in `OPERATIONS.md`; later observations
+cannot recover it. An unverified generated path is not proof of absence.
+
+The kit's historical SHA claim still lacks an exact publicly citable origin.
+Its digest/object identity and correction remain unverified. The independently
+documented #551 comment/PR-head discrepancy is a separate record, not a source
+mapping for that kit claim. [EVD-01](https://github.com/brio-labs/maestria/issues/563)
+explicitly excludes current public issue #561; do not attach the claim to,
+rewrite, or reopen that issue. No disputed digest is published by this register.
+EVD-01 remains open; main remains Shadow, PR #516 remains draft, and scientific
+and product qualification remain false.
+
