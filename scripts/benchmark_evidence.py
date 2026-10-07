@@ -553,12 +553,80 @@ def _v2_validator() -> Any:
     return module
 
 
+def _blocked_cli_view(kind: str, diagnostic: str) -> dict[str, Any]:
+    record_kind = {
+        "references": "benchmark_reference_index_view",
+        "claims": "benchmark_claim_view",
+    }.get(kind, "benchmark_evidence_view")
+    base = {
+        "view_version": 1,
+        "view_kind": kind,
+        "record_kind": record_kind,
+        "derived": True,
+        "read_only": True,
+    }
+    if kind == "references":
+        return {
+            **base,
+            "artifact_verification_complete": False,
+            "artifacts": [],
+            "references": [],
+            "diagnostics": [diagnostic],
+        }
+    return {
+        **base,
+        "qualification": {
+            "eligible": False,
+            "status": "blocked",
+            "claim_ids": [],
+            "diagnostics": [diagnostic],
+        },
+        "measurements": [],
+        "first_attempts": [],
+        "attempts": [],
+        "activities": [],
+        "totals": None,
+        "reference_index": {
+            "view_version": 1,
+            "view_kind": "references",
+            "record_kind": "benchmark_reference_index_view",
+            "derived": True,
+            "read_only": True,
+            "artifact_verification_complete": False,
+            "artifacts": [],
+            "references": [],
+            "diagnostics": [diagnostic],
+        },
+    }
+
+
+def _write_view(view: dict[str, Any]) -> None:
+    print(json.dumps(view, allow_nan=False, indent=2, sort_keys=True))
+
+
 def validate(
     manifest: Path,
     report_root: Path | None,
     artifact_root: Path | None = None,
+    view: str | None = None,
 ) -> int:
     version = _schema_version(manifest)
+    if view is not None:
+        if view not in {"references", "claims"}:
+            _write_view(_blocked_cli_view(str(view), "unsupported_view"))
+            return 1
+        if version is _INVALID_MANIFEST_ENCODING:
+            _write_view(_blocked_cli_view(view, "manifest_invalid"))
+            return 1
+        if type(version) is not int or version != 2:
+            _write_view(_blocked_cli_view(view, "view_requires_schema_v2"))
+            return 1
+        if report_root is not None:
+            _write_view(_blocked_cli_view(view, "report_root_not_supported_for_v2_view"))
+            return 1
+        result = _v2_validator().validate_manifest(manifest, artifact_root, view)
+        _write_view(result.view or _blocked_cli_view(view, "view_generation_failed"))
+        return result.view_exit_status if result.view_exit_status is not None else 1
     if version is _INVALID_MANIFEST_ENCODING:
         print("ERROR: manifest is not valid UTF-8 JSON")
         return 1
@@ -631,12 +699,17 @@ def parser() -> argparse.ArgumentParser:
     roots = command_parser.add_mutually_exclusive_group()
     roots.add_argument("--report-root", type=Path)
     roots.add_argument("--artifact-root", type=Path)
+    command_parser.add_argument(
+        "--view",
+        choices=("references", "claims"),
+        help="emit a read-only schema-v2 JSON view to stdout",
+    )
     return command_parser
 
 
 def main() -> int:
     args = parser().parse_args()
-    return validate(args.manifest, args.report_root, args.artifact_root)
+    return validate(args.manifest, args.report_root, args.artifact_root, args.view)
 
 
 if __name__ == "__main__":
