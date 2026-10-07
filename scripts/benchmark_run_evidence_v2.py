@@ -66,6 +66,10 @@ _evidence_helpers = _load_helper(
     "_sillage_benchmark_run_evidence_v2_evidence",
     "benchmark_run_evidence_v2_evidence.py",
 )
+_view_helpers = _load_helper(
+    "_sillage_benchmark_run_evidence_v2_views",
+    "benchmark_run_evidence_v2_views.py",
+)
 _load_strict_json = _artifact_helpers._load_strict_json
 _schema_errors = _artifact_helpers._schema_errors
 _safe_relative_path = _artifact_helpers._safe_relative_path
@@ -79,6 +83,8 @@ class ValidationResult:
     warnings: list[str]
     confirmatory_eligible: bool
     artifact_verification_complete: bool
+    view: dict[str, Any] | None = None
+    view_exit_status: int | None = None
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -333,57 +339,136 @@ def _eligibility_reasons(payload: dict[str, Any]) -> list[str]:
     claim = payload["claim_eligibility"]
     if claim.get("status") != "eligible" or not claim.get("claim_ids") or not _non_empty(claim.get("reason")):
         reasons.append("manifest does not declare a supported claim")
+    measures = {item["name"]: item for item in payload["measurements"]}
+    if any(
+        name not in measures
+        or measures[name]["status"] != "measured"
+        or measures[name]["value"] is None
+        for name in claim["required_measurements"]
+    ):
+        reasons.append("required measurements are unavailable")
     return reasons
 
 
-def validate_manifest(manifest: Path, artifact_root: Path | None = None) -> ValidationResult:
+def validate_manifest(
+    manifest: Path,
+    artifact_root: Path | None = None,
+    view_kind: str | None = None,
+) -> ValidationResult:
+    def invalid_result(errors: list[str], diagnostic: str) -> ValidationResult:
+        view = _view_helpers.blocked_view(view_kind, diagnostic) if view_kind else None
+        return ValidationResult(errors, [], False, False, view, 1 if view is not None else None)
+
+    if view_kind not in {None, "references", "claims"}:
+        return invalid_result(["unsupported derived view"], "unsupported_view")
     try:
         payload = _load_strict_json(manifest)
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError, RecursionError):
-        return ValidationResult(["v2 manifest cannot be read as strict JSON"], [], False, False)
+        return invalid_result(["v2 manifest cannot be read as strict JSON"], "manifest_invalid")
     if not isinstance(payload, dict):
-        return ValidationResult(["v2 manifest root must be an object"], [], False, False)
+        return invalid_result(["v2 manifest root must be an object"], "manifest_invalid")
     try:
         schema = _load_strict_json(SCHEMA_PATH)
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError, RecursionError):
-        return ValidationResult(["v2 JSON Schema is unavailable or invalid"], [], False, False)
+        return invalid_result(["v2 JSON Schema is unavailable or invalid"], "schema_unavailable")
     if not isinstance(schema, dict):
-        return ValidationResult(["v2 JSON Schema root must be an object"], [], False, False)
+        return invalid_result(["v2 JSON Schema root must be an object"], "schema_unavailable")
 
     try:
         errors = _schema_errors(payload, schema, schema)
     except (ArithmeticError, KeyError, RecursionError, TypeError, ValueError):
-        return ValidationResult(["v2 manifest does not satisfy its JSON Schema"], [], False, False)
+        return invalid_result(["v2 manifest does not satisfy its JSON Schema"], "manifest_invalid")
     if errors:
-        return ValidationResult(errors, [], False, False)
+        return invalid_result(errors, "manifest_invalid")
     errors = _validate_manifest_semantics(payload)
     if errors:
-        return ValidationResult(errors, [], False, False)
+        return invalid_result(errors, "manifest_invalid")
     artifacts = payload["artifacts"]
     verified, artifact_errors, warnings = _verify_artifacts(artifacts, artifact_root)
     complete = artifact_root is not None and bool(artifacts) and len(verified) == len(artifacts)
+    reference_index = _view_helpers.build_reference_index(
+        payload, verified, artifact_errors, warnings, artifact_root is not None
+    )
+    required_references_unverified = any(
+        item["provides_measurements_for_this_run"] and item["status"] != "verified"
+        for item in reference_index["references"]
+    )
     declared = payload["claim_eligibility"]["status"] == "eligible"
+    view_source: dict[str, Any] | None = None
     if artifact_root is None:
         warnings.append("artifact verification was not requested; the run is not artifact-verified")
         if declared:
             errors.append("claim_eligibility: artifact evidence was not verified")
     else:
         errors.extend(artifact_errors)
-        if declared and not artifact_errors and complete:
-            errors.extend(
-                _content_evidence_errors(
-                    payload, verified, schema, _validate_manifest_semantics
-                )
+        if view_kind is not None:
+            view_source = {}
+        if not artifact_errors and complete and (declared or view_kind is not None):
+            content_errors = _content_evidence_errors(
+                payload,
+                verified,
+                schema,
+                _validate_manifest_semantics,
+                view_source=view_source,
+                allow_noncomplete=view_kind is not None,
             )
+            if declared:
+                errors.extend(content_errors)
         if declared and (artifact_errors or not complete):
             errors.append("claim_eligibility: required artifact evidence is unavailable")
+    if declared and required_references_unverified:
+        errors.append(
+            "claim_eligibility: measurement-bearing evidence reference is unavailable or unverified"
+        )
     reasons = _eligibility_reasons(payload) if declared else []
     if declared and reasons:
         errors.append("claim_eligibility: claimed eligibility is not supported by the required evidence")
     eligible = declared and not errors and not reasons
     if not eligible and not declared:
         warnings.append("confirmatory eligibility is not established")
-    return ValidationResult(errors, list(dict.fromkeys(warnings)), eligible, complete)
+
+    view: dict[str, Any] | None = None
+    view_exit_status: int | None = None
+    if view_kind == "references":
+        content_invalid = (
+            complete
+            and view_source is not None
+            and _view_helpers.content_is_invalid(view_source)
+        )
+        view = (
+            _view_helpers.blocked_view("references", "evidence_content_invalid")
+            if content_invalid else reference_index
+        )
+        invalid_references = any(
+            item["status"] == "invalid" for item in reference_index["references"]
+        )
+        view_exit_status = (
+            1
+            if (
+                not complete or artifact_errors or content_invalid
+                or required_references_unverified or invalid_references
+            )
+            else 0
+        )
+    elif view_kind == "claims":
+        view_reasons = _eligibility_reasons(payload)
+        if required_references_unverified:
+            view_reasons.append(
+                "measurement-bearing evidence reference is unavailable or unverified"
+            )
+        blocked = (
+            ["artifact_verification_incomplete"]
+            if artifact_root is None or artifact_errors or not complete
+            else []
+        )
+        if required_references_unverified:
+            blocked.append("measurement_reference_unverified")
+        view, view_exit_status = _view_helpers.build_claim_view(
+            payload, view_source, eligible, view_reasons, blocked, reference_index
+        )
+    return ValidationResult(
+        errors, list(dict.fromkeys(warnings)), eligible, complete, view, view_exit_status
+    )
 
 
 def errors_for_manifest(manifest: Path, artifact_root: Path | None = None) -> list[str]:

@@ -1916,5 +1916,228 @@ class BenchmarkRunEvidenceV2Tests(unittest.TestCase):
             result = validator.validate_manifest(self.write_manifest(parent, chained), root)
         self.assertTrue(result.errors)
 
+    def test_reference_view_redacts_private_paths_and_hashes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "artifacts"
+            payload = complete_v2_run(root)
+            private = payload["artifacts"][0]
+            private["access"] = {
+                "classification": "private",
+                "reason": "synthetic restricted evidence",
+            }
+            payload["prior_evidence_refs"].append({
+                "kind": "run",
+                "path": "/private/query-title/manifest.json",
+                "attempt_id": "historical-attempt",
+                "manifest_id": "historical-manifest",
+                "run_id": "historical-run",
+                "sha256": "f" * 64,
+                "artifact_id": None,
+                "relation": "historical",
+                "provides_measurements_for_this_run": False,
+            })
+            path = self.write_manifest(base, payload)
+            original_bytes = path.read_bytes()
+            original_artifacts = {
+                item["path"]: (root / item["path"]).read_bytes()
+                for item in payload["artifacts"]
+            }
+            output = io.StringIO()
+            with redirect_stdout(output):
+                status = EVIDENCE.validate(path, None, root, "references")
+            view = json.loads(output.getvalue())
+            serialized = output.getvalue()
+            self.assertEqual(path.read_bytes(), original_bytes)
+            self.assertEqual(
+                {
+                    artifact_path: (root / artifact_path).read_bytes()
+                    for artifact_path in original_artifacts
+                },
+                original_artifacts,
+            )
+        private_view = next(
+            item for item in view["artifacts"] if item["artifact_id"] == private["artifact_id"]
+        )
+        historical = view["references"][0]
+        self.assertEqual(status, 0)
+        self.assertEqual(private_view["status"], "verified")
+        self.assertEqual(private_view["access"], "private")
+        self.assertIsNone(private_view["path"])
+        self.assertEqual(historical["status"], "unverified")
+        self.assertIsNone(historical["path"])
+        self.assertNotIn("/private/query-title/manifest.json", serialized)
+        self.assertNotIn("f" * 64, serialized)
+        self.assertNotIn("sha256", serialized)
+        self.assertNotIn(str(root), serialized)
+
+    def test_claim_view_reports_first_failure_without_replacing_it_with_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "artifacts"
+            payload = complete_v2_run(root, include_failed_retry=True)
+            path = self.write_manifest(base, payload)
+            original_bytes = path.read_bytes()
+            original_artifacts = {
+                item["path"]: (root / item["path"]).read_bytes()
+                for item in payload["artifacts"]
+            }
+            output = io.StringIO()
+            with redirect_stdout(output):
+                status = EVIDENCE.validate(path, None, root, "claims")
+            view = json.loads(output.getvalue())
+            self.assertEqual(path.read_bytes(), original_bytes)
+            self.assertEqual(
+                {
+                    artifact_path: (root / artifact_path).read_bytes()
+                    for artifact_path in original_artifacts
+                },
+                original_artifacts,
+            )
+        baseline = next(
+            item for item in view["measurements"] if item["name"] == "ndcg_at_10_baseline"
+        )
+        baseline_first = next(
+            item for item in view["first_attempts"] if item["system_id"] == "baseline"
+        )
+        retry = next(
+            item for item in view["attempts"]
+            if item["system_id"] == "baseline" and item["attempt_number"] == 2
+        )
+        first_quality = next(
+            item for item in baseline_first["measurements"]
+            if item["name"] == "ndcg_at_10_baseline"
+        )
+        self.assertEqual(status, 0)
+        self.assertTrue(view["derived"])
+        self.assertTrue(view["read_only"])
+        self.assertTrue(view["qualification"]["eligible"])
+        self.assertEqual(baseline["value"], 0.0)
+        self.assertEqual(baseline["denominator"], {
+            "kind": "independent_needs",
+            "count": 1,
+        })
+        self.assertEqual(baseline_first["state"], "failed")
+        self.assertEqual(first_quality["value"], 0.0)
+        self.assertEqual(retry["state"], "complete")
+
+    def test_unverified_measurement_reference_cannot_qualify_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "artifacts"
+            payload = complete_v2_run(root)
+            payload["prior_evidence_refs"].append({
+                "kind": "run",
+                "path": "external/prior-run.json",
+                "attempt_id": "historical-attempt",
+                "manifest_id": "historical-manifest",
+                "run_id": "historical-run",
+                "sha256": "e" * 64,
+                "artifact_id": None,
+                "relation": "measured_input",
+                "provides_measurements_for_this_run": True,
+            })
+            path = self.write_manifest(base, payload)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                status = EVIDENCE.validate(path, None, root, "claims")
+            view = json.loads(output.getvalue())
+        reference = view["reference_index"]["references"][0]
+        estimate = next(
+            item for item in view["measurements"]
+            if item["name"] == "ndcg_at_10_paired_difference"
+        )
+        self.assertEqual(status, 1)
+        self.assertFalse(view["qualification"]["eligible"])
+        self.assertEqual(view["qualification"]["status"], "blocked")
+        self.assertIn(
+            "measurement_reference_unverified",
+            view["qualification"]["diagnostics"],
+        )
+        self.assertEqual(reference["status"], "unverified")
+        self.assertIsNone(reference["path"])
+        self.assertEqual(estimate["status"], "unverified")
+        self.assertEqual(estimate["reason"], "measurement_reference_unverified")
+        self.assertIsNone(estimate["value"])
+
+    def test_nonqualifying_claim_view_keeps_verified_measurements_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "artifacts"
+            payload = complete_v2_run(root)
+            payload["claim_eligibility"]["status"] = "ineligible"
+            payload["claim_eligibility"]["claim_ids"] = []
+            path = self.write_manifest(base, payload)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                status = EVIDENCE.validate(path, None, root, "claims")
+            view = json.loads(output.getvalue())
+        estimate = next(
+            item for item in view["measurements"]
+            if item["name"] == "ndcg_at_10_paired_difference"
+        )
+        self.assertEqual(status, 1)
+        self.assertFalse(view["qualification"]["eligible"])
+        self.assertEqual(view["qualification"]["status"], "ineligible")
+        self.assertEqual(view["qualification"]["claim_ids"], [])
+        self.assertEqual(estimate["status"], "measured")
+        self.assertEqual(estimate["value"], 0.2)
+
+    def test_claim_view_without_observations_blocks_numeric_claims(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "artifacts"
+            payload = complete_v2_run(root)
+            descriptor = next(item for item in payload["artifacts"] if item["role"] == "observations")
+            (root / descriptor["path"]).unlink()
+            path = self.write_manifest(base, payload)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                status = EVIDENCE.validate(path, None, root, "claims")
+            view = json.loads(output.getvalue())
+        observation = next(
+            item for item in view["reference_index"]["artifacts"]
+            if item["role"] == "observations"
+        )
+        self.assertEqual(status, 1)
+        self.assertFalse(view["qualification"]["eligible"])
+        self.assertEqual(view["qualification"]["status"], "blocked")
+        self.assertEqual(observation["status"], "invalid")
+        self.assertTrue(all(item["value"] is None for item in view["measurements"]))
+
+    def test_views_do_not_attribute_rebound_foreign_execution_to_this_run(self) -> None:
+        for declared in ("eligible", "ineligible"):
+            for kind in ("references", "claims"):
+                with self.subTest(declared=declared, view=kind), tempfile.TemporaryDirectory() as directory:
+                    base = Path(directory)
+                    root = base / "artifacts"
+                    payload = complete_v2_run(root)
+                    payload["claim_eligibility"]["status"] = declared
+                    if declared == "ineligible":
+                        payload["claim_eligibility"]["claim_ids"] = []
+                    descriptor = next(item for item in payload["artifacts"] if item["role"] == "execution")
+                    execution = json.loads((root / descriptor["path"]).read_text())
+                    execution["run_id"] = "unrelated-public-run"
+                    rewrite_json_artifact(payload, root, "execution", execution)
+                    path = self.write_manifest(base, payload)
+                    output = io.StringIO()
+                    with redirect_stdout(output):
+                        status = EVIDENCE.validate(path, None, root, kind)
+                    view = json.loads(output.getvalue())
+                self.assertEqual(status, 1)
+                if kind == "references":
+                    self.assertFalse(view["artifact_verification_complete"])
+                    self.assertEqual(view["artifacts"], [])
+                    self.assertEqual(view["references"], [])
+                else:
+                    self.assertEqual(view["qualification"]["status"], "blocked")
+                    self.assertFalse(view["qualification"]["eligible"])
+                    self.assertEqual(view["first_attempts"], [])
+                    self.assertEqual(view["attempts"], [])
+                    self.assertEqual(view["activities"], [])
+                    self.assertEqual(view["measurements"], [])
+                    self.assertIsNone(view["totals"])
+
+
 if __name__ == "__main__":
     unittest.main()

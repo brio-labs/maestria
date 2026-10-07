@@ -33,7 +33,11 @@ def _observation_context(
     ):
         errors.append("observations do not bind the verified campaign ledger")
     requirements = context["requirements"]
-    system_requirements = [item for item in requirements if item["scope"] == "system"]
+    manifest = {item["name"]: item for item in payload["measurements"]}
+    system_requirements = [
+        item for item in requirements
+        if item["scope"] == "system" and manifest[item["name"]]["status"] == "measured"
+    ]
     observed_rows = evidence["measurements"]
     if (
         len(observed_rows) != len(system_requirements)
@@ -42,7 +46,6 @@ def _observation_context(
         errors.append("observations contain duplicate or omitted system measurement identities")
         return None
     observed = {item["name"]: item for item in observed_rows}
-    manifest = {item["name"]: item for item in payload["measurements"]}
     paired = [
         item for item in system_requirements
         if item["aggregation"] == "paired_mean_difference"
@@ -59,12 +62,13 @@ def _measure_input(
     paired: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]] | None:
     measure = manifest[requirement["name"]]
+    if measure["status"] != "measured":
+        return None
     item = observed.get(requirement["name"])
     denominator = measure.get("denominator")
     if (
         item is None
         or item["interval"] != measure["interval"]
-        or measure["status"] != "measured"
         or measure["role"] != requirement["role"]
         or measure["unit"] != requirement["unit"]
         or measure["method"] != requirement["aggregation"]
@@ -222,6 +226,8 @@ def _campaign_measurements(
         if requirement["scope"] != "campaign":
             continue
         measure = manifest[requirement["name"]]
+        if measure["status"] != "measured":
+            continue
         preparation = [
             _decimal(item["wall_time_ms"])
             for item in consumptions
@@ -231,8 +237,7 @@ def _campaign_measurements(
         aggregate = _aggregate(values, requirement["aggregation"])
         denominator = measure.get("denominator")
         if (
-            measure["status"] != "measured"
-            or measure["role"] != requirement["role"]
+            measure["role"] != requirement["role"]
             or measure["unit"] != requirement["unit"]
             or measure["method"] != requirement["aggregation"]
             or measure["observations_artifact"] is not None
@@ -246,7 +251,6 @@ def _campaign_measurements(
             errors.append("preparation wall-time measure does not match campaign activity records")
         elif aggregate > Decimal(str(requirement["max_value"])):
             errors.append("preparation wall time exceeds its frozen maximum")
-
 
 def _observation_evidence_errors(
     payload: dict[str, Any],

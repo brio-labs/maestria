@@ -245,6 +245,7 @@ def _ledger_evidence_errors(
     verified: dict[str, VerifiedArtifact],
     context: dict[str, Any],
     errors: list[str],
+    allow_noncomplete: bool = False,
 ) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
     required, records = context["required"], context["records"]
     ledger_descriptor = required["attempt_ledger"]
@@ -297,18 +298,28 @@ def _ledger_evidence_errors(
     current = [row for row in attempts if (
         row["run_id"] == payload["run_id"] and row["attempt_id"] == payload["attempt_id"]
     )]
-    if len(current) != 1 or current[0]["attempt_number"] != 1 or current[0]["state"] != "complete":
-        errors.append("manifest is not a complete first evaluation attempt in the full ledger")
+    expected_state = payload["state"] if allow_noncomplete else "complete"
+    if (
+        len(current) != 1 or current[0]["attempt_number"] != 1
+        or current[0]["state"] != expected_state or expected_state in {"proposed", "not_run"}
+        or (not allow_noncomplete and payload["state"] != "complete")
+    ):
+        errors.append("manifest does not bind its current first evaluation outcome")
     else:
-        for key, artifact_id in (
+        receipt_artifacts = (
             ("start_receipt", current[0]["start_receipt_artifact_id"]),
-            ("terminal_receipt", current[0]["terminal_receipt_artifact_id"]),
-        ):
+        )
+        if current[0]["terminal_receipt_artifact_id"] is not None:
+            receipt_artifacts += (
+                ("terminal_receipt", current[0]["terminal_receipt_artifact_id"]),
+            )
+        for key, artifact_id in receipt_artifacts:
             inline, artifact = payload["lifecycle"][key], verified[artifact_id]
             content = {name: value for name, value in artifact.content.items()
                        if name not in {"kind", "evidence_version"}}
             if (
-                inline["digest"].lower() != artifact.digest.lower()
+                not isinstance(inline, dict)
+                or inline["digest"].lower() != artifact.digest.lower()
                 or not _same_json(content, {
                     name: value for name, value in inline.items() if name != "digest"
                 })

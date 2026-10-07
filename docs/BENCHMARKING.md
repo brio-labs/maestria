@@ -171,8 +171,57 @@ records do not waive affirmative opt-in for product-telemetry-origin runs.
 A correction requires a verified original-record artifact whose path, bytes,
 immutable digest, run ID, and attempt ID match the correction reference.
 Manifest and evidence versions are integer-typed; booleans are not version
-numbers. These content checks apply only to v2 confirmatory claims and do not
-alter the historical v1 ledger or its frozen-source/report resolution.
+numbers. These content checks govern v2 confirmatory claims and derived-view
+reporting; they do not alter the historical v1 ledger or its frozen-source/report
+resolution.
+
+### Read-only derived v2 views
+
+The existing validator can emit a JSON reference index or claim view:
+
+```sh
+python scripts/benchmark_evidence.py \
+  --manifest /archive/run.json --artifact-root /archive/artifacts \
+  --view references
+python scripts/benchmark_evidence.py \
+  --manifest /archive/run.json --artifact-root /archive/artifacts \
+  --view claims
+```
+
+Both outputs identify `view_version: 1`, their `view_kind`, and
+`derived: true` / `read_only: true`. They read schema-v2 manifests and verified
+artifacts without writing a second registry or changing original or correction
+bytes. Schema-v1 inputs are not reinterpreted as these views.
+
+The reference index resolves canonical `prior_evidence_refs` against verified
+artifact descriptors and checks digest and run/attempt identity when applicable.
+Hashes are omitted. Paths appear only for verified public artifacts and remain
+relative to the supplied artifact root; private, controlled, unavailable,
+unverified, absolute and unsafe paths are null. An unmatched non-measurement
+reference remains visible as unverified. A reference declared to supply this
+run's measurements must resolve to matching verified evidence.
+
+The claim view recomputes measurements and denominators from verified protocol,
+ledger and observation records, rather than copying manifest values. Its
+measurements carry `value`, `unit`, `status`, `reason` and `method`; unavailable
+or unverified values are null, not fabricated zeroes. First attempts, retries
+and campaign activities stay separate. Recorded compute and cost totals include
+verified evaluation and campaign consumption, including failures and retries.
+A successful retry does not replace a failed first observation.
+
+Confirmatory eligibility gates qualifying assertions, not truthful reporting:
+verified measurements remain visible for ineligible runs and constraint or
+budget failures. Claim-view exit status is zero only when confirmatory
+eligibility is established. Reference-view exit status is zero only when
+artifact and content verification succeeds without invalid references or
+unverified measurement-bearing references; it does not imply confirmatory
+eligibility. Invalid protocol, binding, correction or other content/lineage
+produces a minimal blocked view and nonzero status, with no attributed attempt
+costs, totals or qualifying values.
+
+These views neither launch experiments nor qualify an installed product.
+Synthetic fixture eligibility verifies the reporting contract only; it is not
+scientific evidence for retrieval superiority or release qualification.
 
 
 ## Harness
