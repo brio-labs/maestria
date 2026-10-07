@@ -4,6 +4,7 @@ import fcntl
 import importlib.util
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -526,6 +527,230 @@ class GeneratedStorageMaintenanceTests(unittest.TestCase):
             self.assertEqual(result["status"], "measurement-blocked")
             self.assertEqual(result["mount_boundary_count"], 1)
             self.assertEqual(sentinel.read_bytes(), b"keep")
+
+    def test_unreadable_subtree_reports_incomplete_inventory_and_blocks_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "target"
+            target.mkdir()
+            current = target / "current"
+            current.mkdir()
+            unreadable = target / "runtime"
+            unreadable.mkdir()
+            payload = unreadable / "payload.bin"
+            payload.write_bytes(b"x" * 64)
+            original_open_entry = MAINTENANCE._open_entry
+
+            def deny_runtime(anchor, parent, name, info, *, directory):
+                if name == "runtime":
+                    raise PermissionError(13, "Permission denied", name)
+                return original_open_entry(anchor, parent, name, info, directory=directory)
+
+            with patch.object(MAINTENANCE, "_open_entry", side_effect=deny_runtime):
+                with patch.object(MAINTENANCE.os, "fstatvfs", return_value=statvfs_state(90)):
+                    result, code = MAINTENANCE.maintain(
+                        arguments(target, current=current, apply=True, high=1, low=0.5)
+                    )
+            self.assertEqual(code, 2)
+            self.assertEqual(result["status"], "measurement-blocked")
+            self.assertFalse(result["inventory_complete"])
+            self.assertIsNone(result["target_apparent_bytes_before"])
+            self.assertIsNone(result["unknown_root_count"])
+            self.assertIsNone(result["eligible_roots"])
+            self.assertEqual(result["inventory_error"]["path"], "runtime")
+            self.assertEqual(result["inventory_error"]["operation"], "open")
+            self.assertEqual(result["inventory_error"]["errno"], 13)
+            self.assertEqual(result["pruned_roots"], [])
+            self.assertEqual(payload.read_bytes(), b"x" * 64)
+
+    def test_retired_special_entries_stay_protected_with_exact_apparent_totals(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            target = base / "target"
+            target.mkdir()
+            current = target / "current"
+            lease = target / "active-input"
+            unknown = target / "unclassified-root"
+            retired = target / "retired-generation"
+            for directory in (current, lease, unknown, retired):
+                directory.mkdir()
+            current_file = current / "accepted-package.deb"
+            lease_file = lease / "active-build-input"
+            unknown_file = unknown / "unknown-payload.bin"
+            retired_file = retired / "disposable-output.bin"
+            current_file.write_bytes(b"current")
+            lease_file.write_bytes(b"lease-input")
+            unknown_file.write_bytes(b"unknown-pressure")
+            retired_file.write_bytes(b"r" * 64)
+            fifo = retired / "held.fifo"
+            os.mkfifo(fifo)
+            socket_path = retired / "held.socket"
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+                listener.bind(str(socket_path))
+            outside_file = base / "outside-payload.bin"
+            outside_file.write_bytes(b"outside" * 512)
+            link = retired / "outside-link"
+            link.symlink_to(outside_file)
+            special_paths = (fifo, socket_path)
+            special_identities = {
+                path.name: (path.lstat().st_dev, path.lstat().st_ino, path.lstat().st_mode)
+                for path in special_paths
+            }
+            original_stat_at = MAINTENANCE._stat_at
+
+            def report_unspecified_special_size(directory, name):
+                info = original_stat_at(directory, name)
+                if info is not None and name in {fifo.name, socket_path.name}:
+                    return SimpleNamespace(st_mode=info.st_mode, st_size=4096)
+                return info
+
+            expected_before = sum(
+                path.lstat().st_size
+                for path in (current_file, lease_file, unknown_file, retired_file, link)
+            )
+            expected_after = expected_before - retired_file.lstat().st_size
+            with patch.object(MAINTENANCE, "_stat_at", side_effect=report_unspecified_special_size):
+                with patch.object(
+                    MAINTENANCE.os,
+                    "fstatvfs",
+                    side_effect=changing_capacity(20, 22, 23),
+                ):
+                    result, code = MAINTENANCE.maintain(
+                        arguments(
+                            target,
+                            current=current,
+                            retired=[retired],
+                            leases=[lease],
+                            apply=True,
+                            high=10,
+                            low=5,
+                        )
+                    )
+            self.assertEqual(code, 2)
+            self.assertEqual(result["status"], "maintenance-blocked")
+            self.assertTrue(result["inventory_complete"])
+            self.assertEqual(result["unclassified_entry_count"], 0)
+            self.assertEqual(result["retained_special_entry_count"], 2)
+            self.assertEqual(result["target_apparent_bytes_before"], expected_before)
+            self.assertEqual(result["target_apparent_bytes_after"], expected_after)
+            self.assertEqual(result["unknown_root_count"], 1)
+            self.assertEqual(result["unknown_apparent_bytes"], unknown_file.lstat().st_size)
+            self.assertEqual(result["modified_roots"], ["retired-generation"])
+            self.assertEqual(result["pruned_roots"], [])
+            self.assertFalse(retired_file.exists())
+            self.assertEqual(current_file.read_bytes(), b"current")
+            self.assertEqual(lease_file.read_bytes(), b"lease-input")
+            self.assertEqual(unknown_file.read_bytes(), b"unknown-pressure")
+            self.assertEqual(outside_file.read_bytes(), b"outside" * 512)
+            self.assertTrue(link.is_symlink())
+            for path in special_paths:
+                info = path.lstat()
+                self.assertEqual(
+                    (info.st_dev, info.st_ino, info.st_mode),
+                    special_identities[path.name],
+                )
+
+    def test_unknown_inode_mode_blocks_without_apparent_size_inference(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "target"
+            target.mkdir()
+            current = target / "current"
+            current.mkdir()
+            current_file = current / "accepted-package.deb"
+            current_file.write_bytes(b"current")
+            unknown_mode_file = target / "opaque-inode"
+            unknown_mode_file.write_bytes(b"opaque")
+            original_stat_at = MAINTENANCE._stat_at
+
+            def report_unsupported_mode(directory, name):
+                info = original_stat_at(directory, name)
+                if name == unknown_mode_file.name and info is not None:
+                    return SimpleNamespace(st_mode=0o030644, st_size=17)
+                return info
+
+            with patch.object(MAINTENANCE, "_stat_at", side_effect=report_unsupported_mode):
+                with patch.object(MAINTENANCE.os, "fstatvfs", return_value=statvfs_state(90)):
+                    result, code = MAINTENANCE.maintain(
+                        arguments(target, current=current, apply=True, high=10, low=5)
+                    )
+            self.assertEqual(code, 2)
+            self.assertEqual(result["status"], "measurement-blocked")
+            self.assertFalse(result["inventory_complete"])
+            self.assertEqual(result["unclassified_entry_count"], 1)
+            self.assertEqual(result["unknown_root_count"], 1)
+            self.assertIsNone(result["unknown_apparent_bytes"])
+            self.assertIsNone(result["target_apparent_bytes_before"])
+            self.assertEqual(result["known_apparent_bytes_lower_bound"], len(b"current"))
+            self.assertIsNone(result["eligible_roots"])
+            self.assertFalse(result["candidate_discovery_performed"])
+            self.assertEqual(result["pruned_roots"], [])
+            self.assertEqual(current_file.read_bytes(), b"current")
+            self.assertEqual(unknown_mode_file.read_bytes(), b"opaque")
+
+    def test_final_unknown_inode_after_pruning_keeps_total_and_watermark_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "target"
+            target.mkdir()
+            current = target / "current"
+            current.mkdir()
+            current_file = current / "current-payload"
+            current_file.write_bytes(b"k")
+            late_unknown = current / "metadata-changes-after-prune"
+            late_unknown.write_bytes(b"opaque")
+            retired = target / "retired-generation"
+            retired.mkdir()
+            retired_file = retired / "retired-payload.bin"
+            retired_file.write_bytes(b"r" * 64)
+            expected_before = sum(
+                path.lstat().st_size for path in (current_file, late_unknown, retired_file)
+            )
+            original_stat_at = MAINTENANCE._stat_at
+            original_prune = MAINTENANCE._prune_candidate
+            phase = {"after_prune": False}
+
+            def report_late_unknown_mode(directory, name):
+                info = original_stat_at(directory, name)
+                if phase["after_prune"] and name == late_unknown.name and info is not None:
+                    return SimpleNamespace(st_mode=0o030644, st_size=64)
+                return info
+
+            def prune_then_change_metadata(*args, **kwargs):
+                result = original_prune(*args, **kwargs)
+                phase["after_prune"] = True
+                return result
+
+            with patch.object(MAINTENANCE, "_stat_at", side_effect=report_late_unknown_mode):
+                with patch.object(MAINTENANCE, "_prune_candidate", side_effect=prune_then_change_metadata):
+                    with patch.object(
+                        MAINTENANCE.os,
+                        "fstatvfs",
+                        side_effect=changing_capacity(20, 22, 23),
+                    ):
+                        result, code = MAINTENANCE.maintain(
+                            arguments(
+                                target,
+                                current=current,
+                                retired=[retired],
+                                apply=True,
+                                high=10,
+                                low=5,
+                            )
+                        )
+            self.assertEqual(code, 2)
+            self.assertEqual(result["status"], "measurement-blocked")
+            self.assertEqual(result["target_apparent_bytes_before"], expected_before)
+            self.assertIsNone(result["target_apparent_bytes_after"])
+            self.assertEqual(result["known_apparent_bytes_lower_bound"], 1)
+            self.assertIsNone(result["watermark_ok"])
+            self.assertFalse(result["inventory_complete"])
+            self.assertEqual(result["unclassified_entry_count"], 1)
+            self.assertEqual(result["pruned_roots"], ["retired-generation"])
+            self.assertEqual(result["free_bytes_after"], 23)
+            self.assertEqual(result["post_sync_free_bytes"], 23)
+            self.assertEqual(result["observed_free_delta_bytes"], 3)
+            self.assertTrue(result["capacity_ok"])
+            self.assertFalse(retired_file.exists())
+            self.assertEqual(current_file.read_bytes(), b"k")
+            self.assertEqual(late_unknown.read_bytes(), b"opaque")
 
     def test_ancestor_replacement_after_classification_cannot_redirect_deletion(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

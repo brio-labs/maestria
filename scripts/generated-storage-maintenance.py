@@ -3,9 +3,10 @@
 
 `guard` is read-only by default. `--apply` authorizes removal of explicitly
 retired target roots and Cargo incremental/fingerprint cache entries protected
-by Cargo's existing nonblocking `.cargo-lock`. Target pressure is an apparent
-file-size inventory only; filesystem headroom is measured independently with
-statvfs and is never inferred from bytes removed.
+by Cargo's existing nonblocking `.cargo-lock`. Apparent bytes are the sum of
+regular-file `st_size` and non-followed symlink pathname lengths. Known special
+inodes are tallied separately; unsupported types block. Filesystem headroom is
+measured independently with statvfs and never inferred from bytes removed.
 """
 
 from __future__ import annotations
@@ -24,6 +25,10 @@ from typing import Any
 DEFAULT_HIGH_WATERMARK = 15.0
 DEFAULT_LOW_WATERMARK = 10.0
 DEFAULT_MINIMUM_FREE = 10.0
+APPARENT_BYTES_BASIS = (
+    "regular-file st_size plus non-followed symlink pathname lengths; "
+    "known special inode types excluded and tallied separately"
+)
 LOCK_NAMES = {".cargo-lock", "Cargo.lock", ".lock"}
 SOURCE_DIRECTORY_NAMES = {".git", ".hg", "src", "source", "sources", "source-view", "crates", "examples", "scripts", "test", "tests"}
 SOURCE_FILE_NAMES = {"Cargo.toml", "CMakeLists.txt", "Makefile", "meson.build"}
@@ -72,6 +77,23 @@ class MountBoundaryError(UnsafeTree):
     """A directory entry belongs to another mount, including a bind mount."""
 
 
+class InventoryAccessError(MaintenanceError):
+    """A target subtree could not be inventoried with the caller's access."""
+
+    def __init__(
+        self,
+        relative: tuple[str, ...],
+        operation: str,
+        cause: OSError,
+    ) -> None:
+        self.relative = relative
+        self.operation = operation
+        self.errno = cause.errno
+        self.reason = cause.strerror or str(cause)
+        path = "/".join(relative) or "."
+        super().__init__(f"cannot {operation} target inventory path {path!r}: {self.reason}")
+
+
 @dataclass(frozen=True)
 class Candidate:
     parent: tuple[str, ...]
@@ -100,10 +122,11 @@ class CargoLock:
 @dataclass(frozen=True)
 class Inventory:
     apparent_bytes: int
-    top_level_bytes: dict[str, int]
+    top_level_bytes: dict[str, int | None]
     top_level_names: tuple[str, ...]
     mount_count: int
     unclassified_count: int
+    retained_special_entry_count: int
 
     @property
     def complete(self) -> bool:
@@ -355,54 +378,107 @@ def _tree_apparent(anchor: RootAnchor, relative: tuple[str, ...]) -> int:
         _close_descriptors(descriptors)
 
 
+def _is_known_special_mode(mode: int) -> bool:
+    return (
+        stat.S_ISFIFO(mode)
+        or stat.S_ISSOCK(mode)
+        or stat.S_ISCHR(mode)
+        or stat.S_ISBLK(mode)
+    )
+
+
+
 def _inventory(anchor: RootAnchor) -> Inventory:
     total = 0
-    top_level_bytes: dict[str, int] = {}
+    top_level_bytes: dict[str, int | None] = {}
     unclassified = 0
     mounts = 0
-    pending: list[tuple[int, str]] = []
+    retained_special = 0
+    pending: list[tuple[int, tuple[str, ...]]] = []
     target = os.dup(anchor.descriptor)
+
+    def list_directory(directory: int, relative: tuple[str, ...]) -> list[str]:
+        try:
+            return os.listdir(directory)
+        except OSError as error:
+            raise InventoryAccessError(relative, "list", error) from error
+
+    def stat_entry(directory: int, name: str, relative: tuple[str, ...]) -> os.stat_result | None:
+        try:
+            return _stat_at(directory, name)
+        except MaintenanceError as error:
+            cause = error.__cause__
+            if isinstance(cause, OSError):
+                raise InventoryAccessError(relative, "inspect", cause) from error
+            raise
+
+    def open_directory(
+        directory: int,
+        name: str,
+        info: os.stat_result,
+        relative: tuple[str, ...],
+    ) -> int:
+        try:
+            return _open_entry(anchor, directory, name, info, directory=True)
+        except OSError as error:
+            raise InventoryAccessError(relative, "open", error) from error
+
+    def add_top_level_size(name: str, size: int) -> None:
+        current = top_level_bytes[name]
+        if current is not None:
+            top_level_bytes[name] = current + size
+
     try:
-        names = tuple(sorted(os.listdir(target)))
+        names = tuple(sorted(list_directory(target, ())))
         for name in names:
-            info = _stat_at(target, name)
+            relative = (name,)
+            info = stat_entry(target, name, relative)
             if info is None:
                 continue
             top_level_bytes.setdefault(name, 0)
             if stat.S_ISDIR(info.st_mode):
                 try:
-                    child = _open_entry(anchor, target, name, info, directory=True)
+                    child = open_directory(target, name, info, relative)
                 except MountBoundaryError:
                     mounts += 1
+                    top_level_bytes[name] = None
                 else:
-                    pending.append((child, name))
+                    pending.append((child, relative))
             elif stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
                 total += info.st_size
-                top_level_bytes[name] += info.st_size
+                add_top_level_size(name, info.st_size)
+            elif _is_known_special_mode(info.st_mode):
+                retained_special += 1
             else:
                 unclassified += 1
+                top_level_bytes[name] = None
         while pending:
-            directory, root_name = pending.pop()
+            directory, parent_relative = pending.pop()
             try:
-                for name in os.listdir(directory):
-                    info = _stat_at(directory, name)
+                for name in list_directory(directory, parent_relative):
+                    relative = (*parent_relative, name)
+                    info = stat_entry(directory, name, relative)
                     if info is None:
                         continue
                     if stat.S_ISDIR(info.st_mode):
                         try:
-                            child = _open_entry(anchor, directory, name, info, directory=True)
+                            child = open_directory(directory, name, info, relative)
                         except MountBoundaryError:
                             mounts += 1
+                            top_level_bytes[parent_relative[0]] = None
                         else:
-                            pending.append((child, root_name))
+                            pending.append((child, relative))
                     elif stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
                         total += info.st_size
-                        top_level_bytes[root_name] += info.st_size
+                        add_top_level_size(parent_relative[0], info.st_size)
+                    elif _is_known_special_mode(info.st_mode):
+                        retained_special += 1
                     else:
                         unclassified += 1
+                        top_level_bytes[parent_relative[0]] = None
             finally:
                 os.close(directory)
-        return Inventory(total, top_level_bytes, names, mounts, unclassified)
+        return Inventory(total, top_level_bytes, names, mounts, unclassified, retained_special)
     finally:
         for descriptor, _ in pending:
             try:
@@ -871,6 +947,67 @@ def _close_locks(locks: list[CargoLock]) -> None:
             pass
 
 
+
+def _inventory_failure_result(
+    arguments: argparse.Namespace,
+    anchor: RootAnchor,
+    total_bytes: int,
+    free_before: int,
+    error: InventoryAccessError,
+) -> tuple[dict[str, Any], int]:
+    minimum_free_bytes = math.ceil(total_bytes * arguments.minimum_free / 100.0)
+    high_bytes = int(total_bytes * arguments.high_watermark / 100.0)
+    low_bytes = int(total_bytes * arguments.low_watermark / 100.0)
+    result: dict[str, Any] = {
+        "status": "measurement-blocked",
+        "mode": "apply" if arguments.apply else "dry-run",
+        "apparent_bytes_basis": APPARENT_BYTES_BASIS,
+        "retirement_authorization": {
+            "cargo_target_root": "only incremental and fingerprint cache children are eligible; deps/build outputs remain",
+            "retired_root": "explicit whole-root retirement also permits ordinary Cargo deps/build output pruning after lock checks",
+        },
+        "target_root": str(anchor.path),
+        "filesystem_total_bytes": total_bytes,
+        "free_bytes_before": free_before,
+        "free_percent_before": _percent(free_before, total_bytes),
+        "high_watermark_percent": arguments.high_watermark,
+        "low_watermark_percent": arguments.low_watermark,
+        "minimum_free_percent": arguments.minimum_free,
+        "target_apparent_bytes_before": None,
+        "target_apparent_bytes_after": None,
+        "unknown_root_count": None,
+        "unknown_apparent_bytes": None,
+        "unclassified_entry_count": None,
+        "retained_special_entry_count": None,
+        "mount_boundary_count": None,
+        "inventory_complete": False,
+        "inventory_error": {
+            "path": "/".join(error.relative) or ".",
+            "operation": error.operation,
+            "errno": error.errno,
+            "reason": error.reason,
+        },
+        "high_watermark_bytes": high_bytes,
+        "low_watermark_bytes": low_bytes,
+        "minimum_free_bytes": minimum_free_bytes,
+        "high_watermark_triggered": None,
+        "minimum_free_triggered": free_before < minimum_free_bytes,
+        "maintenance_triggered": None,
+        "eligible_roots": None,
+        "candidate_discovery_performed": False,
+        "preserved_or_skipped": None,
+        "pruned_roots": [],
+        "modified_roots": [],
+        "free_bytes_after": None,
+        "post_sync_free_bytes": None,
+        "free_percent_after": None,
+        "observed_free_delta_bytes": None,
+        "capacity_ok": free_before >= minimum_free_bytes,
+        "watermark_ok": None,
+    }
+    return result, 2
+
+
 def _maintain_with_anchor(
     arguments: argparse.Namespace,
     anchor: RootAnchor,
@@ -903,7 +1040,10 @@ def _maintain_with_anchor(
                 raise UnsafeTree("overlapping retired/Cargo roots are ambiguous")
 
     total_bytes, free_before = _statvfs(anchor)
-    before_inventory = _inventory(anchor)
+    try:
+        before_inventory = _inventory(anchor)
+    except InventoryAccessError as error:
+        return _inventory_failure_result(arguments, anchor, total_bytes, free_before, error)
     minimum_free_bytes = math.ceil(total_bytes * arguments.minimum_free / 100.0)
     high_bytes = int(total_bytes * arguments.high_watermark / 100.0)
     low_bytes = int(total_bytes * arguments.low_watermark / 100.0)
@@ -911,7 +1051,12 @@ def _maintain_with_anchor(
     if () in protected_roots:
         known_top.update(before_inventory.top_level_names)
     unknown_names = [name for name in before_inventory.top_level_names if name not in known_top]
-    unknown_bytes = sum(before_inventory.top_level_bytes.get(name, 0) for name in unknown_names)
+    unknown_sizes = [before_inventory.top_level_bytes.get(name) for name in unknown_names]
+    unknown_bytes = (
+        None
+        if any(size is None for size in unknown_sizes)
+        else sum(size for size in unknown_sizes if size is not None)
+    )
     target_inventory_bytes = before_inventory.apparent_bytes
     high_triggered = target_inventory_bytes > high_bytes
     minimum_free_triggered = free_before < minimum_free_bytes
@@ -919,6 +1064,7 @@ def _maintain_with_anchor(
     result: dict[str, Any] = {
         "status": "ok",
         "mode": "apply" if arguments.apply else "dry-run",
+        "apparent_bytes_basis": APPARENT_BYTES_BASIS,
         "retirement_authorization": {
             "cargo_target_root": "only incremental and fingerprint cache children are eligible; deps/build outputs remain",
             "retired_root": "explicit whole-root retirement also permits ordinary Cargo deps/build output pruning after lock checks",
@@ -935,6 +1081,7 @@ def _maintain_with_anchor(
         "unknown_root_count": len(unknown_names),
         "unknown_apparent_bytes": unknown_bytes,
         "unclassified_entry_count": before_inventory.unclassified_count,
+        "retained_special_entry_count": before_inventory.retained_special_entry_count,
         "mount_boundary_count": before_inventory.mount_count,
         "inventory_complete": before_inventory.complete,
         "high_watermark_bytes": high_bytes,
@@ -950,12 +1097,20 @@ def _maintain_with_anchor(
     }
     if not before_inventory.complete:
         result["status"] = "measurement-blocked"
+        result["known_apparent_bytes_lower_bound"] = target_inventory_bytes
+        result["target_apparent_bytes_before"] = None
+        result["target_apparent_bytes_after"] = None
+        result["high_watermark_triggered"] = None
+        result["maintenance_triggered"] = None
+        result["eligible_roots"] = None
+        result["candidate_discovery_performed"] = False
+        result["preserved_or_skipped"] = None
+        result["free_bytes_after"] = None
+        result["post_sync_free_bytes"] = None
+        result["free_percent_after"] = None
+        result["observed_free_delta_bytes"] = None
         result["capacity_ok"] = free_before >= minimum_free_bytes
-        result["watermark_ok"] = False
-        result["free_bytes_after"] = free_before
-        result["post_sync_free_bytes"] = free_before
-        result["free_percent_after"] = _percent(free_before, total_bytes)
-        result["observed_free_delta_bytes"] = 0
+        result["watermark_ok"] = None
         return result, 2
 
     skipped: list[dict[str, str]] = []
@@ -1035,6 +1190,11 @@ def _maintain_with_anchor(
         if arguments.apply and triggered
         else before_inventory.unclassified_count
     )
+    result["retained_special_entry_count"] = (
+        after_inventory.retained_special_entry_count
+        if arguments.apply and triggered
+        else before_inventory.retained_special_entry_count
+    )
     result["free_bytes_after"] = free_after
     result["post_sync_free_bytes"] = free_after
     result["free_percent_after"] = _percent(free_after, total_bytes)
@@ -1043,6 +1203,9 @@ def _maintain_with_anchor(
     result["watermark_ok"] = watermark_ok
     if not inventory_complete:
         result["status"] = "measurement-blocked"
+        result["known_apparent_bytes_lower_bound"] = target_inventory_bytes
+        result["target_apparent_bytes_after"] = None
+        result["watermark_ok"] = None
         return result, 2
     if not capacity_ok:
         result["status"] = "capacity-blocked"
