@@ -2,10 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev/sillage]
     tags: ['v*']
   pull_request:
-    branches: [main]
+    branches: [main, dev/sillage]
   workflow_dispatch:
 
 concurrency:
@@ -23,7 +23,7 @@ env:
   SCCACHE_GHA_ENABLED: "true"
 
 jobs:
-  # Fast path filtering for PRs to avoid running heavyweight jobs when only docs changed.
+  # dorny/paths-filter ORs each pattern; negated entries are not exclusions.
   changes:
     runs-on: ubuntu-latest
     permissions:
@@ -44,17 +44,22 @@ jobs:
               - 'Cargo.lock'
               - 'deny.toml'
               - 'crates/**'
+              - 'src/**'
               - 'clippy.toml'
               - '.github/workflows/**'
               - '.github/actions/**'
               - 'scripts/*'
               - '!scripts/*.py'
+              - 'scripts/verify-launcher-packages.py'
               - 'scripts/verify-search-packages.py'
+              - 'scripts/check-launcher-accessibility.py'
+              - 'scripts/check-launcher-portal-consent.py'
               - 'scripts/check-combined-extension-broker.py'
               - 'scripts/check-version-upgrade.py'
               - 'scripts/smoke-installed-sillage-native-benchmark.py'
               - 'web/**'
               - 'launcher/**'
+              - 'extension-sdk/**'
               - 'vendor/**'
             philosophy:
               - 'README.md'
@@ -63,9 +68,8 @@ jobs:
               - 'scripts/philosophy-check.py'
               - 'clippy.toml'
               - 'scripts/philosophy_check/**'
-              - 'scripts/test_philosophy_check_*.py'
+              - 'scripts/test_*.py'
               - 'scripts/codeowners-check.py'
-              - 'scripts/test_codeowners_check.py'
               - '.github/CODEOWNERS'
               - '.github/workflows/**'
               - '.github/PULL_REQUEST_TEMPLATE.md'
