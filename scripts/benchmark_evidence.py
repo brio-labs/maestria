@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -503,34 +505,122 @@ def report_path(report: dict[str, Any], report_root: Path | None) -> Path:
     return ROOT / path
 
 
-def validate(manifest: Path, report_root: Path | None) -> int:
-    errors = errors_for_manifest(manifest)
-    if report_root is not None:
-        try:
-            payload = json.loads(manifest.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            payload = {}
-        for entry in payload.get("benchmarks", []):
-            if not isinstance(entry, dict):
-                continue
-            for report in entry.get("reports", []):
-                if not isinstance(report, dict) or not report.get("kind") or not report.get("path"):
-                    continue
-                path = report_path(report, report_root)
-                if not path.is_file():
-                    errors.append(f"missing benchmark report: {path}")
-                else:
-                    errors.extend(
-                        errors_for_report(path, str(report["kind"]), entry)
-                    )
-    if errors:
-        for error in errors:
-            print(f"ERROR: {error}")
+_INVALID_MANIFEST_ENCODING = object()
+
+
+def _strict_dispatch_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate manifest key")
+        result[key] = value
+    return result
+
+
+def _reject_dispatch_constant(_value: str) -> None:
+    raise ValueError("non-finite manifest number")
+
+
+def _schema_version(manifest: Path) -> Any:
+    try:
+        payload = json.loads(
+            manifest.read_text(encoding="utf-8"),
+            object_pairs_hook=_strict_dispatch_object,
+            parse_constant=_reject_dispatch_constant,
+        )
+    except UnicodeError:
+        return _INVALID_MANIFEST_ENCODING
+    except (OSError, json.JSONDecodeError, ValueError, RecursionError):
+        return None
+    return payload.get("schema_version") if isinstance(payload, dict) else None
+
+
+def _v2_validator() -> Any:
+    module_name = "_sillage_benchmark_run_evidence_v2"
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+    module_path = Path(__file__).with_name("benchmark_run_evidence_v2.py")
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("unable to load v2 benchmark evidence validator")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules[module_name]
+        raise
+    return module
+
+
+def validate(
+    manifest: Path,
+    report_root: Path | None,
+    artifact_root: Path | None = None,
+) -> int:
+    version = _schema_version(manifest)
+    if version is _INVALID_MANIFEST_ENCODING:
+        print("ERROR: manifest is not valid UTF-8 JSON")
         return 1
-    print(f"benchmark evidence valid: {manifest}")
-    if report_root is not None:
-        print(f"benchmark reports valid: {report_root}")
-    return 0
+    if type(version) is int and version == 1:
+        if artifact_root is not None:
+            print("ERROR: --artifact-root is only supported for schema v2")
+            return 1
+        errors = errors_for_manifest(manifest)
+        if report_root is not None:
+            try:
+                payload = json.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                payload = {}
+            for entry in payload.get("benchmarks", []):
+                if not isinstance(entry, dict):
+                    continue
+                for report in entry.get("reports", []):
+                    if not isinstance(report, dict) or not report.get("kind") or not report.get("path"):
+                        continue
+                    path = report_path(report, report_root)
+                    if not path.is_file():
+                        errors.append(f"missing benchmark report: {path}")
+                    else:
+                        errors.extend(
+                            errors_for_report(path, str(report["kind"]), entry)
+                        )
+        if errors:
+            for error in errors:
+                print(f"ERROR: {error}")
+            return 1
+        print(f"benchmark evidence valid: {manifest}")
+        if report_root is not None:
+            print(f"benchmark reports valid: {report_root}")
+        return 0
+
+    if type(version) is int and version == 2:
+        if report_root is not None:
+            print("ERROR: --report-root applies only to schema v1; use --artifact-root for v2")
+            return 1
+        result = _v2_validator().validate_manifest(manifest, artifact_root)
+        for error in result.errors:
+            print(f"ERROR: {error}")
+        for warning in result.warnings:
+            print(f"WARNING: {warning}")
+        if result.errors:
+            return 1
+        print("benchmark run manifest structurally valid (schema v2)")
+        if artifact_root is None:
+            print("artifact verification: not requested; evidence remains unverified")
+        elif result.artifact_verification_complete:
+            print("artifact verification: requested; listed artifact bytes verified")
+        else:
+            print("artifact verification: requested; some evidence remains unavailable or unverified")
+        print(
+            "confirmatory eligibility: eligible"
+            if result.confirmatory_eligible
+            else "confirmatory eligibility: not established"
+        )
+        return 0
+
+    print("ERROR: unsupported benchmark schema_version; supported versions are 1 and 2")
+    return 1
 
 
 
@@ -538,13 +628,15 @@ def validate(manifest: Path, report_root: Path | None) -> int:
 def parser() -> argparse.ArgumentParser:
     command_parser = argparse.ArgumentParser(description=__doc__)
     command_parser.add_argument("--manifest", type=Path, required=True)
-    command_parser.add_argument("--report-root", type=Path)
+    roots = command_parser.add_mutually_exclusive_group()
+    roots.add_argument("--report-root", type=Path)
+    roots.add_argument("--artifact-root", type=Path)
     return command_parser
 
 
 def main() -> int:
     args = parser().parse_args()
-    return validate(args.manifest, args.report_root)
+    return validate(args.manifest, args.report_root, args.artifact_root)
 
 
 if __name__ == "__main__":
