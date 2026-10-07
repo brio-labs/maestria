@@ -110,19 +110,30 @@ next candidates for a new dated evaluation.
 The sparse lane is English-only today (`prithivida/Splade_PP_en_v1`, BERT
 tokenizer). For multilingual contexts (e.g. French users), BGE-M3 was
 investigated as the leading candidate (MIT license, 100+ languages, explicit
-sparse output). Verdict: **not evaluable and not budget-feasible**:
+sparse output). Historical verdict recorded at the time: **not evaluable and not budget-feasible**:
 
-- **The trained sparse head is not released.** The official `BAAI/bge-m3`
-  checkpoint contains only the backbone (391 keys); the published
-  `sparse_linear.pt` is a 3.5 KB stub holding a `[1, 1024]` tensor, not the
-  trained `[250002, 1024]` projection. FlagEmbedding's own loader falls back
-  to a *randomly initialized* head when the `.pt` is missing or unusable, so
-  even the reference library cannot serve the real sparse model from the
-  release. Community ONNX exports either omit the head or export a broken
-  `sparse_vecs` output (vocab dimension collapsed to 1, verified in
-  `aapot/bge-m3-onnx`).
-- **Throughput excludes it from the frozen budgets.** Measured on this
-  machine (2-thread ONNX session): fp32 2.13 s and int8 0.79 s per 512-token
+- **The sparse-head shape does not establish missing or untrained weights.** The
+  original 2026-08-08 investigation reported 391 backbone keys and separately
+  reported a 3.5 KB `sparse_linear.pt` containing a `[1, 1024]` tensor. These
+  observations are retained as historical reports, not rechecked here. The
+  official FlagEmbedding implementation defines
+  `Linear(hidden_size, 1)`, applies ReLU to one scalar per token, then
+  scatters/max-reduces those scalars by `input_ids` into vocabulary IDs. For
+  `hidden_size = 1024`, `[1, 1024]` is the expected linear-weight shape; the
+  vocabulary-sized sparse representation is produced only after token-ID
+  aggregation. Shape and file size alone therefore do not establish that
+  trained weights are absent or random. The [official implementation at
+  revision `6eefbac0e0c185205fe210b999a4cbe55c97054e`](https://github.com/FlagOpen/FlagEmbedding/blob/6eefbac0e0c185205fe210b999a4cbe55c97054e/research/BGE_M3/modeling.py#L78-L123)
+  initializes a new head and loads saved pooler weights only when both
+  `colbert_linear.pt` and `sparse_linear.pt` exist; this code path does not
+  establish what the historical checkpoint contained. No weights were
+  downloaded and no export was retested for this correction. The historical
+  review also reported community ONNX exports omitting the sparse branch or
+  collapsing `sparse_vecs` to vocabulary dimension 1 in `aapot/bge-m3-onnx`;
+  these export observations remain reported, not newly reproduced.
+- **The CPU costs remain historical measurements as reported, not reproduced
+  here.** The 2026-08-08 record measured on a 2-thread ONNX session: fp32
+  2.13 s and int8 0.79 s per 512-token
   encode; the 147-chunk corpus re-encode with 6 parallel workers measures
   164.6 s fp32 and 65.8 s int8 — 13× over the 5 s `ingest_update_budget_ms`
   and ~15× over the gate's lifecycle-within-factor allowance against the
@@ -162,21 +173,27 @@ cases and judged spans (the corpus format has no language restriction), and
 pin multilingual-e5-small (budget-fitting, MIT) or LFM2.5-Embedding-350M
 (highest quality) in the dense lane.
 
-### 2.1.0b. Cross-model retrieval quality benchmark (BEIR/MTEB-style, dated 2026-08-09)
+### 2.1.0b. Cross-model retrieval-quality comparison on a sampled subcorpus (dated 2026-08-09)
 
-A standard retrieval benchmark compares the candidate models on standard
-datasets with standard metrics, following the BEIR/MTEB methodology:
-`scripts/retrieval_model_benchmark.py` (ir_datasets, the loader behind BEIR),
-MS MARCO passage dev (English) and mMARCO dev (French), nDCG@10 / MRR@10 /
-Recall@10 / Recall@100 with binary gains, and each model's reference encoding
-convention (SPLADE templates, e5 "query:"/"passage:" prefixes, mLateOn
-[Q]/[D] prefix tokens with MaxSim late interaction, BGE-M3/LFM2.5/MiniLM
-CLS or mean pooling). The corpus sample keeps every judged relevant passage
-plus seeded random fillers (200 queries, 5000 passages, seed 42); a purely
-random sample would drop the qrels. The sampled corpora inflate absolute
-values (relevant docs are ~2.5% of the sample, so BM25's 0.79 English nDCG@10
-is far above its ~0.30 full-corpus reference); the relative ranking is the
-reliable signal. Full report: `tests/contracts/model_retrieval_report_v1.json`.
+The exploratory comparison used `scripts/retrieval_model_benchmark.py`
+(`ir_datasets`, the loader behind BEIR) on MS MARCO passage dev (English) and
+mMARCO dev (French), with nDCG@10 / MRR@10 / Recall@10 / Recall@100, binary
+gains, and each model's encoding convention (SPLADE templates, e5
+"query:"/"passage:" prefixes, mLateOn [Q]/[D] prefix tokens with MaxSim late
+interaction, BGE-M3/LFM2.5/MiniLM CLS or mean pooling). It included 200 queries
+and a seeded 5,000-passage subcorpus (seed 42) containing every judged relevant
+passage plus random fillers. This is a result for that qrels-conditioned
+subcorpus and protocol, not a standard full-corpus BEIR/MTEB comparison. The
+observed order is conditional on the query/qrels set, sampled negatives,
+models, and encoding conventions; removing or changing hard negatives may
+change or invert model order. It does not establish a full-corpus ranking,
+quality of the current launcher, or state-of-the-art performance. Relevant
+passages were reported to be ~2.5% of the sample, inflating absolute scores:
+the reported BM25 English nDCG@10 of 0.788 is not like-for-like with its ~0.30
+full-corpus reference. Full historical report:
+`tests/contracts/model_retrieval_report_v1.json`. The table and report values
+are preserved; neither the retrieval run nor its rankings were reproduced for
+this correction.
 
 | Model | EN nDCG@10 | FR nDCG@10 | EN MRR@10 | FR MRR@10 | Languages |
 | --- | --- | --- | --- | --- | --- |
@@ -193,22 +210,23 @@ reliable signal. Full report: `tests/contracts/model_retrieval_report_v1.json`.
 | BM25 (tantivy defaults) | 0.788 | 0.590 | 0.753 | 0.554 | language-agnostic |
 | SPLADE pinned (110M) | 0.109 | 0.012 | 0.085 | 0.011 | English only |
 
-Findings: (1) the dense/late cluster dominates both languages; (2) on
-French, mDenseOn and LFM2.5 lead (0.919/0.917), mLateOn leads overall when
-both languages are weighted, and the bekko pair delivers near-top quality at
-25M/8M active parameters; (3) the small English models are outstanding on
-English (MiniLM-L12 0.987 — top of the table) and degrade gracefully on
-French (0.61-0.74), while SPLADE collapses (0.012) — the difference between
-"English-only" and "English-first with a multilingual tokenizer"; (4) BM25
-is the language-agnostic baseline and beats SPLADE on English in this sample
-(the sample inflation noted above favors exact-match models). The lifecycle
-budget analysis still governs what can be served: bekko-a8m (~10 ms/text),
-MiniLM (~13 ms), SPLADE (~57 ms), bekko-a25m and e5-small (~100-130 ms) fit
-or nearly fit the frozen 5 s budget; mLateOn/LFM2.5/BGE-M3/mDenseOn need the
-#427 budget re-justification.
+Findings for this sample, candidate set, and protocol only: (1) dense/late
+models occupy the upper part of both language columns; (2) mDenseOn and
+LFM2.5 lead the French nDCG@10 column (0.919/0.917), while any aggregate
+ordering depends on language weighting; (3) the listed small English models
+score highly on this English sample and lower on the French sample, while the
+pinned SPLADE result is low in both; (4) BM25 beats the pinned SPLADE result
+on English in this sample. These comparisons are exploratory, not evidence of
+a general model ranking. Historical lifecycle timing results are separate
+from this retrieval-quality ordering and do not qualify the current launcher:
+bekko-a8m (~10 ms/text), MiniLM (~13 ms), SPLADE (~57 ms), bekko-a25m and
+e5-small (~100-130 ms) fit or nearly fit the frozen 5 s budget; mLateOn,
+LFM2.5, BGE-M3, and mDenseOn need the #427 budget re-justification.
 
 Model-engineering notes recorded along the way: the official BGE-M3 sparse
-head is a stub (see §2.1.0a); the LFM2.5 ONNX export requires the repo's
+projection's `[1, 1024]` linear-weight shape is expected for hidden size 1024
+(see §2.1.0a); it neither proves weights are trained nor validates an export.
+The LFM2.5 ONNX export requires the repo's
 bidirectional modeling patch (`trust_remote_code` + a small `seq_idx`
 compatibility wrapper) — without it the embeddings are constant vectors; the
 sentence-transformers ONNX tokenizers (MiniLM-L6/L12) pad to a fixed 128
@@ -271,14 +289,19 @@ The new 60-need bilingual candidate evaluation improved passage recall and
 preserved all 32 comparable lexical heads, but two frozen controls failed.
 Current serving qualification remains unpassed; see `docs/ROADMAP.md` for the
 immutable first outcomes and scope limits.
+Historical model results do not change the current route: it remains Shadow,
+with mandatory lexical quality retained.
 
 ### 2.1.1. Frozen learned-sparse task corpus
 
 The representative real-task freeze is `tests/contracts/learned_sparse_task_corpus_v1.json`.
 Its source manifest is content-addressed and names repository-relative task and evidence inputs.
 Normal retrieval cases use real Maestria task identifiers; synthetic cases are limited to
-adversarial and lifecycle coverage. Each final query class has two independent task cases,
-while development cases remain separate from the frozen final split.
+adversarial and lifecycle coverage. Each final query class has only two independent
+final task cases, a narrow basis for quality generalization; development cases
+remain separate from the frozen final split. #428's 31 timing repetitions per
+case/route characterize repeated machine timings, not 31 independent needs, and
+do not justify extrapolating the 147-chunk timing corpus to all user files.
 
 Judgments use an explicit three-level relevance scale, accepted exact spans, evidence-chain
 identities, citation expectations, freshness requirements, and security outcomes. Two judges
