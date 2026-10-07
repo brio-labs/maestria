@@ -197,6 +197,87 @@ Sillage is in continuous development with no external release promise.
 - Lint-exemption expiries in `scripts/philosophy_check` are calendar dates
   (`YYYY-MM-DD`), enforced by `philosophy-check` on every run.
 
+### Integration branch CI
+
+`push` and `pull_request` cover `main` and `dev/sillage`; the pull-request
+branch list selects the target (base) branch. The `v*` tag trigger and manual
+`workflow_dispatch` remain enabled.
+
+The PR filter uses `dorny/paths-filter@v4.0.1`, whose default `some` predicate
+ORs each list pattern; `!scripts/*.py` is not an ordered exclusion. In the
+existing `rust` list, `scripts/*` matches top-level Python scripts, while the
+negated pattern matches other changed paths.
+
+| Event or PR change | Existing gate behavior |
+|---|---|
+| Any non-empty PR diff, including docs-only or test-only changes | `rust=true`; the full existing matrix runs, and `philosophy` runs as well. |
+| Push to `main`/`dev/sillage`, `v*` tag, or `workflow_dispatch` | No PR path filter; all event-applicable gates run. |
+
+The Rust matrix retains formatting, Rust/Studio tests, documentation, audit,
+benchmark, and package jobs, including launcher-native, launcher-portal,
+search-package, extension-worker, combined-extension, version-upgrade, and
+installed-native-benchmark. The path list explicitly names root `src/`,
+`crates/`, `web/`, `launcher/`, `extension-sdk/`, workflow/actions, and
+package-smoke helpers. `philosophy` also matches its documentation/checker
+paths. `changes` always runs on PRs; `commit-branch-check` runs on every PR
+regardless of path. CI has no standalone TypeScript extension-SDK build/test.
+
+
+### First outcomes and source binding
+
+CI run `37525357443` remains failed and unchanged: pull-request head
+`af94c764652526c66f1cca199a6cf879b069d048` was `dev/sillage` targeting `main`.
+Run metadata reports 20 successful jobs and four failures. Retained job logs
+locate the first failure points without establishing deeper causes:
+
+- job `112485122655`, `installed-native-benchmark`: four interaction observations failed
+  or timed out; the reference-hardware gate also reported effective memory below
+  16 GiB and SSD storage unestablished.
+- job `112485122744`, `launcher-portal-package`: the checker did not observe the
+  expected consent request in its private portal monitor.
+- job `112485122745`, `version-upgrade-package`: the current Sillage search check
+  did not finish indexing one approved Markdown file within 120 seconds.
+- job `112485122812`, `combined-extension-package`: after the
+  extension-permission revoke step, the expected revocation notice was not
+  exposed to the accessibility checker.
+
+These are observed gate outcomes, not diagnoses of the underlying runtime
+causes; this CI-01 change does not rerun or rewrite them. The historical #550
+report is bound by PR #560 metadata to head
+`eb53d34cc91cfa719065efbc55ecadb55f402606`, merged as
+`42981b92f9e2617689906380a3dad9a13936910a`. The #551 comment reports head
+`552543961ff39414571ef28637775591c2ebf92e`, but PR #561 metadata gives actual
+head `55254396e8aada226d2c3adbcdf109f9df72cfb5`; retain that mismatch rather
+than attributing the report to the CI head. `main` remains Shadow, PR #516
+remains draft, and qualification remains false.
+
+### Source-only worktree preparation
+
+For isolated repository work, set `OWNED_WORKTREE` to a fresh, empty,
+task-owned location and `BASE_SHA` to the exact base commit. Register without
+checkout or hooks, then materialize source only in that newly registered,
+empty worktree:
+
+```bash
+/usr/bin/git -c core.hooksPath=/dev/null worktree add --no-checkout "$OWNED_WORKTREE" "$BASE_SHA"
+/usr/bin/git -C "$OWNED_WORKTREE" read-tree --reset -u HEAD
+```
+
+Run `read-tree --reset -u HEAD` only in that fresh owned worktree, never over
+an existing/shared tree or an unowned path. Do not use destructive Git cleanup
+or reset operations on shared, existing, or uncertain paths. Do not copy build
+caches, per-agent `target/` directories, evidence, frozen/consumed roots, or
+binaries into source worktrees. A prior interrupted standard creation left an
+unregistered target copy; its cause is unestablished. Allocated-extent totals
+without exclusive extents do not establish unique physical growth or a Git
+fault. Treat an unexpected copy as an owner-reviewed incident, not an automatic
+cleanup target. Shared `target/` storage can include evidence, frozen/consumed
+roots, binaries, and shared data; do not assume it is reclaimable cache.
+Preserve those inputs. Parent-owned integration verification runs centrally
+only after free-space and Btrfs metadata safety checks. Workers do not run
+builds, tests, lint, formatters, or gates, and do not create per-agent caches or
+targets.
+
 ### Desktop launcher lifecycle
 
 The launcher package installs a desktop entry for the user to invoke; installing
@@ -366,29 +447,27 @@ Shadow, draft PR #516 and qualification false are unchanged.
 
 ### Installed local provider grant evidence
 
-The #550 installed lifecycle passed 32 native observations on canonical Debian
-`0.0.1+provider.1`. Only search was rebuilt; launcher and worker payloads remain
-the earlier independently inspected native binaries. Actual read-only owner
-review preceded each explicit issuance. SDK search/copy, exact-root controls,
-different-consumer denial, search-only evidence-open denial, absence/restart,
-independent extension disable/permission revoke, owner revoke, natural
-20-second expiry and freshly reviewed renewal all passed.
+The historical #550 report records 32 native observations on canonical Debian
+`0.0.1+provider.1`, bound by PR #560 to the exact source head noted above. Only
+`sillage-search` was rebuilt; launcher and worker payloads were the previously
+inspected native binaries. The report covers read-only owner review, explicit
+issuance, SDK search/copy, exact-root and consumer denials, natural expiry,
+reviewed renewal, and owner revocation. The local search-provider grant was
+distinct from extension permissions; #551 separately observed a local grant
+remain active across HTTP-grant revocation. These are historical test-time
+states, not evidence of current grant status. The launcher grant remained
+independent and active during those observations; no current-source UI
+acceptance is inferred.
 
 The approved policy was search-only, Internal sensitivity, one exact root,
 two results and 4096 evidence bytes. Local ingestion retains its existing
 Internal classification; no synthetic document was reclassified to bypass it.
-The launcher grant remained independent and active during extension checks.
 
-Separate immutable supplement:
-`~/.local/share/sillage-release-evidence/extension-provider-packaged-result-first/`.
-Run `verify-extension-provider-result.py` with that directory as its sole
-argument. Its 28-file seal passed a read-only-mounted run without product
-execution, network, SQLite or private profile access. Only the directly
-inspected final owner-revoked native denial pair is included; no approval or
-successful passage captures, fixtures, raw audits or credential identifiers.
-All ten earlier preparation/runtime first outcomes remain preserved and no
-closed scope was replayed. Extension disable/revoke does not qualify
-launcher Document Search Disable or independently administered-provider shutdown.
+The historical comment reports a 28-file seal passed read-only verification;
+that reference is not evidence of present archive availability. All ten earlier
+preparation/runtime first outcomes remain preserved and no closed scope was
+replayed. Extension disable/revoke does not qualify launcher Document Search
+Disable or independently administered-provider shutdown.
 Preset extension form entries can expose an AT-SPI Entry role without a Text
 interface, including after focus. Native keyboard editing still works. The
 installed harness reads actual selected input through Ctrl+A/C and restores
@@ -400,9 +479,11 @@ semantic descriptions.
 
 ### Host-owned HTTP credentials and Secret Service vault binding
 
-The #551 installed lifecycle verified host-owned HTTP credential integration across
-45 native observations on canonical Debian `0.0.1+http.1`: freshly built
-`sillage-launcher` and `sillage-extension-worker`, with unchanged `sillage-search`.
+The historical #551 report records 45 native observations on canonical Debian
+`0.0.1+http.1`, with freshly built `sillage-launcher` and
+`sillage-extension-worker` and unchanged `sillage-search`. Its reported source
+head differs from PR #561's actual head as recorded above; it is not evidence
+for today's integrated source or current UI acceptance.
 
 #### Operating constraints
 
@@ -421,14 +502,17 @@ The #551 installed lifecycle verified host-owned HTTP credential integration acr
    redirect rejection (redirects are never followed), response size ceilings (16 KiB),
    and direct raw-token reflection rejection using native TLS roots exclusively.
 
-Separate immutable supplement:
-`~/.local/share/sillage-release-evidence/http-credential-packaged-result-first/`.
-Run `verify-http-credential-result.py` with that directory as its sole argument.
-Its 30-file seal passed read-only verification without product execution, network,
-SQLite, or private profile access. Only the directly inspected revoked-denial
-capture pair is exported; no credentials, live handles, raw audits, or secret bytes.
-All runtime first outcomes remain preserved without replay. This does not qualify
-desktop Wayland, multi-monitor/suspend, or aggregate release gates.
+The later #551 archival correction says the previously referenced original
+archive is currently absent from reachable local evidence. A recovered
+original remains publication-unaccepted because its receipt included two
+generated endpoint-host identity fields; only a separately reviewed redacted
+derivative was accepted for archival use. The historical source worktree is
+unavailable; retained frozen source was validated instead. `package_outcomes`
+still names producer-first, while the correction binds producer-second; preserve
+both identities rather than reconciling them silently. These first outcomes
+remain private and unchanged, not a rerun or current-source product acceptance.
+This does not qualify desktop Wayland, multi-monitor/suspend, or aggregate
+release gates.
 
 
 ### UI-only first-run document search
