@@ -1,0 +1,30 @@
+{
+  "apiVersion": 1,
+  "id": "dev.sillage.greetings",
+  "name": "Greetings",
+  "version": "1.0.0",
+  "entrypoints": [
+    {
+      "id": "main",
+      "file": "dist/main.js"
+    }
+  ],
+  "commands": [
+    {
+      "id": "greetings",
+      "title": "Greetings",
+      "entrypointId": "main",
+      "description": "Search for a greeting and copy a friendly message."
+    }
+  ],
+  "permissions": [
+    {
+      "type": "fileSearch",
+      "maxResults": 20
+    },
+    {
+      "type": "copy",
+      "formats": ["text"]
+    }
+  ]
+}

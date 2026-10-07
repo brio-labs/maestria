@@ -1,6 +1,6 @@
 # Daemon Client Boundary
 
-The running daemon exposes an authenticated client boundary for one Maestria
+The running daemon exposes an authenticated client boundary for one Sillage
 instance. Read operations are projections of replayed kernel state; notebook
 and draft operations are the typed, durable mutation surface used by Studio.
 Transport is newline-delimited JSON over a Unix domain socket:
@@ -57,10 +57,14 @@ A provider receives a federated request only through a consumer binding:
     "limit": 10
   }
 }
+```
+
 Instance-token operations are `status`, `retrieval_status`, `search`, `evidence`,
-`task`, `retire_retrieval_events`, `model_agent_propose`, `model_agent_status`,
-`model_agent_resolve`, `realm_grant_create`, `realm_grant_list`, `realm_grant_revoke`,
-`install_federation_binding`, and the notebook/draft operations listed below.
+`search_roots_status`, `search_root_add`, `search_root_remove`, `task`,
+`retire_retrieval_events`, `model_agent_propose`, `model_agent_status`,
+`model_agent_resolve`, `realm_grant_create`, `realm_grant_list`,
+`realm_grant_revoke`, `install_federation_binding`, and the notebook/draft
+operations listed below.
 A federation credential authorizes only `federation_search` and
 `federation_evidence`; it cannot call ordinary local operations, status,
 notebook endpoints, task/model-agent endpoints, or grant administration.
@@ -115,6 +119,36 @@ return `source_not_selected` without path or excerpt metadata. Saved drafts
 retain frozen citation metadata so they can be reopened after a source changes
 or disappears.
 
+## Approved search roots
+
+The owner-only operations `search_roots_status`, `search_root_add`, and
+`search_root_remove` inspect or change the provider's approved read roots:
+
+```json
+{"type": "search_roots_status"}
+{"type": "search_root_add", "root": "/home/you/Documents"}
+{"type": "search_root_remove", "root": "/home/you/Documents"}
+```
+
+Adding a root requires an existing directory, canonicalizes its path, refuses
+a symbolic link or overlap with another root, and caps approval at 64 roots.
+Removing an approved root requires an absolute path and revokes access even
+when the directory has disappeared. All three return `SearchRootsStatusResponse`
+with bounded per-root indexed-source counts, exclusions, OCR-needed PDFs, and
+watcher scanning/pending/error fields. Only the instance token can administer
+roots; a consumer grant's separate `indexing_status` response is limited to
+its frozen approved roots and never authorizes root changes.
+
+`scanning` remains true while accepted deliveries, removals, parser work, or
+interactive source-snapshot preparation are outstanding. After ingestion
+quiesces, the watcher releases its scan permit and prepares the current
+interactive snapshot on an awaited blocking worker before reporting ready.
+Source-revision checks prevent a raced publication from reporting readiness.
+A preparation failure stays visible and is not retried for the same revision;
+search cancellation and the 100-ms internal interactive deadline are unchanged.
+Owner status intentionally samples source paths; a truncated path list is not
+an incomplete indexed-file count or, by itself, an indexing-readiness failure.
+
 ## Index choice operations
 
 Document indexing (files/directories under a root) and repository code
@@ -159,13 +193,13 @@ reports whether an index exists for the root, its summary, and its current
 freshness verdict.
 
 ```json
-{"type": "repository_index_candidates", "root": "/home/you/projects/maestria"}
+{"type": "repository_index_candidates", "root": "/home/you/projects/sillage"}
 {"type": "repository_index_selection_get"}
-{"type": "repository_index_selection_save", "profile": {"root": "/home/you/projects/maestria", "includes": ["crates/one"], "policies": {"crates/one": {"max_file_bytes": 1048576, "skip_generated": false, "skip_minified": true}}}}
-{"type": "repository_index_run", "root": "/home/you/projects/maestria", "includes": ["/home/you/projects/maestria/crates/one"], "policies": {}}
-{"type": "repository_index_status", "root": "/home/you/projects/maestria"}
-{"type": "repository_index_children", "root": "/home/you/projects/maestria", "path": "crates/one"}
-{"type": "repository_index_files", "root": "/home/you/projects/maestria", "path": "crates/one"}
+{"type": "repository_index_selection_save", "profile": {"root": "/home/you/projects/sillage", "includes": ["crates/one"], "policies": {"crates/one": {"max_file_bytes": 1048576, "skip_generated": false, "skip_minified": true}}}}
+{"type": "repository_index_run", "root": "/home/you/projects/sillage", "includes": ["/home/you/projects/sillage/crates/one"], "policies": {}}
+{"type": "repository_index_status", "root": "/home/you/projects/sillage"}
+{"type": "repository_index_children", "root": "/home/you/projects/sillage", "path": "crates/one"}
+{"type": "repository_index_files", "root": "/home/you/projects/sillage", "path": "crates/one"}
 {"type": "repository_index_progress_get"}
 ```
 
@@ -221,12 +255,12 @@ for their persistence barrier before acknowledging success. The daemon never
 trusts a browser or agent to supply source identity, hashes, or citation
 provenance.
 
-The supported Rust client is `maestria_daemon::DaemonClient`:
+The supported Rust client is `sillage_daemon::DaemonClient`:
 
 ```rust
-let client = maestria_daemon::DaemonClient::from_instance(&layout)?;
+let client = sillage_daemon::DaemonClient::from_instance(&layout)?;
 let response = client
-    .request(maestria_daemon::ClientOperation::Status)
+    .request(sillage_daemon::ClientOperation::Status)
     .await?;
 ```
 
@@ -260,11 +294,12 @@ Response (`RetrievalStatusResponse`) shape:
 {
   "index_generation": 3,
   "corpus_snapshot": 42,
-  "fingerprint": "maestria-core:deterministic-v1",
+  "fingerprint": "sillage-core:deterministic-v1",
   "lanes": {
     "hybrid_state": "Active",
     "hybrid_served_classes": ["DomainTerminology"],
     "hybrid_evaluation_id": "eval-123",
+    "hybrid_ranking_policy_id": "hybrid-lexical-head-preserving-v1+fixed-k-rrf-v1:k=60",
     "hybrid_evaluation_date": "2026-01-01",
     "hybrid_report_hash": "abc...",
     "learned_sparse_state": "Shadow",
@@ -291,8 +326,22 @@ Response (`RetrievalStatusResponse`) shape:
 `Shadow` | `Active`; `dense_enabled` reflects the resolved dense generation and
 `dense_model` the enabled manifest embedding model; promotion records are the
 latest stored `RetrievalPromotionRecordWire` rows (`learned_sparse` / `hybrid`)
-when present. See `crates/apps/maestria-daemon/src/api/search_services.rs:85`
-(`retrieval_status`) and `crates/apps/maestria-studio/src/http/retrieval.rs`.
+when present. See `crates/apps/sillage-daemon/src/api/search_services.rs:85`
+(`retrieval_status`) and `crates/apps/sillage-studio/src/http/retrieval.rs`.
+
+`hybrid_ranking_policy_id` is the full ranking identity of the accepted active
+promotion and is null in Shadow. Current Hybrid ranking preserves the first
+eligible lexical-baseline result, including its identity, metadata and lexical
+score provenance, through fusion, reranking, expansion and diversity; semantic
+ranking may improve only the tail. The baseline head is selected after fusing
+eligible lexical lanes, not by retriever registration order. Trace `fusion`
+records the complete policy identity.
+
+Promotion records must name
+`hybrid-lexical-head-preserving-v1+fixed-k-rrf-v1:k=60`. Missing or unsupported
+ranking identities fail closed to Shadow; a stored legacy record shown in
+`promotion_records` is not evidence of active serving. Quality evidence for a
+different fusion policy cannot activate this one.
 
 
 ## Studio proxy contract
@@ -312,13 +361,13 @@ provider, agent harness, filesystem callback, terminal callback, or MCP
 server. Launch it after the daemon with:
 
 ```bash
-maestria start -i <instance>
-maestria studio -i <instance> --no-open
+sillage start -i <instance>
+sillage studio -i <instance> --no-open
 ```
 
 The CLI performs an authenticated `status` preflight. If the daemon is not
 reachable it exits with exactly:
-`daemon unavailable; start it with maestria start -i <instance>`.
+`daemon unavailable; start it with sillage start -i <instance>`.
 Studio reads optional profiles only from
 `<instance>/system/studio-agents.toml`; there is no current-working-directory
 or CLI agent-config override. If that file is absent and `omp` is on `PATH`,
@@ -355,7 +404,7 @@ transient until an explicit typed `notebook_draft_save` mutation.
 
 Model integrations must keep generated plans, claims, rewrites, and memory
 proposals outside the domain kernel. The supported typed boundary is
-`maestria_ports::ModelAgentProposal`. An adapter validates the bounded query,
+`sillage_ports::ModelAgentProposal`. An adapter validates the bounded query,
 search limit, command, capability, timeout, expected index generation, and
 source evidence IDs before obtaining a `GovernedAgentProposal`.
 

@@ -1,0 +1,23 @@
+[package]
+name = "sillage-retrieval"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sillage-code-intel = { workspace = true }
+sillage-domain = { workspace = true }
+sillage-governance = { workspace = true }
+sillage-ports = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+sillage-ports = { workspace = true, features = ["contract-tests"] }
+sillage-search-tantivy = { workspace = true }
+sillage-test-support = { workspace = true }

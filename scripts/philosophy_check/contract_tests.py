@@ -37,7 +37,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "state",
         "tasks",
     ),
-    "crates/kernel/maestria-ports/src/traits.rs": (
+    "crates/kernel/sillage-ports/src/traits.rs": (
         "errors",
         "repositories",
         "lifecycle",
@@ -50,7 +50,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "approval",
         "search",
     ),
-    "crates/kernel/maestria-ports/src/lib.rs": (
+    "crates/kernel/sillage-ports/src/lib.rs": (
         "version",
         "execution",
         "learned_sparse",
@@ -70,7 +70,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "ocr_contract_tests",
         "visual_contract_tests",
     ),
-    "crates/kernel/maestria-domain/src/lib.rs": (
+    "crates/kernel/sillage-domain/src/lib.rs": (
         "approval_outcome",
         "effects",
         "evidence_source",
@@ -95,11 +95,13 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "realm_identity",
         "security",
         "security_snapshot",
+        "source_projection",
         "sparse_namespace",
+        "structure_tree",
         "task_status",
         "types",
     ),
-    "crates/kernel/maestria-governance/src/lib.rs": (
+    "crates/kernel/sillage-governance/src/lib.rs": (
         "approval",
         "autonomy",
         "federation",
@@ -113,7 +115,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "secret_scanning",
         "validation",
     ),
-    "crates/runtime/maestria-runtime/src/lib.rs": (
+    "crates/runtime/sillage-runtime/src/lib.rs": (
         "effect_executor_shutdown",
         "config",
         "effect_admission",
@@ -149,7 +151,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "runtime_transition",
     ),
     # ── core ──────────────────────────────────────────────────────────
-    "crates/core/maestria-core/src/lib.rs": (
+    "crates/core/sillage-core/src/lib.rs": (
         "error",
         "evidence_opening",
         "ingestion",
@@ -162,15 +164,34 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "provenance",
         "types",
     ),
-    "crates/apps/maestria-cli/src/lib.rs": (
+    "crates/apps/sillage-cli/src/lib.rs": (
         "test_support",
     ),
-    "crates/apps/maestria-studio/src/lib.rs": (
+    "crates/apps/sillage-studio/src/lib.rs": (
         "agent",
         "http",
         "server",
     ),
-    "crates/apps/maestria-daemon/src/lib.rs": (
+    "crates/apps/sillage-launcher/src/lib.rs": (
+        "ui",
+        "application",
+        "ipc",
+        "model",
+        "query",
+        "calculator",
+        "catalog",
+        "actions",
+        "settings",
+        "search_setup",
+        "utilities",
+        "http_credentials",
+        "autostart",
+        "clipboard",
+        "shortcuts",
+        "platform",
+        "errors",
+    ),
+    "crates/apps/sillage-daemon/src/lib.rs": (
         "api",
         "lock",
         "search_executor",
@@ -201,21 +222,24 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "recovery_staging",
         "repository_source_registration",
     ),
-    "crates/apps/maestria-daemon/src/api.rs": (
+    "crates/apps/sillage-daemon/src/api.rs": (
+        "federation_previews",
         "protocol",
+        "protocol_search_api",
         "server",
+        "server_search_api",
         "services",
         "token",
     ),
     # -- storage ------------------------------------------------------
-    "crates/storage/maestria-sqlite-support/src/lib.rs": (
+    "crates/storage/sillage-sqlite-support/src/lib.rs": (
         "connection",
         "db_retry",
         "error",
         "ids",
         "security",
     ),
-    "crates/storage/maestria-storage-sqlite/src/lib.rs": (
+    "crates/storage/sillage-storage-sqlite/src/lib.rs": (
         "db_retry",
         "events",
         "id_allocator",
@@ -229,7 +253,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "schema_validation",
         "sqlite_store",
     ),
-    "crates/storage/maestria-search-tantivy/src/lib.rs": (
+    "crates/storage/sillage-search-tantivy/src/lib.rs": (
         "constructors",
         "error",
         "keys",
@@ -245,54 +269,60 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "tantivy_index",
         "execution",
     ),
-    "crates/harness/maestria-harness/src/lib.rs": (
+    "crates/harness/sillage-harness/src/lib.rs": (
         "adapter",
         "command",
         "process",
         "tokenize",
     ),
-    "crates/storage/maestria-blob-fs/src/lib.rs": (
+    "crates/storage/sillage-blob-fs/src/lib.rs": (
         "store",
     ),
-    "crates/storage/maestria-graph-sqlite/src/lib.rs": (
+    "crates/storage/sillage-graph-sqlite/src/lib.rs": (
         "conversion",
         "migration",
         "graph",
     ),
-    "crates/storage/maestria-vector-sqlite/src/lib.rs": (
+    "crates/storage/sillage-vector-sqlite/src/lib.rs": (
         "encoding",
         "schema",
         "operations",
         "vector_index",
     ),
     # ── ecosystem ─────────────────────────────────────────────────────
-    "crates/ecosystem/maestria-adapter-http/src/lib.rs": (
+    "crates/ecosystem/sillage-adapter-http/src/lib.rs": (
         "client",
         "helpers",
     ),
-    "crates/ecosystem/maestria-memory/src/lib.rs": (
+    "crates/ecosystem/sillage-memory/src/lib.rs": (
         "memory_service",
     ),
-    "crates/ecosystem/maestria-ocr-local/src/lib.rs": (
+    "crates/ecosystem/sillage-ocr-local/src/lib.rs": (
         "rasterizer",
         "transport",
         "ocr_provider",
     ),
-    "crates/ecosystem/maestria-web-evidence/src/lib.rs": (
+    "crates/ecosystem/sillage-web-evidence/src/lib.rs": (
         "web_fetcher",
     ),
-    "crates/ecosystem/maestria-embedding-openai/src/lib.rs": (
+    "crates/ecosystem/sillage-embedding-openai/src/lib.rs": (
         "embedding_provider",
     ),
-    "crates/ecosystem/maestria-visual-local/src/lib.rs": (
+    "crates/ecosystem/sillage-extensions/src/lib.rs": (
+        "bundle",
+        "grants",
+        "manifest",
+        "protocol",
+    ),
+    "crates/ecosystem/sillage-visual-local/src/lib.rs": (
         "dto",
         "visual_provider",
     ),
-    "crates/ecosystem/maestria-sparse-local/src/lib.rs": (
+    "crates/ecosystem/sillage-sparse-local/src/lib.rs": (
         "dto",
         "sparse_provider",
     ),
-    "crates/ecosystem/maestria-retrieval/src/lib.rs": (
+    "crates/ecosystem/sillage-retrieval/src/lib.rs": (
         "adapters",
         "benchmark_common",
         "bounded_reranker",
@@ -311,13 +341,13 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "visual_reranker",
         "monotonic",
     ),
-    "crates/test-support/maestria-test-support/src/lib.rs": (
+    "crates/test-support/sillage-test-support/src/lib.rs": (
         "error",
         "git",
         "fs",
         "fixtures",
     ),
-    "crates/ecosystem/maestria-code-intel/src/lib.rs": (
+    "crates/ecosystem/sillage-code-intel/src/lib.rs": (
         "builder",
         "changes",
         "context",
@@ -339,11 +369,12 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "walk",
         "selection",
     ),
-    "crates/ecosystem/maestria-parsers/src/lib.rs": (
+    "crates/ecosystem/sillage-parsers/src/lib.rs": (
         "cargo_toml",
         "chunking",
         "generic_text",
         "markdown",
+        "docx",
         "pdf",
         "pdf_geometry",
         "pdf_layout",
@@ -355,7 +386,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "tree_builder",
         "typescript_source",
     ),
-    "crates/ecosystem/maestria-index-selection/src/lib.rs": (
+    "crates/ecosystem/sillage-index-selection/src/lib.rs": (
         "policy",
         "scan",
         "classify",
@@ -363,7 +394,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "repo",
         "profile",
     ),
-    "crates/ecosystem/maestria-validation/src/lib.rs": (
+    "crates/ecosystem/sillage-validation/src/lib.rs": (
         "runner",
         "search_provenance",
         "search_security",
@@ -410,7 +441,7 @@ CANONICAL_DOC_SECTIONS = {
         "## 2. State and Recovery",
         "## 4. Data Evolution",
     ),
-    "docs/ROADMAP.md": ("## Phase 1:", "## Phase 6:"),
+    "docs/ROADMAP.md": ("## Milestone 1:", "## Milestone 4:"),
     "docs/RESEARCH.md": ("## 1. Evaluation Framework", "## 3. Promotion Criteria"),
 }
 
@@ -422,7 +453,7 @@ POLICY_DOC_MARKERS = {
         "43. Every retrieval lane",
         "44. Retrieval changes",
         "45. Normative architecture",
-        "46. Maestria preserves",
+        "preserves external observations and provenance",
         "47. Model-generated search plans",
         "55. Learned-sparse retrieval",
         "56. Domain types own",

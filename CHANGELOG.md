@@ -1,9 +1,291 @@
 # Changelog
 
-Rolling development log. Maestria has no releases: the workspace version is
-pinned at `0.0.0` and `main` is always the current build.
+Rolling development log. Sillage has no releases: the workspace version is
+pinned at `0.0.1` and `main` is always the current build.
 
 ## [Unreleased]
+
+### Host-owned scoped HTTP integration credentials (#551)
+
+- Implement host-owned HTTP credential integration backed by the system Secret
+  Service. Require pre-approval scope review, masked token entry, exact extension
+  ID, package SHA-256, canonical HTTPS origin without trailing slash, method,
+  exact path, and expiry TTL. Extension workers receive only opaque host-issued
+  handles (`{ scheme: "bearer", handle }`), never raw secret bytes.
+- Enforce fail-closed Secret Service access without automatic keyring unlock,
+  plaintext fallback, or discovery of foreign secrets. Invalidate previously
+  authorized handles when an extension package updates; enforce fresh review and
+  token re-entry upon credential renewal.
+- Enforce DNS pinning, public-address policies, redirect rejection (no 3xx following),
+  response size limits (16 KiB), and raw-token reflection rejection using native
+  TLS roots exclusively.
+- Verify installed lifecycle in 45 native observations on canonical Debian
+  `0.0.1+http.1`: authenticated GET/POST/redirect/oversize/reflection endpoints,
+  all scope and identity denials, Secret Service lock/unlock/stop fail-closed
+  states, active search independence preserved across HTTP revoke, and clean
+  five-second shutdown without force-kill.
+- Publish and verify an independent 30-file immutable evidence seal mounted read-only.
+  Inspect only the final safe revoked-denial capture pair; export no credentials,
+  live handles, raw audits, or secret bytes. Retain qualification false, `main`
+  serving Shadow, and draft PR #516.
+
+
+### Reviewed external search grants
+
+- Add read-only `sillage-search owner grant review-external`, with a required
+  public consumer label, exact currently approved roots, access/sensitivity and
+  result/evidence bounds. Show expiry as a TTL from the later explicit owner
+  creation action. Do not create grants/credentials or print realms, credential
+  paths or grant digests during review; recheck authorization during issuance.
+- Share CLI policy validation with `create-external`; keep owner issuance,
+  extension permission and launcher search credentials separate. Renewal
+  requires fresh review and explicit issuance after owner revocation of the
+  expired record. This local boundary is not remote HTTP authentication.
+- Prove the installed local provider lifecycle in 32 native observations using
+  canonical Debian `0.0.1+provider.1`: SDK search/copy, exact-root and consumer
+  isolation, search-only evidence denial, provider absence/restart, independent
+  extension disable/revoke, owner revocation, natural 20-second expiry and
+  explicitly reviewed renewal. Approve Internal sensitivity for normally indexed
+  local documents; retain exact-root, two-result and 4096-byte bounds.
+- Publish a separate 28-file immutable evidence seal and verify it mounted
+  read-only. Directly inspect only the final owner-revoked denial capture pair;
+  export no successful passages, private fixtures, raw audits or credential
+  identifiers. Preserve all ten earlier preparation/runtime first outcomes
+  without replay. This is not remote HTTP or aggregate release qualification.
+- Record the deduplicated installed-alternative delivery queue in #559 and the
+  roadmap. Integrate verified issue-sized PRs into `dev/sillage`; retain Shadow
+  on `main`, draft #516 and qualification false.
+
+
+### Daily-driver launcher workflows
+
+- Tighten result/action and preference layouts, preserve selected result identity
+  across refreshes, skip document headers during navigation, and layer Escape
+  through actions, cited detail and the resident window. Add native HTTP(S),
+  containing-folder, fresh-authorized source-path and desktop-ID actions.
+- Add bounded offline length, mass, temperature, duration and digital-storage
+  conversions through the existing calculator API.
+- Add asynchronous private quicklink/snippet CRUD and explicit expansion/copy,
+  with safely encoded URL parameters and unsaved-template guards. Clipboard
+  history is explicit, memory-only, capped at 100 × 64 KiB, expires after one
+  monotonic hour and clears on restart; no monitoring or secret-detection claim.
+  Bound native capture to 500 ms and cap the Linux helper's address space
+  without raising inherited limits.
+- Add opt-in owned login autostart and background startup that never maps
+  initially. Preserve foreign entries and replacement sockets; keep singleton
+  command handling and shutdown stop-aware and bounded.
+- Ship the local Text Tools SDK package generator and review/edit/explicit-copy
+  integration. Preserve per-field validation errors, expose actual extension
+  status/error/notice values to accessibility clients and bound form-row sizes.
+  Omit absent action item IDs on the host wire instead of sending `null` to a
+  worker that correctly rejects it.
+- Make the 760×760 default a preferred size with a resizable 640×540 minimum.
+  Restore the root keyboard scope on extension opening/view changes so Escape
+  can cancel a pending worker after its previously focused control disappears.
+  Expose dynamic permission, selection, removal-identity and pending-worker
+  content rather than fixed labels that conceal those values.
+- Keep utility results in compact 66-pixel rows instead of stretching a single
+  result across the viewport; match keyboard scrolling to the row stride.
+  Initialize native control palettes on construction as well as theme changes,
+  fixing unreadable saved-dark checkbox captions after restart/scale two.
+- Complete fresh ordinary installed Ubuntu 24.04 X11 daily-driver acceptance:
+  61 consumer observations, 58 decoded/inspected native capture pairs, approved
+  document search and saved-consent restart, utilities/Text Tools lifecycle,
+  scaling, APT reinstall/removal and bounded cleanup without force-kill.
+  Preserve all earlier first outcomes and qualification/desktop/hardware limits.
+- Verify a real canonical three-package Debian build-version upgrade
+  `0.0.1 → 0.0.1+daily-driver.1`, explicit rollback and re-upgrade, followed by
+  ordinary removal in a fresh private Ubuntu 24.04 X11 desktop. Bind the older
+  and newer frozen native payloads to actual layout/theme source differences,
+  not metadata-only identical binaries; keep the workspace version at `0.0.1`.
+  Retain exact preference, utility-definition and extension-grant/data bytes and
+  consume them through the installed UI/clipboard after all transitions.
+  Record 105 consumer observations, 89 native capture pairs, seven bounded
+  normal shutdowns and a separate read-only evidence verifier. Preserve both
+  earlier harness failures, unused inputs, old seals and remaining qualification
+  limits; do not infer a worker behavior change solely from its different hash.
+
+### Source-check traversal
+
+- Prune already-excluded directories while discovering Rust source files, rather
+  than walking their build trees before filtering. Preserve the existing skip
+  policy, optional test inclusion and discovery of later-added source files;
+  introduce no cache or new exclusion. The full philosophy check passed in
+  48.34 seconds after earlier 300- and 600-second timeouts; its 107 checker tests
+  passed.
+
+### UI-only opt-in document search
+
+- Add discoverable Document search setup and Preferences controls: native folder
+  selection, separate explicit Enable, indexed/pending progress, truthful Ready,
+  visible errors and Disable. Keep consent controls reachable in a shared tab
+  viewport rather than allocating space to the hidden General pane.
+- Create scoped credentials and an owned private profile automatically after
+  approval; resume only saved explicit managed consent. Keep indexing in
+  standalone `sillage-search`, never embed daemon/indexer/model dependencies in
+  the launcher, and never start a model.
+- Preserve external connections until final Enable. Disable disconnects external
+  clients without modifying their providers; owned disable/shutdown shares one
+  absolute five-second deadline and invalidates previous document generations.
+  Audit exact canonical manifest roots before watcher startup, refuse unmarked
+  profiles, and preserve credentials across committed-settings marker failures.
+- Preserve a foreign replacement socket during daemon shutdown by checking the
+  captured bound socket's device/inode. Keep owned-child cleanup independent of
+  rollback failure. Add meaningful ownership, persistence and socket regressions.
+- Treat commas and spaces as literal `--read-root` path characters while
+  preserving repeated root arguments. Declare native desktop portal dependencies
+  in launcher Debian metadata.
+- A fresh isolated source-built X11 run passed the full 240-file UI workflow:
+  shortcut setup, pre-approval absence, Indexing/Ready, Return, exact fresh copies,
+  private default-handler source dispatch, saved-consent restart, bounded Disable
+  and app/shortcut/arithmetic use afterward, without credential entry or settings
+  editing. Actual screenshots were inspected. Earlier failures remain failures:
+  the separate 1,800-file run timed out at 120 s with 952 indexed / 848 pending.
+  This does not qualify current installed packages, Wayland, reference hardware,
+  latency, relevance or release readiness; main stays Shadow and PR #516 draft.
+- Native Ubuntu 24.04 Debian launcher/search packages passed independent payload,
+  dependency, executable-mode and GLIBC 2.39 checks, then the full fresh UI
+  workflow through ordinarily installed executables and native portal/GIO
+  infrastructure. No explicit loaders or replacement product/GIO wrappers.
+  Retain preparation failures and the earlier all-actions-pass/private-D-Bus-
+  cleanup-fail outcome; a fresh scope passed every bounded cleanup gate.
+  This closes Debian functional acceptance, not AppImage, Wayland, reference,
+  latency/relevance, Hybrid admission or release qualification.
+
+
+### Breaking project identity cutover
+
+All active project-owned package, crate, Rust namespace, CLI/binary, desktop/
+portal/D-Bus/AppArmor, Debian package, environment prefix, SDK/plugin, and
+configuration/data-path identifiers now use Sillage names. This is a breaking
+technical cutover: the previous binaries, packages, IDs, environment variables,
+settings, grants, and data paths have no aliases, fallback reads, or automatic
+migration.
+Existing Maestria data and installed state are not moved or removed; new
+Sillage locations start independently. The installed-package CI gate installs
+the pinned Maestria suite alongside Sillage, checks separate identity-based
+profiles and the unseeded first-launch UI defaults before configuration, then
+tests Sillage-only remove/reinstall. It does not claim cross-name data migration
+or retention. The first current CI profile attempt failed indexing; its
+consumer failure payload was not retained, so its runtime cause is unproved.
+
+The separate real source-built launcher/helper smoke passed genuine unseeded
+defaults before configuration: shortcut setup offered, reduce-motion off,
+Control+Space, and System theme. UI save produced mode-0600 Sillage preferences
+while the private old-profile seed remained byte/mode-identical; the private
+clipboard stayed unchanged. Screenshots were viewed and shutdown gates passed.
+Earlier infrastructure/preparation failures remain preserved. This source smoke
+does not qualify six-package coinstallation or remove/reinstall persistence.
+
+A fresh private Ubuntu lifecycle passed with the six authenticated Debian
+artifacts from historical CI `36455626998` and current CI `37129751284`.
+Legacy and Sillage search now use independent instances, roots, credentials
+and grants; an old credential is denied at the current endpoint. The lifecycle
+preserved legacy profile/instance bytes and modes, observed genuine current
+defaults, and retained current state through Sillage-only remove/reinstall
+and final revocation. The UI observer waits for dismissal after its single
+asynchronous shortcut-defer action; product shutdown supervision uses a
+monotonic five-second deadline rather than polling or force-kill acceptance.
+The local run passed in 14.37 s; earlier preparation and GUI failures remain
+preserved. These source-caller diagnostics do not qualify the failed overall
+current CI run or waive the reference-hardware gate.
+
+The approved literal-query correction's first CI run `37129751284` passed
+search-package smoke, but native benchmark and cross-name profile jobs failed.
+Native completed 797/800; effective memory was 15.615 GiB, below the strict
+16-GiB minimum, and SSD provenance was not established. No rerun or hardware
+waiver was used. Local isolated runtime drives repair feedback; CI retains
+artifact provenance and first outcomes, with PR #516 still draft.
+
+The canonical Studio JS/WASM bundle was rebuilt with the pinned private
+Node 24.11.1, pnpm 9.15.9 and Dioxus 0.7.10 tools. A managed Chromium smoke
+showed the Sillage Studio Search surface; it did not connect to a daemon or
+qualify search, native latency, or installed packages.
+
+The first Sillage CI run (`37083359067`, `cfcf8014`) failed the test,
+nextest, Studio frontend, and search-package jobs; those first outcomes are
+retained. Sparse activation mechanics now use an explicitly counterfactual
+test record rather than fabricated historical benchmark qualification.
+
+A cold build in the authenticated CI-image userspace reproduced Studio's
+drift. Dioxus's autodetected Tailwind 4.1.5 replaced the pinned 4.3.3 output;
+the image also lacked the local ThinLTO profile and `rust-src` source-location
+inputs. Studio now compiles `studio.css` with the pinned pnpm CLI, explicitly
+pins its Wasm Cargo profile, and requires the declared pinned `rust-src`
+component. With that real source component staged privately, the cold image
+build matched all four committed bundle hashes. The deterministic validator
+is unchanged; this is source-build evidence, not installed qualification.
+
+Regular Search now uses each lane's existing candidate allowance as its
+pre-fusion result window, retaining the final result ceiling after fusion.
+The independent consensus regression failed before and passed after; all
+86 retrieval unit tests and the Hybrid baseline-head boundary passed.
+InteractiveSearch retains its result window and 100-ms deadline. This repairs
+a generic truncation defect, not the observed package-ranking failure: both
+the exact-package diagnostic and a distinct repaired-source diagnostic still
+selected a partial DOCX match instead of the complete Markdown passage.
+Their consumed queries and first outcomes remain closed and preserved.
+An independently reserved owner-runtime trace then showed both lanes
+succeeded: Markdown was first in chunks, while DOCX won RRF with card and
+chunk support. The smoke's unquoted query used OR semantics, not literal
+phrase semantics. Scope-unique smoke inputs quote the literal query for initial,
+restart, pre/post-change and authorization-denial calls. Fresh source Search
+passed; separate InteractiveSearch and evidence reopen passed at 64.42 ms.
+These synthetic source observations neither recover the original CI payload
+nor qualify ordinary-query relevance, historical failures, or installed latency.
+
+Frozen metadata retains its original `RealMaestriaTask` provenance label,
+decoded as the distinct `HistoricalWorkTask` category rather than relabeled
+as current Sillage work. Task-to-benchmark conversion preserves that category;
+historical inputs cannot qualify current sparse or Hybrid serving. Four
+authentic frozen metadata inputs passed the source-only decoder/conversion
+smoke, without replaying their queries or invoking a provider.
+
+The first canonical real-model 30-French/30-English cohort ran once with
+LLM-assisted, independently source-reviewed judgments, not human-certified
+gold. Within that cohort, passage macro recall was 20.00% → 80.00% in French
+and 53.33% → 63.33% in English. Qualification failed: only 27/28 applicable
+lexical heads were preserved, and the exact-path control regressed from rank
+2 to 7. Exact-phrase (3 → 2) and lexical-first-hit (1 → 1) controls passed.
+The cohort is closed; serving remains Shadow, with no persisted promotion.
+
+The retained head violation exposed a lane-admission accounting defect:
+aggregate lane-produced results were incorrectly deducted from the final
+result ceiling, preventing later Hybrid rewrites despite available consumable
+resources. Later lanes now retain the full result ceiling; candidate, work,
+byte, query, concurrency and deadline limits are unchanged. A failed-before
+boundary regression and a passing public-API executable control establish
+that accounting repair, not a new model qualification or an exact-path repair.
+
+Native passage text now exposes the actual full citation and excerpt through
+accessibility labels, with their semantic purposes in descriptions. An
+isolated real-component cached-row control reproduced the visibly rendered
+but inaccessible values before the repair; the distinct after-control passed
+three complete AT-SPI snapshots. Both screenshots were viewed, no queries or
+providers ran, and every child/group shutdown gate passed. This does not
+attribute the earlier canonical Return observation failure or qualify native
+search, navigation, availability, latency, or installed packages.
+
+One distinct canonical synthetic query reached passage detail and a fresh
+evidence reopen: its durable audit recorded one search and one reopen; the
+complete final AT-SPI tree and viewed screenshot exposed the full citation,
+excerpt, and copied-reopened notice. The attempt still failed because observer
+report construction raised a KeyError and its failure handler raised a
+NameError. The closed scope is not replayed; clipboard/timing acceptance and
+historical failure attribution are not inferred. All shutdown gates passed.
+
+The real source and image endpoints retain their existing GitHub and GHCR
+slugs; historical links, benchmark corpora/evidence, and the earlier Maestria-
+era changelog observations keep their original identities. The two frozen
+installed-native benchmark helper originals remain byte-exact in private
+evidence; the renamed prospective helpers have new source identities and have
+not been invoked. Renaming alone does not satisfy the existing retrieval or
+combined-release gates; PR #516 remains a draft and no release is qualified.
+
+The earlier bullets below retain results and identifiers observed before this
+cutover; they are historical records, not proof for the renamed Sillage
+artifacts.
+
 
 Maestria activates the dense embedding lane for the lexical/hybrid search
 route on benchmark evidence, adds live indexing metrics to the CLI, and
@@ -12,7 +294,72 @@ surface (CLI, daemon API, studio, and web) that scopes repository code
 intelligence to a reviewed set of directories.
 
 ### Added
-
+- Linux-first resident Maestria Launcher (Tauri 2, React 19, GTK3/WebKitGTK 4.1):
+  isolated application catalog, host commands, calculator, native selected-file
+  open/copy actions, keyboard-first Preferences, X11 shortcut setup, Wayland
+  portal and compositor-owned activation fallback, explicit `--activate`/`--quit`,
+  Debian/AppImage packaging, and opt-in content-free renderer-ready timing.
+  The separate native Slint launcher offers non-modal first-run shortcut setup;
+  deferral persists across Debian/AppImage X11 launches. Packaged X11 AT-SPI
+  smoke exercised calculation-to-clipboard, desktop-entry launch, successful
+  shortcut setup/restoration, Caps/Num-lock activation, and rejection of a
+  conflicting grab without changing the saved shortcut. An isolated packaged
+  Weston Wayland run with a fake seat verified first-run AT-SPI deferral/focus
+  and resident reactivation/quit. Ubuntu 24.04's Weston 13 lacks a fake seat;
+  the locally exercised no-seat path verifies deferral persistence, not focus.
+  The final Debian/AppImage were rebuilt against Ubuntu 24.04 after a
+  host-built Debian required unavailable `GLIBC_2.43`; the package verifier
+  now rejects executables above Ubuntu 24.04's `glibc` 2.39 ABI. Apt
+  installation without the search service and visible X11 startup passed in
+  a disposable Ubuntu container; its first-run AT-SPI offer check timed out.
+  The exact Ubuntu-built Debian/AppImage payloads passed X11 and nested
+  Weston UI smoke on the host, not Ubuntu container accessibility acceptance.
+  Hosted Ubuntu CI, live portal grant/denial, and chooser acceptance remain
+  open. The launcher neither starts the daemon nor indexes files. Optional
+  separate-process passage search is now configured in schema-1 launcher.toml;
+  an isolated X11 Slint run displayed a highlighted Markdown citation and
+  full document view, copied freshly reopened evidence, refused the same
+  action after the source changed, and showed a later app query without the
+  old passage. Nested Weston Wayland showed cited detail, copied passage and
+  citation after authenticated reopen through a private X11 clipboard fallback,
+  and refused Open source after the file changed. The actual native clipboard
+  helper copied through standard Wayland in isolated Weston with `DISPLAY`
+  absent and no data-control protocol; an independent `wl-paste` received the
+  text. This does not prove the complete pure-Wayland Slint action or live
+  portal decision, and whole-path latency/native accessibility coverage
+  remain open.
+  The current source-built Slint open action now displays the exact reopened
+  excerpt and citation before sending a verified PDF page hint to the default
+  handler (`#page=N`); a disposable X11 daemon/UI run exercised genuine Markdown
+  and page-1 PDF actions, including a private viewer that received the fragment.
+  External viewers may ignore that hint; no pure-Wayland action or rebuilt
+  Ubuntu package is certified by this source-built smoke.
+- Sillage extensions: a versioned manifest and TypeScript SDK/example, sealed
+  directory/ZIP bundles with explicit permission-diff consent, host-rendered
+  list/detail/form views, and a separately installable QuickJS worker invoked
+  only inside bubblewrap. The broker scopes search to a separate owner-issued
+  external realm, accepts only fresh cited v2 previews, and bounds desktop
+  actions, HTTPS, storage, bytes, time, and worker cancellation. Store mutations
+  use a cross-process lock and descriptor-relative nofollow removal.
+  In an isolated native Slint X11 session, the installed Greetings ZIP showed
+  an authorized `greeting.txt` excerpt and copied through the real clipboard;
+  denying a notification-expanding 1.0.1 update preserved the approved 1.0.0
+  grants. A deliberate worker exception surfaced without crashing the launcher,
+  closing the panel interrupted an infinite-loop worker, revocation blocked
+  commands despite a still-active separate provider grant, and removal
+  preserved or deleted private data according to the selected choice. The
+  manager remained usable without the worker sibling binary. An Ubuntu 24.04-
+  built standalone worker Debian apt-installed alongside `bubblewrap` in a
+  disposable Ubuntu container; the Ubuntu-built executable ran there and
+  returned a typed invalid-arguments error. Hosted CI, full pure-Wayland
+  extension UI actions, live portal grants/denials, active-indexing latency,
+  and combined-product release acceptance remain open.
+  The launcher package verifier now rejects package relationships with the
+  optional search and worker; a previously built Ubuntu Debian/AppImage passed
+  the updated verifier in a disposable Ubuntu image. The launcher-only native
+  smoke now requires both optional packages absent and restricts all launcher
+  interactions to the installed `/usr/bin` executable; this updated installed
+  smoke remains to be run on a clean rebuilt Ubuntu package.
 - Graceful shutdown drain: with `drain_effects_on_shutdown`, the runtime
   keeps servicing domain inputs while in-flight effects finish, so an
   effect completing after cancellation still delivers (and persists) its
@@ -28,6 +375,134 @@ intelligence to a reviewed set of directories.
   so numbers are attributable, and `docs/OPERATIONS.md` documents the
   recommended per-instance daemon posture with the explicit, never
   auto-started lifecycle.
+- A versioned `sillage.search` v1 Unix-socket search, status, and evidence API
+  accepts bounded, revocable per-consumer grants without sharing the provider
+  instance token. The search-only `maestria-search` CLI and separate Debian
+  artifact provide explicit root initialization, read-only daemon start,
+  owner roots/grants, and typed external search/evidence/status/indexing-status.
+  A separate local process found an indexed phrase, opened cited evidence,
+  and denied an ungranted realm without a launcher or configured model.
+  Search-only grants can receive byte-bounded, typed cited previews without
+  evidence-open permission; edited sources and revoked grants do not release
+  stale previews. The separate Debian apt-installed in an Ubuntu 24.04 container:
+  its v2 interactive operation returned a cited Markdown passage, DOCX
+  paragraph citations reopened with exact snapshot checks, text-bearing PDF
+  pages reopened with an authorized typed PDF path; previews exposed no PDF
+  path, and an image-only PDF counted as OCR-needed. Durable restart,
+  changed-source search and direct evidence-open denial, and grant
+  denial/revocation also passed locally. On 10,000 indexed Markdown files,
+  197/200 uninstrumented warm interactive requests succeeded (successful
+  separate-process CLI p50 68.05 ms, p95 78.42 ms, p99 110.7 ms); three
+  timed out at the unchanged 100 ms daemon deadline. After approving a further
+  700 files, the first six of 30 calls timed out with indexing pending,
+  followed by 24 successes while indexing reached zero pending; this does not
+  prove active-indexing latency. Direct-path lookup now avoids scanning the
+  active-source map for ordinary file/DOCX previews while retaining normalized
+  fallback, fresh hashes, scope checks and audit persistence. A later isolated
+  200-call warm probe on the fully indexed retained corpus returned 199
+  successes (successful CLI p95 51.20 ms) and one 100 ms timeout; with daemon
+  tests running concurrently it returned 196 successes and four timeouts.
+  These different workloads do not prove a causal speedup or deadline pass.
+  Hosted CI and whole-path native latency remain open.
+  A same-process A→B→A edit again indexed and served the original
+  content-addressed artifact without restart or regrant. Replaying the
+  predecessor B tombstone after restored A now leaves A active and non-stale;
+  fresh source reopen succeeded after restarting the rebuilt provider. The
+  final search-only Debian passed a fresh Ubuntu 24.04 install and the
+  installed-process package smoke after this correction.
+- Bounded `sillage.search` v2 interactive queries also return typed
+  filename/path-only results for fresh indexed text sources, distinct from
+  cited passages; PDF paths remain suppressed. An independent consumer found
+  an approved filename missing from its body, while an out-of-root name,
+  deleted source, removed root, and revoked grant returned no path. The native
+  Slint File/Path row copied only after a fresh authorized search; deleting
+  its source left the clipboard unchanged and displayed a denial. On a
+  settled 521-file private corpus, first cold searches timed out four times
+  and three times after restart at the unchanged 100 ms daemon deadline.
+  The daemon now prepares the interactive source snapshot before socket
+  readiness, reuses one event replay and source projection for its engine,
+  prunes filename mismatches before source approval checks, and persists
+  watcher state as compatible compact JSON. The rebuilt search-only daemon
+  returned 30/30 late-filename matches in independent-process CLI calls after
+  restart (first 46.3 ms; median 33.915 ms; maximum 69.0 ms). A first query
+  after a source edit still timed out, and deletion caused two timeouts
+  before no-path responses. Neither active-indexing nor whole-native-path
+  latency acceptance is claimed.
+- For lexical-only interactive snapshots, SQLite now scans just the indexed
+  parser-start, captured-document and stale-source events, while repository
+  code-security snapshots retain full history. On the same private 521-file
+  corpus, a sampled startup scan of all event families took 141 ms; the
+  narrowed scan took 18–41 ms in later startup/update observations. The
+  first changed-body query after the watcher settled still hit the unchanged
+  100 ms daemon deadline: in one trace snapshot construction reached 43 ms,
+  root filtering 50 ms and lexical retrieval 101 ms before evidence reopening
+  or audit. The warm retry returned the changed cited passage. Active-indexing
+  and native whole-path latency remain unaccepted.
+- Interactive consumer retrieval now builds approved/grant-scoped candidate
+  filters in one pass and keys its warm cache by the exact manifest and root
+  grant. A live two-root A→B→A passage regression passed. A local CLI smoke
+  over 521 short Markdown files returned a changed cited passage in 66.7 ms after
+  indexing settled and denied a deleted source in 48.7 ms; the initial cold
+  request still timed out at the unchanged 100 ms daemon deadline. This does
+  not certify active-indexing latency or native p99.
+- Provider read grants now freeze one or more exact approved roots per newly
+  issued consumer in schema v18 and versioned grant events. Owner CLI accepts
+  repeated `--read-root`; omitted flags freeze all roots approved at issuance.
+  Legacy NULL-scoped grants still follow all currently approved roots and
+  must be revoked/reissued before approving a newly sensitive root. Root
+  scopes are capped at 64 roots and 8 KiB of path bytes and fail closed if
+  stored metadata is malformed. A live two-sibling-root daemon regression
+  denied the other root's passages, filename paths, direct evidence and
+  consumer inventory before source I/O. Independent source-built CLI
+  processes issued distinct A-only/B-only grants, retrieved each permitted
+  cited passage and A's filename-only path, suppressed the other root in
+  ordinary and interactive search, and reported only one A-root indexed file.
+  A direct A→B evidence reopen returned typed `SourceNotSelected`. A live
+  two-root integration also indexed a one-page PDF under B; B opened its
+  actual page-1 excerpt and source path, while A could neither search its
+  passage nor open its authentic evidence ID (`SourceNotSelected`). Both
+  grant scopes persisted after daemon restart; removing A's provider-approved
+  root dropped A's passage and inventory to zero while B stayed readable.
+  A fresh Ubuntu 24.04 `target/search-packages-current/` Debian artifact
+  passed package verification and apt-installed Markdown/DOCX/PDF, stale-edit,
+  restart, grant-revocation and two-root isolation smoke. After approving B
+  under an existing A-only grant, A's indexing inventory stayed at one root,
+  B's own consumer searched and reopened its passage, and A could not
+  search B's source or reopen B's authentic evidence (`SourceNotSelected`);
+  both grants survived restart. Fresh Ubuntu launcher Debian and AppImage
+  payloads in `target/launcher-packages-current/` passed payload and ABI
+  verification. Combined apt installation and a time-bounded native smoke
+  passed in disposable Ubuntu 24.04 after enabling `org.a11y.Status.IsEnabled`
+  on the test's private session bus. AccessKit had left the visible Slint
+  window's AT-SPI tree inactive while this property was false; the earlier
+  `window=False`, `buttons=[]` was test setup, not a product failure. The
+  installed Debian and fresh AppImage exposed the first-run offer, deferral,
+  Preferences, resident reactivation, keyboard and clipboard actions; X11
+  shortcut setup survived restart and rejected conflicting grabs. Nested
+  Weston confirmed Wayland startup, offer/deferral and quit; the host run
+  used a fake seat, while the Ubuntu run did not. Neither checked Wayland
+  passage actions or live portal grants.
+  A prior local container invocation hung because `xvfb-run` ran as PID 1;
+  later runs kept it as a child under a hard timeout. Older default output
+  directories predate these root-scope and source-event changes.
+- `docs/OPERATIONS.md` now documents opt-in launcher-only, search-only,
+  combined, and optional extension-worker Ubuntu Debian installation,
+  approved roots, scoped credentials, explicit daemon start/stop, removal,
+  and data choices. Disposable Ubuntu apt installs resolved all four choices
+  without daemon autostart; search-owner grant and SIGINT shutdown passed.
+  Refreshed Ubuntu-built launcher/search Debian artifacts then passed combined
+  apt installation: the installed search CLI found a granted filename-only
+  result, denied it after deletion, and removing search left the launcher and
+  user-owned instance. On private host X11, executables byte-identical to
+  final Ubuntu-built Debian payloads rendered Slint File/Path and highlighted
+  body-only Markdown citation rows; Copy Path and Copy Passage wrote
+  independently authorized content to the private clipboard, and the deleted
+  path displayed an explicit denial without overwriting it. The launcher
+  Debian now declares `wl-clipboard` for pure Wayland. The older default
+  AppImage predates the filename/path and clipboard changes; the refreshed
+  AppImage passed the native package smoke above. An upgraded desktop-portal
+  grant, Wayland passage actions and combined search release certification
+  remain unverified.
 - Hybrid dense-lane activation: a real-instance benchmark
   (`maestria_hybrid_evaluation`, manual) measures lexical vs hybrid recall on
   six query classes with RAPL energy telemetry and writes a promotion record
@@ -107,7 +582,31 @@ intelligence to a reviewed set of directories.
   readers.
 
 ### Changed
-
+- Hybrid ranking now protects the actual first eligible lexical-baseline result
+  for every Hybrid query; Fixed-K RRF (k=60) orders the remaining candidates.
+  Identity, metadata and lexical score provenance survive reranking, expansion
+  and diversity. Promotion requires the full
+  `hybrid-lexical-head-preserving-v1+fixed-k-rrf-v1:k=60` policy identity;
+  legacy or unsupported records fail closed to Shadow.
+  A new independently source-reviewed, LLM-assisted 30-French/30-English freeze
+  ran once with the real local model: passage macro recall improved from
+  4.17% to 61.00% in French and 68.89% to 74.17% in English; all 32 comparable
+  held-out lexical heads were preserved. The exact-path and contractual
+  first-hit controls failed, so qualification remains unpassed. No serving
+  promotion or native latency/availability certification is implied.
+- The current `maestria-launcher` binary now uses Slint instead of the
+  Tauri/React renderer. The resident window, query focus, Preferences,
+  discoverable Slint About attribution, light/dark theme, X11/Wayland
+  activation, and Debian/AppImage packaging were exercised locally; both
+  packages passed native X11 keyboard and AT-SPI smoke. The executable,
+  Debian package ID, desktop/portal ID, and `launcher.toml` remain stable.
+  Passage results and full launcher parity are not yet implemented; legacy
+  frontend files remain pending the parity cleanup.
+- Schema v17 expires all previously issued realm read grants at fixed Unix
+  second 1. Existing event IDs and payloads stay unchanged and replay is
+  deterministic; old credentials cannot read any passages or evidence. On the
+  provider, list grants, revoke each expired digest, then explicitly issue a
+  new time-bounded grant for that consumer. Revoked grants remain revoked.
 - Dependency batch: workspace pins advanced to thiserror 2, ureq 3,
   rusqlite 0.40, getrandom 0.4, tokio 1.53, and tokio-util 0.7.19 in one
   migration. The ureq 3 transport keeps the no-redirect policy and the
@@ -132,7 +631,62 @@ intelligence to a reviewed set of directories.
   the same privacy boundary as the generic whitelist-first indexer.
 
 ### Fixed
-
+- Source-grounded card retrieval now resolves structural summary cards through
+  their unique, exact same-artifact source span when the card refers to a tree
+  root rather than a chunk node. Missing or ambiguous spans remain excluded;
+  authorization, secret scanning and source-snapshot verification are retained.
+  A real-parser/index before probe demonstrated pre-score rejection, and a
+  separately registered after-fix source produced its canonical chunk evidence.
+  These diagnostics do not attribute the consumed bilingual controls or qualify
+  installed availability, navigation, latency or Hybrid serving.
+- Sillage snapshot-readiness coordination and typed-query callbacks/scheduling
+  now have focused modules without increasing repository cohesion budgets.
+  Search-path settings-lock failures use the existing launcher notice instead
+  of silently becoming an unconfigured service; catalog search remains usable.
+  Generation cancellation, catalog-before-passage publication, debounce,
+  internal deadline, and shutdown gates are unchanged.
+- Interactive source snapshots are now prepared on an awaited blocking worker
+  after watcher deliveries, removals, and parser work quiesce, before indexing
+  status reports ready. The scan permit is released before preparation;
+  revision races remain non-ready and same-revision preparation errors remain
+  visible without retries. A fresh 10,000-source diagnostic established a
+  470-ms cold replay inside a timed-out request; the post-repair debug fixture
+  instead hit its ingestion-readiness deadline with zero search requests.
+  Consumer add/edit/delete transitions passed, but fresh installed-release
+  latency and availability acceptance remain required.
+- Typed Slint edits immediately advance cancellation generations, clear stale
+  rows, and start the application catalog. A dedicated 25-ms trailing timer
+  coalesces passage requests; passage RPCs run independently but publish only
+  after current-generation catalog application. Superseded semaphore waiters
+  cancel without occupying the shared interactive slot. The 50-ms UI tick,
+  100-ms daemon deadline, and five-second shutdown gate are unchanged;
+  the scheduling change alone does not certify native latency percentiles.
+- Prepared durable search-access audit writes now bypass indexing semaphore
+  admission, matching deferred persistence and retaining the existing watchdog.
+  A real SQLite regression requires an acknowledged, independently readable
+  query/trace audit while indexing remains blocked; the 100-ms interactive
+  deadline and cancellation/admission behavior are unchanged.
+- Daemon shutdown always joins both continuous-ingestion watcher and runtime
+  tasks, even when the watcher fails, preserving combined error reporting.
+  A pending-runtime regression and a private actual watcher-persistence-error
+  shutdown verify the repair without longer waits or suppressed errors.
+- Approved-root watcher status now waits for a durable parser receipt instead
+  of treating channel submission as indexing completion. Edits, deletions,
+  and revoked roots deny stale search/evidence; reapproving unchanged content
+  restores its original content-addressed version across restart. External
+  `indexing-status` reports aggregate progress without source paths.
+- A retained `RuntimeHandle` now holds only a weak reference to the
+  runtime-owned search executor, so an old handle cannot keep Tantivy's
+  writer alive after shutdown. Generation fingerprinting reads a current
+  index without claiming a writer; a lifecycle regression covers a
+  dirty-watermark restart with the old handle retained. The separately
+  reported intermittent lock on a first fresh CI fixture remains unproven.
+- Launcher boundary fixes: stale searches retain Preferences scope; replaced
+  catalog results cannot dispatch actions; file open/copy checks the accepted
+  generation through native dispatch; invalid saved shortcuts retain their file
+  with a warning; reset clears the binding before persisting defaults; worker
+  startup errors abort launch; and stale timing requests cannot erase newer
+  measurements. Copy feedback no longer hides catalog failures.
 - Instance write-lock liveness records the holder's process start ticks:
   after a crash with pid reuse, a stale lock was treated as held by a live
   process, wedging the instance (tests hit this as flaky approval/memory

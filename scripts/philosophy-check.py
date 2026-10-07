@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Repository doctrine checks for the Maestria bootstrap.
+"""Repository doctrine checks for the Sillage bootstrap.
 
 Entry point only; the checker lives in the ``philosophy_check`` package
 alongside this script, one module per rule family.

@@ -1,80 +1,480 @@
-# Maestria
+# Sillage
 
-Maestria is a local-first, source-grounded second-brain runtime for AI agents.
-It indexes your files, executes typed, query-adaptive searches, links evidence to
-memory and tasks, and runs a restart-safe daemon for continuous operation — all
-under explicit policy and validation gates.
+Sillage is an open-source, Linux-first keyboard launcher, independently usable
+document-content retrieval component, and extension platform.
+
+That is the target product direction. The current developer build provides a
+native **Slint** launcher, a separately built headless search-only Debian
+package, and the existing CLI/daemon/Studio. The launcher starts apps-only on
+first run. Install the optional search component, choose a folder in Preferences,
+and explicitly enable document search to see source-backed passages without
+entering credentials or editing settings. Saved explicit enablement resumes the
+separate launcher-owned search process on later starts; no model starts.
+Application search remains available with document search off or unavailable.
+The extension SDK and complete product release proof remain open.
+See [the product roadmap](docs/ROADMAP.md) for the work and GitHub issues.
+
+## Product direction
+
+The primary launcher loop is: invoke → type → inspect an application, command
+or **source-backed passage inside an approved file** → perform an explicit
+action → dismiss. Content results must show the actual excerpt and line/page,
+not merely a matching filename. The current Slint launcher discovers installed
+applications, exposes registered host commands, performs safe arithmetic,
+opens or copies files selected in the native chooser, and optionally groups
+cited Markdown/DOCX/PDF passages from the separately installed search service.
+Passage actions reopen evidence under the grant before copying or opening a
+validated source; the default viewer may not jump to its cited line or page.
+Embeddings and OCR are optional; app launch and exact/lexical search do not
+require a model.
+“Commands” means registered host or extension actions, not arbitrary shell
+evaluation of typed text.
+
+The current build and target product remain intentionally different surfaces:
+
+| Capability | Status |
+|---|---|
+| File-content indexing, lexical passage search and evidence opening | Available in the separate CLI/daemon and native launcher. Preferences provides explicit one-folder approval, indexing progress, Ready and Disable without credential entry. The owned service starts only after approval or saved explicit managed consent; no model starts |
+| Dense semantic search | Provider-dependent in the CLI/daemon workflow; not a launcher default |
+| Native resident launcher and application catalog | Available in the Slint developer build on X11 and Wayland; Debian and AppImage packages built and native-smoked |
+| Distinctive interface and full Tauri-to-Slint parity | Slint search, Preferences, About attribution, theme and keyboard basics work; parity and release performance measurements remain open |
+| Search-only installable service and scoped third-party client | `sillage-search` is a separate headless Debian package; local Unix-socket search/evidence works without the launcher or a model. Hosted Ubuntu 24.04 installed-binary smoke passed. Provider-backed relevance and combined release acceptance remain open |
+| X11 global shortcut | Available after user setup in Preferences |
+| Wayland global shortcut | Private installed Ubuntu 26.04 KDE GlobalShortcuts consent passed; stock Ubuntu 24.04 lacks the required host-app Registry, so use a user-created compositor binding for `sillage-launcher --activate` where needed |
+| Extension lifecycle, SDK, isolated workers and capability broker | Opt-in. Fresh installed Ubuntu 24.04 X11 Text Tools conversion/review/explicit Copy, 1.0.0→1.0.1 extension update, disable/revoke/reapprove/remove/reinstall, cancellation and restart persistence passed. Canonical binary-package upgrade/rollback/re-upgrade also retained grants and Copy; installed credential-provider provisioning remains unqualified |
+
+The existing CLI and daemon quick start below is for the current developer
+build, not launcher onboarding. Notebook, task, and memory workflows remain
+supported advanced existing capabilities.
 
 ## Install
 
-Maestria targets Rust stable 1.95+. Build from source:
+Sillage targets Rust stable 1.95+. Build from source:
 
 ```bash
 git clone https://github.com/brio-labs/maestria.git
 cd maestria
 
 # Build the CLI binary
-cargo build --release -p maestria-cli
-./target/release/maestria-cli --help
+cargo build --release -p sillage-cli
+./target/release/sillage-cli --help
 ```
 
-Maestria has no releases: the workspace version is pinned at `0.0.0` and
+Sillage has no releases: the development workspace version is `0.0.1` and
 `main` is always the current build. Build the CLI and daemon from source.
 
+### Native Linux launcher
 
-## Quick start
+The current developer launcher uses Slint's software renderer and does not embed
+Node, pnpm, GTK3, or WebKitGTK. Its native folder chooser uses
+`xdg-desktop-portal` with a desktop FileChooser backend; the Debian package
+declares that infrastructure. Build with Rust stable 1.95+ and the native
+X11/Wayland development libraries used by the
+[CI dependency setup](.github/actions/setup-system-dependencies/action.yml):
+
+```bash
+cargo build --release -p sillage-launcher
+./target/release/sillage-launcher --activate
+```
+
+To build the Debian and AppImage packages, install the pinned Cargo Packager:
+
+```bash
+cargo install cargo-packager --locked --version 0.11.8
+NO_STRIP=1 APPIMAGE_EXTRACT_AND_RUN=1 cargo packager --release --packages sillage-launcher --formats deb,appimage
+```
+
+The packages land under `target/launcher-packages/`. Build distributable
+artifacts on the oldest supported runtime, such as an Ubuntu 24.04 builder:
+packaging a binary compiled on this Arch host required `GLIBC_2.43` and the
+apt-installed launcher could not start on Ubuntu 24.04 (`glibc` 2.39).
+`NO_STRIP=1` avoids an incompatible bundled linuxdeploy `strip` on systems
+whose ELF libraries use `.relr.dyn`; it does not change runtime compatibility.
+`APPIMAGE_EXTRACT_AND_RUN=1` lets linuxdeploy's AppImage plugin run without
+FUSE inside a container; the builder also needs the `file` utility. A Debian
+installation provides `sillage-launcher` on `PATH` and a desktop entry whose
+`Exec` is `sillage-launcher --activate`. Installation does not start a daemon or
+model and does not enable autostart. A fresh launcher starts apps-only; saved
+explicit managed document-search consent may start its separate owned service.
+Use `sillage-launcher --activate` to show and focus the resident window and
+`sillage-launcher --quit` for an explicit shutdown. Closing or unfocusing the
+window hides it without ending the resident process.
+
+The final Debian and AppImage were built against Ubuntu 24.04, and both
+packaged executables passed a `glibc` ≤2.39 ABI check and native X11/Wayland
+smoke on this host. The Debian apt-installed into a disposable Ubuntu 24.04
+container with no search service and opened a visible X11 window, but that
+container's first-run AT-SPI offer assertion timed out. The host package UI
+smoke does not establish Ubuntu container accessibility acceptance.
+
+On first run, the launcher offers shortcut setup without blocking application
+search. “Not Now” persists a deferred choice; Preferences remains available
+with Ctrl+Comma for later setup. No global keybinding is installed until the
+user requests it. Local Debian/AppImage X11 package smoke exercised first-run
+deferral, arithmetic-result copying through the clipboard, Preferences, and
+resident reactivation. An isolated Debian-binary run also launched an XDG
+desktop-entry fixture and verified successful shortcut setup across restart,
+Caps/Num-lock activation, and rejection of a conflicting grab without changing
+the saved shortcut. A packaged Weston Wayland run with a fake seat verified
+the first-run offer, AT-SPI deferral and search focus, resident reactivation,
+and clean quit. Ubuntu 24.04's Weston 13 has no fake seat; the locally forced
+no-seat package smoke confirmed deferral persistence and reactivation but cannot
+test keyboard focus. [Hosted installed Ubuntu 26.04 KDE consent](https://github.com/brio-labs/maestria/actions/runs/36454007556)
+passed separate private approval and denial with the same-run Ubuntu 24.04-built
+launcher Debian. Its KDE dialog and launcher Setup used a **private pointer,
+not AT-SPI**. Stock Ubuntu 24.04's portal lacks the host-app Registry required
+by this launcher; see the [manual GNOME compositor shortcut fallback](docs/OPERATIONS.md#8-opt-in-linux-package-onboarding).
+Live compositor keypress activation, native Wayland chooser, upgrade retention
+and full screen-reader interactions remain unverified.
+
+Open Preferences with Ctrl+Comma; the shortcut editor receives keyboard focus.
+Set up the X11 shortcut there; the initial suggestion is
+`Control+Space`. On Wayland, the global-shortcuts portal needs a desktop entry
+with the matching `io.github.briolabs.Sillage.Launcher` identity and a
+resolvable `Exec`. The Debian package provides it; an AppImage user must
+integrate its desktop entry with a valid installed executable before portal
+setup. The compositor owns the actual key combination. If it cannot assign
+a portal shortcut, bind a user-chosen key to `sillage-launcher --activate`
+(or to the user's chosen AppImage executable with `--activate`). For a
+Hyprland configuration using its Lua API, a portal binding can use
+`hl.bind("CTRL + SUPER + F12", hl.dsp.global("io.github.briolabs.Sillage.Launcher:activate-launcher"))`;
+this is a **user-controlled example**, not a shipped or enabled default.
+Tiling compositors can enlarge the window; configure a user-owned floating
+and size rule if desired. File selection uses a native chooser and does not
+index a directory. Document-search folder selection likewise does not start
+indexing: a separate explicit Enable action is required.
+
+The Sillage cutover deliberately changes the executable, package, desktop/portal
+identity, and application data paths. The canonical launcher is
+`sillage-launcher`, its Debian package is
+`io-github-briolabs-sillage-launcher`, and its portal identity is
+`io.github.briolabs.Sillage.Launcher`; no Maestria aliases are shipped.
+Existing Maestria settings, grants, compositor bindings, instances, credentials,
+and model assets are neither moved nor automatically imported into Sillage
+paths. No version-different upgrade retention or data migration has been
+verified. Keep the actual source endpoint
+`https://github.com/brio-labs/maestria` and its existing `maestria` clone
+directory: no replacement GitHub repository URL is verified. Historical
+CI/evidence links, the `ghcr.io/brio-labs/maestria/ci` image, and frozen
+benchmark/corpus identities remain unchanged. The rename alone does not
+qualify a release; retrieval and combined-release acceptance gates remain open.
+
+#### Daily-driver utilities
+
+Use **Utilities**, or search for **Quicklinks**, **Snippets** or **Clipboard
+History**. Up/Down selects entries, Return opens the selected entry, Ctrl+N
+creates one and Ctrl+S saves it. Edited templates must be saved before expansion.
+Quicklinks and snippets persist privately in `utilities.toml` beside launcher
+preferences; clipboard history never persists.
+
+- **Quicklinks:** save an HTTP(S) URL containing exactly one `{query}` outside
+  its authority. The supplied parameter is percent-encoded before native URL
+  dispatch; it is never interpreted as shell input.
+- **Snippets:** save literal text with optional `{query}`, supply its argument,
+  then explicitly expand and copy. Other markers such as `{date}` remain
+  literal. No global keyboard interception or automatic expansion.
+- **Clipboard:** explicitly save the current clipboard, select/copy an entry,
+  delete it or clear the collection. No monitoring or automatic capture.
+  Memory-only history holds at most 100 entries of 64 KiB each, expires entries
+  after one monotonic hour and clears on restart. Capture has a 500-ms deadline;
+  cancelling a capture cannot publish a late result. These controls are not a
+  secret detector: do not explicitly save sensitive clipboard contents.
+
+Arithmetic and offline conversions run without search or a model. Use
+`<number> <unit> to <unit>` (optionally prefixed with `=`), for example
+`2.5 hours to minutes`, `32 F to C` or `1 GiB to MiB`. Supported dimensions are
+length, mass, temperature, duration and digital storage; incompatible dimensions
+and non-finite results produce errors. Return copies the selected result.
+
+Login autostart is an explicit General preference, off until selected. It writes
+only the launcher-owned `io.github.briolabs.Sillage.Launcher.desktop` entry with
+`Exec=sillage-launcher --background`; background startup does not map a window.
+Disabling removes the exact owned entry and preserves foreign files or symlinks.
+
+The local **Text Tools** SDK example converts upper/lower/title/camel/snake/kebab
+case, then presents editable output for an explicit Copy action. It requests
+only `copy(text)`: conversion never copies automatically. With the existing
+locked launcher TypeScript toolchain installed, run
+`node extension-sdk/scripts/package-text-tools.mjs` from the repository root.
+Install the printed unique package directory through **Extensions**, review its
+exact identity and permissions, then run **Text Tools**. The generator does not
+overwrite an existing output directory.
+
+The window prefers 760×760 logical pixels and can resize down to 640×540.
+Preferences scroll while Save/Done and document Enable/Disable stay reachable.
+Utility results stay compact even when only one entry matches. Saved themes
+also initialize native controls on restart, including scale-two dark mode.
+
+Current daily-driver package acceptance uses a private Ubuntu 24.04 X11 desktop.
+Earlier Wayland/AppImage observations are source/package-specific, not proof for
+this newer payload. Physical monitor changes, hardware suspend/resume,
+current-source Wayland activation/chooser behavior, full screen-reader support
+and current installed credential-provider provisioning remain unverified.
+Same-version APT replacement is not a version upgrade; the separate canonical
+version-changing proof below does not imply retrieval or release qualification.
+
+Fresh installed acceptance `daily-driver-installed-thirty-fourth` completed
+61 consumer observations in 94 seconds using all three ordinary Ubuntu 24.04
+packages: core keyboard/app/calculator workflows, explicit utilities, native
+Text Tools lifecycle, approved documents and saved-consent restart, source
+actions, Disable, scale two, same-version APT replacement/removal and bounded
+cleanup without a force kill. All 58 paired native captures were decoded and
+visually inspected. Earlier first failures and unused inputs remain preserved.
+
+The daily-driver evidence bundle destination is
+`~/.local/share/sillage-release-evidence/daily-driver-packaged-result-first/`.
+Its verifier only reads the sealed files; it launches no product, performs no
+network or SQLite access and does not repeat the retrieval trials:
+
+```sh
+EVIDENCE="$HOME/.local/share/sillage-release-evidence/daily-driver-packaged-result-first"
+python3 "$EVIDENCE/verify-daily-driver-result.py" "$EVIDENCE"
+```
+
+#### Canonical version-changing package evidence
+
+Fresh `version-changing-upgrade-installed-third` verified all three canonical
+Debian packages through `0.0.1 → 0.0.1+daily-driver.1 → 0.0.1 →
+0.0.1+daily-driver.1`, then ordinary removal. APT ordered the newer build above
+the old version and performed the explicit allowed downgrade for rollback.
+The workspace remains pinned at `0.0.1`: this is a private Debian build-version
+upgrade, not an upstream version bump or an official release.
+
+This is not metadata-only replacement: the newer launcher contains real compact
+utility-row and saved-theme initialization changes from frozen producer-tenth,
+while the old packages retain producer-eighth's original bytes. The search
+payload is unchanged; the worker payload differs without a behavior-change claim.
+Each transition checked actual installed versions, identities, payload hashes
+and modes, identical saved preference/utility/extension-grant-and-data bytes,
+and consumption through Preferences, quicklink launch, snippet Copy and
+permission-backed Text Tools Copy. Newer utility rows were measured through
+native bounds after both upgrades; rollback deliberately restores the old layout.
+
+The run completed 105 consumer observations in 165 seconds, with 89 paired
+original native captures and seven normal owned shutdowns. Package removal
+preserved remaining user data and bounded cleanup needed no force-kill.
+Both earlier harness failures and their unused document inputs remain preserved.
+The separate evidence supplement does not modify either older seal:
+
+```sh
+EVIDENCE="$HOME/.local/share/sillage-release-evidence/version-upgrade-packaged-result-first"
+python3 "$EVIDENCE/verify-version-upgrade-result.py" "$EVIDENCE"
+```
+
+Its read-only verifier inspects the actual Debian archives, source differences,
+installed transition receipts, capture pairs and cleanup; no product execution,
+network, SQLite access or retrieval replay. Qualification remains false, `main`
+serves Shadow and PR #516 remains draft.
+
+#### Installed external local search grants
+
+The #550 private installed increment passed 32 native observations using the
+canonical Debian suite `0.0.1+provider.1`: freshly built `sillage-search`, with
+unchanged launcher/worker payloads from the earlier inspected producer. Actual
+owner `review-external` preceded each explicit grant creation. The scenario
+exercised SDK search and explicit copy, exact-root and different-consumer denial,
+search-only evidence-open denial, provider absence/restart, independent extension
+disable/permission revoke, owner revocation, natural 20-second expiry and fresh
+reviewed renewal. Grants explicitly approved Internal sensitivity for the
+existing local ingestion classification, two results and 4096 evidence bytes.
+
+One final owner-revoked denial XWD/PNG pair was directly inspected; no approval
+or successful passage image, credential identifier, raw audit or document
+fixture is exported. Ten earlier preparation/runtime first outcomes remain
+preserved, with wholly fresh inputs between scopes.
+
+```sh
+EVIDENCE="$HOME/.local/share/sillage-release-evidence/extension-provider-packaged-result-first"
+python3 "$EVIDENCE/verify-extension-provider-result.py" "$EVIDENCE"
+```
+
+The independently published 28-file seal passed verification mounted read-only,
+without product execution, network, SQLite or private profile access. Extension
+disable/revoke is not launcher Document Search Disable or qualification of
+independently administered-provider shutdown.
+
+
+#### Host-owned HTTP credentials and Secret Service vault binding
+
+The #551 private installed increment passed 45 native observations using the
+canonical Debian suite `0.0.1+http.1`: freshly built `sillage-launcher` and
+`sillage-extension-worker`, with unchanged `sillage-search` from the earlier
+inspected producer. Host-owned HTTP credential integration requires an existing,
+unlocked user Secret Service facility; the launcher never creates or unlocks
+vault collections, discovers foreign application credentials, or falls back to
+plaintext storage.
+
+Credential approval binds an exact extension ID, validated package SHA-256,
+canonical HTTPS origin, method, exact path, and expiry TTL. Extension workers
+receive only opaque host-issued handles (`{ scheme: "bearer", handle }`), never
+raw secret bytes. Unsupported schemes and malformed handles are rejected strictly
+at the worker parser. The host broker enforces DNS pinning, public-address
+policies, redirect rejection, response size limits (16 KiB), and direct
+raw-token reflection rejection using native TLS roots exclusively.
+
+The installed acceptance scenario verified:
+- Pre-approval scope review and masked host-only secret entry.
+- Fail-closed denials for locked and missing Secret Service states.
+- Authenticated HTTPS GET, POST, redirect (302, not followed), oversize, and
+  reflected-token responses against an owned synthetic TLS endpoint.
+- Strict denials for wrong origin, path, method, and HTTP downgrade attempts.
+- Re-rejection of previously authorized handles after extension package update.
+- Grant expiration enforcement and reviewed renewal replacing old handles.
+- Independent extension disable and permission revocation preserving active
+  host credentials and separate local search-provider grants.
+
+One safe revoked-denial XWD/PNG pair was directly inspected (706x760); no
+secret bytes, live grant references, derived realms, raw audits, or approval
+screens are exported. All earlier preparation and runtime first outcomes remain
+preserved without replay.
+
+```sh
+EVIDENCE="$HOME/.local/share/sillage-release-evidence/http-credential-packaged-result-first"
+python3 "$EVIDENCE/verify-http-credential-result.py" "$EVIDENCE"
+```
+
+The independently published 30-file seal passed verification mounted read-only,
+without product execution, network, SQLite, or private profile access. Desktop,
+hardware, and aggregate release gates remain open; qualification is false.
+#### UI-only document search
+
+Install both the launcher and `sillage-search` components; apps-only installs
+remain supported. See [combined installation](docs/OPERATIONS.md#8-opt-in-linux-package-onboarding).
+For a source build, build both binaries and keep `sillage-search` beside the
+launcher or on `PATH`.
+
+1. Open Sillage and choose **Set Up Shortcut**, or defer it and use Preferences later.
+2. Open **Document search** from the setup entry or Preferences (Ctrl+Comma).
+3. Choose a local folder in the native chooser. The canonical selected path is
+   displayed; selection alone does not start or configure search.
+4. Select **Enable document search** to approve indexing only that folder.
+   The launcher creates its private profile and scoped credential automatically,
+   then starts the separate read-only `sillage-search` process. No model starts.
+5. Observe **Indexing**, the indexed/pending counts, and **Ready** once the
+   durable scan completes with no pending files or indexing error. Large folders
+   can take time; an error is not presented as Ready.
+6. Close Preferences, search text inside a document, and press Return to inspect
+   its cited passage. Copy Citation, Copy Passage and Open Source reopen current
+   evidence under the grant before acting.
+7. **Disable document search** in Preferences removes the launcher configuration,
+   clears previous document content and stops its owned service. Application
+   launching, the configured shortcut and arithmetic remain available.
+
+Explicit managed enablement is saved and may resume only while the launcher is
+running. Changing folders retires the old managed approval and requires a new
+Enable action. There is no credential entry, settings-file editing or manual
+search initialization in this workflow. An external connection is left unchanged
+by folder selection; Disable disconnects that launcher client without modifying
+its external provider.
+
+A fresh isolated source-built X11 run completed this workflow with 240 Markdown
+files, including a folder name containing spaces and a comma, saved-consent
+restart, exact fresh copies and private default-handler dispatch. Screenshots
+were inspected. That source-route proof alone does not establish installed-package,
+Wayland, reference-hardware, latency or release qualification. The separate
+1,800-file run timed out at 120 s with 952 indexed and 848 pending; that first
+outcome remains a failure.
+
+A subsequent native Ubuntu 24.04 build and APT installation of the current
+Debian launcher/search packages passed the same complete UI workflow in a fresh
+private X11 session. Installed `/usr/bin` executables, package status and producer
+hashes were verified; both ELF requirements stay within GLIBC 2.39. No explicit
+loaders or replacement product/GIO wrappers were used. This is Debian functional
+acceptance, not AppImage, Wayland, reference-hardware, latency/relevance, Hybrid
+admission or release qualification. Preserved preparation and private desktop
+cleanup failures remain separate first outcomes.
+
+#### Advanced external connection
+
+For an independently administered provider, approve roots and create a
+`search-and-open-evidence` grant using the operations guide. After launching once
+to create `launcher.toml`, add the optional table below to
+`$XDG_CONFIG_HOME/io.github.briolabs.Sillage.Launcher/launcher.toml` (or
+`~/.config/io.github.briolabs.Sillage.Launcher/launcher.toml` without
+`XDG_CONFIG_HOME`). Use the actual absolute socket and mode-0600 credential paths,
+and the exact 64-character hexadecimal realm. Keep `sillage-search` on `PATH`;
+the launcher invokes it as a separate bounded process and never displays the
+credential contents:
+
+```toml
+[search]
+socketPath = "/home/you/Documents/sillage-search/system/daemon.sock"
+consumerRealm = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+credentialFile = "/home/you/.config/sillage/search-client.key"
+```
+
+Without search enablement, with an unavailable service, or after a denial,
+application search remains available. An earlier isolated X11 Slint run found a phrase only
+inside an approved Markdown file, displayed its highlighted citation and full
+passage, copied freshly reopened evidence, refused the old copy action after
+the source changed, and showed an app result after a newer query. This is not
+a Wayland passage-action, live portal, whole-path latency, or release test.
+
+In a historical **Tauri-only** X11 run with 500 frozen desktop entries and 200 samples per
+class, native activation receipt to renderer-ready p95 was 30.715 ms and query
+input to results-ready p95 was 19 ms. These acknowledgments are not physical
+pixel presentation. A cold WebDriver-inclusive upper bound of 1,051.115 ms
+missed the ≤1 s measurement target; it does not isolate app startup. Summed
+launcher and WebKit RSS was 552.543 MiB, above 200 MiB without a daemon or
+broker. Neither result certifies the planned combined-product targets. The
+hardware, p50/p95/p99, idle CPU, and limitations are in [the roadmap](docs/ROADMAP.md).
+
+## Current developer build quick start
+
+The commands below exercise the current CLI and daemon; they are not
+launcher-onboarding commands.
 
 ```bash
 # 1) Initialize an instance with approved read roots
-maestria init -i .maestria-dev --read-root ~/Projects --read-root ~/Notes
+sillage init -i .sillage-dev --read-root ~/Projects --read-root ~/Notes
 
 # 2) Index a directory (recursive) or a single file
-maestria index -i .maestria-dev -r ~/Projects/my-project
-maestria index -i .maestria-dev ~/Notes/research.md
+sillage index -i .sillage-dev -r ~/Projects/my-project
+sillage index -i .sillage-dev ~/Notes/research.md
 
 # 3) Search indexed chunks
-maestria search -i .maestria-dev "source-grounded phrase"
+sillage search -i .sillage-dev "source-grounded phrase"
 
 # 4) Explain a durable search
-maestria search explain -i .maestria-dev "source-grounded phrase"
+sillage search explain -i .sillage-dev "source-grounded phrase"
 
 # 5) Inspect evidence backing a search result
-maestria open-evidence -i .maestria-dev --evidence-id 1
-maestria open-evidence -i .maestria-dev --chunk-id 5
+sillage open-evidence -i .sillage-dev --evidence-id 1
+sillage open-evidence -i .sillage-dev --chunk-id 5
 
 # 6) Inspect search/index/task observability
-maestria search trace -i .maestria-dev 42
-maestria index generations -i .maestria-dev
-maestria evidence coverage -i .maestria-dev 7
+sillage search trace -i .sillage-dev 42
+sillage index generations -i .sillage-dev
+sillage evidence coverage -i .sillage-dev 7
 
 # 7) Check instance health
-maestria status -i .maestria-dev
-maestria doctor -i .maestria-dev
+sillage status -i .sillage-dev
+sillage doctor -i .sillage-dev
 
 # 8) Create and validate a task
-maestria task start -i .maestria-dev "Review research notes"
-maestria task add-evidence -i .maestria-dev 1 --evidence-id 1
-maestria task request-validation -i .maestria-dev 1
+sillage task start -i .sillage-dev "Review research notes"
+sillage task add-evidence -i .sillage-dev 1 --evidence-id 1
+sillage task request-validation -i .sillage-dev 1
 
 # 9) Check task coverage and approve
-maestria evidence coverage -i .maestria-dev 1
-maestria approval list -i .maestria-dev
+sillage evidence coverage -i .sillage-dev 1
+sillage approval list -i .sillage-dev
 
 # 10) Propose and promote memory
-maestria memory candidates -i .maestria-dev
-maestria memory propose -i .maestria-dev -t "observation claim" -e 1,2 -c 700
-maestria memory promote -i .maestria-dev -c 1 --approve
+sillage memory candidates -i .sillage-dev
+sillage memory propose -i .sillage-dev -t "observation claim" -e 1,2 -c 700
+sillage memory promote -i .sillage-dev -c 1 --approve
 
 # 10b) Manage the learned-sparse promotion record
-maestria promotion show -i .maestria-dev
-maestria promotion set -i .maestria-dev --record learned_sparse_promotion_v1.json
-maestria promotion remove -i .maestria-dev
+sillage promotion show -i .sillage-dev
+sillage promotion set -i .sillage-dev --record learned_sparse_promotion_v1.json
+sillage promotion remove -i .sillage-dev
 
 # 11) Start the daemon (or restart after changes)
-maestria start -i .maestria-dev
+sillage start -i .sillage-dev
 # Governance profile: read-only (default) or trusted-workspace; the
-# env var MAESTRIA_DAEMON_PROFILE remains an alias for scripts.
-# maestria start -i .maestria-dev --profile trusted-workspace
+# env var SILLAGE_DAEMON_PROFILE remains an alias for scripts.
+# sillage start -i .sillage-dev --profile trusted-workspace
 # Stop with Ctrl-C; start again picks up where it left off
 ```
 
@@ -84,16 +484,16 @@ Studio is a daemon-first, authenticated loopback frontend. Start the matching
 daemon, then launch the client with the instance explicitly selected:
 
 ```bash
-maestria start -i .maestria-dev
-maestria studio -i .maestria-dev --no-open
+sillage start -i .sillage-dev
+sillage studio -i .sillage-dev --no-open
 ```
 
 Without `--no-open`, the CLI asks the platform default browser to open the
 printed `studio_url`. If the daemon is unavailable, the command exits with:
-`daemon unavailable; start it with maestria start -i .maestria-dev`.
+`daemon unavailable; start it with sillage start -i .sillage-dev`.
 
 Studio reads agent profiles only from
-`.maestria-dev/system/studio-agents.toml`; the CLI has no agent-config path
+`.sillage-dev/system/studio-agents.toml`; the CLI has no agent-config path
 override and never reads a profile from the current working directory. The
 file may configure an ACP-compatible external command:
 
@@ -112,7 +512,7 @@ max_output_bytes = 65536
 If the file is absent and `omp` is on `PATH`, Studio discovers the exact
 in-memory profile `omp --no-tools --no-session acp`. If neither is available,
 the notebook, search, citation, and draft UI remains usable while Ask reports
-`agent_unconfigured`. Maestria is an ACP client: it does not ship, install,
+`agent_unconfigured`. Sillage is an ACP client: it does not ship, install,
 update, authenticate, or implement an agent harness or model provider.
 
 The URL carries an ephemeral bearer session fragment. Studio moves it into
@@ -148,25 +548,26 @@ New instances are schema v2. Before using an existing schema-v1 instance,
 migrate it once and retain the printed stable identity:
 
 ```bash
-maestria realm migrate -i ~/provider
-maestria realm migrate -i ~/consumer
-maestria realm identity -i ~/provider
-maestria realm identity -i ~/consumer
+sillage realm migrate -i ~/provider
+sillage realm migrate -i ~/consumer
+sillage realm identity -i ~/provider
+sillage realm identity -i ~/consumer
 ```
 
 Start both local daemons, then have the provider issue and install a bounded
 consumer binding:
 
 ```bash
-maestria start -i ~/provider
-maestria start -i ~/consumer
+sillage start -i ~/provider
+sillage start -i ~/consumer
 
-maestria realm grant create -i ~/provider \
+sillage realm grant create -i ~/provider \
   --consumer-instance ~/consumer \
   --access search-and-open-evidence \
   --max-sensitivity confidential \
   --max-results 1 \
-  --max-evidence-bytes 128
+  --max-evidence-bytes 128 \
+  --expires-in-seconds 86400
 ```
 
 The create command prints the grant digest but never the bearer credential. Use
@@ -174,28 +575,135 @@ the provider realm printed by `realm identity` for consumer reads, and revoke
 with the digest when access is no longer required:
 
 ```bash
-maestria realm search -i ~/consumer \
+sillage realm search -i ~/consumer \
   --provider-realm <provider-realm-id> "provider-only phrase" --limit 1
-maestria realm open-evidence -i ~/consumer \
+sillage realm open-evidence -i ~/consumer \
   --provider-realm <provider-realm-id> --evidence-id 1
-maestria realm grant list -i ~/provider
-maestria realm grant revoke -i ~/provider <grant-token-digest>
+sillage realm grant list -i ~/provider
+sillage realm grant revoke -i ~/provider <grant-token-digest>
 ```
 
 Federation is Unix-socket-only. The provider keeps its daemon token; the
 consumer receives a private, revocable capability that can search and,
 only when granted, open a bounded provider evidence excerpt.
 
+**Grant migration:** Schema v17 expires every older active realm read grant at
+fixed Unix second 1. The original grant event log is unchanged; old credentials
+cannot search or open evidence. On the provider, run `realm grant list`, revoke
+the expired grant digest, and issue a new time-bounded grant for the same
+consumer. Revoked grants remain revoked; access is never automatically renewed.
+
+### Scoped local search API and separate search-only package
+
+An approved and indexed provider can serve passage search from an unrelated
+local process without a launcher, Studio, extension runtime or embedding
+model. Start its daemon explicitly with
+`sillage start -i ~/provider --profile read-only`. In another terminal,
+issue a per-consumer capability. The credential is created once in a
+mode-0600 file and is never printed:
+
+```bash
+consumer_realm="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+sillage realm grant create-external -i ~/provider \
+  --consumer-realm "$consumer_realm" --credential-file ./search-client.key \
+  --access search-only --max-sensitivity internal \
+  --max-results 5 --max-evidence-bytes 256 --expires-in-seconds 3600
+sillage search-api search \
+  --socket-path ~/provider/system/daemon.sock \
+  --consumer-realm "$consumer_realm" --credential-file ./search-client.key \
+  --limit 5 "source-grounded phrase"
+sillage search-api status \
+  --socket-path ~/provider/system/daemon.sock \
+  --consumer-realm "$consumer_realm" --credential-file ./search-client.key
+```
+
+`search-only` grants can receive bounded `preview.excerpt` text with a typed
+`preview.location` and `preview.truncated` flag, but only a
+`search-and-open-evidence` grant permits `search-api open-evidence`.
+Grant revocation or expiry removes access; the provider instance token is
+never given to the external client. The existing `sillage` commands above
+are available from the full developer CLI. For a headless search-only build,
+use the separate `sillage-search` binary and Debian package instead:
+
+```bash
+cargo build --release -p sillage-search
+cargo install cargo-packager --locked --version 0.11.8
+cargo packager --release --packages sillage-search --formats deb
+# On a Debian-family host, install target/search-packages/sillage-search_*.deb
+# with apt so system runtime dependencies are resolved.
+sillage-search init --instance-dir ~/provider --read-root ~/Documents
+sillage-search start --instance-dir ~/provider
+# In a second terminal, generate a 64-character lowercase hexadecimal realm:
+consumer_realm="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+grant_policy=(
+  --instance-dir ~/provider --consumer-realm "$consumer_realm"
+  --access search-and-open-evidence --max-sensitivity internal
+  --read-root ~/Documents --max-results 5 --max-evidence-bytes 4096
+  --expires-in-seconds 86400
+)
+sillage-search owner grant review-external "${grant_policy[@]}" \
+  --consumer-label "Headless search client"
+# Review the exact roots, policy and TTL before explicit owner approval:
+sillage-search owner grant create-external "${grant_policy[@]}" \
+  --credential-file ./search-client.key
+sillage-search search --socket-path ~/provider/system/daemon.sock \
+  --consumer-realm "$consumer_realm" --credential-file ./search-client.key \
+  --limit 5 "source-grounded phrase"
+sillage-search interactive-search --socket-path ~/provider/system/daemon.sock \
+  --consumer-realm "$consumer_realm" --credential-file ./search-client.key \
+  --limit 5 "source-grounded phrase"
+# Pass an evidence_id from the result to sillage-search open-evidence
+# with the same socket, realm and private credential file.
+```
+
+The provider's index has one owner; `start` uses the read-only profile without
+a model client, and installation does not start a service or enable autostart.
+Use `owner roots status|add|remove` to inspect or change approved read roots,
+`owner grant review-external` for a read-only scope/TTL preview before creation,
+`owner grant list|revoke` to inspect or revoke grants, and `indexing-status` to
+inspect live indexing freshness. The review label is required public display
+metadata, not authentication; expiry starts at explicit creation. A client without a
+matching, live grant is denied. In a disposable Ubuntu 24.04 container the
+apt-installed `/usr/bin/sillage-search` indexed Markdown, DOCX paragraphs and
+a text-bearing PDF, reported an image-only PDF as OCR-needed, and served
+bounded typed previews through general and v2 interactive search. Federated
+evidence reopening returned an authorized current PDF source path and exact
+page citation; previews exposed no PDF path. Grant denial/revocation, daemon
+restart, and suppression of both a previously indexed passage and direct
+reopening of its old evidence after the source changed passed locally.
+
+On an uninstrumented, fully indexed 10,000-Markdown-file corpus, 197 of 200
+warm exact-phrase interactive requests succeeded and three hit the existing
+100 ms daemon deadline. Successful separate-process CLI requests had p50
+68.05 ms, p95 78.42 ms, and p99 110.7 ms; these are **not** native
+keystroke-to-passage timings. After approving an additional 700-file root,
+indexing status reported 429 pending; the first six of 30 interactive
+requests timed out and the other 24 succeeded (successful CLI p95 101.4 ms).
+Indexing reached zero pending during that probe, so the successful subset
+does not establish active-indexing responsiveness.
+
+With direct-path lookup for file/DOCX source validation, a later isolated
+200-call warm run on the retained, now fully indexed corpus succeeded 199
+times; successful separate-process CLI p50/p95/p99 were 38.77/51.20/68.02 ms.
+One call still timed out at 100 ms. A concurrent daemon-test run succeeded
+196/200, with four timeouts. The workloads differ from the initial 10,000-file
+probe, so these figures do not establish a causal speedup or deadline
+acceptance.
+
+Hosted CI, native whole-path latency, Wayland passage actions, relevance and
+complete product acceptance remain open.
+
 ## Supported surfaces and capability status
 
 ### Daemon client
 
-`maestria start -i <instance>` runs the local daemon. Its authenticated local
+`sillage start -i <instance>` runs the local daemon. Its authenticated local
 client boundary is newline-delimited JSON on
 `<instance>/system/daemon.sock`; the token is stored in
 `<instance>/system/daemon.token`.
 The owner-only instance-token operations include `status`, `retrieval_status`, `search`,
-`evidence`, `task`, `retire_retrieval_events`, `index_candidates`,
+`evidence`, `task`, `retire_retrieval_events`, `search_roots_status`,
+`search_root_add`, `search_root_remove`, `index_candidates`,
 `index_selection_get`, `index_selection_save`, `index_run`,
 `repository_index_candidates`, `repository_index_children`,
 `repository_index_files`, `repository_index_progress_get`, `repository_index_run`,
@@ -226,9 +734,9 @@ envelopes.
 Repository indexing and bounded context queries are supported:
 
 ```bash
-maestria index -i .maestria-dev repository ~/Projects/my-project
-maestria search -i .maestria-dev code symbol "SearchPlan"
-maestria search -i .maestria-dev code context "RetrievalEngine" --depth 2 --nodes 32
+sillage index -i .sillage-dev repository ~/Projects/my-project
+sillage search -i .sillage-dev code symbol "SearchPlan"
+sillage search -i .sillage-dev code context "RetrievalEngine" --depth 2 --nodes 32
 ```
 
 Cargo workspaces, Python distributions (`pyproject.toml`/`setup.cfg`/`setup.py`), and
@@ -253,24 +761,24 @@ optional higher-quality visual-embedding profile. Neither model is required
 for normal text/layout retrieval.
 
 When enabled, both sidecars listen on loopback only, perform CPU inference,
-and retain no inputs; Maestria never downloads or executes model code and
-`maestria doctor` reports whether the configured rasterizer or visual
+and retain no inputs; Sillage never downloads or executes model code and
+`sillage doctor` reports whether the configured rasterizer or visual
 capability is available. Pinned sidecar profiles — revisions, artifact
 hashes, endpoints, and manifest key blocks — are dated implementation
 candidates documented in [`docs/RESEARCH.md`](./docs/RESEARCH.md); omit the
 `ocr_*` and `visual_*` manifest keys to keep the capabilities disabled.
 
-### Tasks, validation, approvals, and memory
+### Advanced existing workflows: tasks, validation, approvals, and memory
 
 Task completion is validation-gated:
 
 ```bash
-maestria task start -i .maestria-dev "check the repository"
-maestria task request-validation -i .maestria-dev <task-id>
-maestria evidence coverage -i .maestria-dev <task-id>
-maestria approval list -i .maestria-dev
-maestria memory candidates -i .maestria-dev
-maestria memory propose -i .maestria-dev -t "claim" -e <evidence-id> -c 700
+sillage task start -i .sillage-dev "check the repository"
+sillage task request-validation -i .sillage-dev <task-id>
+sillage evidence coverage -i .sillage-dev <task-id>
+sillage approval list -i .sillage-dev
+sillage memory candidates -i .sillage-dev
+sillage memory propose -i .sillage-dev -t "claim" -e <evidence-id> -c 700
 ```
 
 Memory proposals require evidence and remain candidates until the explicit
@@ -290,19 +798,19 @@ local fallback, and research candidates are not silently promoted.
 
 ## Command reference
 
-Every command accepts `-i, --instance-dir <PATH>` (default `.maestria-dev`).
+Every command accepts `-i, --instance-dir <PATH>` (default `.sillage-dev`).
 
 ### `init`
 
-Create a local Maestria instance layout and manifest.
+Create a local Sillage instance layout and manifest.
 
 ```
-maestria init [-i <dir>] [--read-root <path>...]
+sillage init [-i <dir>] [--read-root <path>...]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-i, --instance-dir` | Instance root directory (default `.maestria-dev`) |
+| `-i, --instance-dir` | Instance root directory (default `.sillage-dev`) |
 | `--read-root` | Approved root path that may be indexed (repeatable) |
 
 Omitting `--read-root` defaults to the instance directory itself.
@@ -313,8 +821,8 @@ Index a file, files under a directory with `--recursive`, or list index
 generations.
 
 ```
-maestria index [-i <dir>] [-r] <path>
-maestria index generations [-i <dir>]
+sillage index [-i <dir>] [-r] <path>
+sillage index generations [-i <dir>]
 ```
 
 | Flag | Description |
@@ -341,7 +849,7 @@ and representation fingerprint fields.
 Build and persist exact Cargo metadata and Rust symbol records for a repository.
 
 ```
-maestria index repository [-i <dir>] <path>
+sillage index repository [-i <dir>] <path>
 ```
 
 | Flag | Description |
@@ -356,17 +864,29 @@ manifest exclusion rules and must be inside an approved read root.
 The observability names reserve `explain`, `trace`, `compare`, and
 `generations` in their respective command positions. To use one as a direct
 query or path, terminate option and subcommand parsing with `--`, for example
-`maestria search -- trace` or `maestria index -- generations`.
+`sillage search -- trace` or `sillage index -- generations`.
 
 ### `search`
 
 Search indexed local chunks or inspect durable search observability.
 
 ```
-maestria search [-i <dir>] [-l <n>] <query>
-maestria search explain [-i <dir>] [-l <n>] <query>
-maestria search trace [-i <dir>] <trace_id>
-maestria search compare [-i <dir>] <experiment_a> <experiment_b>
+sillage search [-i <dir>] [-l <n>] <query>
+sillage search explain [-i <dir>] [-l <n>] <query>
+sillage search trace [-i <dir>] <trace_id>
+sillage search compare [-i <dir>] <experiment_a> <experiment_b>
+sillage search [-i <dir>] roots status
+sillage search [-i <dir>] roots add <directory>
+sillage search [-i <dir>] roots remove <directory>
+```
+
+With the default instance, approve a root explicitly, inspect its index, and
+revoke it when no longer needed:
+
+```bash
+sillage search roots add ~/Documents
+sillage search roots status
+sillage search roots remove ~/Documents
 ```
 
 | Flag | Description |
@@ -384,6 +904,13 @@ instance daemon served the query and `served=local` when it ran locally, so
 benchmark and latency numbers are attributable (see
 [`docs/OPERATIONS.md`](./docs/OPERATIONS.md) §7).
 
+`search roots` is provider-owned administration: approval is explicit, and
+removal immediately excludes the root from search and evidence opening.
+`roots status` can list source paths for the owner. The daemon's watcher
+reports files as indexed only after a durable parser receipt; queued work is
+reported as pending. Edits, deletions, and reapproval of unchanged content
+reconcile without broadening scope.
+
 #### `search code`
 
 Query the persisted repository code index built by `index repository`. All
@@ -391,14 +918,14 @@ Query the persisted repository code index built by `index repository`. All
 `-i`/`--instance-dir` and `-l`/`--limit` flags.
 
 ```
-maestria search code symbol <pattern>
-maestria search code path <pattern>
-maestria search code regex <pattern>
-maestria search code doc <pattern>
-maestria search code markers <todo|fixme|hack|unsafe>
-maestria search code changed [--since <commit>]
-maestria search code references <pattern> [--direction inbound|outbound]
-maestria search code context <pattern> [--depth <n>] [--nodes <n>] [--direction both|forward|reverse]
+sillage search code symbol <pattern>
+sillage search code path <pattern>
+sillage search code regex <pattern>
+sillage search code doc <pattern>
+sillage search code markers <todo|fixme|hack|unsafe>
+sillage search code changed [--since <commit>]
+sillage search code references <pattern> [--direction inbound|outbound]
+sillage search code context <pattern> [--depth <n>] [--nodes <n>] [--direction both|forward|reverse]
 ```
 
 | Subcommand | Description |
@@ -424,9 +951,10 @@ maestria search code context <pattern> [--depth <n>] [--nodes <n>] [--direction 
 The code index is built from Cargo metadata and Rust source files. It is
 validated against the instance manifest read scope before indexing and
 queried with live freshness checks. Repository/code features are implemented
-but are marked as provider-dependent and freshness-degraded until a frozen
-benchmark proves a measured quality and resource win (see
-[`docs/ROADMAP.md`](./docs/ROADMAP.md) Phase 4).
+in the current build but remain provider-dependent and freshness-degraded;
+they are not first-product launcher functionality. See
+[`docs/ROADMAP.md`](./docs/ROADMAP.md) for the canonical product milestones
+and [`docs/RESEARCH.md`](./docs/RESEARCH.md) for dated retrieval evidence.
 
 
 ### `open-evidence`
@@ -434,7 +962,7 @@ benchmark proves a measured quality and resource win (see
 Resolve typed source evidence without launching external programs.
 
 ```
-maestria open-evidence [-i <dir>] (--evidence-id <n> | --chunk-id <n>)
+sillage open-evidence [-i <dir>] (--evidence-id <n> | --chunk-id <n>)
 ```
 
 | Flag | Description |
@@ -450,7 +978,7 @@ maestria open-evidence [-i <dir>] (--evidence-id <n> | --chunk-id <n>)
 Show evidence and validation coverage for a task.
 
 ```
-maestria evidence coverage [-i <dir>] <task_id>
+sillage evidence coverage [-i <dir>] <task_id>
 ```
 
 
@@ -460,7 +988,7 @@ Print local instance health facts: root path, database location, full-text
 index directory, and event log count.
 
 ```
-maestria status [-i <dir>]
+sillage status [-i <dir>]
 ```
 
 ### `doctor`
@@ -469,7 +997,7 @@ Check local storage, index, blob store, and parser wiring. Prints `ok` for
 each component that opens successfully.
 
 ```
-maestria doctor [-i <dir>]
+sillage doctor [-i <dir>]
 ```
 
 ### `retire-retrieval-events`
@@ -481,15 +1009,15 @@ rows below the boundary stop being decoded at open, `status` reports
 explicitly. Requires a recorded `--reason`.
 
 ```
-maestria retire-retrieval-events -i <dir> --before-sequence <n> --reason "<why>" [--yes]
+sillage retire-retrieval-events -i <dir> --before-sequence <n> --reason "<why>" [--yes]
 ```
 
 ### `start`
 
-Start the Maestria daemon for the given instance.
+Start the Sillage daemon for the given instance.
 
 ```
-maestria start [-i <dir>]
+sillage start [-i <dir>] [--profile read-only|trusted-workspace]
 ```
 
 ### `realm`
@@ -498,16 +1026,23 @@ Manage explicit local federation. Schema-v1 instances must first run
 `realm migrate`; normal local searches never cross a realm boundary.
 
 ```
-maestria realm migrate [-i <instance>]
-maestria realm identity [-i <instance>]
-maestria realm grant create [-i <provider>] --consumer-instance <consumer> \
+sillage realm migrate [-i <instance>]
+sillage realm identity [-i <instance>]
+sillage realm grant create [-i <provider>] --consumer-instance <consumer> \
   --access search-only|search-and-open-evidence \
   --max-sensitivity public|internal|confidential|restricted \
-  --max-results <1..100> --max-evidence-bytes <1..65536>
-maestria realm grant list [-i <provider>]
-maestria realm grant revoke [-i <provider>] <grant-token-digest>
-maestria realm search [-i <consumer>] --provider-realm <realm-id> [-l <n>] <query>
-maestria realm open-evidence [-i <consumer>] --provider-realm <realm-id> \
+  --max-results <1..100> --max-evidence-bytes <1..65536> \
+  [--expires-in-seconds <1..31536000>]
+sillage realm grant create-external [-i <provider>] \
+  --consumer-realm <64-hex-id> --credential-file <path> \
+  --access search-only|search-and-open-evidence \
+  --max-sensitivity public|internal|confidential|restricted \
+  --max-results <1..100> --max-evidence-bytes <1..65536> \
+  [--expires-in-seconds <1..31536000>]
+sillage realm grant list [-i <provider>]
+sillage realm grant revoke [-i <provider>] <grant-token-digest>
+sillage realm search [-i <consumer>] --provider-realm <realm-id> [-l <n>] <query>
+sillage realm open-evidence [-i <consumer>] --provider-realm <realm-id> \
   --evidence-id <n>
 ```
 
@@ -516,6 +1051,27 @@ provider grant and installs the credential only in the consumer's private
 binding. `grant list` and `grant revoke` are provider administration commands.
 `realm search` and `realm open-evidence` use the consumer daemon and return
 only provider-authorized, bounded data with provider realm provenance.
+
+### `search-api`
+
+One explicit request to a running provider daemon from a separate local
+process. The caller supplies a private credential file and a stable consumer
+realm ID; no instance token, Studio or launcher is required.
+
+```
+sillage search-api search --socket-path <provider-daemon.sock> \
+  --consumer-realm <64-hex-id> --credential-file <path> [-l <n>] <query>
+sillage search-api status --socket-path <provider-daemon.sock> \
+  --consumer-realm <64-hex-id> --credential-file <path>
+sillage search-api indexing-status --socket-path <provider-daemon.sock> \
+  --consumer-realm <64-hex-id> --credential-file <path>
+sillage search-api open-evidence --socket-path <provider-daemon.sock> \
+  --consumer-realm <64-hex-id> --credential-file <path> --evidence-id <n>
+```
+
+`indexing-status` is a bounded aggregate with counts, exclusion reasons, and
+format support; unlike owner `roots status`, it does not disclose paths.
+Revoking the provider grant denies both search and evidence requests.
 
 ### `task`
 
@@ -526,7 +1082,7 @@ Task workflow commands.
 Create a new persisted task.
 
 ```
-maestria task start [-i <dir>] [-p low|normal|high] [--artifact-id <n>] <title>
+sillage task start [-i <dir>] [-p low|normal|high] [--artifact-id <n>] <title>
 ```
 
 | Flag | Description |
@@ -540,7 +1096,7 @@ maestria task start [-i <dir>] [-p low|normal|high] [--artifact-id <n>] <title>
 Show all tasks, or a single task by id.
 
 ```
-maestria task show [-i <dir>] [<task-id>]
+sillage task show [-i <dir>] [<task-id>]
 ```
 
 Omitting `<task-id>` lists every persisted task.
@@ -550,7 +1106,7 @@ Omitting `<task-id>` lists every persisted task.
 Link an existing evidence record to a task.
 
 ```
-maestria task add-evidence [-i <dir>] <task-id> --evidence-id <n>
+sillage task add-evidence [-i <dir>] <task-id> --evidence-id <n>
 ```
 
 #### `task request-validation`
@@ -558,7 +1114,7 @@ maestria task add-evidence [-i <dir>] <task-id> --evidence-id <n>
 Start validation for a task from a known task id.
 
 ```
-maestria task request-validation [-i <dir>] <task-id>
+sillage task request-validation [-i <dir>] <task-id>
 ```
 
 #### `task complete`
@@ -566,7 +1122,7 @@ maestria task request-validation [-i <dir>] <task-id>
 Complete a validating task from a recorded validation report.
 
 ```
-maestria task complete [-i <dir>] <task-id> --report-id <n>
+sillage task complete [-i <dir>] <task-id> --report-id <n>
 ```
 
 | Flag | Description |
@@ -588,7 +1144,7 @@ Memory projection commands.
 List persisted memory candidates.
 
 ```
-maestria memory candidates [-i <dir>] [-l <n>]
+sillage memory candidates [-i <dir>] [-l <n>]
 ```
 
 | Flag | Description |
@@ -601,7 +1157,7 @@ maestria memory candidates [-i <dir>] [-l <n>]
 Propose a new memory candidate backed by evidence.
 
 ```
-maestria memory propose [-i <dir>] -t <text> -e <id,...> -c <0..1000>
+sillage memory propose [-i <dir>] -t <text> -e <id,...> -c <0..1000>
 ```
 
 | Flag | Description |
@@ -616,7 +1172,7 @@ maestria memory propose [-i <dir>] -t <text> -e <id,...> -c <0..1000>
 Promote a memory candidate through governance-gated approval.
 
 ```
-maestria memory promote [-i <dir>] -c <candidate-id> [--approve]
+sillage memory promote [-i <dir>] -c <candidate-id> [--approve]
 ```
 
 | Flag | Description |
@@ -639,7 +1195,7 @@ Approval request management.
 List pending approval requests.
 
 ```
-maestria approval list [-i <dir>]
+sillage approval list [-i <dir>]
 ```
 
 #### `approval resolve`
@@ -647,7 +1203,7 @@ maestria approval list [-i <dir>]
 Resolve an approval request.
 
 ```
-maestria approval resolve [-i <dir>] <id> (--approve | --deny)
+sillage approval resolve [-i <dir>] <id> (--approve | --deny)
 ```
 
 | Flag | Description |
@@ -670,36 +1226,35 @@ where it left off without data loss or duplicate work.
 
 | Crate | Layer | Description |
 |-------|-------|-------------|
-| `maestria-domain` | Kernel | Deterministic domain types, events, transitions, and effects |
-| `maestria-governance` | Kernel | Scope, risk, approval, validation, freshness, trust, and security policy |
-| `maestria-ports` | Kernel | Capability traits and deterministic in-memory contract adapters |
-| `maestria-core` | Core | Local-first orchestration services and instance composition |
-| `maestria-runtime` | Runtime | Effect execution, workers, queues, cancellation, retries, and journaling |
-| `maestria-cli` | App | User-facing CLI binary |
-| `maestria-daemon` | App | Restart-safe daemon with authenticated local API |
-| `maestria-retrieval` | Ecosystem | Typed search planning, candidate generation, fusion, and reranking |
-| `maestria-code-intel` | Ecosystem | Repository code intelligence index for workspace metadata and Rust symbols |
-| `maestria-parsers` | Ecosystem | Source parsing and document structure extraction |
-| `maestria-memory` | Ecosystem | Candidate deduplication, promotion workflow, and staleness handling |
-| `maestria-validation` | Ecosystem | Validation runners, reports, and completion gating |
-| `maestria-web-evidence` | Ecosystem | Governed web evidence fetching and current-web retrieval |
-| `maestria-embedding-openai` | Ecosystem | OpenAI-compatible embedding provider adapter |
-| `maestria-ocr-local` | Ecosystem | Local OCR provider adapter for scanned PDFs |
-| `maestria-visual-local` | Ecosystem | Local visual retrieval provider adapter for page/region evidence |
-| `maestria-harness` | Harness | Normalized external execution and capability reporting |
-| `maestria-harness-cli` | Harness | CLI harness for local command execution |
-| `maestria-storage-sqlite` | Storage | SQLite-based state persistence, event log, and repository traits |
-| `maestria-search-tantivy` | Storage | Tantivy-based full-text lexical index |
-| `maestria-vector-sqlite` | Storage | SQLite-based vector similarity index |
-| `maestria-graph-sqlite` | Storage | SQLite-based graph projection index |
-| `maestria-blob-fs` | Storage | Filesystem-backed immutable blob store |
+| `sillage-domain` | Kernel | Deterministic domain types, events, transitions, and effects |
+| `sillage-governance` | Kernel | Scope, risk, approval, validation, freshness, trust, and security policy |
+| `sillage-ports` | Kernel | Capability traits and deterministic in-memory contract adapters |
+| `sillage-core` | Core | Local-first orchestration services and instance composition |
+| `sillage-runtime` | Runtime | Effect execution, workers, queues, cancellation, retries, and journaling |
+| `sillage-cli` | App | User-facing CLI binary |
+| `sillage-daemon` | App | Restart-safe daemon with authenticated local API |
+| `sillage-retrieval` | Ecosystem | Typed search planning, candidate generation, fusion, and reranking |
+| `sillage-code-intel` | Ecosystem | Repository code intelligence index for workspace metadata and Rust symbols |
+| `sillage-parsers` | Ecosystem | Source parsing and document structure extraction |
+| `sillage-memory` | Ecosystem | Candidate deduplication, promotion workflow, and staleness handling |
+| `sillage-validation` | Ecosystem | Validation runners, reports, and completion gating |
+| `sillage-web-evidence` | Ecosystem | Governed web evidence fetching and current-web retrieval |
+| `sillage-embedding-openai` | Ecosystem | OpenAI-compatible embedding provider adapter |
+| `sillage-ocr-local` | Ecosystem | Local OCR provider adapter for scanned PDFs |
+| `sillage-visual-local` | Ecosystem | Local visual retrieval provider adapter for page/region evidence |
+| `sillage-harness` | Harness | Normalized external execution and capability reporting |
+| `sillage-harness-cli` | Harness | CLI harness for local command execution |
+| `sillage-storage-sqlite` | Storage | SQLite-based state persistence, event log, and repository traits |
+| `sillage-search-tantivy` | Storage | Tantivy-based full-text lexical index |
+| `sillage-vector-sqlite` | Storage | SQLite-based vector similarity index |
+| `sillage-graph-sqlite` | Storage | SQLite-based graph projection index |
+| `sillage-blob-fs` | Storage | Filesystem-backed immutable blob store |
 
 ## Invariants
 
 - Domain and governance are side-effect free.
 - All side effects are represented as typed intentions (effects).
 - Policy and mechanism are separated by trait boundaries.
-- Every change is validated through local checks and repository checks.
 - Evidence is typed and source-grounded; raw strings are not evidence.
 - Memory candidates point back to evidence. LLM output can propose; it cannot silently promote.
 
@@ -728,7 +1283,7 @@ python3 -m unittest discover -s scripts -p 'test_*.py'
 - [`docs/MEMORY.md`](./docs/MEMORY.md) — source-backed memory lifecycle
 - [`docs/SECURITY.md`](./docs/SECURITY.md) — scope, trust, taint, and secrets
 - [`docs/OPERATIONS.md`](./docs/OPERATIONS.md) — runtime lifecycle and recovery
-- [`docs/ROADMAP.md`](./docs/ROADMAP.md) — canonical implementation roadmap
+- [`docs/ROADMAP.md`](./docs/ROADMAP.md) — canonical product roadmap
 - [`docs/BENCHMARKING.md`](./docs/BENCHMARKING.md) — measurement protocol for performance claims
 - [`docs/RESEARCH.md`](./docs/RESEARCH.md) — dated non-normative evaluation candidates
 - [`docs/architecture/`](./docs/architecture/) — architecture books

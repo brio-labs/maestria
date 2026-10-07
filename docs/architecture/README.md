@@ -1,4 +1,4 @@
-# Maestria Architecture Books
+# Sillage Architecture Books
 
 This directory tracks the long-form architecture notes by subsystem.
 
@@ -16,7 +16,7 @@ The repository-level canonical contracts are:
 - [MEMORY](../MEMORY.md)
 - [SECURITY](../SECURITY.md)
 - [OPERATIONS](../OPERATIONS.md)
-- [ROADMAP](../ROADMAP.md)
+- [ROADMAP](../ROADMAP.md) (canonical product milestones)
 - [RESEARCH](../RESEARCH.md) (dated, non-normative)
 
 Subsystem books provide implementation detail and must not contradict these

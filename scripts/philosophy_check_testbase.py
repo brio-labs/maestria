@@ -28,7 +28,7 @@ class PhilosophyCheckFixture(unittest.TestCase):
 
     def configure_root(self, root: Path) -> None:
         kernel_root = root / "crates" / "kernel"
-        domain_root = kernel_root / "maestria-domain"
+        domain_root = kernel_root / "sillage-domain"
         setattr(shared, "ROOT", root)
         setattr(
             shared, "THIS_SCRIPT", root / "scripts" / "philosophy-check.py"
@@ -41,14 +41,14 @@ class PhilosophyCheckFixture(unittest.TestCase):
             "KERNEL_ROOTS",
             tuple(
                 kernel_root / name
-                for name in ("maestria-domain", "maestria-governance", "maestria-ports")
+                for name in ("sillage-domain", "sillage-governance", "sillage-ports")
             ),
         )
         setattr(
             contract_tests,
             "RESPONSIBILITY_MAPS",
             {
-                "crates/kernel/maestria-ports/src/traits.rs": (
+                "crates/kernel/sillage-ports/src/traits.rs": (
                     "errors",
                     "repositories",
                     "lifecycle",

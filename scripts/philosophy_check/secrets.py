@@ -13,7 +13,7 @@ from .shared import (
 import re
 
 # Security: hardcoded secret material. The vocabulary mirrors the governance
-# privacy scanner (`scan_secrets` in maestria-governance) so the repository
+# privacy scanner (`scan_secrets` in sillage-governance) so the repository
 # guardrail and the domain's secret policy classify the same shapes.
 _SECRET_PRIVATE_KEY_PATTERN = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 

@@ -1,0 +1,343 @@
+use crate::approval_outcome::ApprovalOutcome;
+use crate::entities::{ClaimStatus, RelationEndpoint, RelationKind, TaskPriority};
+use crate::evidence_source::EvidenceKind;
+use crate::ids::StructureNodeId;
+use crate::ids::{
+    ApprovalId, ArtifactId, ArtifactVersionId, BlobId, CardId, ChunkId, ClaimId, EventId,
+    EvidenceId, IndexGenerationId, LogicalTick, MemoryCandidateId, MemoryId, RelationId, TaskId,
+    ValidationReportId,
+};
+use crate::search::{ContentHash, StructureNode};
+use crate::security::SecurityMetadata;
+use crate::task_status::TaskStatus;
+use std::collections::BTreeSet;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DomainEventEnvelope {
+    pub id: EventId,
+    pub event: DomainEvent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DomainEvent {
+    ArtifactRegistered {
+        artifact_id: ArtifactId,
+        title: String,
+        security: SecurityMetadata,
+    },
+    ChunkRegistered {
+        chunk_id: ChunkId,
+        artifact_id: ArtifactId,
+        node_id: crate::ids::StructureNodeId,
+        source_span: crate::provenance::SourceSpan,
+        /// Full representation contents on the live emission path; storage
+        /// round-trips keep only the kinds (contents are deduplicated —
+        /// `raw`/`retrieval` mirror `text`). The digest is the identity of
+        /// the set either way.
+        representations: Vec<crate::provenance::ParsedRepresentation>,
+        representations_digest: String,
+        order: u32,
+        text: String,
+    },
+    CardCreated {
+        card_id: CardId,
+        artifact_id: ArtifactId,
+        node_id: crate::ids::StructureNodeId,
+        source_span: crate::provenance::SourceSpan,
+        title: String,
+        body: String,
+        security: SecurityMetadata,
+    },
+    ClaimCreated {
+        claim_id: ClaimId,
+        artifact_id: ArtifactId,
+        text: String,
+        evidence_ids: Vec<EvidenceId>,
+        security: SecurityMetadata,
+    },
+    EvidenceRecorded {
+        evidence_id: EvidenceId,
+        artifact_id: ArtifactId,
+        claim_id: Option<ClaimId>,
+        kind: EvidenceKind,
+        excerpt: String,
+        observed_at: LogicalTick,
+        security: SecurityMetadata,
+    },
+    TaskOpened {
+        task_id: TaskId,
+        title: String,
+        priority: TaskPriority,
+        artifact_id: Option<ArtifactId>,
+    },
+    TaskStatusChanged {
+        task_id: TaskId,
+        from: TaskStatus,
+        to: TaskStatus,
+    },
+    /// The completed status carries its validation report (R56).
+    TaskCompletionRecorded {
+        task_id: TaskId,
+        status: TaskStatus,
+    },
+    TaskEvidenceLinked {
+        task_id: TaskId,
+        evidence_id: EvidenceId,
+    },
+    ClaimValidationUpdated {
+        claim_id: ClaimId,
+        status: ClaimStatus,
+    },
+    ClaimEvidenceLinked {
+        claim_id: ClaimId,
+        evidence_id: EvidenceId,
+    },
+    RelationCreated {
+        relation_id: RelationId,
+        source: RelationEndpoint,
+        kind: RelationKind,
+        target: RelationEndpoint,
+        evidence_id: Option<EvidenceId>,
+        confidence_milli: u16,
+        security: SecurityMetadata,
+    },
+    MemoryCandidateCreated {
+        candidate_id: MemoryCandidateId,
+        claim_id: ClaimId,
+        evidence_ids: BTreeSet<EvidenceId>,
+        confidence_milli: u16,
+        security: SecurityMetadata,
+    },
+    ArtifactParsed {
+        artifact_id: ArtifactId,
+        status: crate::provenance::ParseStatus,
+    },
+    DocumentTreeCaptured {
+        artifact_id: ArtifactId,
+        artifact_version_id: ArtifactVersionId,
+        content_hash: ContentHash,
+        root_id: StructureNodeId,
+        nodes: Vec<StructureNode>,
+    },
+    PendingIndex {
+        artifact_id: ArtifactId,
+        content_hash: ContentHash,
+    },
+    FullTextIndexed {
+        artifact_id: ArtifactId,
+        chunk_id: ChunkId,
+    },
+    VectorIndexingCompleted {
+        artifact_id: ArtifactId,
+    },
+    ArtifactIndexed {
+        artifact_id: ArtifactId,
+    },
+    SearchCompleted {
+        artifact_id: ArtifactId,
+    },
+    HarnessRunCompleted {
+        task_id: Option<TaskId>,
+        command: String,
+        exit_code: i32,
+    },
+    ModelAgentProposalRequested {
+        request: crate::model_agent::ModelAgentProposalRequest,
+    },
+    ModelAgentProposalCompleted {
+        result: crate::model_agent::ModelAgentProposalResult,
+    },
+    ApprovalRecorded {
+        approval_id: ApprovalId,
+        outcome: ApprovalOutcome,
+    },
+    MemoryPromoted {
+        memory_id: MemoryId,
+        candidate_id: MemoryCandidateId,
+        security: SecurityMetadata,
+    },
+    MemoryContradicted {
+        memory_id: MemoryId,
+        contradicting_candidate_id: MemoryCandidateId,
+    },
+    MemoryDeprecated {
+        memory_id: MemoryId,
+    },
+    MemorySuperseded {
+        memory_id: MemoryId,
+        by_memory_id: MemoryId,
+    },
+    ValidationReportCreated {
+        report_id: ValidationReportId,
+        task_id: Option<TaskId>,
+        passed: bool,
+        warnings: Vec<String>,
+    },
+    TickObserved {
+        at: LogicalTick,
+    },
+    SearchExecuted {
+        query: String,
+        limit: usize,
+        evidence_ids: Vec<EvidenceId>,
+        pack_metadata: Option<Box<crate::evidence_pack::EvidencePackMetadataRecord>>,
+        at: LogicalTick,
+    },
+    ParserStarted {
+        artifact_id: ArtifactId,
+        title: String,
+        source_path: String,
+        content_hash: ContentHash,
+        blob_id: BlobId,
+    },
+
+    OcrRequested {
+        intent: crate::ocr::OcrIntent,
+    },
+    OcrCompleted {
+        artifact_id: ArtifactId,
+        completion: crate::ocr::OcrCompletion,
+    },
+    OcrFailed {
+        artifact_id: ArtifactId,
+        request_id: crate::ocr::OcrRequestId,
+        reason: String,
+    },
+    SearchKnowledgeCompleted {
+        task_id: Option<TaskId>,
+        plan: Option<Box<crate::search::SearchPlan>>,
+        outcome: crate::search::SearchOutcome,
+    },
+    RetrievalEventsRetired {
+        before_sequence: u64,
+        reason: String,
+    },
+    IndexGenerationStarted {
+        id: IndexGenerationId,
+        name: crate::generations::RepresentationName,
+        corpus_snapshot: crate::ids::CorpusSnapshotId,
+        fingerprint: crate::generations::IndexFingerprint,
+        /// Learned-sparse namespace bound to the generation, when the
+        /// representation is the sparse projection.
+        sparse_namespace: Option<crate::SparseNamespace>,
+    },
+    IndexGenerationTransitioned {
+        id: IndexGenerationId,
+        from: crate::generations::IndexLifecycle,
+        to: crate::generations::IndexLifecycle,
+        replaced_active_id: Option<IndexGenerationId>,
+    },
+    SourceBecameStale {
+        artifact_id: ArtifactId,
+        source_path: String,
+        content_hash: ContentHash,
+    },
+    NotebookCreated {
+        notebook_id: crate::ids::NotebookId,
+        title: crate::notebook::NotebookTitle,
+        created_at: LogicalTick,
+        updated_at: LogicalTick,
+    },
+    NotebookRenamed {
+        notebook_id: crate::ids::NotebookId,
+        title: crate::notebook::NotebookTitle,
+        updated_at: LogicalTick,
+    },
+    NotebookDeleted {
+        notebook_id: crate::ids::NotebookId,
+    },
+    NotebookSourceAttached {
+        notebook_id: crate::ids::NotebookId,
+        source_key: crate::notebook::SourceIdentityKey,
+        updated_at: LogicalTick,
+    },
+    NotebookSourceDetached {
+        notebook_id: crate::ids::NotebookId,
+        source_key: crate::notebook::SourceIdentityKey,
+        updated_at: LogicalTick,
+    },
+    NotebookDraftSaved {
+        draft_id: crate::ids::NotebookDraftId,
+        notebook_id: crate::ids::NotebookId,
+        title: crate::notebook::NotebookDraftTitle,
+        body_blob: BlobId,
+        body_hash: ContentHash,
+        revision: crate::notebook::NotebookDraftRevision,
+        citations: Vec<crate::notebook::FrozenNotebookCitation>,
+        created_at: LogicalTick,
+        updated_at: LogicalTick,
+    },
+    NotebookDraftDeleted {
+        notebook_id: crate::ids::NotebookId,
+        draft_id: crate::ids::NotebookDraftId,
+        revision: crate::notebook::NotebookDraftRevision,
+    },
+    RealmReadGrantIssued {
+        grant: crate::entities::RealmReadGrant,
+    },
+    RealmReadGrantRevoked {
+        token_digest: crate::GrantTokenDigest,
+    },
+    FederatedReadAccessRecorded {
+        token_digest: crate::GrantTokenDigest,
+        provider_realm: crate::RealmId,
+        consumer_realm: crate::RealmId,
+        record: crate::entities::FederatedAccessRecord,
+    },
+}
+
+impl DomainEvent {
+    /// Returns the artifact the event references, when the event is
+    /// artifact-scoped. `TaskOpened` reports its optional artifact binding;
+    /// `OcrRequested` reports the intent's artifact.
+    #[must_use]
+    pub fn artifact_id(&self) -> Option<ArtifactId> {
+        match self {
+            Self::ArtifactRegistered { artifact_id, .. }
+            | Self::ChunkRegistered { artifact_id, .. }
+            | Self::CardCreated { artifact_id, .. }
+            | Self::ClaimCreated { artifact_id, .. }
+            | Self::EvidenceRecorded { artifact_id, .. }
+            | Self::ArtifactParsed { artifact_id, .. }
+            | Self::DocumentTreeCaptured { artifact_id, .. }
+            | Self::SearchCompleted { artifact_id, .. }
+            | Self::PendingIndex { artifact_id, .. }
+            | Self::FullTextIndexed { artifact_id, .. }
+            | Self::VectorIndexingCompleted { artifact_id }
+            | Self::ArtifactIndexed { artifact_id }
+            | Self::ParserStarted { artifact_id, .. }
+            | Self::SourceBecameStale { artifact_id, .. }
+            | Self::OcrCompleted { artifact_id, .. }
+            | Self::OcrFailed { artifact_id, .. } => Some(*artifact_id),
+            Self::TaskOpened { artifact_id, .. } => *artifact_id,
+            Self::OcrRequested { intent } => Some(intent.artifact_id()),
+            _ => None,
+        }
+    }
+
+    /// Returns the approval decision recorded by the event, if any.
+    #[must_use]
+    pub fn approval_record(&self) -> Option<(ApprovalId, ApprovalOutcome)> {
+        match self {
+            Self::ApprovalRecorded {
+                approval_id,
+                outcome,
+            } => Some((*approval_id, *outcome)),
+            _ => None,
+        }
+    }
+
+    /// Returns the validation report identity recorded by the event, if any.
+    #[must_use]
+    pub fn validation_report(&self) -> Option<(ValidationReportId, Option<TaskId>, bool)> {
+        match self {
+            Self::ValidationReportCreated {
+                report_id,
+                task_id,
+                passed,
+                ..
+            } => Some((*report_id, *task_id, *passed)),
+            _ => None,
+        }
+    }
+}
