@@ -2,6 +2,7 @@ use crate::{
     error::to_port_error,
     execution::{Meter, budget_usize, finish_results, validate_limit},
     keys::chunk_key,
+    memory_document::chunk_delete_key_len,
     scoring::{descending_score, score_to_u32},
     search_helpers::{collect_bounded, parse_query, scope_by_keys},
     tantivy_index::TantivyFullTextIndex,
@@ -11,29 +12,14 @@ use sillage_ports::{BoundedSearch, IndexedChunk, PortError, SearchHit, SearchQue
 use std::collections::BTreeSet;
 use tantivy::schema::Value;
 use tantivy::{TantivyDocument, Term, query::Query};
-
 type ScoredChunks = (
     Vec<(f32, u64, u64, IndexedChunk)>,
     Option<SearchExecutionResource>,
+    Option<crate::RamMemoryReservation>,
 );
-
 impl TantivyFullTextIndex {
     pub(crate) fn index_chunks_impl(&self, chunks: Vec<IndexedChunk>) -> Result<(), PortError> {
-        self.with_writer(
-            "index chunks requires a writable full-text index",
-            |writer| {
-                for chunk in chunks {
-                    writer.delete_term(Term::from_field_text(
-                        self.fields.key,
-                        &chunk_key(chunk.artifact_id, chunk.chunk_id),
-                    ));
-                    writer
-                        .add_document(self.chunk_document(chunk))
-                        .map_err(to_port_error)?;
-                }
-                Ok(())
-            },
-        )
+        self.index_artifact_chunks_impl(chunks, Vec::new(), Vec::new(), Vec::new())
     }
 
     pub(crate) fn delete_chunks_impl(
@@ -43,7 +29,14 @@ impl TantivyFullTextIndex {
         self.with_writer(
             "delete chunks requires a writable full-text index",
             |writer| {
+                self.reserve_writer_batch(
+                    &[],
+                    chunks.iter().map(|(artifact_id, chunk_id)| {
+                        chunk_delete_key_len(*artifact_id, *chunk_id)
+                    }),
+                )?;
                 for (artifact_id, chunk_id) in chunks {
+                    self.mark_dirty();
                     writer.delete_term(Term::from_field_text(
                         self.fields.key,
                         &chunk_key(*artifact_id, *chunk_id),
@@ -56,6 +49,8 @@ impl TantivyFullTextIndex {
 
     pub(crate) fn clear_impl(&self) -> Result<(), PortError> {
         self.with_writer("clear requires a writable full-text index", |writer| {
+            self.reserve_writer_batch(&[], std::iter::once(0))?;
+            self.mark_dirty();
             writer.delete_all_documents().map_err(to_port_error)?;
             Ok(())
         })
@@ -81,7 +76,9 @@ impl TantivyFullTextIndex {
         if query.limit == 0 {
             return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Complete));
         }
+        let _reader_guard = self.reader_guard()?;
         let searcher = self.reader.searcher();
+        let _query_memory = self.reserve_query_work(&query, searcher.num_docs())?;
         let parsed_query = parse_query(&self.index, vec![self.fields.text], trimmed)?;
         let collection = collect_bounded(
             &searcher,
@@ -94,7 +91,7 @@ impl TantivyFullTextIndex {
         if let Some(resource) = collection.stopped {
             return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Exhausted(resource)));
         }
-        let (scored, stopped) = self.score_chunk_documents(
+        let (scored, stopped, _output_memory) = self.score_chunk_documents(
             &searcher,
             collection.docs,
             collection.truncated,
@@ -134,7 +131,9 @@ impl TantivyFullTextIndex {
         if query.limit == 0 {
             return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Complete));
         }
+        let _reader_guard = self.reader_guard()?;
         let searcher = self.reader.searcher();
+        let _query_memory = self.reserve_query_work(&query, searcher.num_docs())?;
         let parsed_query = parse_query(&self.index, vec![self.fields.text], trimmed)?;
         let (allowed, authorization_stop) =
             self.allowed_chunk_keys(&searcher, parsed_query.as_ref(), filter, &mut meter)?;
@@ -166,7 +165,7 @@ impl TantivyFullTextIndex {
         if let Some(resource) = collection.stopped {
             return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Exhausted(resource)));
         }
-        let (scored, score_stop) = self.score_chunk_documents(
+        let (scored, score_stop, _output_memory) = self.score_chunk_documents(
             &searcher,
             collection.docs,
             collection.truncated,
@@ -194,19 +193,24 @@ impl TantivyFullTextIndex {
         meter: &mut Meter,
     ) -> Result<ScoredChunks, PortError> {
         let mut stopped = truncated.then_some(SearchExecutionResource::Candidates);
+        let output_memory = self.reserve_scored_output(top_docs.len())?;
         let mut scored = Vec::with_capacity(top_docs.len());
         for (score, address) in top_docs {
             if let Some(resource) = meter.candidate() {
                 stopped = Some(resource);
                 break;
             }
+            let _decode_memory = self.reserve_reader_document()?;
             let document = searcher
                 .doc::<TantivyDocument>(address)
                 .map_err(to_port_error)?;
-            let bytes = document
+            let bytes = match document
                 .get_first(self.fields.text)
                 .and_then(|value| value.as_str())
-                .map_or(0, |text| text.len() as u64);
+            {
+                Some(text) => text.len() as u64,
+                None => 0,
+            };
             if let Some(resource) = meter.bytes(bytes) {
                 stopped = Some(resource);
                 break;
@@ -223,12 +227,12 @@ impl TantivyFullTextIndex {
                 chunk,
             ));
         }
-        scored.sort_by(|a, b| {
+        scored.sort_unstable_by(|a, b| {
             descending_score(a.0, b.0)
                 .then_with(|| a.1.cmp(&b.1))
                 .then_with(|| a.2.cmp(&b.2))
         });
-        Ok((scored, stopped))
+        Ok((scored, stopped, output_memory))
     }
 
     pub(crate) fn allowed_chunk_keys(

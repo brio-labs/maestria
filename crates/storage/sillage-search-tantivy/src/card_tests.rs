@@ -1,4 +1,4 @@
-use crate::TantivyFullTextIndex;
+use crate::{TantivyFullTextIndex, test_ram_index};
 use sillage_domain::{ArtifactId, CardId, ChunkId};
 use sillage_ports::{FullTextIndex, IndexedCard, IndexedChunk, SearchQuery};
 use sillage_test_support::search_budget;
@@ -14,7 +14,7 @@ fn card(artifact_id: u64, card_id: u64, title: &str, body: &str) -> IndexedCard 
 
 #[test]
 fn card_search_returns_indexed_card_metadata() -> Result<(), Box<dyn std::error::Error>> {
-    let index = TantivyFullTextIndex::in_memory()?;
+    let index = test_ram_index()?;
 
     index.index_cards(vec![
         card(
@@ -48,7 +48,7 @@ fn card_search_returns_indexed_card_metadata() -> Result<(), Box<dyn std::error:
 
 #[test]
 fn card_search_limit_is_honored() -> Result<(), Box<dyn std::error::Error>> {
-    let index = TantivyFullTextIndex::in_memory()?;
+    let index = test_ram_index()?;
 
     index.index_cards(vec![
         card(1, 10, "Shared Term One", "body one"),
@@ -71,7 +71,7 @@ fn card_search_limit_is_honored() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn card_empty_query_is_invalid() -> Result<(), Box<dyn std::error::Error>> {
-    let index = TantivyFullTextIndex::in_memory()?;
+    let index = test_ram_index()?;
 
     let result = index.search_cards(SearchQuery {
         q: "  \t  ".to_string(),
@@ -86,7 +86,7 @@ fn card_empty_query_is_invalid() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn card_limit_offset_beyond_results_returns_empty() -> Result<(), Box<dyn std::error::Error>> {
-    let index = TantivyFullTextIndex::in_memory()?;
+    let index = test_ram_index()?;
 
     index.index_cards(vec![card(3, 30, "Present", "words only")])?;
     index.commit_and_reload()?;
@@ -105,7 +105,7 @@ fn card_limit_offset_beyond_results_returns_empty() -> Result<(), Box<dyn std::e
 
 #[test]
 fn card_reindexing_replaces_without_duplicates() -> Result<(), Box<dyn std::error::Error>> {
-    let index = TantivyFullTextIndex::in_memory()?;
+    let index = test_ram_index()?;
 
     index.index_cards(vec![card(
         2,
@@ -138,7 +138,7 @@ fn card_reindexing_replaces_without_duplicates() -> Result<(), Box<dyn std::erro
 
 #[test]
 fn card_no_results_for_missing_term() -> Result<(), Box<dyn std::error::Error>> {
-    let index = TantivyFullTextIndex::in_memory()?;
+    let index = test_ram_index()?;
 
     index.index_cards(vec![card(3, 30, "Present Title", "present body words")])?;
     index.commit_and_reload()?;
@@ -183,7 +183,7 @@ fn card_directory_backed_index_can_be_reopened() -> Result<(), Box<dyn std::erro
 
 #[test]
 fn card_and_chunk_searches_are_isolated() -> Result<(), Box<dyn std::error::Error>> {
-    let index = TantivyFullTextIndex::in_memory()?;
+    let index = test_ram_index()?;
 
     index.index_chunks(vec![IndexedChunk {
         artifact_id: ArtifactId::new(5),

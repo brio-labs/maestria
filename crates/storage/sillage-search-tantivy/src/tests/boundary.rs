@@ -1,4 +1,4 @@
-use crate::TantivyFullTextIndex;
+use crate::test_ram_index;
 use sillage_domain::{ArtifactId, ChunkId};
 use sillage_ports::{FullTextIndex, SearchQuery};
 use sillage_test_support::search_budget;
@@ -13,7 +13,7 @@ fn chunk(artifact_id: u64, chunk_id: u64, text: &str) -> sillage_ports::IndexedC
 
 #[test]
 fn very_large_query_still_parses() -> Result<(), Box<dyn std::error::Error>> {
-    let index = TantivyFullTextIndex::in_memory()?;
+    let index = test_ram_index()?;
     index.index_chunks(vec![chunk(1, 10, "alpha beta gamma")])?;
     index.commit_and_reload()?;
 
@@ -33,7 +33,7 @@ fn very_large_query_still_parses() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn special_character_injection_query_is_handled() -> Result<(), Box<dyn std::error::Error>> {
-    let index = TantivyFullTextIndex::in_memory()?;
+    let index = test_ram_index()?;
     index.index_chunks(vec![chunk(1, 10, "alpha beta gamma")])?;
     index.commit_and_reload()?;
 
@@ -53,7 +53,7 @@ fn special_character_injection_query_is_handled() -> Result<(), Box<dyn std::err
 
 #[test]
 fn unicode_boundary_query_works() -> Result<(), Box<dyn std::error::Error>> {
-    let index = TantivyFullTextIndex::in_memory()?;
+    let index = test_ram_index()?;
     index.index_chunks(vec![chunk(1, 10, "hello 世界"), chunk(2, 20, "alpha beta")])?;
     index.commit_and_reload()?;
 

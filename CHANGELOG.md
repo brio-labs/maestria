@@ -5,6 +5,18 @@ pinned at `0.0.1` and `main` is always the current build.
 
 ## [Unreleased]
 
+### Budgeted in-memory Tantivy indexing
+
+- Add a canonical in-memory Tantivy index under a shared logical admission quota.
+  Pre-admit writer, native-state and retained-output estimates, including directory
+  scratch and `.managed.json` growth, through commit and reader reload. These estimates
+  are not RSS bounds or hard encoded-size limits. Actual output beyond an estimate
+  with an exhausted quota can fail terminally after admission. Ordinary preflight
+  refusals preserve previously accepted credits; there is no automatic rollback,
+  replay or fallback.
+- Make read-only card-rebuild refusal fail closed: when the rebuild marker exists,
+  completion is denied and the marker and pending state remain intact.
+
 ### Validated per-source policy contracts
 
 - Add public source-scope, preparation, retention, availability, representation,

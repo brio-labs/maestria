@@ -10,30 +10,17 @@ use sillage_domain::{ArtifactId, CardId, SearchExecutionCompletion, SearchExecut
 use sillage_ports::{BoundedSearch, CardHit, IndexedCard, PortError, SearchQuery};
 use std::collections::BTreeSet;
 use tantivy::schema::Value;
-use tantivy::{TantivyDocument, Term, query::AllQuery};
+use tantivy::{TantivyDocument, query::AllQuery};
 
 type ScoredCards = (
     Vec<(f32, u64, u64, sillage_ports::IndexedCard)>,
     Option<SearchExecutionResource>,
+    Option<crate::RamMemoryReservation>,
 );
 
 impl TantivyFullTextIndex {
     pub(crate) fn index_cards_impl(&self, cards: Vec<IndexedCard>) -> Result<(), PortError> {
-        self.with_writer(
-            "index cards requires a writable full-text index",
-            |writer| {
-                for card in cards {
-                    writer.delete_term(Term::from_field_text(
-                        self.fields.card_key,
-                        &card_key(card.artifact_id, card.card_id),
-                    ));
-                    writer
-                        .add_document(self.card_document(card))
-                        .map_err(to_port_error)?;
-                }
-                Ok(())
-            },
-        )
+        self.index_artifact_chunks_impl(Vec::new(), cards, Vec::new(), Vec::new())
     }
 
     pub(crate) fn search_cards_impl(
@@ -56,7 +43,9 @@ impl TantivyFullTextIndex {
         if query.limit == 0 {
             return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Complete));
         }
+        let _reader_guard = self.reader_guard()?;
         let searcher = self.reader.searcher();
+        let _query_memory = self.reserve_query_work(&query, searcher.num_docs())?;
         let fields = vec![self.fields.card_title, self.fields.card_body];
         let parsed_query = parse_query(&self.index, fields, trimmed)?;
         let collection = collect_bounded(
@@ -70,7 +59,7 @@ impl TantivyFullTextIndex {
         if let Some(resource) = collection.stopped {
             return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Exhausted(resource)));
         }
-        let (scored, stopped) = self.score_card_documents(
+        let (scored, stopped, _output_memory) = self.score_card_documents(
             &searcher,
             collection.docs,
             collection.truncated,
@@ -110,7 +99,9 @@ impl TantivyFullTextIndex {
         if query.limit == 0 {
             return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Complete));
         }
+        let _reader_guard = self.reader_guard()?;
         let searcher = self.reader.searcher();
+        let _query_memory = self.reserve_query_work(&query, searcher.num_docs())?;
         let (allowed, authorization_stop) =
             self.allowed_card_keys(&searcher, filter, &mut meter)?;
         if allowed.is_empty() {
@@ -143,7 +134,7 @@ impl TantivyFullTextIndex {
         if let Some(resource) = collection.stopped {
             return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Exhausted(resource)));
         }
-        let (scored, score_stop) = self.score_card_documents(
+        let (scored, score_stop, _output_memory) = self.score_card_documents(
             &searcher,
             collection.docs,
             collection.truncated,
@@ -171,25 +162,22 @@ impl TantivyFullTextIndex {
         meter: &mut Meter,
     ) -> Result<ScoredCards, PortError> {
         let mut stopped = truncated.then_some(SearchExecutionResource::Candidates);
+        let output_memory = self.reserve_scored_output(top_docs.len())?;
         let mut scored = Vec::with_capacity(top_docs.len());
         for (score, address) in top_docs {
             if let Some(resource) = meter.candidate() {
                 stopped = Some(resource);
                 break;
             }
+            let _decode_memory = self.reserve_reader_document()?;
             let document = searcher
                 .doc::<TantivyDocument>(address)
                 .map_err(to_port_error)?;
-            let bytes = document
-                .get_first(self.fields.card_title)
-                .and_then(|value| value.as_str())
-                .map_or(0, |title| title.len() as u64)
-                .saturating_add(
-                    document
-                        .get_first(self.fields.card_body)
-                        .and_then(|value| value.as_str())
-                        .map_or(0, |body| body.len() as u64),
-                );
+            let bytes = [self.fields.card_title, self.fields.card_body]
+                .into_iter()
+                .filter_map(|field| document.get_first(field).and_then(|value| value.as_str()))
+                .map(|text| text.len() as u64)
+                .sum();
             if let Some(resource) = meter.bytes(bytes) {
                 stopped = Some(resource);
                 break;
@@ -201,12 +189,12 @@ impl TantivyFullTextIndex {
             let card = self.read_card(&document)?;
             scored.push((score, card.artifact_id.value(), card.card_id.value(), card));
         }
-        scored.sort_by(|a, b| {
+        scored.sort_unstable_by(|a, b| {
             descending_score(a.0, b.0)
                 .then_with(|| a.1.cmp(&b.1))
                 .then_with(|| a.2.cmp(&b.2))
         });
-        Ok((scored, stopped))
+        Ok((scored, stopped, output_memory))
     }
 
     pub(crate) fn allowed_card_keys(

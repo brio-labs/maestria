@@ -76,9 +76,8 @@ impl FullTextIndex for TantivyFullTextIndex {
     }
 }
 
-use crate::error::to_port_error;
-use crate::keys::{card_key, chunk_key};
-use tantivy::Term;
+use crate::memory_document::BudgetedDocument;
+use std::mem::size_of;
 
 impl TantivyFullTextIndex {
     pub(crate) fn index_artifact_chunks_impl(
@@ -91,41 +90,37 @@ impl TantivyFullTextIndex {
         self.with_writer(
             "index artifact chunks requires a writable full-text index",
             |writer| {
+                let count = chunks
+                    .len()
+                    .checked_add(cards.len())
+                    .and_then(|count| count.checked_add(lexical_chunks.len()))
+                    .and_then(|count| count.checked_add(lexical_cards.len()))
+                    .ok_or_else(|| self.accounting_overflow())?;
+                let bytes = count
+                    .checked_mul(size_of::<BudgetedDocument>())
+                    .and_then(|bytes| u64::try_from(bytes).ok())
+                    .ok_or_else(|| self.accounting_overflow())?;
+                let _batch_reservation = self.reserve_document_memory(bytes)?;
+                let mut documents = Vec::with_capacity(count);
                 for card in cards {
-                    writer.delete_term(Term::from_field_text(
-                        self.fields.card_key,
-                        &card_key(card.artifact_id, card.card_id),
-                    ));
-                    writer
-                        .add_document(self.card_document(card))
-                        .map_err(to_port_error)?;
+                    documents.push(self.card_document(card)?);
                 }
                 for card in lexical_cards {
-                    writer.delete_term(Term::from_field_text(
-                        self.fields.card_key,
-                        &card_key(card.artifact_id, card.card_id),
-                    ));
-                    writer
-                        .add_document(self.lexical_card_document(card))
-                        .map_err(to_port_error)?;
+                    documents.push(self.lexical_card_document(card)?);
                 }
                 for chunk in chunks {
-                    writer.delete_term(Term::from_field_text(
-                        self.fields.key,
-                        &chunk_key(chunk.artifact_id, chunk.chunk_id),
-                    ));
-                    writer
-                        .add_document(self.chunk_document(chunk))
-                        .map_err(to_port_error)?;
+                    documents.push(self.chunk_document(chunk)?);
                 }
-                for lexical_chunk in lexical_chunks {
-                    writer.delete_term(Term::from_field_text(
-                        self.fields.key,
-                        &chunk_key(lexical_chunk.artifact_id, lexical_chunk.chunk_id),
-                    ));
+                for chunk in lexical_chunks {
+                    documents.push(self.lexical_chunk_document(chunk)?);
+                }
+                self.reserve_writer_batch(&documents, std::iter::empty())?;
+                for mut document in documents {
+                    self.mark_dirty();
+                    writer.delete_term(document.take_delete_term());
                     writer
-                        .add_document(self.lexical_chunk_document(lexical_chunk))
-                        .map_err(to_port_error)?;
+                        .add_document(document)
+                        .map_err(crate::error::to_port_error)?;
                 }
                 Ok(())
             },

@@ -1,8 +1,15 @@
-use crate::{error::to_port_error, migration, schema, tantivy_index::TantivyFullTextIndex};
+use crate::{
+    error::to_port_error,
+    migration,
+    ram_directory::BudgetedRamDirectory,
+    ram_memory::{InMemoryIndexError, RamMemoryBudget},
+    schema,
+    tantivy_index::{TantivyFullTextIndex, WriterMemoryUsage},
+};
 use sillage_domain::{ContentHash, IndexFingerprint, content_hash};
 use sillage_ports::PortError;
-use std::path::Path;
-use tantivy::Index;
+use std::{path::Path, sync::Arc};
+use tantivy::{Index, IndexSettings};
 
 impl TantivyFullTextIndex {
     /// Return the deterministic fingerprint of the lexical index definition.
@@ -84,11 +91,55 @@ impl TantivyFullTextIndex {
         Ok(fingerprint)
     }
 
-    #[cfg(test)]
-    pub fn in_memory() -> Result<Self, PortError> {
-        Self::from_index(Index::create_in_ram(schema::schema()), false, None, false)
+    /// Create a canonical RAM index under a shared logical admission quota.
+    /// Writer, native-state, and retained/output charges are estimates, not RSS enforcement or
+    /// hard encoded-size bounds. Tantivy's writer estimate must be at least 15,000,000 bytes.
+    /// If output exceeds an estimate while the global quota is exhausted, native writing can
+    /// fail after admission, terminally for that accepted work. An ordinary preflight refusal
+    /// retains credits for previously accepted work. There is no automatic rollback, replay,
+    /// or fallback.
+    pub fn in_memory_with_budget(
+        budget: Arc<RamMemoryBudget>,
+        writer_budget_bytes: usize,
+    ) -> Result<Self, InMemoryIndexError> {
+        let writer_bytes = u64::try_from(writer_budget_bytes)
+            .map_err(|_| crate::MemoryBudgetError::AccountingOverflow)?;
+        let directory = BudgetedRamDirectory::new(Arc::clone(&budget))?;
+        let writer_reservation = budget.reserve(writer_bytes)?;
+        let maximum_pre_document_table_bytes = (1_u64 << 19)
+            .checked_mul(16)
+            .ok_or(crate::MemoryBudgetError::AccountingOverflow)?
+            .min(writer_bytes.saturating_sub(1_000_000));
+        let rehash_bytes = maximum_pre_document_table_bytes
+            .checked_mul(2)
+            .ok_or(crate::MemoryBudgetError::AccountingOverflow)?;
+        let writer_memory = WriterMemoryUsage::new(
+            writer_bytes,
+            rehash_bytes,
+            budget.reserve(
+                rehash_bytes
+                    .checked_add(65_536)
+                    .ok_or(crate::MemoryBudgetError::AccountingOverflow)?,
+            )?,
+        );
+        let settings = IndexSettings {
+            docstore_compress_dedicated_thread: false,
+            ..IndexSettings::default()
+        };
+        let index = Index::create(directory.clone(), schema::schema(), settings);
+        if let Some(error) = directory.take_memory_error() {
+            return Err(error.into());
+        }
+        let index = index.map_err(to_port_error)?;
+        Self::from_budgeted_ram_index(
+            index,
+            directory,
+            budget,
+            writer_budget_bytes,
+            writer_reservation,
+            writer_memory,
+        )
     }
-
     /// Open an existing lexical index without acquiring Tantivy's writer lock.
     pub fn open_read_only(path: impl AsRef<Path>) -> Result<Self, PortError> {
         let path = path.as_ref();
