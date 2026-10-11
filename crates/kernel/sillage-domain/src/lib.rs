@@ -47,6 +47,7 @@ mod notebook_inputs;
 /// - `search`: module responsibility.
 /// - `security`: module responsibility.
 /// - `security_snapshot`: authorization and integrity security snapshots.
+/// - `source_policy`: validated independent per-source choices and resource budgets.
 /// - `source_projection`: immutable active source/version snapshots from ordered source events.
 /// - `sparse_namespace`: learned-sparse instance and trust-zone identity.
 /// - `structure_tree`: indexed parent and sibling graph validation for parser document trees.
@@ -59,6 +60,7 @@ mod replay;
 mod search;
 mod security;
 mod security_snapshot;
+mod source_policy;
 mod source_projection;
 mod sparse_namespace;
 mod structure_tree;
@@ -172,6 +174,12 @@ pub use crate::security::{
     Authority, IntegrityState, ReviewStatus, SecurityMetadata, Sensitivity, TrustZone,
 };
 pub use crate::security_snapshot::{RetrievalPolicySnapshot, RetrievalPolicySnapshotError};
+pub use crate::source_policy::{
+    ComputationTiming, ControlPersistenceChoice, DocumentaryRetentionChoice,
+    RemoteDisclosureConsent, RemoteRetentionChoice, SourceAvailability, SourceChoice,
+    SourceChoiceError, SourceChoiceParameters, SourceLocality, SourceRepresentation,
+    SourceResourceBudget, SourceScope, SourceSelection,
+};
 pub use crate::source_projection::{
     ActiveSourceVersions, SourceProjection, active_source_versions,
 };

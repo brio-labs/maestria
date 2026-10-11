@@ -5,6 +5,18 @@ pinned at `0.0.1` and `main` is always the current build.
 
 ## [Unreleased]
 
+### Validated per-source policy contracts
+
+- Add public source-scope, preparation, retention, availability, representation,
+  disclosure and resource-budget types. Constructors and deserialization enforce
+  the same invariants; naming a remote provider alone does not grant disclosure.
+- Keep documentary retention and control-setting persistence independent.
+  Scope validation is lexical policy data, not filesystem authorization or
+  authenticated consent.
+- Define a 64 MiB default logical session-admission quota, with supported caller
+  quotas up to 256 MiB. These contracts do not enforce runtime admission or
+  promise physical-memory/RSS limits, installed behavior or full ephemeral retrieval.
+
 ### UTC snippet markers
 
 - Add exact `{date:UTC:ISO8601}`, `{time:UTC:ISO8601}`, and
