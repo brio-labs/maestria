@@ -195,6 +195,10 @@ bytes. Schema-v1 inputs are not reinterpreted as these views.
 
 The reference index resolves canonical `prior_evidence_refs` against verified
 artifact descriptors and checks digest and run/attempt identity when applicable.
+The `prior_evidence_refs` field is optional; if omitted, the view's reference
+list is empty. Omission does not bypass artifact verification, eligibility or
+privacy controls.
+
 Hashes are omitted. Paths appear only for verified public artifacts and remain
 relative to the supplied artifact root; private, controlled, unavailable,
 unverified, absolute and unsafe paths are null. An unmatched non-measurement

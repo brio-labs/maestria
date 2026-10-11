@@ -1916,6 +1916,20 @@ class BenchmarkRunEvidenceV2Tests(unittest.TestCase):
             result = validator.validate_manifest(self.write_manifest(parent, chained), root)
         self.assertTrue(result.errors)
 
+    def test_reference_view_accepts_omitted_optional_prior_evidence_refs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "artifacts"
+            payload = complete_v2_run(root)
+            payload.pop("prior_evidence_refs")
+            path = self.write_manifest(base, payload)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                status = EVIDENCE.validate(path, None, root, "references")
+            view = json.loads(output.getvalue())
+        self.assertEqual(status, 0)
+        self.assertEqual(view["references"], [])
+
     def test_reference_view_redacts_private_paths_and_hashes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

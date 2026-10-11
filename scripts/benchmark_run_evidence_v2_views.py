@@ -165,7 +165,7 @@ def build_reference_index(
         })
 
     reference_rows = []
-    for reference in payload["prior_evidence_refs"]:
+    for reference in payload.get("prior_evidence_refs", []):
         match = artifacts_by_id.get(reference["artifact_id"])
         descriptor = match[1] if match is not None else None
         status = match[2] if match is not None else "unverified"
