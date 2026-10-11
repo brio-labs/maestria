@@ -2,7 +2,7 @@ use std::error::Error;
 
 use super::super::entry::{self, Entry};
 use super::super::persistence;
-use super::super::{Utilities, UtilityEffect, UtilityKind};
+use super::super::{UtcSnapshot, Utilities, UtilityEffect, UtilityKind};
 use super::{entry_rows, test_directory};
 
 #[test]
@@ -51,7 +51,7 @@ fn persistent_crud_round_trips_stable_ids_and_search_caches() -> Result<(), Box<
             .matches("good evening")
     );
     assert_eq!(
-        utilities.expand("hello", "Ada")?,
+        utilities.expand("hello", "Ada", UtcSnapshot::now)?,
         UtilityEffect::Copy("Good evening Ada".to_string())
     );
 

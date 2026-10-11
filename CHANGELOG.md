@@ -5,6 +5,13 @@ pinned at `0.0.1` and `main` is always the current build.
 
 ## [Unreleased]
 
+### UTC snippet markers
+
+- Add exact `{date:UTC:ISO8601}`, `{time:UTC:ISO8601}`, and
+  `{datetime:UTC:ISO8601}` snippet tokens. Use validated Gregorian dates in years
+  0001–9999 and whole-second UTC times (`Z`); keep unknown or malformed braced text
+  literal.
+
 ### Host-owned scoped HTTP integration credentials (#551)
 
 - Implement host-owned HTTP credential integration backed by the system Secret

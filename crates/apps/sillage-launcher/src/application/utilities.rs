@@ -5,7 +5,7 @@ use slint::{ComponentHandle, ModelRc, VecModel};
 
 use super::{LauncherWindow, UiWeak, lock};
 use crate::LauncherError;
-use crate::utilities::{Utilities, UtilityEffect, UtilityKind};
+use crate::utilities::{UtcSnapshot, Utilities, UtilityEffect, UtilityKind};
 
 mod autostart;
 mod retention;
@@ -330,7 +330,7 @@ fn install_expansion(ui: &LauncherWindow, controller: &Arc<Controller>) {
                         "Save the changed template before expanding it.",
                     ));
                 }
-                match store.expand(&id, &argument)? {
+                match store.expand(&id, &argument, UtcSnapshot::now)? {
                     UtilityEffect::Copy(text) => super::platform::copy_text(&text),
                     UtilityEffect::OpenUri(uri) => crate::platform::open_uri(&uri),
                 }

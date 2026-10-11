@@ -6,7 +6,7 @@ use crate::errors::LauncherError;
 use super::clipboard::ClipboardHistory;
 use super::entry::{self, Entry, UtilityEffect, UtilityKind};
 use super::persistence::Persistence;
-use super::{quicklinks, snippets};
+use super::{UtcSnapshot, quicklinks, snippets};
 
 pub(crate) struct Utilities {
     persistence: Persistence,
@@ -170,6 +170,7 @@ impl Utilities {
         &mut self,
         id: &str,
         argument: &str,
+        clock: impl FnOnce() -> Result<UtcSnapshot, LauncherError>,
     ) -> Result<UtilityEffect, LauncherError> {
         self.purge_expired();
         if let Some(entry) = self.clipboard.entry(id) {
@@ -189,6 +190,7 @@ impl Utilities {
             UtilityKind::Snippet => Ok(UtilityEffect::Copy(snippets::expand(
                 &entry.content,
                 argument,
+                clock,
             )?)),
             UtilityKind::Clipboard => Err(LauncherError::stale_result(
                 "The clipboard entry no longer exists",
