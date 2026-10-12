@@ -23,7 +23,8 @@
 /// - `memory_query`: query workspace and transient output admission estimates.
 /// - `ram_directory`: RAM directory file retention and reservation tracking.
 /// - `ram_memory`: shared byte ledger and reservation/error types.
-/// - `tantivy_index`: public Tantivy index façade.
+/// - `tantivy_index`: public Tantivy index façade and durable-open construction.
+/// - `tantivy_index_lifecycle`: writer, reader and commit/reload lifecycle.
 mod constructors;
 mod documents;
 mod error;
@@ -47,6 +48,7 @@ pub use ram_memory::{
 };
 
 mod tantivy_index;
+mod tantivy_index_lifecycle;
 pub use tantivy_index::TantivyFullTextIndex;
 
 #[cfg(test)]
