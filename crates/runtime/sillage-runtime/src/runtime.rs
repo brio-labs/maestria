@@ -8,7 +8,7 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicU64, AtomicUsize},
 };
-use tokio::sync::{RwLock, mpsc, oneshot};
+use tokio::sync::{Notify, RwLock, mpsc, oneshot};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EffectPreparation {
@@ -32,7 +32,10 @@ pub struct SillageRuntime {
     pub(crate) state: Arc<RwLock<KernelState>>,
     pub(crate) adapters: Arc<Adapters>,
     pub(crate) governance: Arc<Governance>,
+    /// Public ingress closed at shutdown; owned effect feedback has its own channel.
     pub(crate) input_tx: mpsc::Sender<DomainInput>,
+    pub(crate) feedback_tx: mpsc::Sender<DomainInput>,
+    pub(crate) feedback_rx: Option<mpsc::Receiver<DomainInput>>,
     pub(crate) command_tx: mpsc::Sender<(DomainInput, RuntimeCommand)>,
     pub(crate) command_rx: Option<mpsc::Receiver<(DomainInput, RuntimeCommand)>>,
     pub(crate) next_command_id: Arc<AtomicU64>,
@@ -40,18 +43,14 @@ pub struct SillageRuntime {
     pub(crate) feedback_acks: HarnessFeedbackAcks,
     pub(crate) degraded_vector_artifacts: DegradedVectorArtifacts,
     pub(crate) full_text_batch_lock: FullTextBatchLock,
-    /// Effect batches sent to the executor but not yet taken by it. The
-    /// dispatcher increments before sending; the executor decrements on
-    /// receive. Zero together with zero in-flight effects means every
-    /// admitted batch has executed.
+    /// Batches queued in or currently being admitted by the executor. A
+    /// batch remains counted until inline work finishes or spawned effects
+    /// are counted.
     pub(crate) pending_effect_batches: Arc<AtomicUsize>,
     /// Effects spawned into the executor's join set but not yet joined.
     pub(crate) in_flight_effects: Arc<AtomicUsize>,
-    /// Published by the executor after every state change (and forced
-    /// false by the dispatcher after each send): true when no batch is
-    /// queued and no effect is running. The shutdown drain services
-    /// completion inputs until this settles.
-    pub(crate) executor_quiescent: Arc<AtomicBool>,
+    /// Wakeup for settlement-level checks of the authoritative counters.
+    pub(crate) executor_quiescence_notify: Arc<Notify>,
     /// Whether effect-batch admission still accepts work. The shutdown
     /// drain is the one legitimate post-cancellation admission window: it
     /// persists completion deliveries whose batches must reach the still
@@ -62,6 +61,8 @@ pub struct SillageRuntime {
     pub(crate) pending_notebook_drafts: Mutex<BTreeMap<u64, RuntimeCommand>>,
     #[cfg(test)]
     pub(crate) test_pre_failed_effect_task: bool,
+    #[cfg(test)]
+    pub(crate) test_settlement_check_hook: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 /// Correlated result returned after the domain accepted an input and the
 /// complete emitted effect batch crossed runtime admission.
@@ -72,12 +73,26 @@ pub struct DomainApplicationResult {
     pub effects_admitted: usize,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum RuntimeRunError {
-    RecoveryPlanning { reason: String },
+    RecoveryPlanning {
+        reason: String,
+    },
     CommandReceiverUnavailable,
-    EffectExecutorJoin { reason: String },
-    ProjectionFlush { reason: String },
+    ShutdownDrainGraceElapsed,
+    ShutdownDrainStopped,
+    EffectExecutorJoin {
+        source: tokio::task::JoinError,
+    },
+    EffectTaskJoin {
+        source: tokio::task::JoinError,
+    },
+    EffectFailure {
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    ProjectionFlush {
+        reason: String,
+    },
 }
 
 impl std::fmt::Display for RuntimeRunError {
@@ -89,8 +104,20 @@ impl std::fmt::Display for RuntimeRunError {
             Self::CommandReceiverUnavailable => {
                 formatter.write_str("runtime command receiver is unavailable")
             }
-            Self::EffectExecutorJoin { reason } => {
-                write!(formatter, "effect executor task failed: {reason}")
+            Self::ShutdownDrainGraceElapsed => {
+                formatter.write_str("runtime shutdown drain grace elapsed")
+            }
+            Self::ShutdownDrainStopped => {
+                formatter.write_str("runtime shutdown drain stopped before settlement")
+            }
+            Self::EffectExecutorJoin { source } => {
+                write!(formatter, "effect executor task failed: {source}")
+            }
+            Self::EffectTaskJoin { source } => {
+                write!(formatter, "effect task join failed: {source}")
+            }
+            Self::EffectFailure { source } => {
+                write!(formatter, "effect execution failed: {source}")
             }
             Self::ProjectionFlush { reason } => {
                 write!(
@@ -102,7 +129,15 @@ impl std::fmt::Display for RuntimeRunError {
     }
 }
 
-impl std::error::Error for RuntimeRunError {}
+impl std::error::Error for RuntimeRunError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::EffectExecutorJoin { source } | Self::EffectTaskJoin { source } => Some(source),
+            Self::EffectFailure { source } => Some(source.as_ref()),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeSubmissionError {

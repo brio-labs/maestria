@@ -182,7 +182,7 @@ async fn query_harness_scope_denial_preserves_typed_reason()
 }
 
 #[tokio::test]
-async fn query_harness_full_input_channel_pauses_and_fails_effect()
+async fn query_harness_full_input_channel_waits_and_delivers_once()
 -> Result<(), Box<dyn std::error::Error>> {
     let harness_called = Arc::new(AtomicBool::new(false));
     let harness = Arc::new(SpyHarnessAdapter::new(harness_called.clone()));
@@ -216,38 +216,75 @@ async fn query_harness_full_input_channel_pauses_and_fails_effect()
         input_tx,
     );
 
-    let result = ctx
-        .execute_effect(SillageEffect::QueryHarness(request), None)
-        .await;
-    match result {
-        Err(EffectFailure::Degraded(reason)) => {
-            assert!(
-                reason.contains("completion delivery failed"),
-                "delivery failure reason should be preserved: {reason}"
-            );
-            assert!(reason.contains("effect paused"));
-        }
-        Err(other) => return Err(format!("expected paused degraded failure, got {other}").into()),
-        Ok(()) => return Err("full input channel unexpectedly succeeded".into()),
-    }
-    let is_current = adapters
-        .effect_journal
-        .is_current(run_id, sillage_domain::JournalGeneration::new(1))?;
+    let mut execution = Box::pin(ctx.execute_effect(SillageEffect::QueryHarness(request), None));
+    let execution_poll = std::future::poll_fn(|task_context| {
+        std::task::Poll::Ready(Future::poll(execution.as_mut(), task_context))
+    })
+    .await;
     assert!(
-        !is_current,
-        "paused harness generation must not remain current"
+        matches!(execution_poll, std::task::Poll::Pending),
+        "effect must wait while completion feedback is full: {execution_poll:?}"
     );
-    let feedback_accepted = adapters
-        .effect_journal
-        .is_feedback_accepted(run_id, sillage_domain::JournalGeneration::new(1))?;
     assert!(
-        !feedback_accepted,
-        "paused harness generation must not remain feedback-accepted"
+        harness_called.load(Ordering::Relaxed),
+        "harness adapter must run before feedback delivery blocks"
     );
-    assert!(matches!(
-        input_rx.try_recv(),
-        Ok(DomainInput::HarnessRunCompleted(_))
-    ));
+
+    let in_flight = adapters.effect_journal.scan_in_flight()?;
+    assert_eq!(
+        in_flight.len(),
+        1,
+        "one accepted harness run stays in flight"
+    );
+    let generation = in_flight[0].generation;
+    assert_eq!(in_flight[0].run_id, run_id);
+    assert_eq!(in_flight[0].status, EffectJournalStatus::FeedbackAccepted);
+    assert!(adapters.effect_journal.is_current(run_id, generation)?);
+    assert!(
+        adapters
+            .effect_journal
+            .is_feedback_accepted(run_id, generation)?
+    );
+
+    let filler = input_rx
+        .recv()
+        .await
+        .ok_or("input channel closed before filler was drained")?;
+    assert!(
+        matches!(filler, DomainInput::HarnessRunCompleted(completion)
+            if completion.run_id == HarnessRunId(999)),
+        "the expected filler completion must be drained to release capacity"
+    );
+
+    execution.await?;
+    let completion = input_rx
+        .recv()
+        .await
+        .ok_or("harness completion was not delivered after capacity was released")?;
+    assert!(
+        matches!(completion, DomainInput::HarnessRunCompleted(completion)
+            if completion.run_id == run_id
+                && completion.generation == generation.value()
+                && completion.task_id.is_none()
+                && completion.command == "echo full"
+                && completion.exit_code == 0
+                && completion.output == "output"),
+        "the accepted run's correlated completion must be delivered exactly"
+    );
+    assert!(
+        input_rx.try_recv().is_err(),
+        "the completed run must not emit another completion"
+    );
+    let in_flight = adapters.effect_journal.scan_in_flight()?;
+    assert_eq!(in_flight.len(), 1);
+    assert_eq!(in_flight[0].run_id, run_id);
+    assert_eq!(in_flight[0].generation, generation);
+    assert_eq!(in_flight[0].status, EffectJournalStatus::FeedbackAccepted);
+    assert!(
+        adapters
+            .effect_journal
+            .is_feedback_accepted(run_id, generation)?
+    );
     Ok(())
 }
 

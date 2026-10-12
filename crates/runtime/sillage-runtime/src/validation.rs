@@ -14,7 +14,7 @@ impl EffectExecutionContext {
     pub(crate) async fn handle_run_validation(&self, request: RunValidationRequest) -> bool {
         let report = self.build_validation_report(&request).await;
         if let Some(claim_id) = request.claim_id() {
-            if Self::send_input(
+            if Self::send_input_blocking(
                 &self.input_tx,
                 DomainInput::ValidationCompleted(ValidationCompleted {
                     claim_id,
@@ -22,6 +22,7 @@ impl EffectExecutionContext {
                 }),
                 "validation completion",
             )
+            .await
             .is_err()
             {
                 return false;
@@ -32,7 +33,7 @@ impl EffectExecutionContext {
                 "validation effect has no claim to validate"
             );
         }
-        if Self::send_input(
+        if Self::send_input_blocking(
             &self.input_tx,
             DomainInput::RecordValidationReport(RecordValidationReportInput {
                 report_id: report.id,
@@ -42,6 +43,7 @@ impl EffectExecutionContext {
             }),
             "validation report",
         )
+        .await
         .is_err()
         {
             return false;

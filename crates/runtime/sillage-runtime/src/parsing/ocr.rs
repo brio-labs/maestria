@@ -62,12 +62,10 @@ impl EffectExecutionContext {
                     .await
             }
             Ok(ParseOutcome::NeedsOcr { partial, pages }) => {
-                if !self.request_ocr_if_configured(
-                    artifact_id,
-                    blob_id,
-                    &source_hash,
-                    pages.as_slice(),
-                ) {
+                if !self
+                    .request_ocr_if_configured(artifact_id, blob_id, &source_hash, pages.as_slice())
+                    .await
+                {
                     return false;
                 }
                 let pending = sillage_ports::ParsedArtifact {
@@ -115,7 +113,7 @@ impl EffectExecutionContext {
         }
     }
 
-    fn request_ocr_if_configured(
+    async fn request_ocr_if_configured(
         &self,
         artifact_id: ArtifactId,
         blob_id: BlobId,
@@ -148,11 +146,12 @@ impl EffectExecutionContext {
         ) else {
             return false;
         };
-        Self::send_input(
+        Self::send_input_blocking(
             &self.input_tx,
             DomainInput::OcrRequested(sillage_domain::OcrRequested { intent }),
             "OCR request",
         )
+        .await
         .is_ok()
     }
 

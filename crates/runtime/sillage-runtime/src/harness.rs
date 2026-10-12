@@ -85,7 +85,8 @@ impl EffectExecutionContext {
         if !self.claim_harness_feedback(&request, generation, &outcome, was_stored)? {
             return Ok(None);
         }
-        self.deliver_harness_completion(&request, &outcome, generation, was_stored)?;
+        self.deliver_harness_completion(&request, &outcome, generation, was_stored)
+            .await?;
         Ok(Some(outcome))
     }
 
@@ -167,18 +168,19 @@ impl EffectExecutionContext {
 
     /// Deliver the harness completion input to the domain loop, pausing or
     /// degrading the effect when delivery fails.
-    fn deliver_harness_completion(
+    async fn deliver_harness_completion(
         &self,
         request: &QueryHarnessRequest,
         outcome: &HarnessOutcome,
         generation: sillage_domain::JournalGeneration,
         was_stored: bool,
     ) -> Result<(), EffectFailure> {
-        let delivery = Self::send_input(
+        let delivery = Self::send_input_blocking(
             &self.input_tx,
             harness_completion_input(request.run_id, generation.value(), request.task_id, outcome),
             "harness completion",
-        );
+        )
+        .await;
         if let Err(error) = delivery {
             if was_stored {
                 return Err(EffectFailure::Degraded(format!(

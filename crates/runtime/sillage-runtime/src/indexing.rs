@@ -99,7 +99,10 @@ impl EffectExecutionContext {
                 })?;
         }
         for update in &updates {
-            if !self.deliver_all_full_text_completions(update.artifact_id, &update.pending) {
+            if !self
+                .deliver_all_full_text_completions(update.artifact_id, &update.pending)
+                .await
+            {
                 return Err(EffectFailure::Failed(
                     "failed to deliver full-text index completion".to_string(),
                 ));
@@ -181,7 +184,7 @@ impl EffectExecutionContext {
         Ok(true)
     }
 
-    fn deliver_all_full_text_completions(
+    async fn deliver_all_full_text_completions(
         &self,
         artifact_id: sillage_domain::ArtifactId,
         pending: &[Chunk],
@@ -193,7 +196,9 @@ impl EffectExecutionContext {
                     artifact_id,
                     chunk_id: chunk.id,
                 },
-            ) {
+            )
+            .await
+            {
                 tracing::error!(%error, "failed to deliver full-text index completion");
                 return false;
             }
@@ -329,7 +334,10 @@ impl EffectExecutionContext {
                 artifact_id,
                 chunk_id: chunk.id,
             };
-            if Self::deliver_full_text_completion(&self.input_tx, completion).is_err() {
+            if Self::deliver_full_text_completion(&self.input_tx, completion)
+                .await
+                .is_err()
+            {
                 return false;
             }
         }
@@ -337,35 +345,16 @@ impl EffectExecutionContext {
     }
 
     /// Deliver a full-text completion after durable visibility.
-    /// On `CapacityFull`, a detached task awaits channel capacity without
-    /// re-running the writer transaction. A closed channel fails at shutdown.
-    fn deliver_full_text_completion(
+    async fn deliver_full_text_completion(
         input_tx: &mpsc::Sender<DomainInput>,
         completion: FullTextIndexCompleted,
     ) -> Result<(), crate::FeedbackError> {
-        match Self::send_input(
+        Self::send_input_blocking(
             input_tx,
-            DomainInput::FullTextIndexCompleted(completion.clone()),
+            DomainInput::FullTextIndexCompleted(completion),
             "full-text index completion",
-        ) {
-            Ok(()) => Ok(()),
-            Err(crate::FeedbackError::CapacityFull) => {
-                let input_tx = input_tx.clone();
-                tokio::spawn(async move {
-                    if let Err(error) = input_tx
-                        .send(DomainInput::FullTextIndexCompleted(completion))
-                        .await
-                    {
-                        tracing::warn!(
-                            %error,
-                            "full-text index completion dropped; runtime input channel closed"
-                        );
-                    }
-                });
-                Ok(())
-            }
-            Err(error @ crate::FeedbackError::RuntimeShutdown) => Err(error),
-        }
+        )
+        .await
     }
 
     /// Materialize the artifact's cards for full-text indexing, refusing the

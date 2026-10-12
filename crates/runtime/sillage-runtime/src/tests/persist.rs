@@ -239,7 +239,11 @@ async fn failed_event_persistence_stops_runtime() -> Result<(), Box<dyn std::err
         .send(DomainInput::ClockTick(sillage_domain::LogicalTick::new(1)))
         .await?;
 
-    tokio::time::timeout(Duration::from_secs(2), run).await???;
+    let runtime_result = tokio::time::timeout(Duration::from_secs(2), run).await??;
+    assert!(matches!(
+        runtime_result,
+        Err(crate::RuntimeRunError::EffectFailure { .. })
+    ));
     assert!(shutdown.is_cancelled());
     Ok(())
 }

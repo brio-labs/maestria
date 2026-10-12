@@ -39,6 +39,13 @@ impl EventLog for BlockingEventLog {
         self.inner.contains_id(event_id)
     }
 }
+struct ReleaseBlockingGate(Arc<AtomicBool>);
+
+impl Drop for ReleaseBlockingGate {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
 
 #[derive(Clone)]
 struct BlockingApprovalRepository {
@@ -97,6 +104,7 @@ async fn approval_command_ack_waits_for_event_and_projection()
     })?;
     let resolve_started = Arc::new(AtomicBool::new(false));
     let release_resolve = Arc::new(AtomicBool::new(false));
+    let _release_gate = ReleaseBlockingGate(Arc::clone(&release_resolve));
     let approval_repo = Arc::new(BlockingApprovalRepository {
         inner: approval_inner,
         resolve_started: resolve_started.clone(),
@@ -246,6 +254,7 @@ async fn command_submission_progresses_while_persistence_reads_state()
 -> Result<(), Box<dyn std::error::Error>> {
     let append_started = Arc::new(AtomicBool::new(false));
     let release_append = Arc::new(AtomicBool::new(false));
+    let _release_gate = ReleaseBlockingGate(Arc::clone(&release_append));
     let event_log = Arc::new(BlockingEventLog {
         inner: InMemoryEventLog::new(),
         append_started: append_started.clone(),
@@ -356,7 +365,14 @@ async fn spawned_effect_failure_propagates_to_supervisor_and_cancels_runtime()
 
     // The runtime should shut down because the spawned FetchWeb effect
     // fails (no seeded URL) and now propagates the failure.
-    tokio::time::timeout(Duration::from_secs(2), run).await???;
+    let run_result = tokio::time::timeout(Duration::from_secs(2), run).await??;
+    assert!(matches!(
+        run_result,
+        Err(crate::runtime::RuntimeRunError::EffectFailure { source })
+            if source
+                .downcast_ref::<crate::effect_result::EffectFailure>()
+                .is_some()
+    ));
     assert!(shutdown.is_cancelled());
     Ok(())
 }
@@ -385,7 +401,12 @@ async fn pre_failed_spawned_task_cancels_runtime() -> Result<(), Box<dyn std::er
         .send(DomainInput::ClockTick(LogicalTick::new(1)))
         .await?;
 
-    tokio::time::timeout(Duration::from_secs(2), run).await???;
+    let run_result = tokio::time::timeout(Duration::from_secs(2), run).await??;
+    assert!(matches!(
+        run_result,
+        Err(crate::runtime::RuntimeRunError::EffectTaskJoin { source })
+            if source.is_cancelled()
+    ));
     assert!(shutdown.is_cancelled());
     Ok(())
 }

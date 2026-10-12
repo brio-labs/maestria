@@ -34,11 +34,20 @@ use crate::vector_startup::reconcile_vector_projection_for_layout;
 pub(crate) fn combine_failures(error: anyhow::Error, shutdown: Result<()>) -> anyhow::Error {
     match shutdown {
         Ok(()) => error,
-        Err(shutdown_error) => error.context(format!(
-            "lifecycle shutdown also failed: {shutdown_error:#}"
-        )),
+        Err(shutdown_error) => error.context(ShutdownFailureContext(shutdown_error)),
     }
 }
+
+#[derive(Debug)]
+pub(crate) struct ShutdownFailureContext(pub(crate) anyhow::Error);
+
+impl std::fmt::Display for ShutdownFailureContext {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "lifecycle shutdown also failed: {:#}", self.0)
+    }
+}
+
+impl std::error::Error for ShutdownFailureContext {}
 
 /// Recovery work queued by the shared lifecycle and available to command-specific drain logic.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -369,11 +378,14 @@ impl InstanceLifecycle {
                     "runtime requested shutdown before external shutdown"
                 )),
             },
-            RuntimeTermination::TaskCompleted => match runtime_result {
-                Some(Err(error)) => Err(anyhow!(error).context("runtime loop join failed")),
-                Some(Ok(Err(error))) => Err(anyhow!(error).context("runtime loop failed")),
-                Some(Ok(Ok(()))) | None => Err(anyhow!("runtime loop stopped unexpectedly")),
-            },
+            RuntimeTermination::TaskCompleted => {
+                let runtime_error = match runtime_result {
+                    Some(Err(error)) => anyhow!(error).context("runtime loop join failed"),
+                    Some(Ok(Err(error))) => anyhow!(error).context("runtime loop failed"),
+                    Some(Ok(Ok(()))) | None => anyhow!("runtime loop stopped unexpectedly"),
+                };
+                Err(combine_failures(runtime_error, shutdown_result))
+            }
         }
     }
 }

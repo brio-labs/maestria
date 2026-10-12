@@ -512,6 +512,9 @@ async fn persist_event_failure_cancels_effect_and_runtime_executors()
     let runtime_shutdown = CancellationToken::new();
     let executor =
         runtime.spawn_effect_executor(effect_rx, effect_shutdown.clone(), runtime_shutdown.clone());
+    runtime
+        .pending_effect_batches
+        .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
     effect_tx
         .send(vec![EffectWork::Pending(SillageEffect::PersistEvent {
             envelope: Box::new(DomainEventEnvelope {
@@ -529,7 +532,11 @@ async fn persist_event_failure_cancels_effect_and_runtime_executors()
     .await
     .map_err(|_| "runtime shutdown was not cancelled after persistence failure")?;
     assert!(effect_shutdown.is_cancelled());
-    executor.await?;
+    let executor_result = executor.await?;
+    assert!(matches!(
+        executor_result,
+        Err(crate::effect_executor_shutdown::EffectExecutorFailure::Effect(_))
+    ));
     Ok(())
 }
 

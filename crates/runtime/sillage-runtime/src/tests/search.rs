@@ -119,7 +119,11 @@ async fn search_executed_with_failing_event_log_stops_runtime()
         }))
         .await?;
 
-    tokio::time::timeout(Duration::from_secs(2), run).await???;
+    let runtime_result = tokio::time::timeout(Duration::from_secs(2), run).await??;
+    assert!(matches!(
+        runtime_result,
+        Err(crate::RuntimeRunError::EffectFailure { .. })
+    ));
     assert!(shutdown.is_cancelled());
     Ok(())
 }

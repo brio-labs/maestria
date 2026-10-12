@@ -4,11 +4,10 @@ use crate::effect_execution_dispatch::PreparedEffect;
 use crate::effect_result::EffectFailure;
 use crate::runtime::SillageRuntime;
 use sillage_domain::{KernelState, SillageEffect};
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
-use tokio::sync::mpsc;
+use std::sync::{Arc, atomic::AtomicUsize};
+
+#[path = "runtime_effect_executor.rs"]
+mod runtime_effect_executor;
 
 /// Dedicated lane for `IndexVector` effects: a degraded vector flood must
 /// never occupy the main effect semaphore to the exclusion of full-text and
@@ -30,8 +29,8 @@ enum AdmitOutcome {
     Continue,
     /// The effect was a persist event executed inline; continue.
     Persisted,
-    /// Stop the whole executor immediately (persist failure).
-    Stop,
+    /// Stop the whole executor with the original fatal effect error.
+    Stop(EffectFailure),
     /// Shutdown/semaphore closed before admission; drop the rest.
     DropBatch,
 }
@@ -61,12 +60,12 @@ impl SillageRuntime {
     }
 
     pub(super) fn supervise_effect_failure(
-        error: EffectFailure,
+        error: &EffectFailure,
         effect_shutdown: &tokio_util::sync::CancellationToken,
         runtime_shutdown: &tokio_util::sync::CancellationToken,
     ) -> bool {
         let is_fatal = error.is_fatal();
-        Self::log_supervised_effect_failure(&error);
+        Self::log_supervised_effect_failure(error);
         if is_fatal {
             effect_shutdown.cancel();
             runtime_shutdown.cancel();
@@ -126,7 +125,7 @@ impl SillageRuntime {
             scope: self.config.scope.clone(),
             scope_id: self.config.scope_id,
             state: Arc::clone(&self.state),
-            input_tx: self.input_tx.clone(),
+            input_tx: self.feedback_tx.clone(),
             embedding_model: self.config.embedding_model.clone(),
             feedback_acks: Arc::clone(&self.feedback_acks),
             journal_recovery_claims: Arc::clone(&self.journal_recovery_claims),
@@ -136,12 +135,24 @@ impl SillageRuntime {
             max_retries: self.config.max_retries,
         }
     }
+    fn merge_queued_effect_batches(
+        message: Option<EffectBatch>,
+        receiver: &mut tokio::sync::mpsc::Receiver<EffectBatch>,
+    ) -> Option<(EffectBatch, usize)> {
+        let mut effects = message?;
+        let mut merged_batches = 1;
+        while let Ok(mut queued) = receiver.try_recv() {
+            merged_batches += 1;
+            effects.append(&mut queued);
+        }
+        Some((effects, merged_batches))
+    }
 
     /// Admit one effect: execute inline persist events and spawn the task.
     /// `IndexVector` effects (pending and prepared forms) run under the
     /// dedicated vector lane.
     async fn admit_effect(
-        in_flight: &mut tokio::task::JoinSet<()>,
+        in_flight: &mut tokio::task::JoinSet<Result<(), EffectFailure>>,
         in_flight_effects: &AtomicUsize,
         lanes: &EffectLanes,
         execution_context: EffectExecutionContext,
@@ -159,7 +170,7 @@ impl SillageRuntime {
                 tracing::error!(%error, "persist event failed; stopping effect executor");
                 effect_shutdown.cancel();
                 runtime_shutdown.cancel();
-                return AdmitOutcome::Stop;
+                return AdmitOutcome::Stop(error);
             }
         };
         let is_vector_effect = matches!(
@@ -187,18 +198,17 @@ impl SillageRuntime {
         AdmitOutcome::Continue
     }
 
-    /// Admit a received batch effect by effect. Returns `true` when the
-    /// executor must stop (persist failure); drops the batch remainder when
-    /// the executor is shutting down.
+    /// Admit a received batch effect by effect and retain the first fatal
+    /// persistence error; shutdown drops the remaining batch.
     async fn admit_effect_batch(
-        in_flight: &mut tokio::task::JoinSet<()>,
+        in_flight: &mut tokio::task::JoinSet<Result<(), EffectFailure>>,
         in_flight_effects: &AtomicUsize,
         lanes: &EffectLanes,
         execution_context: &EffectExecutionContext,
         effects: EffectBatch,
         effect_shutdown: &tokio_util::sync::CancellationToken,
         runtime_shutdown: &tokio_util::sync::CancellationToken,
-    ) -> bool {
+    ) -> Option<EffectFailure> {
         let mut full_text_requests = Vec::new();
         let mut remaining = effects.len();
         for work in effects {
@@ -231,13 +241,13 @@ impl SillageRuntime {
             .await
             {
                 AdmitOutcome::Continue | AdmitOutcome::Persisted => {}
-                AdmitOutcome::Stop => return true,
+                AdmitOutcome::Stop(error) => return Some(error),
                 AdmitOutcome::DropBatch => {
                     tracing::warn!(
                         dropped_effects = remaining,
                         "effect executor dropped admitted effects"
                     );
-                    return false;
+                    return None;
                 }
             }
         }
@@ -247,7 +257,7 @@ impl SillageRuntime {
                     dropped_full_text_effects = full_text_requests.len(),
                     "effect executor dropped full-text work during shutdown"
                 );
-                return false;
+                return None;
             }
             Self::spawn_effect_task(
                 in_flight,
@@ -259,117 +269,7 @@ impl SillageRuntime {
                 runtime_shutdown.clone(),
             );
         }
-        false
-    }
-
-    pub(crate) fn spawn_effect_executor(
-        &self,
-        mut receiver: mpsc::Receiver<crate::effect_dispatch::EffectBatch>,
-        effect_shutdown: tokio_util::sync::CancellationToken,
-        runtime_shutdown: tokio_util::sync::CancellationToken,
-    ) -> tokio::task::JoinHandle<()> {
-        let execution_context = self.effect_execution_context();
-        let max_concurrent_effects = self.config.max_concurrent_effects;
-        let drain_effects_on_shutdown = self.config.drain_effects_on_shutdown;
-        #[cfg(test)]
-        let test_pre_failed_effect_task = self.test_pre_failed_effect_task;
-        let pending_effect_batches = Arc::clone(&self.pending_effect_batches);
-        let in_flight_effects = Arc::clone(&self.in_flight_effects);
-        let executor_quiescent = Arc::clone(&self.executor_quiescent);
-        tokio::spawn(async move {
-            let lanes = EffectLanes {
-                main: Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects)),
-                vector: Arc::new(tokio::sync::Semaphore::new(VECTOR_LANE_PERMITS)),
-            };
-            let mut in_flight = tokio::task::JoinSet::new();
-            // Publish the initial quiescent state before parking on recv():
-            // a quiet runtime's shutdown drain must observe it immediately.
-            Self::publish_quiescence(
-                &pending_effect_batches,
-                &in_flight_effects,
-                &executor_quiescent,
-            );
-            #[cfg(test)]
-            if test_pre_failed_effect_task {
-                let abort_handle = in_flight.spawn(std::future::pending::<()>());
-                abort_handle.abort();
-            }
-            'executor: loop {
-                while let Some(result) = in_flight.try_join_next() {
-                    Self::supervise_effect_join(
-                        result,
-                        &pending_effect_batches,
-                        &in_flight_effects,
-                        &executor_quiescent,
-                        &effect_shutdown,
-                        &runtime_shutdown,
-                    );
-                }
-                let has_in_flight = !in_flight.is_empty();
-                Self::publish_quiescence(
-                    &pending_effect_batches,
-                    &in_flight_effects,
-                    &executor_quiescent,
-                );
-                let message = tokio::select! {
-                    biased;
-                    () = effect_shutdown.cancelled() => break,
-                    join_result = in_flight.join_next(), if has_in_flight => {
-                        if let Some(result) = join_result {
-                            Self::supervise_effect_join(
-                                result,
-                                &pending_effect_batches,
-                                &in_flight_effects,
-                                &executor_quiescent,
-                                &effect_shutdown,
-                                &runtime_shutdown,
-                            );
-                        }
-                        continue;
-                    },
-                    message = receiver.recv() => message,
-                };
-                let Some(mut effects) = message else { break };
-                // Drain already-queued transition batches before dispatch so
-                // pending full-text updates share one visibility boundary.
-                pending_effect_batches.fetch_sub(1, Ordering::Relaxed);
-                while let Ok(mut queued) = receiver.try_recv() {
-                    pending_effect_batches.fetch_sub(1, Ordering::Relaxed);
-                    effects.append(&mut queued);
-                }
-                if effect_shutdown.is_cancelled() {
-                    break;
-                }
-                if Self::admit_effect_batch(
-                    &mut in_flight,
-                    &in_flight_effects,
-                    &lanes,
-                    &execution_context,
-                    effects,
-                    &effect_shutdown,
-                    &runtime_shutdown,
-                )
-                .await
-                {
-                    break 'executor;
-                }
-                Self::publish_quiescence(
-                    &pending_effect_batches,
-                    &in_flight_effects,
-                    &executor_quiescent,
-                );
-            }
-            Self::finish_effect_executor(
-                &mut in_flight,
-                &pending_effect_batches,
-                &in_flight_effects,
-                &executor_quiescent,
-                drain_effects_on_shutdown,
-                &effect_shutdown,
-                &runtime_shutdown,
-            )
-            .await;
-        })
+        None
     }
 
     pub(crate) async fn wait_for_validation_report(

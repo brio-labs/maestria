@@ -106,19 +106,29 @@ impl SillageRuntime {
     }
 
     pub(crate) async fn queue_model_agent_recovery(
+        &self,
         proposals: Vec<ModelAgentProposalRequest>,
         shutdown_token: &tokio_util::sync::CancellationToken,
         effect_tx: &mpsc::Sender<crate::effect_dispatch::EffectBatch>,
-    ) {
-        for proposal in proposals {
-            tokio::select! {
-                () = shutdown_token.cancelled() => break,
-                result = effect_tx.send(vec![EffectWork::Pending(
-                    SillageEffect::QueryHarnessProposal(Box::new(proposal)),
-                )]) => {
-                    if let Err(error) = result {
-                        tracing::warn!(%error, "model-agent recovery effect channel closed");
-                        break;
+    ) -> bool {
+        if proposals.is_empty() {
+            return true;
+        }
+        let effects = proposals
+            .into_iter()
+            .map(|proposal| {
+                EffectWork::Pending(SillageEffect::QueryHarnessProposal(Box::new(proposal)))
+            })
+            .collect();
+        tokio::select! {
+            biased;
+            () = shutdown_token.cancelled(), if !self.config.drain_effects_on_shutdown => false,
+            permit = self.reserve_effect_batch(effect_tx, shutdown_token) => {
+                match permit {
+                    Ok(permit) => self.send_reserved_effects(permit, effects).is_ok(),
+                    Err(error) => {
+                        tracing::warn!(%error, "model-agent recovery effect admission failed");
+                        false
                     }
                 }
             }
@@ -162,7 +172,7 @@ impl EffectExecutionContext {
                 "journal recovery feedback identity does not match its proposal".to_string(),
             ));
         }
-        Self::send_input(
+        Self::send_input_blocking(
             &self.input_tx,
             crate::harness::harness_completion_input(
                 proposal.run_id,
@@ -172,6 +182,7 @@ impl EffectExecutionContext {
             ),
             "recovered harness completion",
         )
+        .await
         .map_err(|error| {
             EffectFailure::Degraded(format!("deliver recovered harness result: {error}"))
         })?;

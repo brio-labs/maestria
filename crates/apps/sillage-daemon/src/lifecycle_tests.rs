@@ -181,3 +181,52 @@ async fn shutdown_joins_runtime_even_when_watcher_join_fails()
         .map_err(|_| "runtime task did not finish before shutdown returned")?;
     Ok(())
 }
+
+#[tokio::test]
+async fn unexpected_runtime_exit_preserves_watcher_shutdown_failure()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::create()?;
+    let layout = prepare_instance(temp_dir.path().to_path_buf())?;
+    let mut lifecycle = InstanceLifecycle::start(layout, AutonomyProfile::ReadOnly).await?;
+    let runtime_task = lifecycle
+        .runtime_task
+        .take()
+        .ok_or("started lifecycle must own a runtime task")?;
+    runtime_task.abort();
+    let _ = runtime_task.await;
+
+    lifecycle.runtime_task = Some(tokio::spawn(async {
+        Err(sillage_runtime::RuntimeRunError::CommandReceiverUnavailable)
+    }));
+    lifecycle.watcher_task = Some(tokio::spawn(async {
+        Err(anyhow::Error::new(std::io::Error::from(
+            std::io::ErrorKind::PermissionDenied,
+        )))
+    }));
+    let error = lifecycle
+        .run_until_shutdown(CancellationToken::new())
+        .await
+        .err()
+        .ok_or("unexpected runtime exit must remain an error")?;
+    assert!(
+        error
+            .downcast_ref::<sillage_runtime::RuntimeRunError>()
+            .is_some_and(|error| {
+                matches!(
+                    error,
+                    sillage_runtime::RuntimeRunError::CommandReceiverUnavailable
+                )
+            }),
+        "the runtime termination error must remain the primary cause"
+    );
+    let watcher_error = error
+        .downcast_ref::<crate::lifecycle::ShutdownFailureContext>()
+        .and_then(|context| context.0.downcast_ref::<std::io::Error>())
+        .ok_or("watcher shutdown must retain its original typed error")?;
+    assert_eq!(
+        watcher_error.kind(),
+        std::io::ErrorKind::PermissionDenied,
+        "watcher teardown must remain identifiable as its original error",
+    );
+    Ok(())
+}

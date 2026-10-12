@@ -25,6 +25,7 @@ use sillage_ports::{
     SearchQuery, VectorIndex, VectorSearchHit, VectorSearchQuery,
 };
 use std::collections::BTreeSet;
+use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
@@ -166,6 +167,15 @@ impl FullTextIndex for BlockingFullTextIndex {
     }
 }
 
+/// Releases a blocking adapter when an assertion exits before its intended release.
+struct ReleaseBlockingGate(Arc<AtomicBool>);
+
+impl Drop for ReleaseBlockingGate {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
 /// Register six degradable vector artifacts (ids 100..106) with one chunk
 /// each, so a no-provider artifact effect has stale rows to invalidate.
 fn register_degradable_flood_fixtures(state: &mut KernelState) {
@@ -187,6 +197,7 @@ fn register_degradable_flood_fixtures(state: &mut KernelState) {
 async fn vector_effects_admit_while_main_lane_is_saturated()
 -> Result<(), Box<dyn std::error::Error>> {
     let release_full_text = Arc::new(AtomicBool::new(false));
+    let _release_gate = ReleaseBlockingGate(Arc::clone(&release_full_text));
     let entered_full_text = Arc::new(AtomicUsize::new(0));
     let search_index = Arc::new(BlockingFullTextIndex {
         inner: InMemoryFullTextIndex::new(),
@@ -216,7 +227,7 @@ async fn vector_effects_admit_while_main_lane_is_saturated()
         vector_index: Some(vector_index),
         ..crate::test_helpers::test_adapters()
     };
-    let (runtime, mut input_rx) = SillageRuntime::new(
+    let (mut runtime, _) = SillageRuntime::new(
         RuntimeConfig {
             max_concurrent_effects: 1,
             max_retries: 0,
@@ -227,6 +238,10 @@ async fn vector_effects_admit_while_main_lane_is_saturated()
         adapters,
         crate::test_helpers::test_governance(),
     );
+    let mut feedback_rx = runtime
+        .feedback_rx
+        .take()
+        .ok_or("runtime feedback receiver is unavailable")?;
     let (effect_tx, effect_rx) = mpsc::channel(32);
     let effect_shutdown = CancellationToken::new();
     let runtime_shutdown = CancellationToken::new();
@@ -235,6 +250,9 @@ async fn vector_effects_admit_while_main_lane_is_saturated()
 
     // The single main-lane permit is taken by a full-text effect that blocks
     // inside its search-index commit.
+    runtime
+        .pending_effect_batches
+        .fetch_add(1, Ordering::AcqRel);
     effect_tx
         .send(vec![EffectWork::Pending(SillageEffect::IndexFullText(
             IndexChunkRequest {
@@ -260,6 +278,9 @@ async fn vector_effects_admit_while_main_lane_is_saturated()
             ))
         })
         .collect::<Vec<_>>();
+    runtime
+        .pending_effect_batches
+        .fetch_add(1, Ordering::AcqRel);
     effect_tx.send(flood).await?;
 
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -277,7 +298,7 @@ async fn vector_effects_admit_while_main_lane_is_saturated()
     // Release the full-text commit: its completion must be delivered even
     // though the vector flood ran concurrently on the other lane.
     release_full_text.store(true, Ordering::SeqCst);
-    let completion = tokio::time::timeout(Duration::from_secs(5), input_rx.recv())
+    let completion = tokio::time::timeout(Duration::from_secs(5), feedback_rx.recv())
         .await
         .map_err(|_| "full-text completion never delivered after release")?
         .ok_or("input channel closed")?;
@@ -288,7 +309,7 @@ async fn vector_effects_admit_while_main_lane_is_saturated()
     );
 
     drop(effect_tx);
-    tokio::time::timeout(Duration::from_secs(5), executor).await??;
+    tokio::time::timeout(Duration::from_secs(5), executor).await???;
     Ok(())
 }
 
@@ -300,6 +321,7 @@ async fn vector_effects_admit_while_main_lane_is_saturated()
 async fn executor_consumes_batches_while_lane_is_saturated()
 -> Result<(), Box<dyn std::error::Error>> {
     let release_full_text = Arc::new(AtomicBool::new(false));
+    let _release_gate = ReleaseBlockingGate(Arc::clone(&release_full_text));
     let entered_full_text = Arc::new(AtomicUsize::new(0));
     let search_index = Arc::new(BlockingFullTextIndex {
         inner: InMemoryFullTextIndex::new(),
@@ -329,7 +351,7 @@ async fn executor_consumes_batches_while_lane_is_saturated()
         vector_index: Some(vector_index),
         ..crate::test_helpers::test_adapters()
     };
-    let (runtime, mut input_rx) = SillageRuntime::new(
+    let (mut runtime, _) = SillageRuntime::new(
         RuntimeConfig {
             max_concurrent_effects: 1,
             max_retries: 0,
@@ -340,6 +362,10 @@ async fn executor_consumes_batches_while_lane_is_saturated()
         adapters,
         crate::test_helpers::test_governance(),
     );
+    let mut feedback_rx = runtime
+        .feedback_rx
+        .take()
+        .ok_or("runtime feedback receiver is unavailable")?;
     let (effect_tx, effect_rx) = mpsc::channel(32);
     let effect_shutdown = CancellationToken::new();
     let runtime_shutdown = CancellationToken::new();
@@ -347,6 +373,9 @@ async fn executor_consumes_batches_while_lane_is_saturated()
         runtime.spawn_effect_executor(effect_rx, effect_shutdown.clone(), runtime_shutdown.clone());
 
     // The only main-lane permit is taken by a blocking full-text effect.
+    runtime
+        .pending_effect_batches
+        .fetch_add(1, Ordering::AcqRel);
     effect_tx
         .send(vec![EffectWork::Pending(SillageEffect::IndexFullText(
             IndexChunkRequest {
@@ -366,6 +395,9 @@ async fn executor_consumes_batches_while_lane_is_saturated()
     // A second full-text effect (needs the saturated main lane) followed by
     // a vector effect: the executor must consume both batches immediately and
     // let the vector effect run on its own lane.
+    runtime
+        .pending_effect_batches
+        .fetch_add(1, Ordering::AcqRel);
     effect_tx
         .send(vec![EffectWork::Pending(SillageEffect::IndexFullText(
             IndexChunkRequest {
@@ -374,6 +406,9 @@ async fn executor_consumes_batches_while_lane_is_saturated()
             },
         ))])
         .await?;
+    runtime
+        .pending_effect_batches
+        .fetch_add(1, Ordering::AcqRel);
     effect_tx
         .send(vec![EffectWork::Pending(
             SillageEffect::IndexArtifactVectors(IndexArtifactVectorsRequest::new(ArtifactId::new(
@@ -396,7 +431,7 @@ async fn executor_consumes_batches_while_lane_is_saturated()
     );
 
     release_full_text.store(true, Ordering::SeqCst);
-    let completion = tokio::time::timeout(Duration::from_secs(5), input_rx.recv())
+    let completion = tokio::time::timeout(Duration::from_secs(5), feedback_rx.recv())
         .await
         .map_err(|_| "full-text completion never delivered after release")?
         .ok_or("input channel closed")?;
@@ -406,7 +441,7 @@ async fn executor_consumes_batches_while_lane_is_saturated()
     );
 
     drop(effect_tx);
-    tokio::time::timeout(Duration::from_secs(5), executor).await??;
+    tokio::time::timeout(Duration::from_secs(5), executor).await???;
     Ok(())
 }
 
@@ -417,6 +452,7 @@ async fn executor_consumes_batches_while_lane_is_saturated()
 async fn full_text_effect_completes_while_vector_lane_is_saturated()
 -> Result<(), Box<dyn std::error::Error>> {
     let release_deletes = Arc::new(AtomicBool::new(false));
+    let _release_gate = ReleaseBlockingGate(Arc::clone(&release_deletes));
     let deletes = Arc::new(AtomicUsize::new(0));
     let vector_index = Arc::new(SpyVectorIndex::new(
         deletes.clone(),
@@ -454,7 +490,7 @@ async fn full_text_effect_completes_while_vector_lane_is_saturated()
         vector_index: Some(vector_index),
         ..crate::test_helpers::test_adapters()
     };
-    let (runtime, mut input_rx) = SillageRuntime::new(
+    let (mut runtime, _) = SillageRuntime::new(
         RuntimeConfig {
             max_concurrent_effects: 1,
             max_retries: 0,
@@ -465,6 +501,10 @@ async fn full_text_effect_completes_while_vector_lane_is_saturated()
         adapters,
         crate::test_helpers::test_governance(),
     );
+    let mut feedback_rx = runtime
+        .feedback_rx
+        .take()
+        .ok_or("runtime feedback receiver is unavailable")?;
     let (effect_tx, effect_rx) = mpsc::channel(32);
     let effect_shutdown = CancellationToken::new();
     let runtime_shutdown = CancellationToken::new();
@@ -473,6 +513,9 @@ async fn full_text_effect_completes_while_vector_lane_is_saturated()
 
     // Saturate the vector lane: two distinct artifacts, each blocking inside
     // its first (and only) stale-projection invalidation.
+    runtime
+        .pending_effect_batches
+        .fetch_add(1, Ordering::AcqRel);
     effect_tx
         .send(vec![
             EffectWork::Pending(SillageEffect::IndexArtifactVectors(
@@ -493,6 +536,9 @@ async fn full_text_effect_completes_while_vector_lane_is_saturated()
 
     // The full-text effect must complete on the main lane while the vector
     // lane stays blocked.
+    runtime
+        .pending_effect_batches
+        .fetch_add(1, Ordering::AcqRel);
     effect_tx
         .send(vec![EffectWork::Pending(SillageEffect::IndexFullText(
             IndexChunkRequest {
@@ -501,7 +547,7 @@ async fn full_text_effect_completes_while_vector_lane_is_saturated()
             },
         ))])
         .await?;
-    let completion = tokio::time::timeout(Duration::from_secs(5), input_rx.recv())
+    let completion = tokio::time::timeout(Duration::from_secs(5), feedback_rx.recv())
         .await
         .map_err(|_| "full-text completion never delivered while the vector lane is saturated")?
         .ok_or("input channel closed")?;
@@ -518,7 +564,7 @@ async fn full_text_effect_completes_while_vector_lane_is_saturated()
 
     release_deletes.store(true, Ordering::SeqCst);
     drop(effect_tx);
-    tokio::time::timeout(Duration::from_secs(5), executor).await??;
+    tokio::time::timeout(Duration::from_secs(5), executor).await???;
     Ok(())
 }
 
@@ -582,11 +628,10 @@ async fn vector_degradation_invalidates_at_most_once_per_artifact()
     Ok(())
 }
 
-/// A successfully committed full-text chunk on a full input channel must not
-/// become a retryable failure: the effect succeeds (no retry) and the
-/// completion is delivered once the channel drains.
+/// A committed full-text effect keeps ownership while completion feedback
+/// waits for capacity; releasing the filler lets the same future finish once.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn full_text_completion_on_full_input_channel_delivers_without_retry()
+async fn full_text_completion_on_full_input_channel_waits_without_retry()
 -> Result<(), Box<dyn std::error::Error>> {
     let artifact_id = ArtifactId::new(1);
     let chunk_id = ChunkId::new(10);
@@ -603,7 +648,6 @@ async fn full_text_completion_on_full_input_channel_delivers_without_retry()
         ..crate::test_helpers::test_adapters()
     };
     let (input_tx, mut input_rx) = mpsc::channel(1);
-    // Fill the input channel so the completion send cannot land immediately.
     input_tx
         .try_send(DomainInput::ClockTick(LogicalTick::new(0)))
         .map_err(|_| "test input channel should accept one item")?;
@@ -614,21 +658,21 @@ async fn full_text_completion_on_full_input_channel_delivers_without_retry()
         input_tx,
     );
 
-    // Any retryable failure would surface as Err here; the effect must
-    // succeed on the first attempt and defer the completion instead.
-    let result = context
-        .clone()
-        .execute_with_retries(SillageEffect::IndexFullText(IndexChunkRequest {
+    let mut execution = Box::pin(context.clone().execute_with_retries(
+        SillageEffect::IndexFullText(IndexChunkRequest {
             artifact_id,
             chunk_id,
-        }))
-        .await;
+        }),
+    ));
+    let execution_poll = std::future::poll_fn(|task_context| {
+        std::task::Poll::Ready(Future::poll(execution.as_mut(), task_context))
+    })
+    .await;
     assert!(
-        result.is_ok(),
-        "full-text effect must succeed even when the input channel is full"
+        matches!(execution_poll, std::task::Poll::Pending),
+        "full-text execution must wait while completion feedback is full: {execution_poll:?}"
     );
 
-    // Drain the channel: the dummy item first, then the deferred completion.
     let first = tokio::time::timeout(Duration::from_secs(5), input_rx.recv())
         .await?
         .ok_or("input channel closed before completion")?;
@@ -636,14 +680,20 @@ async fn full_text_completion_on_full_input_channel_delivers_without_retry()
         matches!(first, DomainInput::ClockTick(_)),
         "first drained item must be the filler input"
     );
+
+    execution.await?;
     let completion = tokio::time::timeout(Duration::from_secs(5), input_rx.recv())
         .await?
         .ok_or("input channel closed before completion")?;
     assert!(
         matches!(completion, DomainInput::FullTextIndexCompleted(completion)
             if completion.artifact_id == artifact_id && completion.chunk_id == chunk_id),
-        "the deferred full-text completion must arrive once the channel drains"
+        "the exact completion must arrive after the same future is released"
     );
+    assert!(matches!(
+        input_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
     Ok(())
 }
 
@@ -734,6 +784,9 @@ async fn secret_chunk_degrades_vector_lane_without_cancelling_runtime()
     let executor =
         runtime.spawn_effect_executor(effect_rx, effect_shutdown.clone(), runtime_shutdown.clone());
 
+    runtime
+        .pending_effect_batches
+        .fetch_add(1, Ordering::AcqRel);
     effect_tx
         .send(vec![EffectWork::Pending(
             SillageEffect::IndexArtifactVectors(IndexArtifactVectorsRequest::new(artifact_id)),
@@ -746,6 +799,9 @@ async fn secret_chunk_degrades_vector_lane_without_cancelling_runtime()
         "secret-bearing chunk must not reach the embedding provider"
     );
 
+    runtime
+        .pending_effect_batches
+        .fetch_add(1, Ordering::AcqRel);
     effect_tx
         .send(vec![EffectWork::Pending(
             SillageEffect::IndexArtifactVectors(IndexArtifactVectorsRequest::new(clean_artifact)),
@@ -760,6 +816,6 @@ async fn secret_chunk_degrades_vector_lane_without_cancelling_runtime()
     .map_err(|_| "clean vector effect never ran: runtime cancelled after secret refusal")?;
 
     drop(effect_tx);
-    tokio::time::timeout(Duration::from_secs(5), executor).await??;
+    tokio::time::timeout(Duration::from_secs(5), executor).await???;
     Ok(())
 }

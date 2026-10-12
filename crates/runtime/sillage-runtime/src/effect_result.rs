@@ -33,6 +33,15 @@ impl std::fmt::Display for EffectFailure {
     }
 }
 
+impl std::error::Error for EffectFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ApprovalLookup(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
 pub(crate) fn handler_result(
     success: bool,
     effect_name: &'static str,

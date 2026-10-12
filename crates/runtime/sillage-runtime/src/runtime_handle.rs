@@ -6,6 +6,8 @@ use sillage_domain::DomainInput;
 use tokio::sync::{mpsc, oneshot};
 
 impl RuntimeHandle {
+    /// External feedback ingress. Runtime shutdown closes this channel and
+    /// settles feedback already admitted before that cutoff.
     pub fn feedback_sender(&self) -> mpsc::Sender<DomainInput> {
         self.input_tx.clone()
     }

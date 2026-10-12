@@ -168,30 +168,8 @@ impl EffectExecutionContext {
         }
     }
 
-    /// Fire-and-forget send into the domain input channel.
-    /// Logs failures but never propagates them — the runtime loop
-    /// already has a shutdown path for backpressure.
-    pub(crate) fn send_input(
-        input_tx: &mpsc::Sender<DomainInput>,
-        input: DomainInput,
-        context: &'static str,
-    ) -> Result<(), crate::FeedbackError> {
-        input_tx.try_send(input).map_err(|e| {
-            tracing::warn!(error = %e, context, "failed to send domain input (backpressure)");
-            match e {
-                mpsc::error::TrySendError::Full(_) => crate::FeedbackError::CapacityFull,
-                mpsc::error::TrySendError::Closed(_) => crate::FeedbackError::RuntimeShutdown,
-            }
-        })
-    }
-
-    /// Ordered send into the domain input channel that awaits capacity.
-    ///
-    /// The artifact pipeline emits correlated inputs (ParserCompleted →
-    /// RecordEvidence → StartFullTextIndex) that must reach the domain in
-    /// order. Under parallel effect load `try_send` overflows the bounded
-    /// channel and failing the effect would retry-storm; awaiting capacity
-    /// applies backpressure while preserving order.
+    /// Send accepted runtime feedback while waiting for bounded internal capacity.
+    /// The effect task remains owned until the runtime receives the input.
     pub(crate) async fn send_input_blocking(
         input_tx: &mpsc::Sender<DomainInput>,
         input: DomainInput,
@@ -253,7 +231,7 @@ impl EffectExecutionContext {
             tracing::error!(%error, "search outcome is incompatible with request plan");
             return false;
         }
-        Self::send_input(
+        Self::send_input_blocking(
             &self.input_tx,
             DomainInput::SearchKnowledgeCompleted(SearchKnowledgeCompleted {
                 task_id,
@@ -262,6 +240,7 @@ impl EffectExecutionContext {
             }),
             "search knowledge completion",
         )
+        .await
         .is_ok()
     }
 

@@ -5,6 +5,20 @@ pinned at `0.0.1` and `main` is always the current build.
 
 ## [Unreleased]
 
+### MutationSession settlement
+
+- Clarify that successful submission acknowledges domain acceptance and initial
+  effect-batch admission, not completed parser, indexing, or persistence work.
+- Await `MutationSession::finish` to settle accepted commands and their transitive
+  owned feedback, join the runtime task, and complete the configured projection
+  flush. Attempt projection-watermark finalization on a best-effort basis; a
+  failed attempt is warned about and reconciled on the next start. Keep operation
+  and shutdown failures typed and observable.
+- Treat outstanding submission permits as unresolved admissions, not accepted
+  parser work. Grace expiry or another incomplete/fatal drain returns a typed
+  error without watermark finalization. Dropping a session or finish future
+  requests shutdown but does not await settlement.
+
 ### Budgeted in-memory Tantivy indexing
 
 - Add a canonical in-memory Tantivy index under a shared logical admission quota.

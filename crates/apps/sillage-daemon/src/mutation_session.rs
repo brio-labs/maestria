@@ -131,9 +131,10 @@ impl MutationSession {
 
     /// Submit one correlated domain command.
     ///
-    /// Success confirms domain acceptance and complete effect-batch admission. Dropping the future
-    /// after channel acceptance does not cancel the server-side command; callers must inspect
-    /// durable state before retrying an interrupted operation.
+    /// Success confirms domain acceptance and initial effect-batch admission, not completion of
+    /// transitive parser, indexing, or persistence feedback. Dropping the future after channel
+    /// acceptance does not cancel the server-side command; callers must inspect durable state
+    /// before retrying an interrupted operation.
     pub async fn submit(
         &self,
         input: DomainInput,
@@ -141,11 +142,18 @@ impl MutationSession {
         self.lifecycle.runtime_handle().submit(input).await
     }
 
-    /// Finish the operation, drain admitted effects, and preserve operation and shutdown failures.
+    /// Finish the operation and await settlement of accepted commands and their transitive
+    /// parser, indexing, and persistence feedback. Success requires the owned runtime task to join
+    /// and its configured projection flush to succeed. Projection-watermark finalization is
+    /// attempted on a best-effort basis; failure is warned about and reconciled on the next start.
+    ///
+    /// An outstanding submission permit is an unresolved admission, not accepted parser work.
+    /// Grace expiry or another incomplete/fatal drain returns a typed error without finalizing the
+    /// projection watermark.
     ///
     /// # Cancellation
-    /// Dropping this future requests shutdown through `InstanceLifecycle::drop`, but does not await
-    /// effect draining or runtime task completion. Application callers should always await it.
+    /// Dropping this session or future only requests lifecycle shutdown; it does not await accepted
+    /// work settlement, effect draining, or runtime task completion. Callers must await `finish`.
     pub async fn finish<T>(self, operation: Result<T>) -> Result<T> {
         let shutdown = self.lifecycle.shutdown().await;
         combine_operation_and_shutdown(operation, shutdown)
@@ -157,9 +165,10 @@ fn combine_operation_and_shutdown<T>(operation: Result<T>, shutdown: Result<()>)
         (Ok(value), Ok(())) => Ok(value),
         (Err(error), Ok(())) => Err(error),
         (Ok(_), Err(error)) => Err(error),
-        (Err(error), Err(shutdown_error)) => Err(error.context(format!(
-            "lifecycle shutdown also failed: {shutdown_error:#}"
-        ))),
+        (Err(error), Err(shutdown_error)) => Err(crate::lifecycle::combine_failures(
+            error,
+            Err(shutdown_error),
+        )),
     }
 }
 

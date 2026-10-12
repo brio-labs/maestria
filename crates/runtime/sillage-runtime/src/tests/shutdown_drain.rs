@@ -16,6 +16,7 @@ use sillage_ports::{
 };
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
@@ -175,5 +176,42 @@ async fn effect_completing_after_cancellation_persists_via_drain()
             .any(|envelope| matches!(envelope.event, DomainEvent::FullTextIndexed { .. })),
         "the mid-shutdown effect completion must be persisted by the drain; events: {events:?}"
     );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unresolved_submission_permit_expires_graceful_drain()
+-> Result<(), Box<dyn std::error::Error>> {
+    let flushed = Arc::new(AtomicBool::new(false));
+    let flush_probe = Arc::clone(&flushed);
+    let (runtime, input_rx) = crate::SillageRuntime::new(
+        crate::RuntimeConfig {
+            flush_projections: Some(Arc::new(move || {
+                flush_probe.store(true, Ordering::Release);
+                Ok(())
+            })),
+            ..crate::RuntimeConfig::default()
+        },
+        KernelState::new(),
+        test_adapters(),
+        crate::test_helpers::test_governance(),
+    );
+    let handle = runtime.handle();
+    let held_permit = handle.reserve_submission().await?;
+    let shutdown = CancellationToken::new();
+    let runner = tokio::spawn(
+        runtime
+            .with_graceful_shutdown()
+            .run(input_rx, shutdown.clone()),
+    );
+    shutdown.cancel();
+
+    let run_result = tokio::time::timeout(Duration::from_secs(7), runner).await??;
+    assert!(matches!(
+        run_result,
+        Err(crate::runtime::RuntimeRunError::ShutdownDrainGraceElapsed)
+    ));
+    assert!(!flushed.load(Ordering::Acquire));
+    drop(held_permit);
     Ok(())
 }

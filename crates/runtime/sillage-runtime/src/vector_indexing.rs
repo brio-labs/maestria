@@ -201,7 +201,7 @@ impl EffectExecutionContext {
         };
         let vector_index = Arc::clone(vector_index);
         match tokio::task::spawn_blocking(move || vector_index.index_embeddings(embeddings)).await {
-            Ok(Ok(())) => self.deliver_vector_completion(artifact_id),
+            Ok(Ok(())) => self.deliver_vector_completion(artifact_id).await,
             Ok(Err(error)) => {
                 tracing::warn!(
                     artifact_id = %artifact_id,
@@ -226,44 +226,21 @@ impl EffectExecutionContext {
     /// Deliver the artifact-level completion input. Order-independent with
     /// the full-text lane: completion only clears pending vector state and
     /// never changes `IndexStatus`.
-    fn deliver_vector_completion(&self, artifact_id: ArtifactId) -> Result<(), EffectFailure> {
-        let completion = VectorIndexingCompleted { artifact_id };
-        match Self::send_input(
+    async fn deliver_vector_completion(
+        &self,
+        artifact_id: ArtifactId,
+    ) -> Result<(), EffectFailure> {
+        Self::send_input_blocking(
             &self.input_tx,
-            DomainInput::VectorIndexingCompleted(completion.clone()),
+            DomainInput::VectorIndexingCompleted(VectorIndexingCompleted { artifact_id }),
             "vector indexing completion",
-        ) {
-            Ok(()) => Ok(()),
-            Err(crate::FeedbackError::CapacityFull) => {
-                let input_tx = self.input_tx.clone();
-                tokio::spawn(async move {
-                    if let Err(error) = input_tx
-                        .send(DomainInput::VectorIndexingCompleted(completion))
-                        .await
-                    {
-                        tracing::warn!(
-                            %error,
-                            "vector indexing completion dropped; runtime input channel closed"
-                        );
-                    }
-                });
-                Ok(())
-            }
-            Err(crate::FeedbackError::RuntimeShutdown) => {
-                // The vectors are already projected; only the completion
-                // bookkeeping is deferred. `pending_vector_chunks` keeps the
-                // artifact listed until a re-parse re-emits the effect, which
-                // re-embeds nothing (rows are content-addressed by the
-                // projection). Downgrade to a warning: a lost delivery at
-                // shutdown is bounded bookkeeping drift, not a failed effect
-                // (#486).
-                tracing::warn!(
-                    artifact_id = %artifact_id,
-                    "vector indexing completion delivery deferred to shutdown"
-                );
-                Ok(())
-            }
-        }
+        )
+        .await
+        .map_err(|error| {
+            EffectFailure::Failed(format!(
+                "failed to deliver vector indexing completion: {error}"
+            ))
+        })
     }
 
     /// All chunk ids of an artifact, for artifact-wide stale-row invalidation.

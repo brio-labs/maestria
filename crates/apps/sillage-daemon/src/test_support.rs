@@ -16,8 +16,11 @@ impl TempDir {
         let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
         let path =
             std::env::temp_dir().join(format!("sillage-daemon-test-{}-{id}", std::process::id()));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path)?;
+        Self::create_at(path)
+    }
+
+    fn create_at(path: PathBuf) -> std::io::Result<Self> {
+        fs::create_dir(&path)?;
         Ok(Self(path))
     }
 
@@ -29,5 +32,40 @@ impl TempDir {
 impl Drop for TempDir {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TempDir;
+    use std::{fs, io};
+
+    #[test]
+    fn fixture_creation_exclusively_owns_a_fresh_directory() -> io::Result<()> {
+        let parent = TempDir::create()?;
+        let path = parent.path().join("fresh-fixture");
+        let fixture = TempDir::create_at(path.clone())?;
+        assert!(fs::read_dir(fixture.path())?.next().transpose()?.is_none());
+        drop(fixture);
+        assert!(!path.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn fixture_collision_preserves_the_existing_directory_and_contents() -> io::Result<()> {
+        let parent = TempDir::create()?;
+        let path = parent.path().join("existing-fixture");
+        fs::create_dir(&path)?;
+        let sentinel = path.join("owner-sentinel");
+        fs::write(&sentinel, b"existing owner's contents")?;
+
+        let error = match TempDir::create_at(path.clone()) {
+            Err(error) => error,
+            Ok(_) => return Err(io::Error::other("fixture adopted a preexisting directory")),
+        };
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert!(path.is_dir());
+        assert_eq!(fs::read(&sentinel)?, b"existing owner's contents");
+        Ok(())
     }
 }

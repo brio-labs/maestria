@@ -16,7 +16,7 @@ impl EffectExecutionContext {
     ) -> bool {
         let (blob_id, expected_hash) = match self.persist_and_verify_draft_blob(&request.body) {
             Ok(pair) => pair,
-            Err(error) => return self.fail_notebook_draft(&request, error),
+            Err(error) => return self.fail_notebook_draft(&request, error).await,
         };
 
         let notebook_id = request.notebook_id;
@@ -32,8 +32,13 @@ impl EffectExecutionContext {
             citations: request.citations.clone(),
             correlation_id: request.correlation_id,
         });
-        if Self::send_input(&self.input_tx, completion, "notebook draft blob stored").is_err() {
-            return self.fail_notebook_draft(&request, "runtime input channel unavailable");
+        if Self::send_input_blocking(&self.input_tx, completion, "notebook draft blob stored")
+            .await
+            .is_err()
+        {
+            return self
+                .fail_notebook_draft(&request, "runtime input channel unavailable")
+                .await;
         }
         let timeout = self
             .default_effect_timeout
@@ -69,6 +74,7 @@ impl EffectExecutionContext {
             true
         } else {
             self.fail_notebook_draft(&request, "notebook draft event persistence failed")
+                .await
         }
     }
 
@@ -101,7 +107,7 @@ impl EffectExecutionContext {
         }
         Ok((blob_id, expected_hash))
     }
-    fn fail_notebook_draft(
+    async fn fail_notebook_draft(
         &self,
         request: &NotebookDraftBlobRequest,
         reason: impl Into<String>,
@@ -115,6 +121,8 @@ impl EffectExecutionContext {
                 reason: reason.into(),
             },
         );
-        Self::send_input(&self.input_tx, input, "notebook draft blob failure").is_ok()
+        Self::send_input_blocking(&self.input_tx, input, "notebook draft blob failure")
+            .await
+            .is_ok()
     }
 }

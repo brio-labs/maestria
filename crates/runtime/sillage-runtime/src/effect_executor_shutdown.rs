@@ -1,48 +1,75 @@
 //! Effect-executor shutdown accounting: join supervision, in-flight
-//! counting, and quiescence publication for the shutdown drain.
+//! counting, and drain wakeups.
 
 use crate::config::EffectExecutionContext;
 use crate::effect_dispatch::EffectWork;
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicUsize, Ordering},
 };
 
 use super::*;
 
+#[derive(Debug)]
+pub(crate) enum EffectExecutorFailure {
+    Effect(crate::effect_result::EffectFailure),
+    TaskJoin(tokio::task::JoinError),
+}
+impl std::fmt::Display for EffectExecutorFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Effect(source) => write!(formatter, "effect execution failed: {source}"),
+            Self::TaskJoin(source) => write!(formatter, "effect task join failed: {source}"),
+        }
+    }
+}
+
+impl std::error::Error for EffectExecutorFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Effect(source) => Some(source),
+            Self::TaskJoin(source) => Some(source),
+        }
+    }
+}
+
+pub(super) struct EffectExecutorControl<'a> {
+    pub(super) pending_effect_batches: &'a AtomicUsize,
+    pub(super) in_flight_effects: &'a AtomicUsize,
+    pub(super) executor_quiescence_notify: &'a tokio::sync::Notify,
+    pub(super) drain_effects_on_shutdown: bool,
+    pub(super) effect_shutdown: &'a tokio_util::sync::CancellationToken,
+    pub(super) runtime_shutdown: &'a tokio_util::sync::CancellationToken,
+}
+
 impl SillageRuntime {
     pub(super) fn supervise_effect_join(
-        result: Result<(), tokio::task::JoinError>,
-        pending_effect_batches: &AtomicUsize,
-        in_flight_effects: &AtomicUsize,
-        executor_quiescent: &AtomicBool,
-        effect_shutdown: &tokio_util::sync::CancellationToken,
-        runtime_shutdown: &tokio_util::sync::CancellationToken,
+        result: Result<Result<(), crate::effect_result::EffectFailure>, tokio::task::JoinError>,
+        control: &EffectExecutorControl<'_>,
+        first_failure: &mut Option<EffectExecutorFailure>,
+        cleanup_cancellation: bool,
     ) {
-        // Every joined task (success, panic, or cancellation) releases its
-        // in-flight slot; the quiescence publication then reflects the new
-        // occupancy.
-        in_flight_effects.fetch_sub(1, Ordering::Relaxed);
+        control.in_flight_effects.fetch_sub(1, Ordering::AcqRel);
         Self::publish_quiescence(
-            pending_effect_batches,
-            in_flight_effects,
-            executor_quiescent,
+            control.pending_effect_batches,
+            control.in_flight_effects,
+            control.executor_quiescence_notify,
         );
-        let Err(error) = result else {
-            return;
+        let failure = match result {
+            Ok(Ok(())) => return,
+            Ok(Err(error)) => EffectExecutorFailure::Effect(error),
+            Err(error) if cleanup_cancellation && error.is_cancelled() => return,
+            Err(error) => EffectExecutorFailure::TaskJoin(error),
         };
-        tracing::error!(
-            %error,
-            task_panicked = error.is_panic(),
-            task_cancelled = error.is_cancelled(),
-            "spawned effect task join failed; cancelling runtime execution"
-        );
-        effect_shutdown.cancel();
-        runtime_shutdown.cancel();
+        if first_failure.is_none() {
+            *first_failure = Some(failure);
+        }
+        control.effect_shutdown.cancel();
+        control.runtime_shutdown.cancel();
     }
 
     pub(super) fn spawn_effect_task(
-        in_flight: &mut tokio::task::JoinSet<()>,
+        in_flight: &mut tokio::task::JoinSet<Result<(), crate::effect_result::EffectFailure>>,
         in_flight_effects: &AtomicUsize,
         context: EffectExecutionContext,
         work: EffectWork,
@@ -50,17 +77,14 @@ impl SillageRuntime {
         effect_shutdown: tokio_util::sync::CancellationToken,
         runtime_shutdown: tokio_util::sync::CancellationToken,
     ) {
-        in_flight_effects.fetch_add(1, Ordering::Relaxed);
+        in_flight_effects.fetch_add(1, Ordering::AcqRel);
         in_flight.spawn(async move {
-            // Permit acquired inside the task so batch consumption never
-            // blocks on the semaphore; the lane still bounds concurrent
-            // executions and the effect channel cannot back up.
             let permit = tokio::select! {
                 biased;
-                () = effect_shutdown.cancelled() => return,
+                () = effect_shutdown.cancelled() => return Ok(()),
                 permit = lane.acquire_owned() => match permit {
                     Ok(permit) => permit,
-                    Err(_) => return,
+                    Err(_) => return Ok(()),
                 },
             };
             let result = match work {
@@ -74,62 +98,63 @@ impl SillageRuntime {
                         .await
                 }
             };
-            if let Err(error) = result {
-                Self::supervise_effect_failure(error, &effect_shutdown, &runtime_shutdown);
-            }
+            let result = match result {
+                Err(error)
+                    if SillageRuntime::supervise_effect_failure(
+                        &error,
+                        &effect_shutdown,
+                        &runtime_shutdown,
+                    ) =>
+                {
+                    Err(error)
+                }
+                _ => Ok(()),
+            };
             drop(permit);
+            result
         });
     }
 
     pub(super) async fn finish_effect_executor(
-        in_flight: &mut tokio::task::JoinSet<()>,
-        pending_effect_batches: &AtomicUsize,
-        in_flight_effects: &AtomicUsize,
-        executor_quiescent: &AtomicBool,
-        drain_effects_on_shutdown: bool,
-        effect_shutdown: &tokio_util::sync::CancellationToken,
-        runtime_shutdown: &tokio_util::sync::CancellationToken,
-    ) {
-        if drain_effects_on_shutdown && !effect_shutdown.is_cancelled() {
-            while let Some(result) = in_flight.join_next().await {
-                Self::supervise_effect_join(
-                    result,
-                    pending_effect_batches,
-                    in_flight_effects,
-                    executor_quiescent,
-                    effect_shutdown,
-                    runtime_shutdown,
-                );
-            }
-        } else {
+        in_flight: &mut tokio::task::JoinSet<Result<(), crate::effect_result::EffectFailure>>,
+        receiver: &mut tokio::sync::mpsc::Receiver<crate::effect_dispatch::EffectBatch>,
+        control: &EffectExecutorControl<'_>,
+        mut first_failure: Option<EffectExecutorFailure>,
+    ) -> Option<EffectExecutorFailure> {
+        let mut cleanup_cancellation =
+            !control.drain_effects_on_shutdown || control.effect_shutdown.is_cancelled();
+        if cleanup_cancellation {
             in_flight.abort_all();
-            while let Some(result) = in_flight.join_next().await {
-                Self::supervise_effect_join(
-                    result,
-                    pending_effect_batches,
-                    in_flight_effects,
-                    executor_quiescent,
-                    effect_shutdown,
-                    runtime_shutdown,
-                );
+        }
+        while let Some(result) = in_flight.join_next().await {
+            Self::supervise_effect_join(result, control, &mut first_failure, cleanup_cancellation);
+            if !cleanup_cancellation && first_failure.is_some() {
+                cleanup_cancellation = true;
+                in_flight.abort_all();
             }
         }
-        // The executor is done: no queued batch will ever be taken and no
-        // effect is running. The shutdown drain must observe this
-        // immediately instead of waiting out its grace.
-        executor_quiescent.store(true, Ordering::Relaxed);
+        while receiver.try_recv().is_ok() {
+            control
+                .pending_effect_batches
+                .fetch_sub(1, Ordering::AcqRel);
+        }
+        Self::publish_quiescence(
+            control.pending_effect_batches,
+            control.in_flight_effects,
+            control.executor_quiescence_notify,
+        );
+        first_failure
     }
 
-    /// Publish the executor's quiescence: no batch queued, no effect
-    /// running. Called after every state change so the shutdown drain's
-    /// exit condition tracks the executor exactly.
     pub(super) fn publish_quiescence(
         pending_effect_batches: &AtomicUsize,
         in_flight_effects: &AtomicUsize,
-        executor_quiescent: &AtomicBool,
+        executor_quiescence_notify: &tokio::sync::Notify,
     ) {
-        let quiescent = pending_effect_batches.load(Ordering::Relaxed) == 0
-            && in_flight_effects.load(Ordering::Relaxed) == 0;
-        executor_quiescent.store(quiescent, Ordering::Relaxed);
+        if pending_effect_batches.load(Ordering::Acquire) == 0
+            && in_flight_effects.load(Ordering::Acquire) == 0
+        {
+            executor_quiescence_notify.notify_one();
+        }
     }
 }

@@ -83,7 +83,7 @@ impl EffectExecutionContext {
                     .await;
             }
         };
-        Self::send_input(
+        Self::send_input_blocking(
             &self.input_tx,
             DomainInput::OcrCompleted(OcrCompleted {
                 artifact_id: intent.artifact_id(),
@@ -91,6 +91,7 @@ impl EffectExecutionContext {
             }),
             "OCR completion",
         )
+        .await
         .map_err(|error| EffectFailure::Failed(format!("send OCR completion: {error}")))
     }
 
@@ -153,7 +154,7 @@ impl EffectExecutionContext {
         intent: &sillage_domain::OcrIntent,
         reason: &str,
     ) -> Result<(), EffectFailure> {
-        if let Err(error) = Self::send_input(
+        if let Err(error) = Self::send_input_blocking(
             &self.input_tx,
             DomainInput::OcrFailed(OcrFailed {
                 artifact_id: intent.artifact_id(),
@@ -161,7 +162,9 @@ impl EffectExecutionContext {
                 reason: reason.to_string(),
             }),
             "OCR failure",
-        ) {
+        )
+        .await
+        {
             return Err(EffectFailure::Failed(format!("send OCR failure: {error}")));
         }
         Err(EffectFailure::Failed(reason.to_string()))
