@@ -116,6 +116,11 @@ pinned at `0.0.1` and `main` is always the current build.
   roadmap. Integrate verified issue-sized PRs into `dev/sillage`; retain Shadow
   on `main`, draft #516 and qualification false.
 
+### Explicit launcher imports
+
+- Clarify explicit standard-library and Tokio imports in the launcher search
+  setup, source refresh, and typed-search modules; this is import-only and
+  changes no runtime behavior or public API.
 
 ### Daily-driver launcher workflows
 

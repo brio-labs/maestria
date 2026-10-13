@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, mpsc};
 
 use slint::ComponentHandle;
+use tokio::runtime::Handle;
 
 use super::search::apply_refreshed_passages;
 use super::{Frontend, LauncherWindow, SOURCE_REFRESH_TICKS, lock};
@@ -43,7 +44,7 @@ impl SourceRefresh {
         ui: &LauncherWindow,
         state: &Arc<LauncherState>,
         frontend: &Arc<Frontend>,
-        runtime: &tokio::runtime::Handle,
+        runtime: &Handle,
     ) {
         while let Ok(revision) = self.receiver.try_recv() {
             self.in_flight = false;
@@ -104,7 +105,7 @@ impl SourceRefresh {
         ui: &LauncherWindow,
         state: &Arc<LauncherState>,
         frontend: &Arc<Frontend>,
-        runtime: &tokio::runtime::Handle,
+        runtime: &Handle,
         query: String,
     ) {
         if state

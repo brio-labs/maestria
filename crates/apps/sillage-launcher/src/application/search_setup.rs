@@ -4,7 +4,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use slint::ComponentHandle;
+use tokio::runtime::Handle;
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
+use tokio::time::{self, MissedTickBehavior};
 
 use super::search::{
     advance_search_generation, reset_search_state, start_catalog_search, start_search,
@@ -27,7 +30,7 @@ pub(super) struct SearchSetupController {
     backend: SearchSetup,
     state: Arc<LauncherState>,
     frontend: Arc<Frontend>,
-    runtime: tokio::runtime::Handle,
+    runtime: Handle,
     ui: UiWeak,
     selected: Mutex<Option<Arc<PathBuf>>>,
     picker_error: Mutex<Option<Arc<str>>>,
@@ -46,7 +49,7 @@ impl SearchSetupController {
         ui: &LauncherWindow,
         state: Arc<LauncherState>,
         frontend: Arc<Frontend>,
-        runtime: tokio::runtime::Handle,
+        runtime: Handle,
     ) -> Arc<Self> {
         let controller = Arc::new(Self {
             backend: SearchSetup::new(),
@@ -78,8 +81,8 @@ impl SearchSetupController {
         }));
         let viewer = Arc::clone(&controller);
         *lock(&controller.view) = Some(controller.runtime.spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_millis(100));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let mut interval = time::interval(Duration::from_millis(100));
+            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
             loop {
                 interval.tick().await;
                 if viewer.stopping.load(Ordering::Acquire) {
@@ -121,7 +124,7 @@ impl SearchSetupController {
             controller.state.end_modal();
             let selected = match selection {
                 Ok(Some(root)) => {
-                    let (invalidated, applied) = tokio::sync::oneshot::channel();
+                    let (invalidated, applied) = oneshot::channel();
                     let invalidator = Arc::clone(&controller);
                     let _ = slint::invoke_from_event_loop(move || {
                         invalidator.invalidate_documents();
@@ -233,8 +236,8 @@ impl SearchSetupController {
     async fn poll(self: Arc<Self>) {
         let _ = self.backend.resume(&self.state).await;
         self.publish(true);
-        let mut interval = tokio::time::interval(Duration::from_secs(1));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut interval = time::interval(Duration::from_secs(1));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
             interval.tick().await;
             if self.stopping.load(Ordering::Acquire) {

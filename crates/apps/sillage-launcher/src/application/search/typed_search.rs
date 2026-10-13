@@ -4,17 +4,19 @@ use std::sync::atomic::Ordering;
 use super::super::window::show_notice;
 use super::super::{Frontend, UiWeak, lock};
 use crate::ipc::LauncherState;
+use tokio::runtime::Handle;
+use tokio::sync::{oneshot, watch};
 
 pub(in crate::application) fn start_catalog_search(
     state: Arc<LauncherState>,
     frontend: Arc<Frontend>,
-    runtime: &tokio::runtime::Handle,
+    runtime: &Handle,
     ui: UiWeak,
     query: String,
     generation: u64,
     retained_selection: Option<slint::SharedString>,
-) -> tokio::sync::oneshot::Receiver<()> {
-    let (applied, wait_for_application) = tokio::sync::oneshot::channel::<()>();
+) -> oneshot::Receiver<()> {
+    let (applied, wait_for_application) = oneshot::channel::<()>();
     runtime.spawn(async move {
         let response = state.search(query, generation).await;
         let _ = slint::invoke_from_event_loop(move || {
@@ -43,8 +45,8 @@ pub(in crate::application) fn apply_passage_result(
     generation: u64,
     query: String,
     search_result: Option<super::super::passages::PassageSearchResult>,
-) -> tokio::sync::oneshot::Receiver<()> {
-    let (applied, wait_for_application) = tokio::sync::oneshot::channel::<()>();
+) -> oneshot::Receiver<()> {
+    let (applied, wait_for_application) = oneshot::channel::<()>();
     let _ = slint::invoke_from_event_loop(move || {
         if frontend.generation.load(Ordering::Acquire) == generation
             && let Some(window) = ui.upgrade()
@@ -70,7 +72,7 @@ pub(in crate::application) fn finish_active_search(frontend: &Frontend, generati
 pub(in crate::application) struct TypedSearch {
     pub(in crate::application) generation: u64,
     pub(in crate::application) has_search_service: bool,
-    pub(in crate::application) catalog_applied: tokio::sync::oneshot::Receiver<()>,
+    pub(in crate::application) catalog_applied: oneshot::Receiver<()>,
 }
 
 /// Serialize shared-realm searches and cancel requests when a newer UI search starts.
@@ -103,7 +105,7 @@ pub(in crate::application) async fn search_passages(
 async fn acquire_interactive_search_slot<'a>(
     frontend: &'a Frontend,
     generation: u64,
-    generation_updates: &mut tokio::sync::watch::Receiver<u64>,
+    generation_updates: &mut watch::Receiver<u64>,
 ) -> Option<tokio::sync::MutexGuard<'a, ()>> {
     let guard = tokio::select! {
         biased;
@@ -131,7 +133,7 @@ pub(in crate::application) fn advance_search_generation(frontend: &Frontend) -> 
 pub(in crate::application) fn start_typed_search(
     state: Arc<LauncherState>,
     frontend: Arc<Frontend>,
-    runtime: tokio::runtime::Handle,
+    runtime: Handle,
     ui: UiWeak,
     query: String,
 ) -> Option<TypedSearch> {
@@ -177,11 +179,11 @@ pub(in crate::application) fn take_pending_passage_search(
 pub(in crate::application) fn start_typed_passage_search(
     state: Arc<LauncherState>,
     frontend: Arc<Frontend>,
-    runtime: tokio::runtime::Handle,
+    runtime: Handle,
     ui: UiWeak,
     query: String,
     generation: u64,
-    catalog_applied: tokio::sync::oneshot::Receiver<()>,
+    catalog_applied: oneshot::Receiver<()>,
 ) {
     if query.is_empty() {
         finish_active_search(&frontend, generation);
@@ -221,8 +223,8 @@ pub(in crate::application) fn start_typed_passage_search(
 async fn wait_for_catalog_application(
     frontend: &Frontend,
     generation: u64,
-    generation_updates: &mut tokio::sync::watch::Receiver<u64>,
-    catalog_applied: tokio::sync::oneshot::Receiver<()>,
+    generation_updates: &mut watch::Receiver<u64>,
+    catalog_applied: oneshot::Receiver<()>,
 ) -> bool {
     tokio::select! {
         biased;
@@ -236,16 +238,19 @@ async fn wait_for_catalog_application(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+    use std::sync::atomic::AtomicU64;
+
     use super::*;
 
     fn test_frontend(generation: u64, query: &str, passage_search_pending: bool) -> Frontend {
-        let (generation_updates, _) = tokio::sync::watch::channel(generation);
+        let (generation_updates, _) = watch::channel(generation);
         Frontend {
-            generation: std::sync::atomic::AtomicU64::new(generation),
-            active_search: std::sync::atomic::AtomicU64::new(0),
+            generation: AtomicU64::new(generation),
+            active_search: AtomicU64::new(0),
             generation_updates,
             interactive_search: tokio::sync::Mutex::new(()),
-            model: std::sync::Mutex::new(super::super::super::FrontendModel {
+            model: Mutex::new(super::super::super::FrontendModel {
                 query: query.to_string(),
                 passage_search_pending,
                 accepted: Vec::new(),
@@ -306,7 +311,7 @@ mod tests {
     async fn superseded_catalog_gate_drops_passage_result() {
         let frontend = test_frontend(1, "stale", false);
         let mut generation_updates = frontend.generation_updates.subscribe();
-        let (_catalog_applied, wait_for_catalog) = tokio::sync::oneshot::channel();
+        let (_catalog_applied, wait_for_catalog) = oneshot::channel();
         let waiting =
             wait_for_catalog_application(&frontend, 1, &mut generation_updates, wait_for_catalog);
         tokio::pin!(waiting);
