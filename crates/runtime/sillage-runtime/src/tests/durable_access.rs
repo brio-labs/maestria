@@ -62,7 +62,11 @@ async fn durable_search_audit_does_not_wait_for_saturated_indexing()
     );
     let handle = runtime.handle();
     let shutdown = CancellationToken::new();
-    let runner = tokio::spawn(runtime.run(inputs, shutdown.clone()));
+    let runner = tokio::spawn(
+        runtime
+            .with_graceful_shutdown()
+            .run(inputs, shutdown.clone()),
+    );
     let provider_realm = RealmId::try_from("a".repeat(64))?;
     let consumer_realm = RealmId::try_from("b".repeat(64))?;
     let digest = GrantTokenDigest::derive(b"durable-audit-regression-fixture");
