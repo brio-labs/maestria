@@ -268,7 +268,7 @@ pub(crate) fn parsed_card_for(
     parsed_chunks: &[ParsedChunk],
     root_id: StructureNodeId,
 ) -> Result<ParsedCard, PortError> {
-    let mut card = crate::chunking::summary_card_for(artifact_id, path, parsed_chunks)?;
+    let mut card = crate::artifact_builder::summary_card_for(artifact_id, path, parsed_chunks)?;
     let card_source_span = match parsed_chunks.first() {
         Some(chunk) => chunk.source_span.clone(),
         None => {

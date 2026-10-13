@@ -184,5 +184,8 @@ pub use crate::source_projection::{
     ActiveSourceVersions, SourceProjection, active_source_versions,
 };
 pub use crate::sparse_namespace::{SparseNamespace, SparseNamespaceError};
-pub use crate::structure_tree::{StructureTreeError, validate_structure_tree};
+pub use crate::structure_tree::{
+    StructureTreeError, StructureTreeValidationFailure, validate_structure_tree,
+    validate_structure_tree_with_work,
+};
 pub use crate::task_status::TaskStatus;

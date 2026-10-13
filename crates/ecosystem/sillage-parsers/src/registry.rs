@@ -1,5 +1,8 @@
+use std::path::Path;
+
 use sillage_ports::{
-    FileHandle, FileMetadata, ParseContext, ParseOutcome, ParsedArtifact, Parser, PortError,
+    BoundedParseError, FileHandle, FileHandleRef, FileMetadata, FileMetadataRef, ParseBudget,
+    ParseContext, ParseOutcome, ParsedArtifact, Parser, PortError,
 };
 
 use crate::cargo_toml::CargoTomlParser;
@@ -92,6 +95,28 @@ impl Parser for ParserRegistry {
         parser.parse_outcome(file, context)
     }
 
+    fn parse_outcome_bounded(
+        &self,
+        file: FileHandleRef<'_>,
+        context: ParseContext,
+        budget: &mut ParseBudget<'_>,
+    ) -> Result<ParseOutcome, BoundedParseError> {
+        budget.checkpoint()?;
+        let metadata = bounded_metadata(file.path, file.bytes.len(), budget)?;
+        let mut parser = None;
+        for candidate in &self.parsers {
+            budget.charge_work(1)?;
+            if candidate.supports_bounded(&metadata, budget)? {
+                parser = Some(candidate.as_ref());
+                break;
+            }
+        }
+        let Some(parser) = parser else {
+            return Err(BoundedParseError::Unsupported);
+        };
+        parser.parse_outcome_bounded(file, context, budget)
+    }
+
     fn parse_with_ocr(
         &self,
         file: FileHandle,
@@ -101,4 +126,19 @@ impl Parser for ParserRegistry {
         let parser = self.resolve_parser(&file)?;
         parser.parse_with_ocr(file, context, pages)
     }
+}
+
+fn bounded_metadata<'a>(
+    path: &'a Path,
+    size: usize,
+    budget: &mut ParseBudget<'_>,
+) -> Result<FileMetadataRef<'a>, BoundedParseError> {
+    let path_bytes = path.as_os_str().as_encoded_bytes();
+    let ranges = crate::bounded_path::path_ranges(path, budget)?;
+    let extension = ranges.extension.map(|range| &path_bytes[range]);
+    Ok(FileMetadataRef {
+        path,
+        size,
+        extension,
+    })
 }

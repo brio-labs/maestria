@@ -3,6 +3,11 @@
 //! Deterministic byte-to-domain parsers for Sillage artifacts.
 
 /// Responsibility map:
+/// - `artifact_builder`: ordinary parsed-artifact and summary-card assembly.
+/// - `bounded_markdown`: cooperative bounded UTF-8 Markdown source scanning.
+/// - `bounded_output`: budget-admitted artifact, summary-card, and hash assembly.
+/// - `bounded_path`: budgeted native path filename and extension scanning.
+/// - `bounded_summary`: budget-admitted summary-card text formatting.
 /// - `cargo_toml`: module responsibility.
 /// - `chunking`: module responsibility.
 /// - `docx`: bounded DOCX ZIP/XML text extraction.
@@ -18,6 +23,11 @@
 /// - `rust_source`: module responsibility.
 /// - `tree_builder`: module responsibility.
 /// - `typescript_source`: module responsibility.
+mod artifact_builder;
+mod bounded_markdown;
+mod bounded_output;
+mod bounded_path;
+mod bounded_summary;
 mod cargo_toml;
 mod chunking;
 mod docx;

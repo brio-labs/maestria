@@ -1,9 +1,12 @@
 use sillage_domain::{ArtifactId, ContentRange, StructureNode, StructureNodeId, StructureNodeType};
 use sillage_domain::{SourceSpan as DomainSourceSpan, SourceSpanError};
 use sillage_ports::{
-    DocumentTree, ParsedChunk, ParsedRepresentation, PortError, RepresentationKind, SourceSpan,
+    BoundedParseError, DocumentTree, ParseBudget, ParsedChunk, ParsedRepresentation, PortError,
+    RepresentationKind, SourceSpan,
 };
 
+use crate::bounded_markdown::TextChunkRange;
+use crate::bounded_output::{copy_bytes_range_bounded, copy_string_bounded, node_metadata_bounded};
 use crate::chunking::{ID_STRIDE, chunk_id_for};
 
 pub(crate) fn build_tree_and_chunks(
@@ -109,6 +112,183 @@ pub(crate) fn build_tree_and_chunks(
     }
     let tree = DocumentTree::new(root_node_id, nodes)?;
     Ok((tree, chunks))
+}
+
+struct BoundedTreeMetadata<'a> {
+    parser_generation: &'a str,
+    schema_generation: &'a str,
+    language: Option<&'a str>,
+}
+
+pub(crate) fn build_tree_and_chunks_from_ranges_bounded(
+    artifact_id: ArtifactId,
+    bytes: &[u8],
+    chunk_ranges: Vec<TextChunkRange>,
+    parser_generation: &str,
+    schema_generation: &str,
+    language: Option<&str>,
+    budget: &mut ParseBudget<'_>,
+) -> Result<(DocumentTree, Vec<ParsedChunk>), BoundedParseError> {
+    budget.checkpoint()?;
+    let metadata = BoundedTreeMetadata {
+        parser_generation,
+        schema_generation,
+        language,
+    };
+    let mut chunks = Vec::with_capacity(chunk_ranges.len());
+    let mut nodes = Vec::with_capacity(chunk_ranges.len() + 1);
+    let root_node_id = StructureNodeId::new(artifact_id.value().wrapping_mul(ID_STRIDE));
+    nodes.push(bounded_root_node(
+        root_node_id,
+        &chunk_ranges,
+        &metadata,
+        budget,
+    )?);
+    for (order, chunk_range) in chunk_ranges.into_iter().enumerate() {
+        let (node, chunk) = bounded_node_and_chunk(
+            artifact_id,
+            root_node_id,
+            order,
+            bytes,
+            chunk_range,
+            &metadata,
+            budget,
+        )?;
+        nodes.push(node);
+        chunks.push(chunk);
+    }
+    for index in 1..nodes.len() {
+        budget.charge_work(1)?;
+        if index < nodes.len() - 1 {
+            nodes[index].sibling_id = Some(nodes[index + 1].id);
+        }
+    }
+    let tree = DocumentTree::new_bounded(root_node_id, nodes, budget)?;
+    Ok((tree, chunks))
+}
+
+fn bounded_root_node(
+    root_node_id: StructureNodeId,
+    chunk_ranges: &[TextChunkRange],
+    metadata: &BoundedTreeMetadata<'_>,
+    budget: &mut ParseBudget<'_>,
+) -> Result<StructureNode, BoundedParseError> {
+    let root_end = match chunk_ranges.last() {
+        Some(chunk) => match &chunk.source_span {
+            SourceSpan::TextSpan { end_line, .. } => *end_line,
+            SourceSpan::PdfSpan { page } | SourceSpan::PdfRegion { page, .. } => *page,
+            SourceSpan::DocxParagraphSpan { end_paragraph, .. } => *end_paragraph,
+        },
+        None => 1,
+    };
+    let parser_generation = copy_string_bounded(metadata.parser_generation, budget)?;
+    let schema_generation = copy_string_bounded(metadata.schema_generation, budget)?;
+    let language = match metadata.language {
+        Some(value) => Some(copy_string_bounded(value, budget)?),
+        None => None,
+    };
+    Ok(StructureNode {
+        id: root_node_id,
+        parent_id: None,
+        sibling_id: None,
+        node_type: StructureNodeType::Document,
+        source_range: ContentRange::new(1, root_end).map_err(|error| {
+            PortError::InvalidInputContext {
+                context: "allocate root node content range",
+                source: error.to_string(),
+            }
+        })?,
+        page: None,
+        section_path: vec![],
+        parser_generation,
+        schema_generation,
+        language,
+    })
+}
+
+fn bounded_node_and_chunk(
+    artifact_id: ArtifactId,
+    root_node_id: StructureNodeId,
+    order: usize,
+    bytes: &[u8],
+    chunk_range: TextChunkRange,
+    metadata: &BoundedTreeMetadata<'_>,
+    budget: &mut ParseBudget<'_>,
+) -> Result<(StructureNode, ParsedChunk), BoundedParseError> {
+    budget.checkpoint()?;
+    let chunk_id = chunk_id_for(artifact_id, order)?;
+    let node_id = StructureNodeId::new(chunk_id.value());
+    let source_span = chunk_range.source_span;
+    let content_range = content_range_for(&source_span)?;
+    let page = page_for(&source_span);
+    let text = copy_bytes_range_bounded(bytes, chunk_range.text, budget)?;
+    let raw_content = copy_bytes_range_bounded(bytes, chunk_range.raw, budget)?;
+    let (node_type, section_path) = node_metadata_bounded(&text, budget)?;
+    let node = StructureNode {
+        id: node_id,
+        parent_id: Some(root_node_id),
+        sibling_id: None,
+        node_type,
+        source_range: content_range,
+        page,
+        section_path,
+        parser_generation: copy_string_bounded(metadata.parser_generation, budget)?,
+        schema_generation: copy_string_bounded(metadata.schema_generation, budget)?,
+        language: match metadata.language {
+            Some(value) => Some(copy_string_bounded(value, budget)?),
+            None => None,
+        },
+    };
+    let retrieval = copy_string_bounded(&text, budget)?;
+    let chunk = ParsedChunk {
+        chunk_id,
+        artifact_id,
+        node_id,
+        text,
+        representations: vec![
+            ParsedRepresentation {
+                kind: RepresentationKind::Raw,
+                content: raw_content,
+            },
+            ParsedRepresentation {
+                kind: RepresentationKind::Retrieval,
+                content: retrieval,
+            },
+        ],
+        source_span,
+    };
+    Ok((node, chunk))
+}
+
+fn content_range_for(source_span: &SourceSpan) -> Result<ContentRange, PortError> {
+    match source_span {
+        SourceSpan::TextSpan {
+            start_line,
+            end_line,
+        } => ContentRange::new(*start_line, *end_line).map_err(|error| {
+            PortError::InvalidInputContext {
+                context: "allocate chunk node content range",
+                source: error.to_string(),
+            }
+        }),
+        SourceSpan::DocxParagraphSpan {
+            start_paragraph,
+            end_paragraph,
+        } => ContentRange::new(*start_paragraph, *end_paragraph).map_err(|error| {
+            PortError::invalid_input("allocate DOCX paragraph content range", error.to_string())
+        }),
+        SourceSpan::PdfSpan { .. } | SourceSpan::PdfRegion { .. } => ContentRange::new(1, 1)
+            .map_err(|error| {
+                PortError::invalid_input("allocate chunk node content range", error.to_string())
+            }),
+    }
+}
+
+fn page_for(source_span: &SourceSpan) -> Option<u32> {
+    match source_span {
+        SourceSpan::PdfSpan { page } | SourceSpan::PdfRegion { page, .. } => Some(*page as u32),
+        _ => None,
+    }
 }
 
 fn node_metadata(text: &str) -> (StructureNodeType, Vec<String>) {

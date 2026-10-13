@@ -11,7 +11,7 @@ use sillage_ports::{
     FileHandle, FileMetadata, ParseContext, ParsedArtifact, Parser, PortError, SourceSpan,
 };
 
-use crate::chunking::parsed_artifact;
+use crate::artifact_builder::parsed_artifact;
 
 const MAX_DOCX_ARCHIVE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DOCX_ENTRIES: usize = 512;

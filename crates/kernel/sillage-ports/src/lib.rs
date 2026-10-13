@@ -7,6 +7,7 @@
 //! harness implementation.
 //!
 //! Responsibility map:
+//! - `bounded_parsing`: typed parser budgets, checkpoints, and refusal errors.
 //! - `version`: package version metadata.
 //! - `execution`: search execution budget + meter plumbing.
 //! - `learned_sparse`: learned sparse capability contracts.
@@ -72,10 +73,12 @@ pub use visual::{VisualEmbeddingProvider, VisualEmbeddingRequest, VisualSource};
 
 mod ocr;
 pub use ocr::{OcrIdentity, OcrPage, OcrProvider, OcrRequest, OcrResponse};
+mod bounded_parsing;
 mod parsing;
 pub use parsing::{
-    DocumentTree, OcrPageSet, ParseContext, ParseOutcome, ParseStatus, ParsedArtifact, ParsedCard,
-    ParsedChunk, ParsedRepresentation, Parser, RepresentationKind, SourceSpan,
+    BoundedParseError, DocumentTree, FileHandleRef, FileMetadataRef, OcrPageSet, ParseBudget,
+    ParseBudgetFailure, ParseCheckpoint, ParseContext, ParseOutcome, ParseStatus, ParsedArtifact,
+    ParsedCard, ParsedChunk, ParsedRepresentation, Parser, RepresentationKind, SourceSpan,
 };
 mod text;
 pub use text::truncate_at_char_boundary;

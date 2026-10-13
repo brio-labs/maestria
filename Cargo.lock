@@ -7095,6 +7095,7 @@ dependencies = [
  "insta",
  "lopdf",
  "quick-xml",
+ "sha2 0.10.9",
  "sillage-domain",
  "sillage-ports",
  "zip",

@@ -5,6 +5,21 @@ pinned at `0.0.1` and `main` is always the current build.
 
 ## [Unreleased]
 
+### Bounded Markdown parsing
+
+- Add public, opt-in borrowed `FileHandleRef` parsing for Markdown with explicit
+  logical work/output admission and cooperative cancellation/deadline checkpoints.
+  Unsupported bounded routes return `Unsupported` without an owned-metadata or
+  unbounded-parse fallback.
+- Route extensions and fallback names through budget-interleaved native path
+  component scanning, preserving normalized trailing/current-directory behavior,
+  Windows UNC/device/verbatim prefixes, and WTF-8 lossy display without owned
+  path metadata.
+- Build the canonical artifact, tree/chunk, content-hash, and summary-card output;
+  report work/output refusals, cancellation, and deadline expiry through typed
+  bounded parse errors. Budget figures are logical accounting, not an RSS bound or
+  a total-time complexity guarantee.
+
 ### MutationSession settlement
 
 - Clarify that successful submission acknowledges domain acceptance and initial
