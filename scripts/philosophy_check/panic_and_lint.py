@@ -79,7 +79,7 @@ GENERATED_BLOB_MARKERS = (
 
 
 FORBIDDEN_STRING_ERROR_PATTERN = re.compile(
-    r"^\s*type\s+Error\s*=\s*String\s*;", re.MULTILINE
+    r"^[ \t]*type\s+Error\s*=\s*String\s*;", re.MULTILINE
 )
 
 
@@ -106,12 +106,16 @@ UNCHECKED_API_PATTERNS = (
 )
 
 
-# Task markers and unreachable guarantees as source tokens. The clippy
-# `panic` gate already rejects these in every target; this scan keeps the
-# ban enforced even when clippy flags are relaxed (defense-in-depth, like
-# the assert-family scan). String and comment contexts are scrubbed so
-# tests that reference the tokens do not self-flag.
+# Explicit panic macros and non-implemented/unreachable markers are prohibited
+# in every first-party Rust target, including handwritten launcher code and
+# tests. The launcher Clippy exception only accounts for generated Tauri
+# context; this source scan remains independent from that lint exemption.
 FAILURE_TOKEN_PATTERNS = (
+    (
+        r"\b(?:[A-Za-z_]\w*\s*::\s*)*"
+        r"panic\s*!\s*(?:\(|\[|\{)",
+        "a panic! macro",
+    ),
     (r"\btodo!\s*\(", "a todo! marker"),
     (r"\bunimplemented!\s*\(", "an unimplemented! marker"),
     (r"\bunreachable!\s*\(", "an unreachable! marker"),
@@ -175,13 +179,13 @@ KERNEL_INTERIOR_MUTABILITY_PATTERNS = (
 )
 
 
-# Rule 11 defense-in-depth: `assert!`/`assert_eq!`/`assert_ne!`/`assert_matches!`
-# panic on failure like `panic!` does, so production code must use typed
-# errors. (clippy::panic already gates this; the checker keeps it enforced
-# even when clippy flags are relaxed.) `debug_assert!` is a release no-op and
-# stays allowed.
+# Rule 11 defense-in-depth: assert-family macros panic on failure like
+# `panic!`, so production code must use typed errors. This includes debug
+# assertions: they can panic in debug builds. Inherited `#[cfg(test)]` items
+# are removed before the pattern is applied.
 _PRODUCTION_ASSERT_PATTERN = re.compile(
-    r"\bassert(?:!|_eq!|_ne!|_matches!)\s*\("
+    r"\b(?:[A-Za-z_]\w*\s*::\s*)*"
+    r"(?:debug_)?assert(?:_eq|_ne|_matches)?\s*!\s*(?:\(|\[|\{)"
 )
 
 
@@ -206,7 +210,10 @@ def scan_rust_lint_bypasses() -> list[str]:
         content = read_text(source)
         if content is None:
             continue
-        if any(re.search(pattern, content) for pattern in FORBIDDEN_RUST_LINT_BYPASSES):
+        syntax = _rust_syntax(content)
+        if any(
+            re.search(pattern, syntax) for pattern in FORBIDDEN_RUST_LINT_BYPASSES
+        ):
             violations.append(str(source.relative_to(shared.ROOT)))
     return violations
 
@@ -217,8 +224,9 @@ def scan_unbounded_channels() -> list[str]:
         content = read_text(source)
         if content is None:
             continue
+        syntax = _rust_syntax(content)
         if any(
-            re.search(pattern, content)
+            re.search(pattern, syntax)
             for pattern in FORBIDDEN_UNBOUNDED_CHANNEL_PATTERNS
         ):
             violations.append(
@@ -233,11 +241,11 @@ def scan_rust_forbidden_methods() -> list[str]:
         content = read_text(source)
         if content is None:
             continue
+        syntax = _rust_syntax(content)
         for pattern, description in FORBIDDEN_RUST_METHODS:
-            if re.search(pattern, content):
+            if re.search(pattern, syntax):
                 violations.append(f"{source.relative_to(shared.ROOT)} contains {description}")
         if source.is_relative_to(shared.ROOT / "crates/apps/sillage-launcher"):
-            syntax = _rust_syntax(content)
             for pattern, description in LAUNCHER_DISALLOWED_SOURCE:
                 if re.search(pattern, syntax):
                     violations.append(f"{source.relative_to(shared.ROOT)} contains {description}")
@@ -277,7 +285,8 @@ def scan_string_typed_errors() -> list[str]:
         if content is None:
             continue
         production = production_rust(content)
-        for match in FORBIDDEN_STRING_ERROR_PATTERN.finditer(production):
+        syntax = _rust_syntax(production)
+        for match in FORBIDDEN_STRING_ERROR_PATTERN.finditer(syntax):
             line_number = content.count("\n", 0, match.start()) + 1
             violations.append(
             f"{source.relative_to(shared.ROOT)}:{line_number} uses String as a "
@@ -293,15 +302,16 @@ def scan_memory_unsafety_markers() -> list[str]:
     is a data-race class even under single-threaded use, and
     `Box::leak`/`mem::forget` deliberately leak memory. No repository code
     needs them; the ban covers tests too because these classes are never a
-    legitimate test strategy.
+    legitimate test strategy. Comments and literals are ignored as non-code.
     """
     violations = []
     for source in _production_rust_files(skip_tests=False):
         content = read_text(source)
         if content is None:
             continue
+        syntax = _rust_syntax(content)
         for pattern, description in MEMORY_UNSAFETY_PATTERNS:
-            if re.search(pattern, content):
+            if re.search(pattern, syntax):
                 violations.append(
                     f"{source.relative_to(shared.ROOT)} contains {description}"
                 )
@@ -333,11 +343,12 @@ def scan_unchecked_apis() -> list[str]:
 
 
 def scan_failure_tokens() -> list[str]:
-    """Ban `todo!`/`unimplemented!`/`unreachable!` repo-wide.
+    """Ban explicit panic macros and unfinished/unreachable markers repo-wide.
 
-    Defense-in-depth alongside the clippy `panic` gate: these markers are
-    never shipped code or test strategy. String and comment contexts are
-    scrubbed so tests that reference the tokens do not self-flag.
+    The scan covers all first-party Rust targets, including handwritten
+    launcher code and tests. Clippy's launcher exception does not exempt
+    source. String and comment contexts are scrubbed so quoted references do
+    not self-flag.
     """
     violations = []
     for source in _production_rust_files(skip_tests=False):
@@ -365,10 +376,11 @@ def scan_process_exit() -> list[str]:
         content = read_text(source)
         if content is None:
             continue
+        syntax = _rust_syntax(content)
         is_app = any(segment in APP_CRATE_DIRS for segment in source.parts)
         if is_app:
             continue
-        if PROCESS_EXIT_PATTERN.search(content):
+        if PROCESS_EXIT_PATTERN.search(syntax):
             violations.append(
                 f"{source.relative_to(shared.ROOT)} contains a process::exit call outside an app crate"
             )
@@ -389,8 +401,9 @@ def scan_env_mutation() -> list[str]:
         content = read_text(source)
         if content is None:
             continue
+        syntax = _rust_syntax(content)
         for pattern, description in ENV_MUTATION_PATTERNS:
-            if re.search(pattern, content):
+            if re.search(pattern, syntax):
                 violations.append(
                     f"{source.relative_to(shared.ROOT)} contains {description}"
                 )
@@ -410,17 +423,18 @@ def scan_debug_output() -> list[str]:
         content = read_text(source)
         if content is None:
             continue
+        syntax = _rust_syntax(content)
         is_app = any(segment in APP_CRATE_DIRS for segment in source.parts)
         for pattern, description in DEBUG_OUTPUT_PATTERNS:
             if description.startswith("a dbg!"):
                 continue  # dbg! is banned everywhere; handled below.
             if is_app:
                 continue  # App crates own their console output.
-            if re.search(pattern, content):
+            if re.search(pattern, syntax):
                 violations.append(
                     f"{source.relative_to(shared.ROOT)} contains {description}"
                 )
-        if re.search(r"\bdbg!\s*\(", content):
+        if re.search(r"\bdbg!\s*\(", syntax):
             violations.append(
                 f"{source.relative_to(shared.ROOT)} contains a dbg! debug-print call"
             )
@@ -445,9 +459,10 @@ def scan_kernel_interior_mutability() -> list[str]:
             content = read_text(source)
             if content is None:
                 continue
+            syntax = _rust_syntax(content)
             rel = source.relative_to(shared.ROOT)
             for pattern in KERNEL_INTERIOR_MUTABILITY_PATTERNS:
-                if re.search(pattern, content):
+                if re.search(pattern, syntax):
                     violations.append(
                         f"{rel} contains interior-mutability or shared-ownership "
                         f"token {pattern!r}"
@@ -456,13 +471,11 @@ def scan_kernel_interior_mutability() -> list[str]:
 
 
 def scan_production_asserts() -> list[str]:
-    """Rule 11 defense-in-depth: shipped code must not assert.
+    """Rule 11: production code must not use panic-prone assertions.
 
-    `assert!`/`assert_eq!`/`assert_ne!`/`assert_matches!` panic on failure
-    exactly like `panic!`, so production code must return typed errors.
-    clippy::panic already gates this in CI; the checker keeps the class
-    banned even when clippy flags are relaxed. Test sources and inline
-    `#[cfg(test)]` items are exempt.
+    This covers the full `assert` family and debug variants. Test-only source
+    files and inherited `#[cfg(test)]` items remain excluded by the source
+    context and production-syntax helpers.
     """
     violations = []
     for source in _production_rust_files(skip_tests=True):

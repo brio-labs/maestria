@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from philosophy_check import dependency_graph, shared
 from philosophy_check_testbase import PhilosophyCheckFixture
@@ -357,12 +359,83 @@ dev_alias = { package = "unknown-package", version = "1" }
             violations = dependency_graph.scan_kernel_sources()
             self.assertTrue(any("thread_rng" in item for item in violations))
 
-    def test_dependency_closure_skips_without_cargo_metadata(self) -> None:
+    def _assert_dependency_closure_unverified(self, cargo_outcome: object) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            self.configure_root(root)
-            violations = dependency_graph.scan_kernel_dependency_closure()
-            self.assertEqual(violations, [])
+            self.configure_root(Path(tmp))
+            if isinstance(cargo_outcome, BaseException):
+                mocked_run = patch.object(
+                    dependency_graph.subprocess, "run", side_effect=cargo_outcome
+                )
+            else:
+                mocked_run = patch.object(
+                    dependency_graph.subprocess, "run", return_value=cargo_outcome
+                )
+            with mocked_run:
+                violations = dependency_graph.scan_kernel_dependency_closure()
+
+        self.assertTrue(
+            any(
+                "unverified" in item and "cargo metadata" in item
+                for item in violations
+            ),
+            violations,
+        )
+
+    def test_dependency_closure_reports_unverified_when_cargo_is_missing(self) -> None:
+        self._assert_dependency_closure_unverified(FileNotFoundError("cargo"))
+
+    def test_dependency_closure_reports_unverified_after_metadata_timeout(self) -> None:
+        self._assert_dependency_closure_unverified(
+            subprocess.TimeoutExpired(["cargo", "metadata"], 120)
+        )
+
+    def test_dependency_closure_reports_unverified_after_nonzero_exit(self) -> None:
+        self._assert_dependency_closure_unverified(
+            subprocess.CompletedProcess(
+                ["cargo", "metadata"], 101, stdout="", stderr="metadata failed"
+            )
+        )
+
+    def test_dependency_closure_reports_unverified_for_malformed_json(self) -> None:
+        self._assert_dependency_closure_unverified(
+            subprocess.CompletedProcess(
+                ["cargo", "metadata"], 0, stdout="{", stderr=""
+            )
+        )
+
+    def test_dependency_closure_accepts_resolved_allowed_graph(self) -> None:
+        approved_graph = {
+            "sillage-domain": {"serde"},
+            "sillage-governance": {"sillage-domain", "serde"},
+            "sillage-ports": {
+                "sillage-domain",
+                "serde",
+                "sillage-test-support",
+            },
+        }
+        with patch.object(
+            dependency_graph, "_cargo_metadata_graph", return_value=approved_graph
+        ):
+            self.assertEqual(dependency_graph.scan_kernel_dependency_closure(), [])
+
+    def test_dependency_closure_rejects_forbidden_transitive_dependency(self) -> None:
+        resolved_graph = {
+            "sillage-domain": {"serde", "reqwest"},
+            "sillage-governance": {"sillage-domain", "serde", "reqwest"},
+            "sillage-ports": {
+                "sillage-domain",
+                "serde",
+                "sillage-test-support",
+                "reqwest",
+            },
+        }
+        with patch.object(
+            dependency_graph, "_cargo_metadata_graph", return_value=resolved_graph
+        ):
+            self.assertIn(
+                "sillage-domain transitively depends on forbidden crate reqwest",
+                dependency_graph.scan_kernel_dependency_closure(),
+            )
 
     def test_kernel_tokens_reject_maybe_uninit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

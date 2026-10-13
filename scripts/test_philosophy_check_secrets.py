@@ -39,13 +39,31 @@ class SecretsTests(PhilosophyCheckFixture):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            test_file = root / "crates" / "apps" / "example" / "tests" / "fixture.rs"
-            test_file.parent.mkdir(parents=True, exist_ok=True)
-            test_file.write_text("const FAKE: &str = \"AKIA1234567890ABCDEF\";\n")
+            crate_root = root / "crates" / "apps" / "example"
+            (root / "Cargo.toml").write_text(
+                '[workspace]\nmembers = ["crates/apps/example"]\n',
+                encoding="utf-8",
+            )
+            source_dir = crate_root / "src"
+            source_dir.mkdir(parents=True)
+            (crate_root / "Cargo.toml").write_text(
+                '[package]\nname = "example"\n'
+                'version = "0.1.0"\nedition = "2021"\n',
+                encoding="utf-8",
+            )
+            (source_dir / "lib.rs").write_text("", encoding="utf-8")
+            test_file = crate_root / "tests" / "fixture.rs"
+            test_file.parent.mkdir(parents=True)
+            test_file.write_text(
+                'const FAKE: &str = "AKIA1234567890ABCDEF";\n',
+                encoding="utf-8",
+            )
             workflow = root / ".github" / "workflows" / "ci.yml"
-            workflow.parent.mkdir(parents=True, exist_ok=True)
+            workflow.parent.mkdir(parents=True)
             workflow.write_text(
-                "password: ${{ secrets.DB_PASSWORD }}\n" "token: <contents of system/daemon.token>\n"
+                "password: ${{ secrets.DB_PASSWORD }}\n"
+                "token: <contents of system/daemon.token>\n",
+                encoding="utf-8",
             )
             violations = secrets.scan_hardcoded_secrets()
             self.assertEqual(violations, [])

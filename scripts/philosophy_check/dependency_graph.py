@@ -287,7 +287,11 @@ def scan_kernel_dependency_closure() -> list[str]:
     """
     closure = _cargo_metadata_graph()
     if closure is None:
-        return []
+        return [
+            "kernel dependency closure is unverified: ensure Cargo is installed "
+            "and `cargo metadata --format-version 1 --offline` succeeds from the "
+            "workspace root before rerunning the checker"
+        ]
     violations = []
     for kernel_root in shared.KERNEL_ROOTS:
         crate_name = _normalize_dependency_name(kernel_root.name)

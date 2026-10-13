@@ -6,62 +6,156 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from philosophy_check import contract_tests, dependency_graph, formatting, shared
+from philosophy_check import contract_tests, dependency_graph, formatting
 from philosophy_check_testbase import PhilosophyCheckFixture
 
 
 class DocumentationContractTests(PhilosophyCheckFixture):
+    def write_workspace_facade(self, root: Path, contents: str) -> tuple[Path, Path]:
+        (root / "Cargo.toml").write_text(
+            '[workspace]\nmembers = ["external/example"]\n', encoding="utf-8"
+        )
+        crate = root / "external" / "example"
+        source_dir = crate / "src"
+        source_dir.mkdir(parents=True)
+        (crate / "Cargo.toml").write_text(
+            '[package]\nname = "example"\nversion = "0.1.0"\nedition = "2021"\n',
+            encoding="utf-8",
+        )
+        source = source_dir / "lib.rs"
+        source.write_text(contents, encoding="utf-8")
+        return source, source_dir
 
-    def test_responsibility_map_accepts_valid_trait_split(self) -> None:
+    def write_cfg_platform_facade(
+        self, root: Path, *, include_windows_source: bool
+    ) -> tuple[Path, Path]:
+        source, source_dir = self.write_workspace_facade(
+            root,
+            "//! Responsibility map:\n"
+            "//! - `platform`: selects the host-specific backend.\n"
+            "#[cfg(unix)]\n"
+            '#[path = "unix.rs"]\n'
+            "mod platform;\n"
+            "#[cfg(windows)]\n"
+            '#[path = "windows.rs"]\n'
+            "mod platform;\n",
+        )
+        (source_dir / "unix.rs").write_text(
+            "pub fn backend() {}\n", encoding="utf-8"
+        )
+        if include_windows_source:
+            (source_dir / "windows.rs").write_text(
+                "pub fn backend() {}\n", encoding="utf-8"
+            )
+        return source, source_dir
+
+    def test_responsibility_map_accepts_new_documented_module_without_inventory(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            traits_dir = root / "crates" / "kernel" / "sillage-ports" / "src"
-            traits_dir.mkdir(parents=True, exist_ok=True)
-            traits_file = traits_dir / "traits.rs"
-            modules = contract_tests.RESPONSIBILITY_MAPS[
-                "crates/kernel/sillage-ports/src/traits.rs"
-            ]
-
-            traits_lines = ["//! Responsibility map:"]
-            traits_lines.extend(
-                f"//! - `{module}`: test ownership." for module in modules
+            source, source_dir = self.write_workspace_facade(
+                root,
+                "//! Responsibility map:\n"
+                "//! - `existing`: constructs stable search requests.\n"
+                "//! - `new_feature`: owns a newly added parsing boundary.\n"
+                "pub mod existing;\npub mod new_feature;\n",
             )
-            traits_lines.extend(f"mod {module};" for module in modules)
-            traits_file.write_text("\n".join(traits_lines), encoding="utf-8")
-            for module in modules:
-                (traits_dir / f"{module}.rs").write_text("// test\n", encoding="utf-8")
+            for module in ("existing", "new_feature"):
+                (source_dir / f"{module}.rs").write_text(
+                    "// production module\n", encoding="utf-8"
+                )
 
             self.assertEqual(contract_tests.scan_responsibility_maps(), [])
 
-    def test_responsibility_map_reports_missing_module_declaration(self) -> None:
+    def test_responsibility_map_reports_undeclared_documented_module(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            traits_dir = root / "crates" / "kernel" / "sillage-ports" / "src"
-            traits_dir.mkdir(parents=True, exist_ok=True)
-            traits_file = traits_dir / "traits.rs"
-            modules = contract_tests.RESPONSIBILITY_MAPS[
-                "crates/kernel/sillage-ports/src/traits.rs"
-            ]
+            source, source_dir = self.write_workspace_facade(
+                root,
+                "//! Responsibility map:\n"
+                "//! - `present`: owns the declared service boundary.\n"
+                "//! - `extra`: handles an undeclared side effect.\n"
+                "pub mod present;\n",
+            )
+            (source_dir / "present.rs").write_text("// present\n", encoding="utf-8")
+            (source_dir / "extra.rs").write_text("// extra\n", encoding="utf-8")
 
-            traits_lines = ["//! Responsibility map:"]
-            traits_lines.extend(
-                f"//! - `{module}`: test ownership." for module in modules
+            violations = contract_tests.scan_responsibility_maps()
+            self.assertEqual(len(violations), 1)
+            self.assertIn(
+                f"{source.relative_to(root).as_posix()}:3", violations[0]
             )
-            traits_lines.extend(
-                f"mod {module};" for module in modules if module != "repositories"
-            )
-            traits_file.write_text("\n".join(traits_lines), encoding="utf-8")
-            for module in modules:
-                (traits_dir / f"{module}.rs").write_text("// test\n", encoding="utf-8")
+            self.assertIn("extra", violations[0])
 
-            self.assertEqual(
-                contract_tests.scan_responsibility_maps(),
-                [
-                    "crates/kernel/sillage-ports/src/traits.rs does not declare module 'repositories'"
-                ],
+    def test_responsibility_map_reports_production_module_without_role(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source, source_dir = self.write_workspace_facade(
+                root,
+                "//! Responsibility map:\n"
+                "//! - `present`: owns the declared service boundary.\n"
+                "pub mod present;\npub mod undocumented;\n",
             )
+            for module in ("present", "undocumented"):
+                (source_dir / f"{module}.rs").write_text(
+                    "// production module\n", encoding="utf-8"
+                )
+
+            violations = contract_tests.scan_responsibility_maps()
+            self.assertEqual(len(violations), 1)
+            self.assertIn(
+                f"{source.relative_to(root).as_posix()}:4", violations[0]
+            )
+            self.assertIn("undocumented", violations[0])
+
+    def test_responsibility_map_rejects_duplicate_entries_with_lines(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source, source_dir = self.write_workspace_facade(
+                root,
+                "//! Responsibility map:\n"
+                "//! - `search`: builds bounded search requests.\n"
+                "//! - `search`: formats search evidence.\n"
+                "pub mod search;\n",
+            )
+            (source_dir / "search.rs").write_text("// search\n", encoding="utf-8")
+
+            violations = contract_tests.scan_responsibility_maps()
+            self.assertEqual(len(violations), 1)
+            self.assertIn(
+                f"{source.relative_to(root).as_posix()}:3", violations[0]
+            )
+            self.assertIn("search", violations[0])
+
+    def test_responsibility_map_rejects_empty_role_with_source_line(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source, source_dir = self.write_workspace_facade(
+                root,
+                "//! Responsibility map:\n"
+                "//! - `search`:\n"
+                "pub mod search;\n",
+            )
+            (source_dir / "search.rs").write_text("// search\n", encoding="utf-8")
+
+            violations = contract_tests.scan_responsibility_maps()
+            self.assertEqual(len(violations), 1)
+            self.assertIn(
+                f"{source.relative_to(root).as_posix()}:2", violations[0]
+            )
+            self.assertIn("search", violations[0])
 
     def test_documentation_contract_requires_canonical_markers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -148,116 +242,139 @@ class DocumentationContractTests(PhilosophyCheckFixture):
                 "pub mod foo;\npub fn helper() -> i32 { 42 }\n",
                 encoding="utf-8",
             )
-            old_maps = contract_tests.RESPONSIBILITY_MAPS
-            contract_tests.RESPONSIBILITY_MAPS = {
-                "crates/kernel/sillage-domain/src/lib.rs": ("foo",),
-            }
-            try:
-                violations = dependency_graph.scan_facade_boundaries()
-                self.assertEqual(len(violations), 1)
-                self.assertIn("implementation body", violations[0])
-            finally:
-                contract_tests.RESPONSIBILITY_MAPS = old_maps
+            violations = dependency_graph.scan_facade_boundaries()
+            self.assertEqual(len(violations), 1)
+            self.assertIn(lib_rs.relative_to(root).as_posix(), violations[0])
 
     def test_facade_boundary_accepts_pure_facade(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            lib_dir = root / "crates" / "kernel" / "sillage-domain" / "src"
-            lib_dir.mkdir(parents=True)
-            lib_rs = lib_dir / "lib.rs"
-            lib_rs.write_text(
-                "pub mod foo;\npub mod bar;\npub use foo::Foo;\npub use bar::Bar;\n",
-                encoding="utf-8",
+            _source, lib_dir = self.write_workspace_facade(
+                root,
+                "pub mod foo;\npub mod bar;\n"
+                "pub use foo::Foo;\npub use bar::Bar;\n",
             )
             (lib_dir / "foo.rs").write_text("// foo\n", encoding="utf-8")
             (lib_dir / "bar.rs").write_text("// bar\n", encoding="utf-8")
-            old_maps = contract_tests.RESPONSIBILITY_MAPS
-            contract_tests.RESPONSIBILITY_MAPS = {
-                "crates/kernel/sillage-domain/src/lib.rs": ("foo", "bar"),
-            }
-            try:
-                violations = dependency_graph.scan_facade_boundaries()
-                self.assertEqual(violations, [])
-            finally:
-                contract_tests.RESPONSIBILITY_MAPS = old_maps
 
-    def test_responsibility_maps_detect_split_pub_mod_and_non_test_cfg(self) -> None:
+            violations = dependency_graph.scan_facade_boundaries()
+            self.assertEqual(violations, [])
+
+    def test_responsibility_maps_ignore_test_only_and_check_following_production_modules(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            source = root / "crates" / "kernel" / "example" / "src" / "lib.rs"
-            source.parent.mkdir(parents=True)
-            source.write_text(
+            source, source_dir = self.write_workspace_facade(
+                root,
                 "//! Responsibility map:\n"
-                "//! - `split`: split declaration.\n"
-                "#[cfg(test)]\nmod tests;\n"
-                "#[cfg(any(test, feature = \"shipping\"))]\nmod shipping;\n"
+                "//! - `split`: separates route parsing from query ownership.\n"
+                "#[cfg(test)]\n"
+                "mod tests {\n"
+                "    mod fixture;\n"
+                "}\n"
+                "#[cfg(any(test, feature = \"shipping\"))]\n"
+                "mod shipping;\n"
                 "pub\nmod split;\n",
-                encoding="utf-8",
             )
-            (source.parent / "split.rs").write_text("", encoding="utf-8")
-            old_maps = contract_tests.RESPONSIBILITY_MAPS
-            contract_tests.RESPONSIBILITY_MAPS = {
-                "crates/kernel/example/src/lib.rs": ("split",)
-            }
-            try:
-                violations = contract_tests.scan_responsibility_maps()
-                self.assertIn(
-                    "crates/kernel/example/src/lib.rs responsibility map omits module 'shipping'",
-                    violations,
-                )
-                self.assertNotIn(
-                    "crates/kernel/example/src/lib.rs responsibility map omits module 'tests'",
-                    violations,
-                )
-            finally:
-                contract_tests.RESPONSIBILITY_MAPS = old_maps
+            (source_dir / "split.rs").write_text("// split\n", encoding="utf-8")
+            (source_dir / "shipping.rs").write_text("// shipping\n", encoding="utf-8")
 
-    def test_responsibility_maps_reject_production_module_omitted_from_configuration(self) -> None:
+            violations = contract_tests.scan_responsibility_maps()
+            self.assertEqual(len(violations), 1)
+            self.assertIn(
+                f"{source.relative_to(root).as_posix()}:8", violations[0]
+            )
+            self.assertIn("shipping", violations[0])
+
+    def test_responsibility_map_accepts_cfg_alternative_module_sources(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            (root / "Cargo.toml").write_text(
-                '[workspace]\nmembers = ["external/example"]\n',
-                encoding="utf-8",
-            )
-            crate = root / "external" / "example"
-            (crate / "src").mkdir(parents=True)
-            (crate / "Cargo.toml").write_text(
-                '[package]\nname = "example"\n', encoding="utf-8"
-            )
-            (crate / "src" / "lib.rs").write_text("mod implementation;\n", encoding="utf-8")
-            old_maps = contract_tests.RESPONSIBILITY_MAPS
-            contract_tests.RESPONSIBILITY_MAPS = {}
-            try:
-                self.assertEqual(
-                    contract_tests.scan_responsibility_maps(),
-                    ["external/example/src/lib.rs production module has no configured responsibility map"],
-                )
-            finally:
-                contract_tests.RESPONSIBILITY_MAPS = old_maps
+            self.write_cfg_platform_facade(root, include_windows_source=True)
 
-    def test_cohesion_reports_dense_lib_rs(self) -> None:
+            self.assertEqual(contract_tests.scan_responsibility_maps(), [])
+
+    def test_responsibility_map_checks_each_cfg_alternative_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            lib_dir = root / "crates" / "kernel" / "sillage-domain" / "src"
-            lib_dir.mkdir(parents=True)
-            lib_rs = lib_dir / "lib.rs"
-            # 17 meaningful lines with only 1 module = high density
-            lib_rs.write_text(
-                "pub use foo::*;\n" * 17,
+            source, _source_dir = self.write_cfg_platform_facade(
+                root, include_windows_source=False
+            )
+
+            violations = contract_tests.scan_responsibility_maps()
+            self.assertEqual(len(violations), 1)
+            self.assertIn(
+                f"{source.relative_to(root).as_posix()}:8", violations[0]
+            )
+            self.assertIn("windows.rs", violations[0])
+
+    def test_responsibility_map_discovery_ignores_ordinary_rust_doc_bullets(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            facade, source_dir = self.write_workspace_facade(
+                root,
+                "//! Responsibility map:\n"
+                "//! - `repository_index`: exposes repository-index browsing.\n"
+                "pub mod repository_index;\n",
+            )
+            module_source = source_dir / "repository_index.rs"
+            module_source.write_text(
+                "//! Command-line options:\n"
+                "//! - `--all`: include every indexed entry.\n"
+                "//! - `--yes`: accept confirmation prompts.\n"
+                "pub fn options() {}\n",
                 encoding="utf-8",
             )
-            (lib_dir / "foo.rs").write_text("// foo\n", encoding="utf-8")
-            old_maps = contract_tests.RESPONSIBILITY_MAPS
-            contract_tests.RESPONSIBILITY_MAPS = {
-                "crates/kernel/sillage-domain/src/lib.rs": ("foo",),
-            }
-            try:
-                violations = formatting.scan_cohesion()
-                self.assertEqual(len(violations), 1)
-                self.assertIn("cohesion signal", violations[0])
-            finally:
-                contract_tests.RESPONSIBILITY_MAPS = old_maps
+
+            map_sources = contract_tests.responsibility_map_source_paths()
+            self.assertIn(facade, map_sources)
+            self.assertNotIn(module_source, map_sources)
+            self.assertEqual(contract_tests.scan_responsibility_maps(), [])
+
+    def test_cargo_facade_without_map_header_still_requires_a_map(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source, source_dir = self.write_workspace_facade(
+                root, "mod implementation;\n"
+            )
+            (source_dir / "implementation.rs").write_text(
+                "// production implementation\n", encoding="utf-8"
+            )
+
+            self.assertIn(
+                source, contract_tests.responsibility_map_source_paths()
+            )
+            violations = contract_tests.scan_responsibility_maps()
+            self.assertEqual(len(violations), 1)
+            self.assertIn(source.relative_to(root).as_posix(), violations[0])
+
+    def test_cohesion_counts_production_after_test_module_without_waiving_threshold(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source, source_dir = self.write_workspace_facade(
+                root,
+                "//! Responsibility map:\n"
+                "//! - `foo`: exposes the bounded search request interface.\n"
+                "#[cfg(test)]\n"
+                "mod tests {\n"
+                "    fn fixture() {}\n"
+                "}\n"
+                "pub mod foo;\n"
+                + "pub use foo::*;\n" * 17,
+            )
+            (source_dir / "foo.rs").write_text("// foo\n", encoding="utf-8")
+
+            violations = formatting.scan_cohesion()
+            self.assertEqual(len(violations), 1)
+            self.assertIn(source.relative_to(root).as_posix(), violations[0])

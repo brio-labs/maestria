@@ -12,6 +12,15 @@ from philosophy_check_testbase import PhilosophyCheckFixture
 
 class PanicAndLintTests(PhilosophyCheckFixture):
 
+    def _assert_source_lines(
+        self, diagnostics: list[str], expected: list[tuple[str, int]]
+    ) -> None:
+        actual = []
+        for diagnostic in diagnostics:
+            source, _, detail = diagnostic.rpartition(":")
+            actual.append((source, int(detail.split(maxsplit=1)[0])))
+        self.assertCountEqual(actual, expected, diagnostics)
+
     def test_scan_markers_reports_task_marker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -80,6 +89,56 @@ class PanicAndLintTests(PhilosophyCheckFixture):
                     "crates/apps/example/src/lib.rs contains a forbidden Option/Result failure method",
                     "crates/apps/example/src/tests.rs contains a forbidden Option/Result failure method",
                 ],
+            )
+
+    def test_forbidden_methods_ignore_comments_and_raw_strings_but_flag_real_calls(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            examples = root / "crates" / "apps" / "example" / "src"
+            examples.mkdir(parents=True)
+            fake_calls = examples / "documentation.rs"
+            fake_calls.write_text(
+                "// value.unwrap(); std::panic::catch_unwind(|| {});\n"
+                'const DOC: &str = r##"value.expect(1); value.unwrap_or_default();"##;\n',
+                encoding="utf-8",
+            )
+            actual_call = examples / "fallible.rs"
+            actual_call.write_text(
+                "fn value(input: Option<u8>) { let _ = input.unwrap_or_default(); }\n",
+                encoding="utf-8",
+            )
+
+            violations = panic_and_lint.scan_rust_forbidden_methods()
+            self.assertEqual(len(violations), 1, violations)
+            self.assertTrue(
+                violations[0].startswith("crates/apps/example/src/fallible.rs"),
+                violations,
+            )
+
+    def test_unbounded_channels_ignore_comments_and_raw_strings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            examples = root / "crates" / "apps" / "example" / "src"
+            examples.mkdir(parents=True)
+            fake_calls = examples / "documentation.rs"
+            fake_calls.write_text(
+                "// mpsc::unbounded_channel();\n"
+                'const DOC: &str = r#"std::sync::mpsc::channel::<u8>()"#;\n',
+                encoding="utf-8",
+            )
+            actual_call = examples / "channels.rs"
+            actual_call.write_text(
+                "fn channel() { let _ = mpsc::unbounded_channel(); }\n",
+                encoding="utf-8",
+            )
+
+            violations = panic_and_lint.scan_unbounded_channels()
+            self.assertEqual(len(violations), 1, violations)
+            self.assertTrue(
+                violations[0].startswith("crates/apps/example/src/channels.rs"),
+                violations,
             )
 
     def test_scan_unbounded_channels_reports_constructor_and_types(self) -> None:
@@ -257,13 +316,17 @@ class PanicAndLintTests(PhilosophyCheckFixture):
             source = root / "crates" / "kernel" / "sillage-domain" / "src" / "decode.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
-                "impl TryFrom<Dto> for DomainValue {\n"
-                "    type Error = String;\n"
-                "    fn try_from(dto: Dto) -> Result<Self, Self::Error> { Ok(Self) }\n"
-                "}\n"
+                "// type Error = String;\n"
+                'const DOC: &str = r#"type Error = String;"#;\n'
+                "/* type Error = String; */\n"
+                "type Error = String;\n",
+                encoding="utf-8",
             )
             violations = panic_and_lint.scan_string_typed_errors()
-            self.assertTrue(any("uses String as a conversion error" in item for item in violations))
+            self.assertEqual(
+                [item.partition(" ")[0] for item in violations],
+                ["crates/kernel/sillage-domain/src/decode.rs:4"],
+            )
 
     def test_cancellation_docs_requires_public_async_docs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -312,6 +375,21 @@ class PanicAndLintTests(PhilosophyCheckFixture):
             self.configure_root(root)
             production = root / "crates" / "kernel" / "sillage-domain" / "src" / "gen.rs"
             production.parent.mkdir(parents=True, exist_ok=True)
+            crate_root = production.parent.parent
+            (root / "Cargo.toml").write_text(
+                '[workspace]\n'
+                'members = ["crates/kernel/sillage-domain"]\n'
+                'resolver = "2"\n',
+                encoding="utf-8",
+            )
+            (crate_root / "Cargo.toml").write_text(
+                '[package]\n'
+                'name = "sillage-domain"\n'
+                'version = "0.1.0"\n'
+                'edition = "2021"\n',
+                encoding="utf-8",
+            )
+            (production.parent / "lib.rs").write_text("mod gen;\n", encoding="utf-8")
             production.write_text("// DO NOT EDIT: generated by bindgen\npub fn f() {}\n")
             test_file = root / "crates" / "kernel" / "sillage-domain" / "tests" / "gen_fixture.rs"
             test_file.parent.mkdir(parents=True, exist_ok=True)
@@ -341,6 +419,21 @@ class PanicAndLintTests(PhilosophyCheckFixture):
             )
             violations = panic_and_lint.scan_memory_unsafety_markers()
             self.assertTrue(any("transmute call" in item for item in violations), violations)
+
+    def test_memory_unsafety_markers_ignore_comments_and_raw_strings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "documentation.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "// Box::leak(Box::new(1)); static mut STATE: u8 = 0;\n"
+                'const DOC: &str = r#"std::mem::transmute(1u8); std::mem::forget(1);"#;\n',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(panic_and_lint.scan_memory_unsafety_markers(), [])
+
 
     def test_memory_unsafety_markers_reports_static_mut(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -416,6 +509,61 @@ class PanicAndLintTests(PhilosophyCheckFixture):
             source.write_text('fn f() { let _ = "unreachable!("; }\n')
             violations = panic_and_lint.scan_failure_tokens()
             self.assertEqual(violations, [])
+
+
+    def test_failure_tokens_reports_panic_macros_in_launcher_production_and_tests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            production = root / "crates" / "apps" / "sillage-launcher" / "src" / "main.rs"
+            production.parent.mkdir(parents=True, exist_ok=True)
+            crate_root = production.parent.parent
+            (root / "Cargo.toml").write_text(
+                '[workspace]\n'
+                'members = ["crates/apps/sillage-launcher"]\n'
+                'resolver = "2"\n',
+                encoding="utf-8",
+            )
+            (crate_root / "Cargo.toml").write_text(
+                '[package]\n'
+                'name = "sillage-launcher"\n'
+                'version = "0.1.0"\n'
+                'edition = "2021"\n',
+                encoding="utf-8",
+            )
+            production.write_text('fn start() { panic ! ("startup failed"); }\n', encoding="utf-8")
+            test_source = root / "crates" / "apps" / "sillage-launcher" / "tests" / "startup.rs"
+            test_source.parent.mkdir(parents=True, exist_ok=True)
+            test_source.write_text(
+                'fn test_startup() { std :: panic ! ("fixture failed"); }\n',
+                encoding="utf-8",
+            )
+
+            violations = panic_and_lint.scan_failure_tokens()
+            self.assertEqual(len(violations), 2, violations)
+            expected = (
+                "crates/apps/sillage-launcher/src/main.rs",
+                "crates/apps/sillage-launcher/tests/startup.rs",
+            )
+            for source in expected:
+                self.assertTrue(
+                    any(violation.startswith(source) for violation in violations),
+                    violations,
+                )
+
+    def test_failure_tokens_ignore_panic_macros_in_comments_and_raw_strings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "sillage-launcher" / "src" / "text.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "// panic ! (); std :: panic ! ();\n"
+                'fn docs() { let _ = r##"panic!(); ::std::panic ! ();"##; }\n',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(panic_and_lint.scan_failure_tokens(), [])
 
     def test_process_exit_reports_library_usage_but_allows_apps(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -521,6 +669,7 @@ class PanicAndLintTests(PhilosophyCheckFixture):
             violations = panic_and_lint.scan_kernel_interior_mutability()
             self.assertEqual(violations, [])
 
+
     def test_production_asserts_reports_shipped_assert(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -528,25 +677,136 @@ class PanicAndLintTests(PhilosophyCheckFixture):
             source = root / "crates" / "core" / "sillage-core" / "src" / "lib.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text("fn check(value: u8) { assert!(value > 0); }\n")
-            violations = panic_and_lint.scan_production_asserts()
-            self.assertTrue(any("production assert" in item for item in violations), violations)
+            self._assert_source_lines(
+                panic_and_lint.scan_production_asserts(),
+                [("crates/core/sillage-core/src/lib.rs", 1)],
+            )
 
-    def test_production_asserts_skips_tests_and_debug_assert(self) -> None:
+    def test_production_asserts_reports_debug_assert_family_but_allows_cfg_test_assertions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
             source = root / "crates" / "core" / "sillage-core" / "src" / "lib.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
+            crate_root = source.parent.parent
+            (root / "Cargo.toml").write_text(
+                '[workspace]\n'
+                'members = ["crates/core/sillage-core"]\n'
+                'resolver = "2"\n',
+                encoding="utf-8",
+            )
+            (crate_root / "Cargo.toml").write_text(
+                '[package]\n'
+                'name = "sillage-core"\n'
+                'version = "0.1.0"\n'
+                'edition = "2021"\n',
+                encoding="utf-8",
+            )
             source.write_text(
                 "fn check(value: u8) { debug_assert!(value > 0); }\n"
+                "fn equal(value: u8) { debug_assert_eq!(value, 1); }\n"
+                "fn different(value: u8) { debug_assert_ne!(value, 2); }\n"
                 "#[cfg(test)]\n"
-                "mod tests { fn t() { assert_eq!(1, 1); } }\n"
+                "mod tests { fn t() { assert_eq!(1, 1); debug_assert!(true); } }\n"
+                "#[cfg(test)]\n"
+                '#[path = "test_assertions.rs"]\n'
+                "mod inherited_tests;\n"
+                "fn after_tests(value: bool) { debug_assert!(value); }\n",
+                encoding="utf-8",
+            )
+            (source.parent / "test_assertions.rs").write_text(
+                "fn assertions() { assert!(true); assert_eq!(1, 1); "
+                "debug_assert_ne!(1, 2); }\n",
+                encoding="utf-8",
             )
             test_file = root / "crates" / "core" / "sillage-core" / "tests" / "behavior.rs"
             test_file.parent.mkdir(parents=True, exist_ok=True)
-            test_file.write_text("fn t() { assert_ne!(1, 2); }\n")
-            violations = panic_and_lint.scan_production_asserts()
-            self.assertEqual(violations, [])
+            test_file.write_text(
+                "fn t() { assert_ne!(1, 2); debug_assert_eq!(1, 1); }\n",
+                encoding="utf-8",
+            )
+
+            self._assert_source_lines(
+                panic_and_lint.scan_production_asserts(),
+                [
+                    ("crates/core/sillage-core/src/lib.rs", 1),
+                    ("crates/core/sillage-core/src/lib.rs", 2),
+                    ("crates/core/sillage-core/src/lib.rs", 3),
+                    ("crates/core/sillage-core/src/lib.rs", 9),
+                ],
+            )
+
+    def test_production_asserts_treats_test_like_shipped_filename_as_production(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source_dir = root / "crates" / "apps" / "example" / "src"
+            source_dir.mkdir(parents=True)
+            crate_root = source_dir.parent
+            (root / "Cargo.toml").write_text(
+                '[workspace]\n'
+                'members = ["crates/apps/example"]\n'
+                'resolver = "2"\n',
+                encoding="utf-8",
+            )
+            (crate_root / "Cargo.toml").write_text(
+                '[package]\n'
+                'name = "example"\n'
+                'version = "0.1.0"\n'
+                'edition = "2021"\n',
+                encoding="utf-8",
+            )
+            (source_dir / "lib.rs").write_text("mod test_support;\n", encoding="utf-8")
+            source = source_dir / "test_support.rs"
+            source.write_text(
+                "pub fn verify(value: bool) { debug_assert!(value); }\n",
+                encoding="utf-8",
+            )
+
+            self._assert_source_lines(
+                panic_and_lint.scan_production_asserts(),
+                [("crates/apps/example/src/test_support.rs", 1)],
+            )
+
+    def test_production_asserts_detects_mixed_test_and_production_reachability(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source_dir = root / "crates" / "apps" / "example" / "src"
+            source_dir.mkdir(parents=True)
+            crate_root = source_dir.parent
+            (root / "Cargo.toml").write_text(
+                '[workspace]\n'
+                'members = ["crates/apps/example"]\n'
+                'resolver = "2"\n',
+                encoding="utf-8",
+            )
+            (crate_root / "Cargo.toml").write_text(
+                '[package]\n'
+                'name = "example"\n'
+                'version = "0.1.0"\n'
+                'edition = "2021"\n',
+                encoding="utf-8",
+            )
+            (source_dir / "lib.rs").write_text(
+                '#[path = "shared_checks.rs"]\n'
+                "mod shipped_checks;\n"
+                "#[cfg(test)]\n"
+                '#[path = "shared_checks.rs"]\n'
+                "mod test_checks;\n",
+                encoding="utf-8",
+            )
+            source = source_dir / "shared_checks.rs"
+            source.write_text(
+                "pub fn verify(value: bool) { debug_assert_eq!(value, true); }\n",
+                encoding="utf-8",
+            )
+
+            self._assert_source_lines(
+                panic_and_lint.scan_production_asserts(),
+                [("crates/apps/example/src/shared_checks.rs", 1)],
+            )
+
 
     def test_unbounded_channels_reports_async_channel_and_flume(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
