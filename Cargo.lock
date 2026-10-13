@@ -7058,6 +7058,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sillage-core",
+ "sillage-daemon",
  "sillage-domain",
  "sillage-extensions",
  "slint",

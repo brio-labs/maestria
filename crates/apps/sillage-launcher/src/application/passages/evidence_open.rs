@@ -273,6 +273,7 @@ mod tests {
                 width: 30,
                 height: 40,
             },
+            session_binding: None,
         };
         let output = br#"{
             "type": "evidence",

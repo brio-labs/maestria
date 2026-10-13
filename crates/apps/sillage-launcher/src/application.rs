@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
 use std::time::Duration;
@@ -22,6 +23,7 @@ mod preferences;
 mod runtime;
 mod search;
 mod search_setup;
+mod source_choice;
 mod source_refresh;
 mod utilities;
 mod window;
@@ -80,6 +82,7 @@ pub(super) struct FrontendModel {
 }
 
 pub(super) struct Frontend {
+    source_choice: Arc<source_choice::SessionSourceState>,
     generation: AtomicU64,
     active_search: AtomicU64,
     generation_updates: tokio::sync::watch::Sender<u64>,

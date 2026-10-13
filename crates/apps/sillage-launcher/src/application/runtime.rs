@@ -75,6 +75,7 @@ fn run_primary(
     let shortcuts = Arc::new(Shortcuts::new(activation_sender));
     let (generation_updates, _) = tokio::sync::watch::channel(0);
     let frontend = Arc::new(Frontend {
+        source_choice: Arc::new(super::source_choice::SessionSourceState::default()),
         generation: std::sync::atomic::AtomicU64::new(0),
         active_search: std::sync::atomic::AtomicU64::new(0),
         generation_updates,
@@ -97,11 +98,18 @@ fn run_primary(
     let ui = LauncherWindow::new()?;
     let system_dark = system_dark_mode();
     initialize_ui(&ui, &state, &shortcuts, system_dark)?;
+    let source_choice = super::source_choice::SourceChoiceController::install(
+        &ui,
+        Arc::clone(&state),
+        Arc::clone(&frontend),
+        runtime_handle.clone(),
+    );
     super::callbacks::install_callbacks(
         &ui,
         Arc::clone(&state),
         Arc::clone(&frontend),
         Arc::clone(&shortcuts),
+        Arc::clone(&source_choice),
         runtime_handle.clone(),
         system_dark,
     );
@@ -113,6 +121,8 @@ fn run_primary(
         Arc::clone(&frontend),
         runtime_handle.clone(),
     );
+    source_choice.attach_search_setup(Arc::clone(&search_setup));
+
     install_window_handlers(&ui, Arc::clone(&state));
     let _timer = install_timer(
         ui.as_weak(),
@@ -133,12 +143,14 @@ fn run_primary(
             .and_then(|()| slint::run_event_loop_until_quit())
     };
     ui.invoke_close_utilities();
+    let source_shutdown = runtime.block_on(source_choice.shutdown());
     let search_shutdown = runtime.block_on(search_setup.shutdown());
     let _ = shortcuts.shutdown();
     drop(instance);
     // Blocking utility filesystem operations must not hold resident shutdown open.
     runtime.shutdown_background();
     ui_result?;
+    source_shutdown.map_err(std::io::Error::other)?;
     search_shutdown.map_err(std::io::Error::other)?;
     Ok(())
 }

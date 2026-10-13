@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use sillage_domain::{ControlPersistenceChoice, DocumentaryRetentionChoice, SourceScope};
 
 use crate::model::{
     AcceleratorPresentation, PreferencesDto, PreferencesUpdate, PrimaryModifier, ShortcutSetup,
@@ -25,6 +26,12 @@ struct PersistedSettings {
     search: Option<SearchServiceConfig>,
     #[serde(default)]
     managed_search: Option<ManagedSearchConfig>,
+    #[serde(default)]
+    source_documentary_retention: Option<DocumentaryRetentionChoice>,
+    #[serde(default)]
+    source_control_persistence: Option<ControlPersistenceChoice>,
+    #[serde(default)]
+    source_scope: Option<SourceScope>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -74,6 +81,9 @@ impl Default for PersistedSettings {
             theme: default_theme(),
             search: None,
             managed_search: None,
+            source_documentary_retention: None,
+            source_control_persistence: None,
+            source_scope: None,
         }
     }
 }
@@ -293,6 +303,8 @@ fn parse_settings(contents: &str) -> Result<PersistedSettings, ParseSettingsErro
         settings.managed_search.as_ref(),
     )
     .map_err(ParseSettingsError::Malformed)?;
+    source_choice::validate_source_control_settings(&settings)
+        .map_err(ParseSettingsError::Malformed)?;
     Ok(settings)
 }
 
@@ -312,6 +324,7 @@ fn validate_theme(theme: &str) -> Result<(), String> {
 }
 
 mod search;
+mod source_choice;
 #[cfg(test)]
 #[path = "settings/tests.rs"]
 mod tests;

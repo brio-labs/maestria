@@ -23,7 +23,7 @@ pub(in crate::application) fn apply_refreshed_passages(
     apply_passages(window, frontend, generation, query, search_result, true);
 }
 
-pub(super) fn apply_passages(
+pub(in crate::application) fn apply_passages(
     window: &LauncherWindow,
     frontend: &Frontend,
     generation: u64,
@@ -123,7 +123,7 @@ pub(super) fn apply_passages(
     window.set_status_message(status_message.into());
 }
 
-fn build_result_rows(
+pub(in crate::application) fn build_result_rows(
     model: &super::super::FrontendModel,
     query: &str,
     generation: u64,

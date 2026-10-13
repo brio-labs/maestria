@@ -120,6 +120,56 @@ impl SearchSetup {
         let result = self.resume_inner(state, generation).await;
         self.finish_operation(result, state).await
     }
+    /// Stops only this launcher's managed service while preserving saved consent.
+    pub(crate) async fn suspend(&self) -> Result<(), String> {
+        let generation = self.begin_intent();
+        let deadline = MonotonicInstant::now() + SHUTDOWN_TIMEOUT;
+        self.update_snapshot(|snapshot| {
+            snapshot.busy = true;
+            snapshot.error = None;
+            snapshot.status = "Pausing folder search".to_string();
+            snapshot.detail = "Selected-source search owns the active route.".to_string();
+        });
+        let remaining = deadline.saturating_duration_since(MonotonicInstant::now());
+        let mut owned = match timeout(remaining, self.operation.lock()).await {
+            Ok(owned) => owned,
+            Err(_) => {
+                let error = "Managed folder search did not pause within five seconds.".to_string();
+                let snapshot = self.snapshot();
+                self.mark_error(snapshot.root.clone(), snapshot.enabled, error.clone());
+                return Err(error);
+            }
+        };
+        self.check_intent(generation)?;
+        if owned.pending.is_some() {
+            let error = "Managed folder-search consent has unsettled work; selected-source admission was not started."
+                .to_string();
+            let snapshot = self.snapshot();
+            self.mark_error(snapshot.root.clone(), snapshot.enabled, error.clone());
+            return Err(error);
+        }
+        if let Err(error) = if owned.child.is_some() {
+            self.stop_owned_child(&mut owned, deadline).await
+        } else {
+            Ok(())
+        } {
+            let snapshot = self.snapshot();
+            self.mark_error(snapshot.root.clone(), snapshot.enabled, error.clone());
+            return Err(error);
+        }
+        owned.active = None;
+        if owned.child.is_none() {
+            owned.profile_lock = None;
+        }
+        self.update_snapshot(|snapshot| {
+            snapshot.enabled = false;
+            snapshot.busy = false;
+            snapshot.status = "Folder search paused for selected-source route".to_string();
+            snapshot.detail = "Folder search admission is paused while the selected Markdown source owns search. Saved folder consent is preserved; only a process owned by this launcher is stopped.".to_string();
+            snapshot.error = None;
+        });
+        Ok(())
+    }
 
     fn begin_intent(&self) -> u64 {
         let generation = self

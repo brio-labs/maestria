@@ -13,6 +13,7 @@ slint = { version = "=1.18.1", default-features = false, features = ["std", "com
 serde.workspace = true
 serde_json.workspace = true
 sillage-core = { path = "../../core/sillage-core" }
+sillage-daemon.workspace = true
 sillage-domain.workspace = true
 sillage-extensions = { path = "../../ecosystem/sillage-extensions" }
 thiserror.workspace = true

@@ -256,3 +256,89 @@ fn managed_search_settings_roll_back_when_persistence_fails() -> io::Result<()> 
     fs::remove_dir_all(directory)?;
     Ok(())
 }
+#[test]
+fn source_retention_and_control_persistence_restore_independently() -> io::Result<()> {
+    for documentary_retention in [
+        sillage_domain::DocumentaryRetentionChoice::NoDocumentaryPersistence,
+        sillage_domain::DocumentaryRetentionChoice::RetainUntilExplicitlyPurged,
+    ] {
+        for control_persistence in [
+            sillage_domain::ControlPersistenceChoice::SessionOnly,
+            sillage_domain::ControlPersistenceChoice::PersistExplicitly,
+        ] {
+            let directory = test_directory()?;
+            let selected_path = directory.join("selected.md");
+            let selected_scope = sillage_domain::SourceScope::file(selected_path.clone())
+                .map_err(|error| io::Error::other(error.to_string()))?;
+            let mut settings = SettingsManager::load(Ok(directory.clone()));
+            settings
+                .set_source_control_preferences(
+                    documentary_retention,
+                    control_persistence,
+                    Some(selected_scope.clone()),
+                )
+                .map_err(io::Error::other)?;
+
+            let restored =
+                SettingsManager::load(Ok(directory.clone())).source_control_preferences();
+            let expected_documentary = if control_persistence
+                == sillage_domain::ControlPersistenceChoice::PersistExplicitly
+            {
+                documentary_retention
+            } else {
+                sillage_domain::DocumentaryRetentionChoice::NoDocumentaryPersistence
+            };
+            let expected_controls = if control_persistence
+                == sillage_domain::ControlPersistenceChoice::PersistExplicitly
+            {
+                control_persistence
+            } else {
+                sillage_domain::ControlPersistenceChoice::SessionOnly
+            };
+            let expected_scope = (control_persistence
+                == sillage_domain::ControlPersistenceChoice::PersistExplicitly)
+                .then_some(selected_scope);
+
+            assert_eq!(restored.documentary_retention, expected_documentary);
+            assert_eq!(restored.control_persistence, expected_controls);
+            assert_eq!(restored.selected_scope, expected_scope);
+            fs::remove_dir_all(directory)?;
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn disabling_persisted_controls_removes_the_remembered_source_scope() -> io::Result<()> {
+    let directory = test_directory()?;
+    let scope = sillage_domain::SourceScope::file(directory.join("selected.md"))
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    let mut settings = SettingsManager::load(Ok(directory.clone()));
+    settings
+        .set_source_control_preferences(
+            sillage_domain::DocumentaryRetentionChoice::RetainUntilExplicitlyPurged,
+            sillage_domain::ControlPersistenceChoice::PersistExplicitly,
+            Some(scope),
+        )
+        .map_err(io::Error::other)?;
+    settings
+        .set_source_control_preferences(
+            sillage_domain::DocumentaryRetentionChoice::RetainUntilExplicitlyPurged,
+            sillage_domain::ControlPersistenceChoice::SessionOnly,
+            None,
+        )
+        .map_err(io::Error::other)?;
+
+    let restored = SettingsManager::load(Ok(directory.clone())).source_control_preferences();
+    assert_eq!(
+        restored.control_persistence,
+        sillage_domain::ControlPersistenceChoice::SessionOnly
+    );
+    assert_eq!(
+        restored.documentary_retention,
+        sillage_domain::DocumentaryRetentionChoice::NoDocumentaryPersistence
+    );
+    assert_eq!(restored.selected_scope, None);
+    fs::remove_dir_all(directory)?;
+    Ok(())
+}

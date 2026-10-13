@@ -8,6 +8,7 @@ use super::preferences::{
 use super::search::{
     apply_result_filter, close_passage_view, open_passage_view, passage_result_is_visible,
 };
+use super::source_choice::SourceChoiceController;
 use super::window::{hide_launcher, show_notice};
 use super::{Frontend, LauncherWindow, lock};
 use crate::ipc::LauncherState;
@@ -23,21 +24,34 @@ pub(super) fn install_callbacks(
     state: Arc<LauncherState>,
     frontend: Arc<Frontend>,
     shortcuts: Arc<Shortcuts>,
+    source_choice: Arc<SourceChoiceController>,
     runtime: tokio::runtime::Handle,
     system_dark: bool,
 ) {
     install_query_callbacks(ui, &state, &frontend, &runtime);
     install_result_callback(ui, &state, &frontend, &shortcuts, &runtime, system_dark);
-    install_action_callback(ui, &state, &frontend, &shortcuts, &runtime, system_dark);
+    install_action_callback(
+        ui,
+        &state,
+        &frontend,
+        &source_choice,
+        &shortcuts,
+        &runtime,
+        system_dark,
+    );
     install_preferences_callbacks(ui, &state, &shortcuts, system_dark);
     install_shortcut_callbacks(ui, &state, &shortcuts, &runtime, system_dark);
     install_host_action_callbacks(ui, &state, &frontend, &shortcuts, &runtime, system_dark);
     install_save_callback(ui, &state, &shortcuts, &runtime, system_dark);
     install_dismiss_callback(ui, &state);
-    install_search_surface_callbacks(ui, &frontend);
+    install_search_surface_callbacks(ui, &frontend, &source_choice);
 }
 
-fn install_search_surface_callbacks(ui: &LauncherWindow, frontend: &Arc<Frontend>) {
+fn install_search_surface_callbacks(
+    ui: &LauncherWindow,
+    frontend: &Arc<Frontend>,
+    source_choice: &Arc<SourceChoiceController>,
+) {
     let weak = ui.as_weak();
     let filter_frontend = Arc::clone(frontend);
     ui.on_result_filter_changed(move |filter| {
@@ -48,8 +62,11 @@ fn install_search_surface_callbacks(ui: &LauncherWindow, frontend: &Arc<Frontend
 
     let weak = ui.as_weak();
     let view_frontend = Arc::clone(frontend);
+    let view_source_choice = Arc::clone(source_choice);
     ui.on_passage_view_requested(move |result_id| {
-        if let Some(window) = weak.upgrade() {
+        if let Some(window) = weak.upgrade()
+            && !view_source_choice.request_open_view(result_id.as_str())
+        {
             open_passage_view(&window, &view_frontend, result_id.as_str());
         }
     });
@@ -123,6 +140,7 @@ fn install_action_callback(
     ui: &LauncherWindow,
     state: &Arc<LauncherState>,
     frontend: &Arc<Frontend>,
+    source_choice: &Arc<SourceChoiceController>,
     shortcuts: &Arc<Shortcuts>,
     runtime: &tokio::runtime::Handle,
     system_dark: bool,
@@ -130,6 +148,7 @@ fn install_action_callback(
     let weak = ui.as_weak();
     let action_state = Arc::clone(state);
     let action_frontend = Arc::clone(frontend);
+    let action_source_choice = Arc::clone(source_choice);
     let action_shortcuts = Arc::clone(shortcuts);
     let action_runtime = runtime.clone();
     ui.on_action_activated(move |result_id, action_id| {
@@ -141,6 +160,9 @@ fn install_action_callback(
         }
         let passage_action = passage_result_is_visible(&action_frontend, &result_id);
         if !passage_action && result_id.starts_with("passage:") {
+            return;
+        }
+        if passage_action && action_source_choice.request_action(&result_id, action_id.clone()) {
             return;
         }
         if path_action {

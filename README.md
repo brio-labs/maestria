@@ -43,6 +43,24 @@ The current build and target product remain intentionally different surfaces:
 | Wayland global shortcut | Private installed Ubuntu 26.04 KDE GlobalShortcuts consent passed; stock Ubuntu 24.04 lacks the required host-app Registry, so use a user-created compositor binding for `sillage-launcher --activate` where needed |
 | Extension lifecycle, SDK, isolated workers and capability broker | Opt-in. Fresh installed Ubuntu 24.04 X11 Text Tools conversion/review/explicit Copy, 1.0.0→1.0.1 extension update, disable/revoke/reapprove/remove/reinstall, cancellation and restart persistence passed. Canonical binary-package upgrade/rollback/re-upgrade also retained grants and Copy; installed credential-provider provisioning remains unqualified |
 
+### Selected Markdown source workflow
+
+The Slint launcher offers an on-demand session for one selected local `.md`
+file: choose it, explicitly authorize reading, then press **Prepare**.
+Selection and restored controls alone do not read or prepare it. Search stays
+within that file, with no folder/catalog fallback or model work.
+
+Documentary retention and control-preference persistence are independent
+choices. Retirement settles owned work; retained-data purge is explicit; and
+evidence is reopened against current authorization before rendering or actions.
+
+Preparation cancellation is checked atomically with runtime publication; a
+successful but rejected runtime is retired and awaited before cancellation is
+reported. Query workers and current-evidence operations are refused while the
+selected source is retiring. This source-level contract does not qualify the
+native selected-source GUI journey or installed Linux-package behavior; both
+remain unqualified.
+
 The existing CLI and daemon quick start below is for the current developer
 build, not launcher onboarding. Notebook, task, and memory workflows remain
 supported advanced existing capabilities.

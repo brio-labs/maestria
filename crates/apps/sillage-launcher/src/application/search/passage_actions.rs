@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering;
 
 use slint::{ModelRc, VecModel};
 
-use super::super::passages::ReopenError;
+use super::super::passages::{ReopenError, ReopenedPassage};
 use super::super::window::show_notice;
 use super::super::{AcceptedPassage, Frontend, UiWeak, lock};
 use super::passage_view::{passage_result_is_visible, show_reopened_passage};
@@ -140,40 +140,47 @@ async fn reopen_passage_action(
     super::super::passages::reopen(config, &accepted.passage)
         .await
         .map_err(action_error)
-        .and_then(|reopened| match action_id {
-            "passage.copy-citation" => Ok(PassageAction::Copy(
-                reopened.citation,
-                "Copied citation.".to_string(),
-            )),
-            "passage.copy-excerpt" => Ok(PassageAction::Copy(
-                reopened.excerpt,
-                "Copied reopened passage.".to_string(),
-            )),
-            "passage.copy-path" => reopened
-                .path
-                .map(|path| {
-                    PassageAction::Copy(
-                        path.display().to_string(),
-                        "Copied freshly reopened source path.".to_string(),
-                    )
-                })
-                .ok_or_else(|| "This passage has no local source path.".to_string()),
-            "passage.reveal-source" => reopened
-                .path
-                .map(PassageAction::Reveal)
-                .ok_or_else(|| "This passage has no local source folder.".to_string()),
-            "passage.open-source" => Ok(PassageAction::Open {
-                path: reopened.path,
-                pdf_page: reopened.pdf_page,
-                excerpt: reopened.excerpt,
-                citation: reopened.citation,
-                fallback: reopened.fallback,
-            }),
-            _ => Err("This passage action is not available.".to_string()),
-        })
+        .and_then(|reopened| action_from_reopened(reopened, action_id))
 }
 
-fn finish_passage_action(
+pub(in crate::application) fn action_from_reopened(
+    reopened: ReopenedPassage,
+    action_id: &str,
+) -> Result<PassageAction, String> {
+    match action_id {
+        "passage.copy-citation" => Ok(PassageAction::Copy(
+            reopened.citation,
+            "Copied citation.".to_string(),
+        )),
+        "passage.copy-excerpt" => Ok(PassageAction::Copy(
+            reopened.excerpt,
+            "Copied reopened passage.".to_string(),
+        )),
+        "passage.copy-path" => reopened
+            .path
+            .map(|path| {
+                PassageAction::Copy(
+                    path.display().to_string(),
+                    "Copied freshly reopened source path.".to_string(),
+                )
+            })
+            .ok_or_else(|| "This passage has no local source path.".to_string()),
+        "passage.reveal-source" => reopened
+            .path
+            .map(PassageAction::Reveal)
+            .ok_or_else(|| "This passage has no local source folder.".to_string()),
+        "passage.open-source" => Ok(PassageAction::Open {
+            path: reopened.path,
+            pdf_page: reopened.pdf_page,
+            excerpt: reopened.excerpt,
+            citation: reopened.citation,
+            fallback: reopened.fallback,
+        }),
+        _ => Err("This passage action is not available.".to_string()),
+    }
+}
+
+pub(in crate::application) fn finish_passage_action(
     state: Arc<LauncherState>,
     frontend: Arc<Frontend>,
     ui: UiWeak,
@@ -255,7 +262,7 @@ fn action_error(error: ReopenError) -> String {
     }
 }
 
-enum PassageAction {
+pub(in crate::application) enum PassageAction {
     Copy(String, String),
     Reveal(std::path::PathBuf),
     Open {

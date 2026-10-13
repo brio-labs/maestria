@@ -14,24 +14,25 @@ use crate::model::{Action, ResultKind, SearchResponse, SearchResult, SearchStatu
 
 mod app_path_action;
 pub(super) use app_path_action::activate_path_action;
-mod passage_actions;
+pub(super) mod passage_actions;
 mod passage_results;
 mod passage_view;
 mod result_navigation;
 mod typed_search;
 pub(super) use typed_search::{
-    advance_search_generation, apply_passage_result, finish_active_search, search_passages,
-    start_catalog_search, start_typed_passage_search, start_typed_search,
+    TypedSearch, advance_search_generation, apply_passage_result, finish_active_search,
+    search_passages, start_catalog_search, start_typed_passage_search, start_typed_search,
     take_pending_passage_search,
 };
 
 pub(super) use passage_actions::activate_passage_action;
 use passage_actions::{passage_actions, path_actions};
-use passage_results::apply_passages;
 pub(super) use passage_results::apply_refreshed_passages;
 pub(super) use passage_results::apply_result_filter;
+pub(super) use passage_results::{apply_passages, build_result_rows};
 pub(super) use passage_view::{
     close_passage_view, open_passage_view, passage_result_is_visible, path_result_is_visible,
+    show_reopened_passage,
 };
 pub(super) use result_navigation::navigate_result_selection;
 
@@ -87,6 +88,10 @@ pub(super) fn start_search(
     query: String,
     retained_selection: Option<slint::SharedString>,
 ) {
+    if frontend.source_choice.is_selected() {
+        return;
+    }
+
     let Some(generation) = advance_search_generation(&frontend) else {
         show_notice(
             &ui,
@@ -219,7 +224,7 @@ pub(super) fn update_selected_actions(window: &LauncherWindow, frontend: &Fronte
     window.set_selected_action_index(0);
 }
 
-fn result_row(result: &SearchResult) -> ResultRow {
+pub(in crate::application) fn result_row(result: &SearchResult) -> ResultRow {
     ResultRow {
         id: result.id.clone().into(),
         title: result.title.clone().into(),

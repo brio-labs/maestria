@@ -110,6 +110,18 @@ export component LauncherWindow inherits Window {
     in-out property <bool> search-setup-busy: false;
     in-out property <bool> search-setup-enabled: false;
     in-out property <bool> search-setup-consent: false;
+    in-out property <string> source-selected-path: "";
+    in-out property <bool> source-read-consent: false;
+    in-out property <bool> source-documentary-retention: false;
+    in-out property <bool> source-control-persistence: false;
+    in-out property <string> source-phase: "No Markdown file selected";
+    in-out property <string> source-status: "";
+    in-out property <string> source-detail: "";
+    in-out property <string> source-error: "";
+    in-out property <bool> source-busy: false;
+    in-out property <bool> source-prepare-enabled: false;
+    in-out property <bool> source-search-enabled: false;
+    in-out property <bool> source-purge-enabled: false;
     property <string> preferences-tab: "general";
 
     init => {
@@ -173,6 +185,14 @@ export component LauncherWindow inherits Window {
     callback search-folder-requested();
     callback search-enable-requested();
     callback search-disable-requested();
+    callback source-file-requested();
+    callback source-prepare-requested();
+    callback source-cancel-requested();
+    callback source-purge-requested();
+    callback source-remove-requested();
+    callback source-read-consent-changed(bool);
+    callback source-documentary-retention-changed(bool);
+    callback source-control-persistence-changed(bool);
     callback utility-kind-requested(string);
     callback utility-filter-requested(string);
     callback utility-selected-requested(string);
@@ -235,6 +255,8 @@ export component LauncherWindow inherits Window {
     public function focus-preferences() {
         if (root.preferences-tab == "documents") {
             search-folder-button.focus();
+        } else if (root.preferences-tab == "source") {
+            source-file-button.focus();
         } else {
             shortcut-input.focus();
         }
@@ -908,6 +930,15 @@ export component LauncherWindow inherits Window {
                                 search-folder-button.focus();
                             }
                         }
+                        Button {
+                            text: root.preferences-tab == "source" ? "Selected Markdown ✓" : "Selected Markdown";
+                            accessible-role: button;
+                            accessible-label: "Show selected Markdown source controls";
+                            clicked => {
+                                root.preferences-tab = "source";
+                                source-file-button.focus();
+                            }
+                        }
                     }
                     // Tab contents share one viewport; hidden layouts must not
                     // reserve a second vertical slice.
@@ -1139,6 +1170,176 @@ export component LauncherWindow inherits Window {
                                     wrap: word-wrap;
                                     accessible-role: text;
                                     accessible-label: root.search-setup-error;
+                                }
+                            }
+                        }
+                        ScrollView {
+                            visible: root.preferences-tab == "source";
+                            width: parent.width;
+                            height: parent.height;
+                            accessible-role: groupbox;
+                            accessible-label: "Selected Markdown source authorization, preparation, and retention";
+                            VerticalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: "Selected Markdown source";
+                                    color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                                    font-size: 15px;
+                                    font-weight: 700;
+                                }
+                                Text {
+                                    text: "Choose exactly one local Markdown file. Choosing or remembering its path does not read it, prepare it, or start a worker.";
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: "Choosing one local Markdown file does not read it or start preparation.";
+                                }
+                                Text {
+                                    text: root.source-selected-path == ""
+                                        ? "No Markdown file selected."
+                                        : root.source-selected-path;
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: self.text;
+                                    accessible-description: "Exact selected Markdown file path";
+                                }
+                                source-file-button := Button {
+                                    text: root.source-selected-path == ""
+                                        ? "Choose Markdown file…"
+                                        : "Choose a different Markdown file…";
+                                    enabled: !root.source-busy;
+                                    accessible-role: button;
+                                    accessible-label: "Choose one local Markdown file; selection alone does not read or prepare it";
+                                    clicked => { root.source-file-requested(); }
+                                }
+                                CheckBox {
+                                    text: "I authorize reading this exact selected file";
+                                    checked <=> root.source-read-consent;
+                                    enabled: root.source-selected-path != "";
+                                    accessible-role: checkbox;
+                                    accessible-label: "Authorize reading only the exact selected Markdown file; unchecking withdraws authorization and retires its workers";
+                                    toggled => { root.source-read-consent-changed(self.checked); }
+                                }
+                                Text {
+                                    text: "Read authorization is independent of retention. Unchecking it withdraws current proof and retires owned work; it never purges retained data.";
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                }
+                                CheckBox {
+                                    text: "Retain documentary data until I explicitly purge it";
+                                    checked <=> root.source-documentary-retention;
+                                    accessible-role: checkbox;
+                                    accessible-label: "Choose whether documentary data for this selected file remains in controlled storage until explicit purge";
+                                    toggled => { root.source-documentary-retention-changed(self.checked); }
+                                }
+                                CheckBox {
+                                    text: "Persist these source controls";
+                                    checked <=> root.source-control-persistence;
+                                    accessible-role: checkbox;
+                                    accessible-label: "Persist source retention and selected-file controls without preparing or reading the file";
+                                    toggled => { root.source-control-persistence-changed(self.checked); }
+                                }
+                                Text {
+                                    text: "The controls are independent: either retention choice works with either session-only or explicit control persistence. Remembered controls never re-authorize reading or prepare automatically.";
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                }
+                                HorizontalLayout {
+                                    height: 36px;
+                                    spacing: 8px;
+                                    Button {
+                                        text: "Prepare selected file";
+                                        enabled: root.source-prepare-enabled && !root.source-busy;
+                                        accessible-role: button;
+                                        accessible-label: "Explicitly prepare only the authorized selected Markdown file";
+                                        clicked => { root.source-prepare-requested(); }
+                                    }
+                                    Button {
+                                        visible: root.source-phase == "Preparing selected Markdown file";
+                                        enabled: root.source-busy;
+                                        text: "Cancel preparation";
+                                        accessible-role: button;
+                                        accessible-label: "Cancel and settle owned preparation work";
+                                        clicked => { root.source-cancel-requested(); }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    height: 36px;
+                                    spacing: 8px;
+                                    Button {
+                                        visible: root.source-selected-path != "";
+                                        enabled: root.source-purge-enabled && !root.source-busy;
+                                        text: "Purge retained data";
+                                        accessible-role: button;
+                                        accessible-label: "Explicitly purge retained documentary data for this exact selected Markdown file; the original file is not deleted";
+                                        clicked => { root.source-purge-requested(); }
+                                    }
+                                    Button {
+                                        visible: root.source-selected-path != "";
+                                        enabled: !root.source-busy;
+                                        text: "Remove selection";
+                                        accessible-role: button;
+                                        accessible-label: "Remove the selected Markdown source control without purging its retained data";
+                                        clicked => { root.source-remove-requested(); }
+                                    }
+                                }
+                                Text {
+                                    text: root.source-phase;
+                                    color: root.dark-mode ? #f3f6f4 : #1a2b2b;
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: root.source-phase;
+                                }
+                                Text {
+                                    visible: root.source-status != "";
+                                    text: root.source-status;
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: root.source-status;
+                                }
+                                Text {
+                                    visible: root.source-detail != "";
+                                    text: root.source-detail;
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: root.source-detail;
+                                    accessible-description: "Selected-source coverage, retrieval status, and logical-admission disclosure";
+                                }
+                                Text {
+                                    visible: root.source-error != "";
+                                    text: root.source-error;
+                                    color: root.dark-mode ? #f0aa99 : #8d3828;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: root.source-error;
+                                }
+                                Text {
+                                    visible: root.source-search-enabled;
+                                    text: "Prepared for on-demand lexical search. Enter a query in the main search field; results stay within this selected file and do not fall back to folder search.";
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: "Prepared for on-demand lexical search of only the selected file; no folder-search fallback.";
+                                }
+                                Text {
+                                    visible: root.source-busy && root.source-phase != "Preparing selected Markdown file";
+                                    text: "Selected-source work is settling. Revoke read authorization to cancel active search or evidence checks.";
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
                                 }
                             }
                         }

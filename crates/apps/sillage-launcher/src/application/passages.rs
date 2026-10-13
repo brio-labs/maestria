@@ -1,7 +1,7 @@
 mod evidence;
 mod evidence_open;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -10,6 +10,7 @@ use tokio::process::{Child, Command};
 use tokio::time::timeout;
 
 use crate::settings::SearchServiceConfig;
+use sillage_domain::{ArtifactId, ArtifactVersionId, ContentHash, EvidenceId, LineRange};
 
 const MAX_PASSAGES: usize = 8;
 const MAX_PATH_RESULTS: usize = 100;
@@ -27,6 +28,21 @@ pub(super) struct Passage {
     pub(super) excerpt: String,
     pub(super) truncated: bool,
     pub(super) location: PassageLocation,
+    pub(super) session_binding: Option<SessionEvidenceBinding>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct SessionEvidenceBinding {
+    pub(super) session_epoch: u64,
+    pub(super) query_generation: u64,
+    pub(super) request_id: u64,
+    pub(super) source_revision: i64,
+    pub(super) evidence_id: EvidenceId,
+    pub(super) artifact_id: ArtifactId,
+    pub(super) artifact_version: ArtifactVersionId,
+    pub(super) content_hash: ContentHash,
+    pub(super) line_range: LineRange,
+    pub(super) source_path: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,6 +157,7 @@ pub(super) struct SearchMetadata {
     coverage: Option<SearchCoverage>,
     index_generation: Option<u64>,
     status: Option<String>,
+    detail: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -151,6 +168,13 @@ struct SearchCoverage {
 }
 
 impl SearchMetadata {
+    pub(super) fn for_on_demand(status: String, detail: String) -> Self {
+        Self {
+            status: Some(status),
+            detail: Some(detail),
+            ..Self::default()
+        }
+    }
     pub(super) fn summary(&self) -> String {
         let mut details = Vec::new();
         if let Some(status) = &self.status {
@@ -164,6 +188,9 @@ impl SearchMetadata {
                 "{}% coverage · {} documents · {} sources",
                 coverage.percent_covered, coverage.distinct_documents, coverage.distinct_sources
             ));
+        }
+        if let Some(detail) = &self.detail {
+            details.push(detail.clone());
         }
         if details.is_empty() {
             "Coverage and index status unavailable".to_string()
@@ -230,7 +257,7 @@ pub(super) async fn reopen(
 pub(super) struct ReopenedPassage {
     pub(super) excerpt: String,
     pub(super) citation: String,
-    pub(super) path: Option<std::path::PathBuf>,
+    pub(super) path: Option<PathBuf>,
     pub(super) pdf_page: Option<u32>,
     pub(super) fallback: String,
 }

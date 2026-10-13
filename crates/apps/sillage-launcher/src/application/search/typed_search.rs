@@ -16,6 +16,11 @@ pub(in crate::application) fn start_catalog_search(
     generation: u64,
     retained_selection: Option<slint::SharedString>,
 ) -> oneshot::Receiver<()> {
+    if frontend.source_choice.is_selected() {
+        let (applied, wait_for_application) = oneshot::channel::<()>();
+        drop(applied);
+        return wait_for_application;
+    }
     let (applied, wait_for_application) = oneshot::channel::<()>();
     runtime.spawn(async move {
         let response = state.search(query, generation).await;
@@ -72,6 +77,8 @@ pub(in crate::application) fn finish_active_search(frontend: &Frontend, generati
 pub(in crate::application) struct TypedSearch {
     pub(in crate::application) generation: u64,
     pub(in crate::application) has_search_service: bool,
+    pub(in crate::application) source_route: bool,
+    pub(in crate::application) source_ready: Option<oneshot::Sender<()>>,
     pub(in crate::application) catalog_applied: oneshot::Receiver<()>,
 }
 
@@ -139,6 +146,23 @@ pub(in crate::application) fn start_typed_search(
 ) -> Option<TypedSearch> {
     frontend.active_search.store(0, Ordering::Release);
     let generation = advance_search_generation(&frontend)?;
+    let source_route = frontend.source_choice.is_selected();
+    frontend.source_choice.query_changed(generation);
+    if source_route && let Err(error) = state.begin_selected_source_generation(generation) {
+        show_notice(&ui, error.message);
+        return None;
+    }
+
+    if source_route {
+        let (ready, catalog_applied) = oneshot::channel();
+        return Some(TypedSearch {
+            generation,
+            has_search_service: false,
+            source_route: true,
+            source_ready: Some(ready),
+            catalog_applied,
+        });
+    }
     let has_search_service = match state.settings() {
         Ok(settings) => settings.search_service().is_some(),
         Err(error) => {
@@ -158,6 +182,8 @@ pub(in crate::application) fn start_typed_search(
     Some(TypedSearch {
         generation,
         has_search_service,
+        source_route: false,
+        source_ready: None,
         catalog_applied,
     })
 }
@@ -238,14 +264,18 @@ async fn wait_for_catalog_application(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::application::source_choice::SessionSourceState;
+    use std::io;
     use std::sync::Mutex;
     use std::sync::atomic::AtomicU64;
-
-    use super::*;
+    use std::time::Duration;
+    use tokio::time::timeout;
 
     fn test_frontend(generation: u64, query: &str, passage_search_pending: bool) -> Frontend {
         let (generation_updates, _) = watch::channel(generation);
         Frontend {
+            source_choice: Arc::new(SessionSourceState::default()),
             generation: AtomicU64::new(generation),
             active_search: AtomicU64::new(0),
             generation_updates,
@@ -292,7 +322,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn superseded_search_drops_while_waiting_for_the_shared_slot() {
+    async fn superseded_search_drops_while_waiting_for_the_shared_slot()
+    -> Result<(), Box<dyn std::error::Error>> {
         let frontend = test_frontend(1, "stale", false);
         let _held_slot = frontend.interactive_search.lock().await;
         let mut generation_updates = frontend.generation_updates.subscribe();
@@ -301,9 +332,15 @@ mod tests {
         tokio::task::yield_now().await;
 
         assert_eq!(advance_search_generation(&frontend), Some(2));
-        match tokio::time::timeout(std::time::Duration::from_millis(100), &mut pending).await {
-            Ok(acquired) => assert!(acquired.is_none()),
-            Err(_) => panic!("generation cancellation must release a queued search"),
+        match timeout(Duration::from_millis(100), &mut pending).await {
+            Ok(None) => Ok(()),
+            Ok(Some(_)) => Err(io::Error::other(
+                "generation cancellation unexpectedly acquired the queued search",
+            )
+            .into()),
+            Err(_) => {
+                Err(io::Error::other("generation cancellation must release a queued search").into())
+            }
         }
     }
 

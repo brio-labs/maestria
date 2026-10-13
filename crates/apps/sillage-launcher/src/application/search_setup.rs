@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use slint::ComponentHandle;
 use tokio::runtime::Handle;
-use tokio::sync::oneshot;
+use tokio::sync::{Mutex as AsyncMutex, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::{self, MissedTickBehavior};
 
@@ -15,6 +15,8 @@ use super::search::{
 use super::{Frontend, LauncherWindow, UiWeak, lock};
 use crate::ipc::LauncherState;
 use crate::search_setup::{SearchSetup, SetupSnapshot};
+
+mod route;
 
 #[derive(PartialEq, Eq)]
 struct Presentation {
@@ -38,6 +40,10 @@ pub(super) struct SearchSetupController {
     busy: AtomicBool,
     stopping: AtomicBool,
     presentation_revision: AtomicU64,
+    source_route_exclusive: AtomicBool,
+    folder_suspended: AtomicBool,
+    route_transition: AsyncMutex<()>,
+
     restart_query: AtomicBool,
     poll: Mutex<Option<JoinHandle<()>>>,
     action: Mutex<Option<JoinHandle<()>>>,
@@ -51,6 +57,8 @@ impl SearchSetupController {
         frontend: Arc<Frontend>,
         runtime: Handle,
     ) -> Arc<Self> {
+        let source_route_selected = frontend.source_choice.is_selected();
+
         let controller = Arc::new(Self {
             backend: SearchSetup::new(),
             state,
@@ -62,6 +70,10 @@ impl SearchSetupController {
             presentation: Mutex::new(None),
             busy: AtomicBool::new(false),
             stopping: AtomicBool::new(false),
+            source_route_exclusive: AtomicBool::new(source_route_selected),
+            folder_suspended: AtomicBool::new(false),
+            route_transition: AsyncMutex::new(()),
+
             presentation_revision: AtomicU64::new(0),
             restart_query: AtomicBool::new(false),
             poll: Mutex::new(None),
@@ -107,7 +119,7 @@ impl SearchSetupController {
         let Some(window) = self.ui.upgrade() else {
             return;
         };
-        if !self.begin() {
+        if self.reject_folder_search_on_selected_source() || !self.begin() {
             return;
         }
         if let Err(error) = self.state.begin_modal() {
@@ -131,6 +143,14 @@ impl SearchSetupController {
                         let _ = invalidated.send(());
                     });
                     if applied.await.is_err() {
+                        return;
+                    }
+                    let _route_transition = controller.route_transition.lock().await;
+                    if controller.reject_folder_search_on_selected_source() {
+                        controller.finish_picker(Err(
+                            "Folder selection was withdrawn because the selected Markdown source now owns search."
+                                .to_string(),
+                        ));
                         return;
                     }
                     // Only the owned approval is retired before a replacement
@@ -166,6 +186,9 @@ impl SearchSetupController {
     }
 
     fn enable(self: &Arc<Self>) {
+        if self.reject_folder_search_on_selected_source() {
+            return;
+        }
         let snapshot = self.backend.snapshot();
         let selected = lock(&self.selected);
         let root = match selected.as_ref() {
@@ -185,14 +208,7 @@ impl SearchSetupController {
         self.invalidate_documents();
         let controller = Arc::clone(self);
         *lock(&self.action) = Some(self.runtime.spawn(async move {
-            if controller
-                .backend
-                .enable(&controller.state, root)
-                .await
-                .is_ok()
-            {
-                *lock(&controller.selected) = None;
-            }
+            let _ = controller.enable_in_current_route(root).await;
             controller.busy.store(false, Ordering::Release);
             controller.publish(true);
         }));
@@ -211,8 +227,13 @@ impl SearchSetupController {
             controller.publish(true);
         }));
     }
-
     fn invalidate_documents(&self) {
+        if self.source_route_exclusive.load(Ordering::Acquire)
+            || self.frontend.source_choice.is_selected()
+        {
+            return;
+        }
+
         let Some(generation) = advance_search_generation(&self.frontend) else {
             return;
         };
@@ -234,8 +255,12 @@ impl SearchSetupController {
     }
 
     async fn poll(self: Arc<Self>) {
-        let _ = self.backend.resume(&self.state).await;
-        self.publish(true);
+        if self.frontend.source_choice.is_selected() {
+            let _ = self.suspend_for_source_choice().await;
+        } else {
+            let _ = self.resume_folder_route_if_current().await;
+        }
+        self.publish(false);
         let mut interval = time::interval(Duration::from_secs(1));
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
@@ -244,6 +269,14 @@ impl SearchSetupController {
                 break;
             }
             if self.busy.load(Ordering::Acquire) {
+                continue;
+            }
+            if self.frontend.source_choice.is_selected() {
+                let _ = self.suspend_for_source_choice().await;
+                self.publish(false);
+                continue;
+            }
+            if self.source_route_exclusive.load(Ordering::Acquire) {
                 continue;
             }
             let _ = self.backend.refresh(&self.state).await;
@@ -318,7 +351,10 @@ impl SearchSetupController {
             } else {
                 window.set_search_setup_error("".into());
             }
-            if controller.restart_query.swap(false, Ordering::AcqRel) {
+            if !controller.source_route_exclusive.load(Ordering::Acquire)
+                && !controller.frontend.source_choice.is_selected()
+                && controller.restart_query.swap(false, Ordering::AcqRel)
+            {
                 let query = lock(&controller.frontend.model).query.clone();
                 start_search(
                     Arc::clone(&controller.state),
@@ -346,3 +382,7 @@ impl SearchSetupController {
         self.backend.shutdown().await
     }
 }
+
+#[cfg(test)]
+#[path = "search_setup/route_tests.rs"]
+mod route_tests;

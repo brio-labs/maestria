@@ -29,6 +29,10 @@ pub(super) fn update_catalog_status(
     frontend: Arc<Frontend>,
     runtime: &tokio::runtime::Handle,
 ) {
+    if frontend.source_choice.is_selected() {
+        return;
+    }
+
     let Ok(snapshot) = state.catalog().snapshot() else {
         return;
     };

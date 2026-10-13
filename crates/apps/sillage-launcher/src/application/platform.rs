@@ -130,6 +130,33 @@ pub(super) fn validate_selected_path(path: &Path) -> Result<(), LauncherError> {
     }
     Ok(())
 }
+
+pub(super) fn validate_markdown_file(path: &Path) -> Result<PathBuf, LauncherError> {
+    if !path.is_absolute() || path.to_str().is_none() || !path.is_file() {
+        return Err(LauncherError::file_unavailable(
+            "Choose one existing local Markdown file",
+        ));
+    }
+    let canonical_path = path.canonicalize().map_err(|error| {
+        LauncherError::file_unavailable(format!(
+            "The selected Markdown file is unavailable: {error}"
+        ))
+    })?;
+    let is_markdown = canonical_path
+        .extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("md"));
+    if !canonical_path.is_absolute()
+        || canonical_path.to_str().is_none()
+        || !canonical_path.is_file()
+        || !is_markdown
+    {
+        return Err(LauncherError::file_unavailable(
+            "The chooser must select exactly one local .md Markdown file",
+        ));
+    }
+    Ok(canonical_path)
+}
 pub(super) fn validate_selected_folder(path: &Path) -> Result<PathBuf, LauncherError> {
     if !path.is_absolute() || path.to_str().is_none() || !path.is_dir() {
         return Err(LauncherError::file_unavailable(
@@ -154,11 +181,27 @@ pub(super) fn validate_selected_folder(path: &Path) -> Result<PathBuf, LauncherE
 pub(super) async fn choose_file(
     parent: Option<ashpd::WindowIdentifier>,
 ) -> Result<Option<PathBuf>, LauncherError> {
+    choose_local_file(parent, "Open a local file", "Open").await
+}
+
+#[cfg(target_os = "linux")]
+pub(super) async fn choose_markdown_file(
+    parent: Option<ashpd::WindowIdentifier>,
+) -> Result<Option<PathBuf>, LauncherError> {
+    choose_local_file(parent, "Choose one local Markdown file", "Choose").await
+}
+
+#[cfg(target_os = "linux")]
+async fn choose_local_file(
+    parent: Option<ashpd::WindowIdentifier>,
+    title: &str,
+    accept_label: &str,
+) -> Result<Option<PathBuf>, LauncherError> {
     use ashpd::desktop::file_chooser::OpenFileRequest;
 
     let request = OpenFileRequest::default()
-        .title("Open a local file")
-        .accept_label("Open")
+        .title(title)
+        .accept_label(accept_label)
         .modal(true)
         .identifier(parent)
         .send()
@@ -217,6 +260,15 @@ pub(super) async fn choose_folder(_parent: Option<()>) -> Result<Option<PathBuf>
 pub(super) async fn choose_file(_parent: Option<()>) -> Result<Option<PathBuf>, LauncherError> {
     Err(LauncherError::platform_unavailable(
         "The native file chooser is unavailable on this platform",
+    ))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(super) async fn choose_markdown_file(
+    _parent: Option<()>,
+) -> Result<Option<PathBuf>, LauncherError> {
+    Err(LauncherError::platform_unavailable(
+        "The native Markdown chooser is unavailable on this platform",
     ))
 }
 

@@ -59,6 +59,19 @@ pinned at `0.0.1` and `main` is always the current build.
   only; root-worktree integration, launcher UI, installed Linux behavior,
   retrieval quality, and RSS remain unqualified.
 
+### Selected Markdown launcher route
+
+- Add the Slint launcher’s on-demand route for one selected local `.md` file.
+  Reading requires explicit authorization and Prepare; selection and restored
+  controls do not read or prepare. Search has no folder/catalog or model fallback.
+- Keep documentary retention and control-preference persistence independent.
+  Retire and settle owned source work, purge retained data only explicitly, and
+  reopen current evidence under authorization before rendering or actions.
+- Make cancellation atomic with runtime publication and retire an unpublishable
+  prepared runtime before settling cancellation. Reject query-worker and
+  current-evidence admissions while the selected source is retiring. Native
+  selected-source GUI and installed Linux-package behavior remain unqualified.
+
 ### MutationSession settlement
 
 - Clarify that successful submission acknowledges domain acceptance and initial

@@ -23,6 +23,7 @@ fn parse_search_data(data: SearchData) -> PassageSearchResult {
         }),
         index_generation: data.index_generation,
         status: data.status.and_then(safe_status),
+        detail: None,
     };
     let passages = parse_passages(data.evidence);
     PassageSearchResult {
@@ -135,6 +136,7 @@ fn parse_passages(evidence: Vec<SearchEvidence>) -> Vec<Passage> {
                 excerpt: preview.excerpt,
                 truncated: preview.truncated,
                 location,
+                session_binding: None,
             })
         })
         .take(MAX_PASSAGES)

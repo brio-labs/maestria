@@ -20,6 +20,7 @@ pub(super) struct SourceRefresh {
     receiver: mpsc::Receiver<Option<i64>>,
     deferred: Arc<AtomicBool>,
     latest_refresh: Arc<AtomicU64>,
+    source_route_suspended: bool,
 }
 
 impl Default for SourceRefresh {
@@ -34,6 +35,7 @@ impl Default for SourceRefresh {
             receiver,
             deferred: Arc::new(AtomicBool::new(false)),
             latest_refresh: Arc::new(AtomicU64::new(0)),
+            source_route_suspended: false,
         }
     }
 }
@@ -54,6 +56,9 @@ impl SourceRefresh {
         }
         if self.deferred.swap(false, Ordering::AcqRel) {
             self.changed = true;
+        }
+        if self.suppress_for_selected_route(frontend.source_choice.is_selected()) {
+            return;
         }
         if !ui.window().is_visible() {
             return;
@@ -146,6 +151,7 @@ impl SourceRefresh {
                     || window.get_passage_view_open()
                     || model.passage_search_pending
                     || model.selected_file.is_some()
+                    || frontend.source_choice.is_selected()
                 {
                     deferred.store(true, Ordering::Release);
                     return;
@@ -158,6 +164,19 @@ impl SourceRefresh {
                 }
             });
         });
+    }
+    fn suppress_for_selected_route(&mut self, selected: bool) -> bool {
+        if selected {
+            if !self.source_route_suspended {
+                self.latest_refresh.fetch_add(1, Ordering::AcqRel);
+            }
+            self.source_route_suspended = true;
+            self.ticks_until_poll = SOURCE_REFRESH_TICKS;
+            self.changed = false;
+            return true;
+        }
+        self.source_route_suspended = false;
+        false
     }
 
     fn observe(&mut self, revision: i64) {
@@ -200,5 +219,33 @@ mod tests {
         refresh.observe(6);
         assert!(!refresh.should_refresh("", false, false));
         assert!(!refresh.should_refresh("fresh", false, false));
+    }
+    #[test]
+    fn selected_source_route_suspends_folder_refresh_and_invalidates_pending_results() {
+        let mut refresh = SourceRefresh::default();
+        refresh.observe(4);
+        refresh.observe(5);
+        assert!(refresh.changed);
+        let serial = refresh
+            .latest_refresh
+            .load(std::sync::atomic::Ordering::Acquire);
+
+        assert!(refresh.suppress_for_selected_route(true));
+        assert_eq!(
+            refresh
+                .latest_refresh
+                .load(std::sync::atomic::Ordering::Acquire),
+            serial.wrapping_add(1)
+        );
+        assert!(!refresh.changed);
+        assert!(!refresh.should_refresh("fresh", false, false));
+        assert!(refresh.suppress_for_selected_route(true));
+        assert_eq!(
+            refresh
+                .latest_refresh
+                .load(std::sync::atomic::Ordering::Acquire),
+            serial.wrapping_add(1)
+        );
+        assert!(!refresh.suppress_for_selected_route(false));
     }
 }

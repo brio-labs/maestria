@@ -58,7 +58,7 @@ pub(in crate::application) fn open_passage_view(
     window.invoke_focus_detail();
 }
 
-pub(super) fn show_reopened_passage(
+pub(in crate::application) fn show_reopened_passage(
     window: &LauncherWindow,
     frontend: &Frontend,
     accepted: &AcceptedPassage,

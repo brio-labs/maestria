@@ -65,6 +65,23 @@ impl LauncherState {
         }
         Ok(())
     }
+    /// Synchronize the native action generation without dispatching a catalog search.
+    pub(crate) fn begin_selected_source_generation(
+        &self,
+        generation: u64,
+    ) -> Result<(), LauncherError> {
+        let mut state = self.session()?;
+        if generation < state.last_generation {
+            return Err(LauncherError::stale_result(
+                "A newer activation or query superseded this selected-source request",
+            ));
+        }
+        state.last_generation = generation;
+        state.accepted.clear();
+        state.selected_file = None;
+        state.preferences_scope = false;
+        Ok(())
+    }
 
     pub fn initialize_settings(&self, settings: SettingsManager) -> Result<(), LauncherError> {
         *self.settings()? = settings;
