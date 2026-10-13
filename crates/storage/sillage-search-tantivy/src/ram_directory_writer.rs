@@ -122,6 +122,13 @@ impl Write for BudgetedRamWrite {
         if !self.dirty {
             return Ok(());
         }
+        let required_chunks = self.len.div_ceil(STAGING_CHUNK_BYTES);
+        if self.chunks.len() < required_chunks {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "RAM staging chunks are incomplete",
+            ));
+        }
         let temporary_bytes = u64::try_from(self.len).map_err(|_| {
             self.directory
                 .io_memory_error(MemoryBudgetError::AccountingOverflow)
@@ -137,7 +144,6 @@ impl Write for BudgetedRamWrite {
             data.extend_from_slice(&chunk.data[..count]);
             remaining -= count;
         }
-        debug_assert_eq!(remaining, 0);
         self.directory.atomic_write_precharged(&self.path, &data)?;
         self.dirty = false;
         Ok(())
@@ -147,5 +153,41 @@ impl Write for BudgetedRamWrite {
 impl TerminatingWrite for BudgetedRamWrite {
     fn terminate_ref(&mut self, _: AntiCallToken) -> io::Result<()> {
         self.flush()
+    }
+}
+#[cfg(test)]
+mod invariant_tests {
+    use super::{BudgetedRamWrite, STAGING_CHUNK_BYTES};
+    use crate::{RamMemoryBudget, ram_directory::BudgetedRamDirectory};
+    use std::{
+        error::Error,
+        io::{self, Write},
+        path::Path,
+        sync::Arc,
+    };
+    use tantivy::directory::Directory;
+
+    #[test]
+    fn incomplete_staging_refuses_flush_before_publishing() -> Result<(), Box<dyn Error>> {
+        let directory = BudgetedRamDirectory::new(Arc::new(RamMemoryBudget::new(2 * 1024 * 1024)))?;
+        let path = Path::new("incomplete-staging");
+        let mut writer = BudgetedRamWrite::new(
+            directory.clone(),
+            path.to_path_buf(),
+            directory.scratch_reservation(0)?,
+        );
+        let payload = vec![b'x'; STAGING_CHUNK_BYTES + 1];
+        writer.write_all(&payload)?;
+        assert!(writer.chunks.pop_back().is_some());
+
+        let flush_result = writer.flush();
+        let published = Directory::exists(&directory, path)?;
+        let error = match flush_result {
+            Err(error) => error,
+            Ok(()) => return Err("incomplete RAM staging was accepted by flush".into()),
+        };
+        assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
+        assert!(!published, "incomplete RAM staging was published");
+        Ok(())
     }
 }

@@ -5,6 +5,13 @@ pinned at `0.0.1` and `main` is always the current build.
 
 ## [Unreleased]
 
+### RAM admission invariants
+
+- Serialize the full-width RAM count and sticky fault through one ledger authority;
+  latch underflow without decrementing, treat mutex poisoning as typed corruption,
+  and surface Drop-originated faults on later reserve or resize.
+- Refuse incomplete RAM-directory staging with `UnexpectedEof` before publish.
+
 ### Bounded Markdown parsing
 
 - Add public, opt-in borrowed `FileHandleRef` parsing for Markdown with explicit
