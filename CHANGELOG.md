@@ -20,6 +20,45 @@ pinned at `0.0.1` and `main` is always the current build.
   bounded parse errors. Budget figures are logical accounting, not an RSS bound or
   a total-time complexity guarantee.
 
+### Selected-Markdown session API
+
+- Add public `SessionPreparationOwner` preparation/retirement and
+  `SessionSearchRuntime` cancellation-aware search/preview for one explicitly
+  selected local Markdown file. Reopen immutable previews by evidence, artifact
+  version, and source revision under current rights; retirement cancels and joins
+  owned work.
+- Keep documentary retention and control persistence independent. Retained
+  generations survive drop, retirement, and availability changes; only explicit
+  `purge_retained_source` removes the exact owned source namespace after
+  retirement, and unknown namespaces are preserved. Unsupported bounded parsing
+  declines without an unbounded fallback.
+- Share one immutable path allocation between the source-ownership registry and
+  lease. Reserve path bytes and Arc ownership overhead on the same logical
+  admission ledger before allocation, and keep the charge through lease/registry
+  lifetime. Logical admission remains an estimate, not an RSS bound.
+- Keep accepted-work settlement and retirement cleanup session-owned when a
+  pending `retire` waiter is dropped; `wait_for_idle` observes cleanup completion.
+  Typed cancellation/deadline context preserves the concrete worker/parser cause,
+  while lifecycle failures remain distinct from routine interruption.
+
+- Retain collected owner-retirement failures across a dropped owner `retire`
+  waiter. `wait_for_idle` remains non-consuming; a later owner `retire` returns
+  retained failures once. Normalize completed native preview/batch
+  cancellation/deadline results through typed settlement without repolling, and
+  preserve a selected preparation deadline over later routine parser
+  cancellation without losing its cause.
+- Limit poisoned source-registry recovery to source-lease drop cleanup and an
+  exact control-identity match; never clear poison. Admission and purge remain
+  fail-closed on a poisoned registry. This source-level cleanup branch was not
+  exercised by the public consumer smoke.
+- The exact retained 17,383-byte consumer preimage matched the daemon-package
+  example; its locked/offline build and actual executable passed all four policy
+  combinations (four fresh verified reopens, zero sibling previews, four mutation
+  refusals, two retained generations, four explicit purges, and one unknown
+  namespace refused with marker and data preserved). This is backend/API evidence
+  only; root-worktree integration, launcher UI, installed Linux behavior,
+  retrieval quality, and RSS remain unqualified.
+
 ### MutationSession settlement
 
 - Clarify that successful submission acknowledges domain acceptance and initial

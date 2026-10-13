@@ -172,7 +172,7 @@ impl SearchRuntime {
         let permit = tokio::select! {
             biased;
             _ = cancellation_signal.cancelled() => {
-                return Err(anyhow!("interactive search was cancelled"));
+                return Err(crate::SessionOperationSettlement::RoutineCancellation.into());
             }
             permit = self.interactive_search_workers.clone().acquire_owned() => {
                 permit.map_err(|error| anyhow!("interactive search worker pool closed: {error}"))?

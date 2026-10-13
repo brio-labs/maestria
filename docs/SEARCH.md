@@ -606,6 +606,60 @@ complete trace output
 explicit abstention behavior
 ```
 
+### Selected-source session API
+
+`SessionPreparationOwner` owns preparation and retirement for an explicitly
+selected local Markdown file. Preparation is on-demand, uses the canonical
+bounded Markdown parser and lexical index, and applies the selected logical
+admission budget. The source-ownership registry and lease share one immutable
+path allocation; its path bytes and Arc ownership overhead are reserved against
+the same ledger before allocation and stay charged through the lease/registry
+lifetime. Unsupported bounded parsing declines before unbounded parsing.
+Logical admission charges are estimates, not a physical-memory or process-tree
+RSS bound.
+
+`search_cancellable` and `preview_evidence` accept caller cancellation. Dropping
+a waiter requests cancellation but does not release accepted work: owned blocking
+workers stay tracked and joined. `wait_for_idle` waits without cancelling and,
+even if a pending `retire` waiter is dropped, awaits the session-owned cleanup
+continuation. `retire` stops admission, cancels accepted operations, awaits their
+settlement, and clears session resources. Recognized cancellation and deadline
+outcomes carry a typed `SessionOperationSettlement` context and preserve any
+concrete worker/parser cause that exists in the error chain; consumers classify
+only that type, never error text. A settlement after successful work has no
+underlying failure cause. Poisoned owner, control, and resource locks are not
+classified as cancellation. Cleanup recovers only to continue joining work or
+release owned resources, and retirement surfaces the retained typed lifecycle
+failure.
+
+Owner retirement retains collected operation/control failures if its waiter is
+dropped. `wait_for_idle` never consumes them; a later `retire` returns retained
+failures once. Completed preview/batch native cancellation or deadline results
+use the same typed settlement normalization without repolling. A selected
+preparation deadline takes precedence over a later routine parser cancellation
+while retaining the parser cause. Source-lease drop cleanup may recover a
+poisoned source-ownership lock only to remove the entry for the same control
+identity; it does not clear poison, and poisoned admission/purge remain
+fail-closed. The consumer smoke above covers the successful public-consumer
+flow, not these failure paths or poisoned-lock cleanup.
+
+Evidence preview reopens the expected evidence identity and version under current
+rights, then rechecks source identity, hash, locator, and revision before returning
+the excerpt. Changed, deleted, or revoked evidence is refused instead of exposing
+a stale preview. Documentary retention and control persistence are independent:
+retained generations use the explicitly owned store and are removed only by an
+explicit purge after retirement; unrelated user data is preserved.
+
+The exact retained 17,383-byte public consumer source was compared with the
+daemon-package example, built with locked/offline dependencies, and its actual
+executable exited successfully. Across all four retention/control policy
+combinations it performed four fresh verified reopens, returned zero
+sibling-decoy previews, refused four mutations, retained two generations before
+four explicit purges, and refused one unknown namespace while preserving its
+marker and unrelated data. This demonstrates backend/API source flow only; it
+does not qualify root-worktree integration, launcher UI semantics, an installed
+Linux package, retrieval quality, or RSS.
+
 ## Identity, Snapshots, and Compatibility
 
 Search must use strong identifiers rather than untyped strings:

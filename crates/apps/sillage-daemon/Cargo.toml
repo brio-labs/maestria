@@ -27,6 +27,8 @@ sillage-ports = { workspace = true }
 sillage-retrieval = { workspace = true }
 sillage-code-intel = { workspace = true }
 
+libc = { workspace = true }
+
 anyhow = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }

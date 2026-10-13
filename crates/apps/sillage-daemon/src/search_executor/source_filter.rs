@@ -5,13 +5,13 @@ use std::{
 };
 
 use super::super::{InteractiveSnapshot, SearchRuntime};
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 
 pub(super) fn ensure_search_not_cancelled(
     cancellation: Option<&sillage_retrieval::SearchCancellation>,
 ) -> Result<()> {
     if cancellation.is_some_and(sillage_retrieval::SearchCancellation::is_cancelled) {
-        return Err(anyhow!("interactive search was cancelled"));
+        return Err(crate::SessionOperationSettlement::RoutineCancellation.into());
     }
     Ok(())
 }

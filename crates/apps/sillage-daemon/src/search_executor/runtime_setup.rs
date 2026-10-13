@@ -35,6 +35,33 @@ impl SearchRuntime {
         )
     }
 
+    pub(crate) fn from_session_parts(
+        parts: SearchRuntimeParts,
+        manifest: InstanceManifest,
+    ) -> Result<Self> {
+        if parts.vector_index.is_some()
+            || parts.graph_index.is_some()
+            || parts.repository_code_index.is_some()
+            || parts.sparse_retriever.is_some()
+        {
+            return Err(anyhow!(
+                "on-demand session search does not accept persistent or external retrieval lanes"
+            ));
+        }
+        let retrieval_policy = sillage_governance::RetrievalSecurityPolicy::default()
+            .require_read_allowed(true)
+            .allow_unscoped_items(true);
+        let mut runtime = Self::from_parts_with_source_manifest(
+            parts,
+            None,
+            retrieval_policy,
+            Some(Arc::new(RwLock::new(manifest))),
+            None,
+        )?;
+        runtime.persist_learned_sparse_observations = false;
+        Ok(runtime)
+    }
+
     fn from_parts_with_source_manifest(
         parts: SearchRuntimeParts,
         embedding_provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>>,

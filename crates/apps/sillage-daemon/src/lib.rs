@@ -29,6 +29,8 @@
 /// - `evidence_open`: shared read-only evidence store assembly.
 /// - `notebook_draft_open`: draft blob persistence and opening.
 /// - `source_identity`: canonical source-path identity keys for watcher and recovery.
+/// - `session_search`: bounded, selected-Markdown session preparation, retrieval, evidence
+///   reopening, ownership, cancellation, and explicit documentary retention.
 pub mod api;
 mod approval_recovery;
 pub mod blocked_patterns;
@@ -55,6 +57,7 @@ mod recovery_staging;
 mod repository_source_registration;
 mod runtime_construction;
 mod search_executor;
+mod session_search;
 mod source_identity;
 mod sparse_startup;
 mod supervision_recovery;
@@ -107,11 +110,16 @@ pub use search_executor::{
     prepare_search_runtime_read_only_with_repository_policy,
     prepare_search_runtime_with_repository_policy,
 };
+pub use session_search::{
+    SessionCoverage, SessionOperationSettlement, SessionPreparationOwner, SessionPreview,
+    SessionSearchResponse, SessionSearchRuntime, StaleEvidence,
+};
 pub use sparse_startup::{
     build_sparse_provider_for_layout, reconcile_sparse_generation,
     reconcile_sparse_projection_for_layout, sparse_fingerprint, sparse_identity, sparse_namespace,
 };
 pub use supervision_recovery::{RecoveryDiagnostics, supervise_recovery};
+pub use tokio_util::sync::CancellationToken as SessionSearchCancellation;
 pub use validation_recovery::has_current_validation_report;
 pub use vector_startup::{
     RetrievalGenerations, build_embedding_provider, reconcile_retrieval_generations,

@@ -6904,6 +6904,7 @@ dependencies = [
  "clap",
  "getrandom 0.4.3",
  "ignore",
+ "libc",
  "lopdf",
  "parking_lot",
  "serde",
