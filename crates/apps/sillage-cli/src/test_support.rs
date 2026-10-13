@@ -6,6 +6,10 @@ use std::{
     time::Duration,
 };
 
+fn assertion_failure(message: impl Into<String>) -> Box<dyn std::error::Error> {
+    Box::new(std::io::Error::other(message.into()))
+}
+
 pub fn bin() -> Result<String, Box<dyn std::error::Error>> {
     Ok(std::env::var("CARGO_BIN_EXE_sillage-cli")?)
 }
@@ -77,10 +81,11 @@ pub fn write_file(
 }
 pub fn assert_ok(args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
     let (code, stdout, stderr) = run(args)?;
-    assert_eq!(
-        code, 0,
-        "command failed: {args:?}\nstdout: {stdout}\nstderr: {stderr}"
-    );
+    if code != 0 {
+        return Err(assertion_failure(format!(
+            "command failed: {args:?}\nstdout: {stdout}\nstderr: {stderr}\nexpected exit code 0, got {code}"
+        )));
+    }
     Ok(stdout)
 }
 pub fn assert_ok_lines(
@@ -89,10 +94,11 @@ pub fn assert_ok_lines(
 ) -> Result<String, Box<dyn std::error::Error>> {
     let stdout = assert_ok(args)?;
     let actual_lines = stdout.lines().filter(|line| !line.is_empty()).count();
-    assert_eq!(
-        actual_lines, expected_lines,
-        "unexpected stdout line count for {args:?}: {stdout}"
-    );
+    if actual_lines != expected_lines {
+        return Err(assertion_failure(format!(
+            "unexpected stdout line count for {args:?}: {stdout}\nexpected {expected_lines} non-empty lines, got {actual_lines}"
+        )));
+    }
     Ok(stdout)
 }
 pub fn assert_init_ok(
@@ -100,26 +106,30 @@ pub fn assert_init_ok(
     read_root: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let stdout = assert_ok_lines(&["init", "-i", instance_path, "--read-root", read_root], 2)?;
-    assert!(
-        stdout.contains("initialized"),
-        "init stdout missing 'initialized': {stdout}"
-    );
-    assert!(
-        stdout.contains("manifest"),
-        "init stdout missing 'manifest': {stdout}"
-    );
+    if !stdout.contains("initialized") {
+        return Err(assertion_failure(format!(
+            "init stdout missing 'initialized': {stdout}"
+        )));
+    }
+    if !stdout.contains("manifest") {
+        return Err(assertion_failure(format!(
+            "init stdout missing 'manifest': {stdout}"
+        )));
+    }
     Ok(())
 }
 pub fn assert_index_ok(instance_path: &str, file: &str) -> Result<(), Box<dyn std::error::Error>> {
     let stdout = assert_ok(&["index", "-i", instance_path, file])?;
-    assert!(
-        stdout.contains("indexed"),
-        "index stdout missing 'indexed': {stdout}"
-    );
-    assert!(
-        stdout.contains("duration="),
-        "index stdout missing run metrics: {stdout}"
-    );
+    if !stdout.contains("indexed") {
+        return Err(assertion_failure(format!(
+            "index stdout missing 'indexed': {stdout}"
+        )));
+    }
+    if !stdout.contains("duration=") {
+        return Err(assertion_failure(format!(
+            "index stdout missing run metrics: {stdout}"
+        )));
+    }
     Ok(())
 }
 
@@ -127,14 +137,16 @@ pub fn assert_index_ok(instance_path: &str, file: &str) -> Result<(), Box<dyn st
 /// stdout, and return its stderr.
 pub fn assert_err(args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
     let (code, stdout, stderr) = run(args)?;
-    assert_ne!(
-        code, 0,
-        "command unexpectedly succeeded: {args:?}\nstdout: {stdout}"
-    );
-    assert!(
-        stdout.trim().is_empty(),
-        "failed command wrote unexpected stdout: {stdout}"
-    );
+    if code == 0 {
+        return Err(assertion_failure(format!(
+            "command unexpectedly succeeded: {args:?}\nstdout: {stdout}\nexit code: {code}"
+        )));
+    }
+    if !stdout.trim().is_empty() {
+        return Err(assertion_failure(format!(
+            "failed command wrote unexpected stdout: {stdout}"
+        )));
+    }
     Ok(stderr)
 }
 
@@ -149,14 +161,16 @@ pub fn assert_err_bounded(
     timeout: Duration,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let (code, stdout, stderr) = run_bounded(args, timeout)?;
-    assert_ne!(
-        code, 0,
-        "command unexpectedly succeeded: {args:?}\nstdout: {stdout}"
-    );
-    assert!(
-        stdout.trim().is_empty(),
-        "failed command wrote unexpected stdout: {stdout}"
-    );
+    if code == 0 {
+        return Err(assertion_failure(format!(
+            "command unexpectedly succeeded: {args:?}\nstdout: {stdout}\nexit code: {code}"
+        )));
+    }
+    if !stdout.trim().is_empty() {
+        return Err(assertion_failure(format!(
+            "failed command wrote unexpected stdout: {stdout}"
+        )));
+    }
     Ok(stderr)
 }
 
@@ -196,10 +210,11 @@ pub fn assert_search_finds(
         .find(|(key, _)| *key == "evidence")
         .map(|(_, value)| *value)
         .ok_or("search output missing evidence=<id>")?;
-    assert!(
-        evidence_id.parse::<u64>().is_ok(),
-        "evidence id not a u64: {evidence_id}"
-    );
+    if evidence_id.parse::<u64>().is_err() {
+        return Err(assertion_failure(format!(
+            "evidence id not a u64: {evidence_id}"
+        )));
+    }
     Ok((artifact_id.to_string(), evidence_id.to_string()))
 }
 
@@ -220,10 +235,11 @@ pub fn assert_task_start(
         .chars()
         .take_while(|c| c.is_ascii_digit())
         .collect();
-    assert!(
-        !task_id.is_empty(),
-        "could not extract task id from: {line}"
-    );
+    if task_id.is_empty() {
+        return Err(assertion_failure(format!(
+            "could not extract task id from: {line}"
+        )));
+    }
     Ok(task_id)
 }
 
@@ -231,7 +247,11 @@ pub fn assert_task_start(
 /// reported as a test failure rather than silently treated as zero.
 pub fn status_event_count(instance_path: &str) -> Result<usize, Box<dyn std::error::Error>> {
     let (code, stdout, stderr) = run(&["status", "-i", instance_path])?;
-    assert_eq!(code, 0, "status failed: {stderr}");
+    if code != 0 {
+        return Err(assertion_failure(format!(
+            "status failed: {stderr}\nexpected exit code 0, got {code}"
+        )));
+    }
     let event_count = stdout
         .lines()
         .find_map(|line| line.strip_prefix("events "))

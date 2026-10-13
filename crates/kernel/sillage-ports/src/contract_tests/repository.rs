@@ -27,8 +27,8 @@ pub fn assert_artifact_repository_round_trip(
 
     repository.put(artifact.clone())?;
 
-    assert_eq!(repository.get(artifact.id)?, Some(artifact));
-    assert_eq!(repository.get(ArtifactId::new(99))?, None);
+    contract_assert_eq!(repository.get(artifact.id)?, Some(artifact));
+    contract_assert_eq!(repository.get(ArtifactId::new(99))?, None);
     Ok(())
 }
 
@@ -79,17 +79,17 @@ pub fn assert_chunk_repository_round_trip(
     repository.put(second.clone())?;
     repository.put(unrelated)?;
 
-    assert_eq!(repository.get(first.id)?, Some(first.clone()));
-    assert_eq!(
+    contract_assert_eq!(repository.get(first.id)?, Some(first.clone()));
+    contract_assert_eq!(
         repository.find_artifact_id(first.id)?,
         Some(first.artifact_id)
     );
-    assert_eq!(
+    contract_assert_eq!(
         repository.list_for_artifact(ArtifactId::new(1))?,
         vec![second, first]
     );
-    assert_eq!(repository.get(ChunkId::new(99))?, None);
-    assert_eq!(repository.find_artifact_id(ChunkId::new(99))?, None);
+    contract_assert_eq!(repository.get(ChunkId::new(99))?, None);
+    contract_assert_eq!(repository.find_artifact_id(ChunkId::new(99))?, None);
     Ok(())
 }
 
@@ -137,12 +137,12 @@ pub fn assert_card_repository_round_trip(
     repository.put(second.clone())?;
     repository.put(unrelated)?;
 
-    assert_eq!(repository.get(first.id)?, Some(first.clone()));
-    assert_eq!(
+    contract_assert_eq!(repository.get(first.id)?, Some(first.clone()));
+    contract_assert_eq!(
         repository.list_for_artifact(ArtifactId::new(1))?,
         vec![first, second]
     );
-    assert_eq!(repository.get(CardId::new(99))?, None);
+    contract_assert_eq!(repository.get(CardId::new(99))?, None);
     Ok(())
 }
 
@@ -192,12 +192,12 @@ pub fn assert_evidence_repository_round_trip(
     repository.put(validation.clone())?;
     repository.put(unrelated)?;
 
-    assert_eq!(repository.get(file.id)?, Some(file.clone()));
-    assert_eq!(
+    contract_assert_eq!(repository.get(file.id)?, Some(file.clone()));
+    contract_assert_eq!(
         repository.list_for_artifact(ArtifactId::new(1))?,
         vec![file, validation]
     );
-    assert_eq!(repository.get(EvidenceId::new(99))?, None);
+    contract_assert_eq!(repository.get(EvidenceId::new(99))?, None);
     Ok(())
 }
 
@@ -230,20 +230,20 @@ pub fn assert_evidence_repository_replace_contract(
     repository.put(original.clone())?;
     // put of identical value is idempotent
     repository.put(original.clone())?;
-    assert_eq!(repository.get(original.id)?, Some(original.clone()));
+    contract_assert_eq!(repository.get(original.id)?, Some(original.clone()));
     // put with different content must conflict
     let Err(err) = repository.put(replacement.clone()) else {
         return Err("expected error".into());
     };
-    assert!(matches!(err, PortError::Conflict { .. }));
+    contract_assert!(matches!(err, PortError::Conflict { .. }));
     // original still intact
-    assert_eq!(repository.get(original.id)?, Some(original.clone()));
+    contract_assert_eq!(repository.get(original.id)?, Some(original.clone()));
     // replace overwrites even with different content
     repository.replace(replacement.clone())?;
-    assert_eq!(repository.get(replacement.id)?, Some(replacement.clone()));
+    contract_assert_eq!(repository.get(replacement.id)?, Some(replacement.clone()));
     // replace of identical value is idempotent
     repository.replace(replacement.clone())?;
-    assert_eq!(repository.get(replacement.id)?, Some(replacement.clone()));
+    contract_assert_eq!(repository.get(replacement.id)?, Some(replacement.clone()));
     // replace on a fresh id acts as insert
     let fresh = Evidence {
         id: EvidenceId::new(51),
@@ -257,7 +257,7 @@ pub fn assert_evidence_repository_replace_contract(
         security: sillage_domain::SecurityMetadata::default(),
     };
     repository.replace(fresh.clone())?;
-    assert_eq!(repository.get(fresh.id)?, Some(fresh));
+    contract_assert_eq!(repository.get(fresh.id)?, Some(fresh));
     Ok(())
 }
 
@@ -308,8 +308,8 @@ pub fn assert_event_log_round_trip(log: &impl EventLog) -> Result<(), Box<dyn st
     log.append(evidence.clone())?;
     log.append(search.clone())?;
     log.append(unrelated)?;
-    assert!(log.contains_id(EventId::new(3))?);
-    assert!(!log.contains_id(EventId::new(5))?);
+    contract_assert!(log.contains_id(EventId::new(3))?);
+    contract_assert!(!log.contains_id(EventId::new(5))?);
 
     let out_of_order = DomainEventEnvelope {
         id: EventId::new(6), // next is 5
@@ -320,7 +320,7 @@ pub fn assert_event_log_round_trip(log: &impl EventLog) -> Result<(), Box<dyn st
     let Err(err) = log.append(out_of_order) else {
         return Err("expected error".into());
     };
-    assert!(
+    contract_assert!(
         matches!(err, PortError::Conflict { .. }),
         "out of order must return Conflict"
     );
@@ -334,18 +334,18 @@ pub fn assert_event_log_round_trip(log: &impl EventLog) -> Result<(), Box<dyn st
     let Err(err_id) = log.append(id_mismatch) else {
         return Err("expected error".into());
     };
-    assert!(
+    contract_assert!(
         matches!(err_id, PortError::Conflict { .. }),
         "id mismatch must return Conflict"
     );
 
     let all = log.scan(EventFilter { artifact_id: None })?;
-    assert_eq!(all.len(), 4);
+    contract_assert_eq!(all.len(), 4);
 
     let filtered = log.scan(EventFilter {
         artifact_id: Some(ArtifactId::new(1)),
     })?;
-    assert_eq!(filtered, vec![event, evidence, search]);
+    contract_assert_eq!(filtered, vec![event, evidence, search]);
     Ok(())
 }
 
@@ -356,11 +356,14 @@ pub fn assert_blob_store_round_trip(
     let first_duplicate = store.put(vec![1, 2, 3])?;
     let second = store.put(vec![4, 5])?;
 
-    assert_eq!(first, first_duplicate);
-    assert_ne!(first, second);
-    assert_eq!(store.get(first)?, vec![1, 2, 3]);
-    assert_eq!(store.get(second)?, vec![4, 5]);
-    assert!(matches!(
+    contract_assert_eq!(first, first_duplicate);
+    contract_assert!(
+        first != second,
+        "assertion failed: first != second; left: {first:?}; right: {second:?}"
+    );
+    contract_assert_eq!(store.get(first)?, vec![1, 2, 3]);
+    contract_assert_eq!(store.get(second)?, vec![4, 5]);
+    contract_assert!(matches!(
         store.get(BlobId::new(99)),
         Err(PortError::NotFound)
     ));

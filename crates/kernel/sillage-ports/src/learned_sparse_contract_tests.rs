@@ -2,7 +2,7 @@ use sillage_domain::{
     ChunkId, CorpusSnapshotId, IndexGenerationId, RepresentationName, SparseNamespace, TrustZone,
 };
 
-use crate::contract_tests::search_budget;
+use crate::contract_tests::{contract_assert, contract_assert_eq, search_budget};
 use crate::{
     LearnedSparseIndex, LearnedSparseProvider, PortError, SPARSE_REPRESENTATION_V1, SparseDocument,
     SparseFingerprint, SparseIdentity, SparseInputKind, SparseSearchQuery,
@@ -63,8 +63,8 @@ pub fn assert_learned_sparse_provider_contract(
     let disclosure = provider
         .disclosure()
         .ok_or("learned sparse provider disclosure is unavailable")?;
-    assert!(!disclosure.remote);
-    assert_eq!(disclosure.retention, crate::RetentionPolicy::NoRetention);
+    contract_assert!(!disclosure.remote);
+    contract_assert_eq!(disclosure.retention, crate::RetentionPolicy::NoRetention);
 
     let document = provider.encode(
         "alpha alpha beta",
@@ -76,20 +76,20 @@ pub fn assert_learned_sparse_provider_contract(
         SparseInputKind::Document,
         identity.clone(),
     )?;
-    assert_eq!(document, repeated);
-    assert_eq!(document.identity(), &identity);
-    assert!(!document.terms().is_empty());
+    contract_assert_eq!(document, repeated);
+    contract_assert_eq!(document.identity(), &identity);
+    contract_assert!(!document.terms().is_empty());
 
     let query = provider.encode("alpha", SparseInputKind::Query, identity.clone())?;
-    assert_eq!(query.identity(), &identity);
-    assert!(matches!(
+    contract_assert_eq!(query.identity(), &identity);
+    contract_assert!(matches!(
         provider.encode("", SparseInputKind::Query, identity.clone()),
         Err(error) if error.is_invalid_input()
     ));
 
     let mut incompatible = identity;
     incompatible.generation_id = IndexGenerationId::new(99);
-    assert!(matches!(
+    contract_assert!(matches!(
         provider.encode("alpha", SparseInputKind::Query, incompatible),
         Err(error) if error.is_invalid_input()
     ));
@@ -103,7 +103,7 @@ pub fn assert_learned_sparse_index_contract(
     let identity = provider
         .identity()
         .ok_or("learned sparse provider identity is unavailable")?;
-    assert_eq!(index.identity().as_ref(), Some(&identity));
+    contract_assert_eq!(index.identity().as_ref(), Some(&identity));
     let content_hash = sillage_test_support::content_hash(4)?;
     let document = |chunk_id, text: &str| -> Result<SparseDocument, PortError> {
         Ok(SparseDocument {
@@ -126,34 +126,34 @@ pub fn assert_learned_sparse_index_contract(
         execution_budget: search_budget(10)?,
     };
     let hits = index.search(query.clone())?;
-    assert_eq!(hits.hits.len(), 2);
-    assert_eq!(hits.hits[0].chunk_id, ChunkId::new(1));
-    assert_eq!(hits.hits[1].chunk_id, ChunkId::new(2));
-    assert_eq!(hits.execution.budget.max_results(), 10);
-    assert_eq!(
+    contract_assert_eq!(hits.hits.len(), 2);
+    contract_assert_eq!(hits.hits[0].chunk_id, ChunkId::new(1));
+    contract_assert_eq!(hits.hits[1].chunk_id, ChunkId::new(2));
+    contract_assert_eq!(hits.execution.budget.max_results(), 10);
+    contract_assert_eq!(
         hits.execution.completion,
         sillage_domain::SearchExecutionCompletion::Complete
     );
-    assert!(hits.hits.iter().all(|hit| hit.score_micros > 0));
-    assert!(hits.hits.iter().all(|hit| !hit.contributions.is_empty()));
+    contract_assert!(hits.hits.iter().all(|hit| hit.score_micros > 0));
+    contract_assert!(hits.hits.iter().all(|hit| !hit.contributions.is_empty()));
 
     let filtered =
         index.search_filtered(query.clone(), &|chunk_id| Ok(chunk_id == ChunkId::new(2)))?;
-    assert_eq!(filtered.hits.len(), 1);
-    assert_eq!(filtered.hits[0].chunk_id, ChunkId::new(2));
+    contract_assert_eq!(filtered.hits.len(), 1);
+    contract_assert_eq!(filtered.hits[0].chunk_id, ChunkId::new(2));
 
     index.index_documents(vec![document(2, "gamma delta")?])?;
     let replaced = index.search(query.clone())?;
-    assert_eq!(replaced.hits.len(), 1);
-    assert_eq!(replaced.hits[0].chunk_id, ChunkId::new(1));
+    contract_assert_eq!(replaced.hits.len(), 1);
+    contract_assert_eq!(replaced.hits[0].chunk_id, ChunkId::new(1));
 
     index.delete_chunks(&[ChunkId::new(1)])?;
-    assert!(index.search(query.clone())?.hits.is_empty());
+    contract_assert!(index.search(query.clone())?.hits.is_empty());
 
     index.rebuild(vec![document(5, "alpha epsilon")?])?;
     let rebuilt = index.search(query)?;
-    assert_eq!(rebuilt.hits.len(), 1);
-    assert_eq!(rebuilt.hits[0].chunk_id, ChunkId::new(5));
+    contract_assert_eq!(rebuilt.hits.len(), 1);
+    contract_assert_eq!(rebuilt.hits[0].chunk_id, ChunkId::new(5));
     Ok(())
 }
 

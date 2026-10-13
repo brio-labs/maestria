@@ -26,7 +26,7 @@ pub fn assert_vector_index_contract(
         embedding(1, vec![1.0, 0.0]),
         embedding(3, vec![0.0, 1.0]),
     ])?;
-    assert!(matches!(
+    contract_assert!(matches!(
         index.index_embeddings(vec![embedding(4, vec![1.0, 0.0, 0.0])]),
         Err(error) if error.is_invalid_input()
     ));
@@ -36,10 +36,14 @@ pub fn assert_vector_index_contract(
         execution_budget: search_budget(4)?,
         ..Default::default()
     })?;
-    assert_eq!(equal_score_hits.execution.budget.max_results(), 4);
-    assert_eq!(equal_score_hits.hits[0].chunk_id, ChunkId::new(1));
-    assert_eq!(equal_score_hits.hits[1].chunk_id, ChunkId::new(2));
-    assert!(
+    contract_assert_eq!(equal_score_hits.execution.budget.max_results(), 4);
+    contract_assert!(
+        equal_score_hits.hits.len() >= 2,
+        "equal-score search must return both tie-ranked hits"
+    );
+    contract_assert_eq!(equal_score_hits.hits[0].chunk_id, ChunkId::new(1));
+    contract_assert_eq!(equal_score_hits.hits[1].chunk_id, ChunkId::new(2));
+    contract_assert!(
         !equal_score_hits
             .hits
             .iter()
@@ -53,7 +57,7 @@ pub fn assert_vector_index_contract(
         execution_budget: search_budget(10)?,
         ..Default::default()
     })?;
-    assert!(
+    contract_assert!(
         zero_query_hits.hits.is_empty(),
         "all-zero query must return no hits"
     );
@@ -71,8 +75,8 @@ pub fn assert_vector_index_contract(
         .iter()
         .filter(|hit| hit.chunk_id == ChunkId::new(7))
         .collect::<Vec<_>>();
-    assert_eq!(replaced.len(), 1);
-    assert_eq!(replaced[0].score, 1.0);
+    contract_assert_eq!(replaced.len(), 1);
+    contract_assert_eq!(replaced[0].score, 1.0);
     verify_vector_validation(index, &prov)?;
     verify_vector_lifecycle(index, prov)?;
     verify_vector_recovery_keys(index, prov)?;
@@ -91,7 +95,7 @@ fn verify_vector_identity_filter(
         model_version: Some("other-version".into()),
         identity: None,
     })?;
-    assert!(
+    contract_assert!(
         mismatched_identity_hits.hits.is_empty(),
         "provider/model/version identity must filter incompatible rows"
     );
@@ -102,7 +106,7 @@ fn verify_vector_validation(
     index: &impl VectorIndex,
     prov: &impl Fn() -> EmbeddingProvenance,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    assert!(matches!(
+    contract_assert!(matches!(
         index.index_embeddings(vec![VectorEmbedding {
             chunk_id: ChunkId::new(9),
             vector: Vec::new(),
@@ -110,7 +114,7 @@ fn verify_vector_validation(
         }]),
         Err(PortError::InvalidInputContext { .. })
     ));
-    assert!(matches!(
+    contract_assert!(matches!(
         index.search_similar(VectorSearchQuery {
             vector: vec![f32::NAN],
             limit: 1,
@@ -122,7 +126,7 @@ fn verify_vector_validation(
         }),
         Err(PortError::InvalidInputContext { .. })
     ));
-    assert!(matches!(
+    contract_assert!(matches!(
         index.search_similar(VectorSearchQuery {
             vector: vec![f32::NAN],
             limit: 1,
@@ -153,7 +157,7 @@ fn verify_vector_lifecycle(
         execution_budget: search_budget(10)?,
         ..Default::default()
     })?;
-    assert!(
+    contract_assert!(
         hits_after_clear.hits.is_empty(),
         "index must be empty after clear"
     );
@@ -168,12 +172,12 @@ fn verify_vector_lifecycle(
         execution_budget: search_budget(10)?,
         ..Default::default()
     })?;
-    assert_eq!(
+    contract_assert_eq!(
         hits_after_rebuild.hits.len(),
         2,
         "must have exactly two hits after rebuild"
     );
-    assert_eq!(hits_after_rebuild.hits[0].chunk_id, ChunkId::new(11));
+    contract_assert_eq!(hits_after_rebuild.hits[0].chunk_id, ChunkId::new(11));
     index.delete_chunks(&[ChunkId::new(10)])?;
     let hits_after_delete = index.search_similar(VectorSearchQuery {
         vector: vec![0.0, 1.0],
@@ -181,12 +185,12 @@ fn verify_vector_lifecycle(
         execution_budget: search_budget(10)?,
         ..Default::default()
     })?;
-    assert_eq!(
+    contract_assert_eq!(
         hits_after_delete.hits.len(),
         1,
         "must have one hit remaining after delete"
     );
-    assert_eq!(
+    contract_assert_eq!(
         hits_after_delete.hits[0].chunk_id,
         ChunkId::new(11),
         "only chunk 11 should remain"
@@ -198,12 +202,12 @@ fn verify_vector_lifecycle(
         execution_budget: search_budget(10)?,
         ..Default::default()
     })?;
-    assert_eq!(
+    contract_assert_eq!(
         hits_after_idempotent_delete.hits.len(),
         1,
         "must still have one hit remaining"
     );
-    assert_eq!(
+    contract_assert_eq!(
         hits_after_idempotent_delete.hits[0].chunk_id,
         ChunkId::new(11)
     );
@@ -225,19 +229,19 @@ fn verify_vector_recovery_keys(
         embedding(22, vec![0.0, 1.0]),
     ])?;
     let keys = index.indexed_embedding_keys()?;
-    assert_eq!(keys.len(), 2);
+    contract_assert_eq!(keys.len(), 2);
     let key = keys
         .iter()
         .find(|key| key.chunk_id == ChunkId::new(21))
         .ok_or("chunk 21 key missing")?;
-    assert_eq!(key.content_hash, "abcd123");
-    assert_eq!(key.representation, "dense_text_v1");
+    contract_assert_eq!(key.content_hash, "abcd123");
+    contract_assert_eq!(key.representation, "dense_text_v1");
     let expected = [ChunkId::new(21), ChunkId::new(23)];
     index.reconcile_projection(vec![embedding(23, vec![1.0, 0.0])], &expected)?;
     let after = index.indexed_embedding_keys()?;
     let mut after_ids = after.iter().map(|key| key.chunk_id).collect::<Vec<_>>();
     after_ids.sort_by_key(|chunk_id| chunk_id.value());
-    assert_eq!(
+    contract_assert_eq!(
         after_ids,
         vec![ChunkId::new(21), ChunkId::new(23)],
         "reconcile must keep expected chunks, upsert new ones, and drop stale ones"

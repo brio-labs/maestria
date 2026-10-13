@@ -61,12 +61,13 @@ fn unavailable() -> LauncherError {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use chrono::NaiveDate;
 
     use super::super::snippets;
-    use super::*;
+    use super::{snapshot, snapshot_at};
+    use crate::errors::LauncherError;
 
     fn at(
         year: i32,
@@ -156,14 +157,18 @@ mod tests {
             .checked_add(Duration::from_secs(1))
             .ok_or("Upper boundary unavailable")?;
         let earlier = first.checked_sub(1).ok_or("Lower boundary unavailable")?;
-        let upper_error = expand(outside).expect_err("Upper ISO year is unsupported");
+        let upper_error = expand(outside)
+            .err()
+            .ok_or("Upper ISO year unexpectedly produced a value")?;
         assert_eq!(upper_error.code, "platform_unavailable");
         let lower_error = snippets::expand("{datetime:UTC:ISO8601}", "", || snapshot(earlier, 0))
-            .expect_err("Lower ISO year is unsupported");
+            .err()
+            .ok_or("Lower ISO year unexpectedly produced a value")?;
         assert_eq!(lower_error.code, "platform_unavailable");
         let unrepresentable =
             snippets::expand("{datetime:UTC:ISO8601}", "", || snapshot(i64::MAX, 0))
-                .expect_err("Unrepresentable UTC clock value is unsupported");
+                .err()
+                .ok_or("Unrepresentable UTC clock value unexpectedly produced a value")?;
         assert_eq!(unrepresentable.code, "platform_unavailable");
         let literal = "{date} {time:Local:ISO8601} {date:UTC:fr-FR}";
         assert_eq!(

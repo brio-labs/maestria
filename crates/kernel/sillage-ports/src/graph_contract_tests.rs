@@ -1,4 +1,5 @@
 use super::*;
+use crate::contract_tests::{contract_assert, contract_assert_eq};
 use sillage_domain::{
     ArtifactId, CardId, ClaimId, EvidenceId, Relation, RelationEndpoint, RelationId, RelationKind,
 };
@@ -51,32 +52,32 @@ pub fn assert_graph_index_contract(
     index.insert_relation(rel3.clone())?;
 
     let artifact_rels = index.get_relations_for(graph_query(artifact_ep)?)?;
-    assert_eq!(artifact_rels.relations, vec![rel2.clone(), rel3.clone()]);
-    assert!(artifact_rels.complete);
+    contract_assert_eq!(artifact_rels.relations, vec![rel2.clone(), rel3.clone()]);
+    contract_assert!(artifact_rels.complete);
 
     let claim_rels = index.get_relations_for(graph_query(claim_ep)?)?;
-    assert_eq!(claim_rels.relations, vec![rel1.clone(), rel2.clone()]);
-    assert!(claim_rels.complete);
+    contract_assert_eq!(claim_rels.relations, vec![rel1.clone(), rel2.clone()]);
+    contract_assert!(claim_rels.complete);
     let bounded_claim_rels = index.get_relations_for(
         GraphRelationQuery::new(claim_ep, 1).ok_or("graph query limit must be positive")?,
     )?;
-    assert_eq!(bounded_claim_rels.relations, vec![rel1.clone()]);
-    assert!(!bounded_claim_rels.complete);
+    contract_assert_eq!(bounded_claim_rels.relations, vec![rel1.clone()]);
+    contract_assert!(!bounded_claim_rels.complete);
 
     index.clear()?;
-    assert!(
+    contract_assert!(
         index
             .get_relations_for(graph_query(artifact_ep)?)?
             .relations
             .is_empty()
     );
-    assert!(
+    contract_assert!(
         index
             .get_relations_for(graph_query(card_ep)?)?
             .relations
             .is_empty()
     );
-    assert!(
+    contract_assert!(
         index
             .get_relations_for(graph_query(claim_ep)?)?
             .relations
@@ -85,11 +86,11 @@ pub fn assert_graph_index_contract(
 
     index.rebuild(vec![rel1.clone(), rel2.clone(), rel3.clone()])?;
     let rebuilt_rels = index.get_relations_for(graph_query(claim_ep)?)?;
-    assert_eq!(rebuilt_rels.relations, vec![rel1.clone(), rel2]);
-    assert!(rebuilt_rels.complete);
+    contract_assert_eq!(rebuilt_rels.relations, vec![rel1.clone(), rel2]);
+    contract_assert!(rebuilt_rels.complete);
 
     index.delete_relations(&[])?;
-    assert_eq!(
+    contract_assert_eq!(
         index
             .get_relations_for(graph_query(claim_ep)?)?
             .relations
@@ -98,6 +99,6 @@ pub fn assert_graph_index_contract(
     );
     index.delete_relations(&[RelationId::new(2)])?;
     let after_delete = index.get_relations_for(graph_query(claim_ep)?)?;
-    assert_eq!(after_delete.relations, vec![rel1]);
+    contract_assert_eq!(after_delete.relations, vec![rel1]);
     Ok(())
 }

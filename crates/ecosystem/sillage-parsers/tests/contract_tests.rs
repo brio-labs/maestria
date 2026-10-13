@@ -7,7 +7,7 @@ use common::*;
 use sillage_domain::ArtifactId;
 use sillage_parsers::*;
 use sillage_ports::contract_tests::assert_parser_round_trip;
-use sillage_ports::{FileHandle, ParseContext, Parser};
+use sillage_ports::{FileHandle, ParseContext, Parser, PortError};
 
 // ── shared contract suite (Rule 25) ────────────────────────────────
 
@@ -256,6 +256,43 @@ fn pdf_parser_satisfies_contract() -> Result<(), Box<dyn Error>> {
             artifact_id: ArtifactId::new(7),
         },
     )?;
+    Ok(())
+}
+#[test]
+fn pdf_contract_helper_returns_typed_failure_for_ocr_pending_input() -> Result<(), Box<dyn Error>> {
+    let parser = PdfParser::new();
+    let artifact_id = ArtifactId::new(8);
+    let valid_sample = FileHandle {
+        path: PathBuf::from("document.pdf"),
+        bytes: create_minimal_pdf(b"alpha")?,
+    };
+    let valid = parser.parse(valid_sample.clone(), ParseContext { artifact_id })?;
+    if valid.status != sillage_ports::ParseStatus::Parsed {
+        return Err("text PDF fixture must produce a complete parse".into());
+    }
+    assert_parser_round_trip(&parser, &valid_sample, ParseContext { artifact_id })?;
+
+    let scanned_sample = FileHandle {
+        path: PathBuf::from("scan.pdf"),
+        bytes: create_minimal_pdf(b"")?,
+    };
+    let scanned = parser.parse(scanned_sample.clone(), ParseContext { artifact_id })?;
+    if scanned.status != sillage_ports::ParseStatus::NeedsOcr {
+        return Err("empty-text PDF fixture must be OCR-pending".into());
+    }
+    let error =
+        match assert_parser_round_trip(&parser, &scanned_sample, ParseContext { artifact_id }) {
+            Err(error) => error,
+            Ok(()) => {
+                return Err("OCR-pending PDF unexpectedly satisfied the parsed contract".into());
+            }
+        };
+    let error = error
+        .downcast_ref::<PortError>()
+        .ok_or("contract mismatch must retain a typed PortError")?;
+    if !error.is_internal() {
+        return Err("contract mismatch must be distinguished from parser operation errors".into());
+    }
     Ok(())
 }
 

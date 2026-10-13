@@ -9,7 +9,7 @@ pub fn assert_parser_round_trip(
     sample: &FileHandle,
     context: ParseContext,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    assert!(!parser.id().is_empty(), "parser id must not be empty");
+    contract_assert!(!parser.id().is_empty(), "parser id must not be empty");
 
     let supported = FileMetadata {
         path: sample.path.clone(),
@@ -20,7 +20,7 @@ pub fn assert_parser_round_trip(
             .and_then(|e| e.to_str())
             .map(|s| s.to_ascii_lowercase()),
     };
-    assert!(
+    contract_assert!(
         parser.supports(&supported),
         "parser must support {:?}",
         supported.path
@@ -47,7 +47,7 @@ pub fn assert_parser_round_trip(
                 artifact_id: next_artifact_id,
             },
         );
-        assert!(
+        contract_assert!(
             matches!(rejected, Err(PortError::InvalidInputContext { .. })),
             "parser claiming {:?} must reject binary content",
             unsupported.path
@@ -55,14 +55,14 @@ pub fn assert_parser_round_trip(
     }
 
     let parsed = parser.parse(sample.clone(), context)?;
-    assert_eq!(parsed.artifact_id, artifact_id);
-    assert_eq!(parsed.status, ParseStatus::Parsed);
-    assert!(
+    contract_assert_eq!(parsed.artifact_id, artifact_id);
+    contract_assert_eq!(parsed.status, ParseStatus::Parsed);
+    contract_assert!(
         !parsed.tree.nodes().is_empty(),
         "parsed tree must have at least one node"
     );
 
-    assert!(matches!(
+    contract_assert!(matches!(
         parser.parse(
             FileHandle {
                 path: sample.path.clone(),
@@ -87,8 +87,8 @@ pub async fn assert_harness_adapter_round_trip(
     harness: &impl HarnessAdapter,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let capabilities = harness.capabilities()?;
-    assert!(capabilities.read_enabled);
-    assert!(
+    contract_assert!(capabilities.read_enabled);
+    contract_assert!(
         capabilities
             .command_classes
             .contains(&HarnessCommandClass::Shell)
@@ -107,12 +107,12 @@ pub async fn assert_harness_adapter_round_trip(
         })
         .await?;
 
-    assert_eq!(outcome.run_id, HarnessRunId::new(7));
-    assert_eq!(outcome.command, "echo ok");
-    assert_eq!(outcome.exit_code, 0);
-    assert!(!outcome.stdout.is_empty(), "stdout must not be empty");
+    contract_assert_eq!(outcome.run_id, HarnessRunId::new(7));
+    contract_assert_eq!(outcome.command, "echo ok");
+    contract_assert_eq!(outcome.exit_code, 0);
+    contract_assert!(!outcome.stdout.is_empty(), "stdout must not be empty");
 
-    assert!(matches!(
+    contract_assert!(matches!(
         harness
             .execute(HarnessRequest {
                 run_id: HarnessRunId::new(8),
@@ -136,12 +136,12 @@ pub fn assert_web_fetcher_contract(
     valid_html: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let fetch_res = fetcher.fetch(valid_url, valid_html.len().saturating_add(1))?;
-    assert_eq!(fetch_res.url, valid_url, "URL must be preserved");
-    assert_eq!(fetch_res.html, valid_html, "HTML must match");
-    assert!(!fetch_res.html.is_empty(), "HTML should be non-empty");
+    contract_assert_eq!(fetch_res.url, valid_url, "URL must be preserved");
+    contract_assert_eq!(fetch_res.html, valid_html, "HTML must match");
+    contract_assert!(!fetch_res.html.is_empty(), "HTML should be non-empty");
 
     let empty_res = fetcher.fetch("", usize::MAX);
-    assert!(
+    contract_assert!(
         matches!(empty_res, Err(super::PortError::InvalidInputContext { .. })),
         "Empty URLs must map to PortError::InvalidInput, got {:?}",
         empty_res
@@ -163,22 +163,22 @@ pub fn assert_embedding_provider_contract(
         identity: identity.clone(),
     })?;
 
-    assert_eq!(response.identity, identity);
-    assert_eq!(
+    contract_assert_eq!(response.identity, identity);
+    contract_assert_eq!(
         response.vector.len(),
         identity.fingerprint.dimensions as usize,
         "embedding dimensions must match the disclosed identity"
     );
-    assert!(
+    contract_assert!(
         !response.vector.is_empty(),
         "embedding vector must not be empty"
     );
-    assert!(
+    contract_assert!(
         !response.provider_id.is_empty(),
         "provider id must be disclosed"
     );
-    assert!(!response.model.is_empty(), "model must be disclosed");
-    assert!(
+    contract_assert!(!response.model.is_empty(), "model must be disclosed");
+    contract_assert!(
         !response.model_version.is_empty(),
         "model version must be disclosed"
     );

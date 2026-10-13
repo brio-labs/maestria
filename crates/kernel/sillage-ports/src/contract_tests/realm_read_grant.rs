@@ -44,16 +44,16 @@ pub fn assert_realm_read_grant_repository_contract(
 
     // put round trips through get and list
     repository.put(grant.clone())?;
-    assert_eq!(
+    contract_assert_eq!(
         repository.get(grant.token_digest())?,
         Some(grant.clone()),
         "put must be immediately visible to get"
     );
-    assert_eq!(repository.list()?, vec![grant.clone()]);
+    contract_assert_eq!(repository.list()?, vec![grant.clone()]);
 
     // put of an identical value is idempotent
     repository.put(grant.clone())?;
-    assert_eq!(repository.get(grant.token_digest())?, Some(grant.clone()));
+    contract_assert_eq!(repository.get(grant.token_digest())?, Some(grant.clone()));
 
     // put of the same token with new content replaces (upsert)
     let replaced = active_grant(
@@ -63,7 +63,7 @@ pub fn assert_realm_read_grant_repository_contract(
         FederatedReadAccess::SearchAndOpenEvidence,
     )?;
     repository.put(replaced.clone())?;
-    assert_eq!(
+    contract_assert_eq!(
         repository.get(replaced.token_digest())?,
         Some(replaced.clone()),
         "same-token put must replace the stored grant"
@@ -74,11 +74,11 @@ pub fn assert_realm_read_grant_repository_contract(
     let Err(error) = repository.put(second.clone()) else {
         return Err("expected exclusivity conflict".into());
     };
-    assert!(
+    contract_assert!(
         matches!(error, PortError::Conflict { .. }),
         "second active grant for the same consumer realm must conflict, got {error:?}"
     );
-    assert_eq!(repository.get(second.token_digest())?, None);
+    contract_assert_eq!(repository.get(second.token_digest())?, None);
 
     // a revoked grant does not block a new active grant for the same consumer
     // realm; clear the active row first (delete_not_in keeps only revoked)
@@ -98,13 +98,13 @@ pub fn assert_realm_read_grant_repository_contract(
     repository.delete_not_in(&BTreeSet::from([revoked.token_digest().clone()]))?;
     let resumed = active_grant(b"contract-d", 'a', 'b', FederatedReadAccess::SearchOnly)?;
     repository.put(resumed.clone())?;
-    assert_eq!(
+    contract_assert_eq!(
         repository.get(resumed.token_digest())?,
         Some(resumed.clone())
     );
 
     // delete_not_in removes everything except the kept digests
     repository.delete_not_in(&BTreeSet::from([resumed.token_digest().clone()]))?;
-    assert_eq!(repository.list()?, vec![resumed]);
+    contract_assert_eq!(repository.list()?, vec![resumed]);
     Ok(())
 }

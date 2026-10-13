@@ -14,21 +14,21 @@ pub fn assert_id_allocator_contract(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let claim_1 = allocator.allocate_claim_id()?;
     let claim_2 = allocator.allocate_claim_id()?;
-    assert!(
+    contract_assert!(
         claim_2.value() > claim_1.value(),
         "claim ids must be strictly increasing"
     );
 
     let candidate_1 = allocator.allocate_memory_candidate_id()?;
     let candidate_2 = allocator.allocate_memory_candidate_id()?;
-    assert!(
+    contract_assert!(
         candidate_2.value() > candidate_1.value(),
         "memory candidate ids must be strictly increasing"
     );
 
     let approval_1 = allocator.allocate_approval_id()?;
     let approval_2 = allocator.allocate_approval_id()?;
-    assert!(
+    contract_assert!(
         approval_2.value() > approval_1.value(),
         "approval ids must be strictly increasing"
     );
@@ -36,13 +36,13 @@ pub fn assert_id_allocator_contract(
     // Independent namespaces: claim allocations between candidate and
     // approval allocations must not disturb either counter.
     let claim_3 = allocator.allocate_claim_id()?;
-    assert!(claim_3.value() > claim_2.value());
-    assert_eq!(
+    contract_assert!(claim_3.value() > claim_2.value());
+    contract_assert_eq!(
         allocator.allocate_memory_candidate_id()?,
         MemoryCandidateId::new(candidate_2.value().saturating_add(1)),
         "claim allocation must not advance the candidate namespace"
     );
-    assert_eq!(
+    contract_assert_eq!(
         allocator.allocate_approval_id()?,
         ApprovalId::new(approval_2.value().saturating_add(1)),
         "claim allocation must not advance the approval namespace"

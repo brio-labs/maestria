@@ -46,8 +46,8 @@ fn verify_artifact_chunk_batch(
         offset: 0,
         execution_budget: search_budget(10)?,
     })?;
-    assert_eq!(chunk_hits.hits.len(), 1);
-    assert_eq!(chunk_hits.hits[0].chunk.chunk_id, ChunkId::new(70));
+    contract_assert_eq!(chunk_hits.hits.len(), 1);
+    contract_assert_eq!(chunk_hits.hits[0].chunk.chunk_id, ChunkId::new(70));
 
     let card_hits = index.search_cards(SearchQuery {
         q: "frazzle".to_string(),
@@ -55,8 +55,8 @@ fn verify_artifact_chunk_batch(
         offset: 0,
         execution_budget: search_budget(10)?,
     })?;
-    assert_eq!(card_hits.hits.len(), 1);
-    assert_eq!(card_hits.hits[0].card.card_id, CardId::new(700));
+    contract_assert_eq!(card_hits.hits.len(), 1);
+    contract_assert_eq!(card_hits.hits[0].card.card_id, CardId::new(700));
 
     // Re-index the same chunk with updated content: the old document must be
     // replaced, not duplicated.
@@ -77,9 +77,9 @@ fn verify_artifact_chunk_batch(
         offset: 0,
         execution_budget: search_budget(10)?,
     })?;
-    assert_eq!(revised_hits.hits.len(), 1);
-    assert_eq!(revised_hits.hits[0].chunk.chunk_id, ChunkId::new(70));
-    assert_eq!(revised_hits.hits[0].chunk.text, "zymurgy quuxwobble revv");
+    contract_assert_eq!(revised_hits.hits.len(), 1);
+    contract_assert_eq!(revised_hits.hits[0].chunk.chunk_id, ChunkId::new(70));
+    contract_assert_eq!(revised_hits.hits[0].chunk.text, "zymurgy quuxwobble revv");
     Ok(())
 }
 
@@ -111,22 +111,22 @@ fn verify_chunk_round_trip(index: &impl FullTextIndex) -> Result<(), Box<dyn std
         execution_budget: search_budget(10)?,
     })?;
 
-    assert_eq!(hits.hits.len(), 2);
+    contract_assert_eq!(hits.hits.len(), 2);
     let hit_ids: Vec<ChunkId> = hits.hits.iter().map(|hit| hit.chunk.chunk_id).collect();
-    assert_eq!(hits.execution.budget.max_results(), 10);
-    assert_eq!(
+    contract_assert_eq!(hits.execution.budget.max_results(), 10);
+    contract_assert_eq!(
         hits.execution.completion,
         sillage_domain::SearchExecutionCompletion::Complete
     );
-    assert!(hit_ids.contains(&ChunkId::new(10)));
-    assert!(hit_ids.contains(&ChunkId::new(11)));
+    contract_assert!(hit_ids.contains(&ChunkId::new(10)));
+    contract_assert!(hit_ids.contains(&ChunkId::new(11)));
     let repeated = index.search(SearchQuery {
         q: "hello".to_string(),
         limit: 10,
         offset: 0,
         execution_budget: search_budget(10)?,
     })?;
-    assert_eq!(hits, repeated);
+    contract_assert_eq!(hits, repeated);
     Ok(())
 }
 
@@ -161,17 +161,17 @@ fn verify_card_round_trip(index: &impl FullTextIndex) -> Result<(), Box<dyn std:
         execution_budget: search_budget(10)?,
     })?;
 
-    assert_eq!(card_hits.hits.len(), 2);
+    contract_assert_eq!(card_hits.hits.len(), 2);
     let card_ids: Vec<CardId> = card_hits.hits.iter().map(|hit| hit.card.card_id).collect();
-    assert!(card_ids.contains(&CardId::new(100)));
-    assert!(card_ids.contains(&CardId::new(101)));
+    contract_assert!(card_ids.contains(&CardId::new(100)));
+    contract_assert!(card_ids.contains(&CardId::new(101)));
     let repeated = index.search_cards(SearchQuery {
         q: "card".to_string(),
         limit: 10,
         offset: 0,
         execution_budget: search_budget(10)?,
     })?;
-    assert_eq!(card_hits, repeated);
+    contract_assert_eq!(card_hits, repeated);
     Ok(())
 }
 
@@ -192,8 +192,8 @@ fn verify_card_replacement(index: &impl FullTextIndex) -> Result<(), Box<dyn std
         offset: 0,
         execution_budget: search_budget(10)?,
     })?;
-    assert_eq!(beta_hits.hits.len(), 1);
-    assert_eq!(beta_hits.hits[0].card.card_id, CardId::new(101));
+    contract_assert_eq!(beta_hits.hits.len(), 1);
+    contract_assert_eq!(beta_hits.hits[0].card.card_id, CardId::new(101));
 
     let updated_hits = index.search_cards(SearchQuery {
         q: "revised".to_string(),
@@ -201,9 +201,9 @@ fn verify_card_replacement(index: &impl FullTextIndex) -> Result<(), Box<dyn std
         offset: 0,
         execution_budget: search_budget(10)?,
     })?;
-    assert_eq!(updated_hits.hits.len(), 1);
-    assert_eq!(updated_hits.hits[0].card.card_id, CardId::new(100));
-    assert_eq!(updated_hits.hits[0].card.title, "Alpha Updated");
+    contract_assert_eq!(updated_hits.hits.len(), 1);
+    contract_assert_eq!(updated_hits.hits[0].card.card_id, CardId::new(100));
+    contract_assert_eq!(updated_hits.hits[0].card.title, "Alpha Updated");
     Ok(())
 }
 
@@ -240,7 +240,7 @@ fn verify_tie_ordering(index: &impl FullTextIndex) -> Result<(), Box<dyn std::er
 
     // All three should match; order must be by ascending card_id for ties
     let tie_ids: Vec<CardId> = tie_hits.hits.iter().map(|h| h.card.card_id).collect();
-    assert_eq!(
+    contract_assert_eq!(
         tie_ids,
         vec![CardId::new(301), CardId::new(302), CardId::new(303)]
     );
@@ -255,6 +255,6 @@ fn verify_empty_query(index: &impl FullTextIndex) -> Result<(), Box<dyn std::err
         offset: 0,
         execution_budget: search_budget(10)?,
     })?;
-    assert!(empty.hits.is_empty());
+    contract_assert!(empty.hits.is_empty());
     Ok(())
 }

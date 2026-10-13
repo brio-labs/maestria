@@ -12,6 +12,14 @@ pinned at `0.0.1` and `main` is always the current build.
   and surface Drop-originated faults on later reserve or resize.
 - Refuse incomplete RAM-directory staging with `UnexpectedEof` before publish.
 
+### Fallible contract helpers
+
+- Return typed `PortError::InternalContext` failures from shared port contracts and
+  observable I/O errors from CLI test support instead of panicking on invariant
+  mismatches. Keep failure diagnostics formatted only on the failure path.
+- Replace UTC boundary test `expect_err` panics with fallible checks while
+  preserving `platform_unavailable` assertions.
+
 ### Bounded Markdown parsing
 
 - Add public, opt-in borrowed `FileHandleRef` parsing for Markdown with explicit
@@ -92,6 +100,9 @@ pinned at `0.0.1` and `main` is always the current build.
   parser work. Grace expiry or another incomplete/fatal drain returns a typed
   error without watermark finalization. Dropping a session or finish future
   requests shutdown but does not await settlement.
+- Have the durable-access test use the existing graceful-shutdown entry point so
+  admitted full-text index feedback can settle; production defaults and the
+  100 ms audit assertion remain unchanged.
 
 ### Budgeted in-memory Tantivy indexing
 

@@ -1,5 +1,6 @@
 use sillage_domain::BlobId;
 
+use crate::contract_tests::{contract_assert, contract_assert_eq};
 use crate::{VisualEmbeddingProvider, VisualEmbeddingRequest, VisualSource};
 
 const VISUAL_REPRESENTATION: &str = "visual_page_v1";
@@ -17,20 +18,20 @@ pub fn assert_visual_embedding_provider_contract(
     let identity = provider
         .identity()
         .ok_or("visual provider must disclose its identity")?;
-    assert_eq!(
+    contract_assert_eq!(
         identity.representation,
         sillage_domain::RepresentationName::new(VISUAL_REPRESENTATION),
         "visual provider identity representation must be {VISUAL_REPRESENTATION}"
     );
-    assert!(
+    contract_assert!(
         identity.fingerprint.dimensions > 0,
         "visual provider identity dimensions must be positive"
     );
-    assert!(
+    contract_assert!(
         !identity.fingerprint.model.as_str().is_empty(),
         "visual provider identity model must be disclosed"
     );
-    assert!(
+    contract_assert!(
         !identity.fingerprint.provider.as_str().is_empty(),
         "visual provider identity provider name must be disclosed"
     );
@@ -66,9 +67,9 @@ pub fn assert_visual_embedding_provider_contract(
 
     // Identity, disclosure, and response shape stay stable across calls.
     let second = provider.embed_query("contract test visual query", identity.clone())?;
-    assert_eq!(second.identity, identity);
-    assert_eq!(second.disclosure, disclosure);
-    assert_eq!(
+    contract_assert_eq!(second.identity, identity);
+    contract_assert_eq!(second.disclosure, disclosure);
+    contract_assert_eq!(
         second.vector.len(),
         identity.fingerprint.dimensions as usize
     );
@@ -81,32 +82,34 @@ fn assert_visual_response(
     disclosure: &crate::ProviderDisclosure,
     kind: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    assert_eq!(
-        response.identity, *identity,
+    contract_assert_eq!(
+        response.identity,
+        *identity,
         "visual provider {kind} response must preserve the request identity"
     );
-    assert_eq!(
-        response.disclosure, *disclosure,
+    contract_assert_eq!(
+        response.disclosure,
+        *disclosure,
         "visual provider {kind} response must preserve the provider disclosure"
     );
-    assert_eq!(
+    contract_assert_eq!(
         response.vector.len(),
         identity.fingerprint.dimensions as usize,
         "visual provider {kind} embedding dimensions must match the disclosed identity"
     );
-    assert!(
+    contract_assert!(
         response.vector.iter().all(|value| value.is_finite()),
         "visual provider {kind} embedding must contain only finite values"
     );
-    assert!(
+    contract_assert!(
         !response.provider_id.is_empty(),
         "visual provider {kind} response must disclose its provider id"
     );
-    assert!(
+    contract_assert!(
         !response.model.is_empty(),
         "visual provider {kind} response must disclose its model"
     );
-    assert!(
+    contract_assert!(
         !response.model_version.is_empty(),
         "visual provider {kind} response must disclose its model version"
     );

@@ -28,22 +28,22 @@ pub fn assert_approval_repository_round_trip(
     repository.save(&pending_record(2))?;
 
     let found = repository.find_by_id(ApprovalId::new(1))?;
-    assert_eq!(
+    contract_assert_eq!(
         found.as_ref().map(|record| record.id),
         Some(ApprovalId::new(1))
     );
-    assert_eq!(
+    contract_assert_eq!(
         found.as_ref().map(|record| record.status),
         Some(ApprovalStatus::Pending)
     );
-    assert!(
+    contract_assert!(
         repository.find_by_id(ApprovalId::new(99))?.is_none(),
         "missing approval must resolve to None"
     );
 
     let for_task = repository.find_by_task_id(TaskId::new(101))?;
-    assert_eq!(for_task.len(), 1);
-    assert_eq!(for_task[0].id, ApprovalId::new(1));
+    contract_assert_eq!(for_task.len(), 1);
+    contract_assert_eq!(for_task[0].id, ApprovalId::new(1));
     Ok(())
 }
 
@@ -58,11 +58,11 @@ pub fn assert_approval_repository_pending(
 
     let pending = repository.find_pending()?;
     let ids: Vec<u64> = pending.iter().map(|record| record.id.value()).collect();
-    assert!(
+    contract_assert!(
         ids.contains(&10) && ids.contains(&12),
         "unresolved approvals must stay pending"
     );
-    assert!(
+    contract_assert!(
         !ids.contains(&11),
         "resolved approval must leave the pending scan"
     );
@@ -79,33 +79,33 @@ pub fn assert_approval_repository_resolution(
     repository.save(&pending_record(21))?;
 
     let approved = repository.resolve(ApprovalId::new(20), true)?;
-    assert_eq!(
+    contract_assert_eq!(
         approved.map(|record| record.status),
         Some(ApprovalStatus::Approved)
     );
     let denied = repository.resolve(ApprovalId::new(21), false)?;
-    assert_eq!(
+    contract_assert_eq!(
         denied.map(|record| record.status),
         Some(ApprovalStatus::Denied)
     );
 
-    assert!(
+    contract_assert!(
         repository.resolve(ApprovalId::new(20), false)?.is_none(),
         "resolving an already-resolved approval must be a no-op"
     );
-    assert!(
+    contract_assert!(
         repository.resolve(ApprovalId::new(999), true)?.is_none(),
         "resolving an unknown approval must return None"
     );
 
     let all = repository.find_all()?;
-    assert!(
+    contract_assert!(
         all.iter()
             .any(|record| record.id == ApprovalId::new(20)
                 && record.status == ApprovalStatus::Approved),
         "resolved approval must be visible in find_all with its final status"
     );
-    assert!(
+    contract_assert!(
         all.iter()
             .any(|record| record.id == ApprovalId::new(21)
                 && record.status == ApprovalStatus::Denied),
