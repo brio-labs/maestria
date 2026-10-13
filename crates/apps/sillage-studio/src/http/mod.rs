@@ -12,6 +12,12 @@
 //! - `drafts`: draft CRUD handlers.
 //! - `ask`: grounded Ask validation and agent protocol boundary.
 //! - `index`: index choice workspace handlers.
+//! - `evidence`: global evidence request forwarding to the daemon.
+//! - `repository_index`: repository-index browsing, indexing, and selection handlers.
+//! - `retrieval`: daemon retrieval-status request forwarding.
+//! - `search`: query validation and bounded result-limit forwarding.
+//! - `state`: shared daemon-client, agent, bearer, and origin state.
+//! - `tasks`: daemon task-list request forwarding.
 
 mod ask;
 mod assets;

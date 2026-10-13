@@ -15,6 +15,9 @@
 //! - `search`: per-route search execution and candidate mapping.
 //! - `energy`: RAPL energy accounting.
 //! - `spans`: accepted-span coordinate conversion.
+//! - `dense`: dense-provider fusion and vector-projection lifecycle operations.
+//! - `identity`: validated dense-only benchmark identity from provider metadata.
+//! - `measure`: lifecycle measurements, unavailable results, and empty-chunk defaults.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
