@@ -13,7 +13,7 @@ from .shared import (
 import re
 
 # Security: hardcoded secret material. The vocabulary mirrors the governance
-# privacy scanner (`scan_secrets` in maestria-governance) so the repository
+# privacy scanner (`scan_secrets` in sillage-governance) so the repository
 # guardrail and the domain's secret policy classify the same shapes.
 _SECRET_PRIVATE_KEY_PATTERN = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 
@@ -86,19 +86,24 @@ def scan_hardcoded_secrets() -> list[str]:
     production lines.
     """
     violations = []
+    test_context = shared._module_test_context()
     for candidate in _iter_scannable(shared.ROOT):
         if shared._is_checker_source(candidate):
             continue
-        if candidate.suffix.lower() not in SCAN_EXTS:
+        suffix = candidate.suffix.lower()
+        if suffix not in SCAN_EXTS:
             continue
-        if is_test_source(candidate):
+        if suffix == ".rs":
+            if shared._is_test_only_rust_path(candidate, test_context):
+                continue
+        elif is_test_source(candidate):
             continue
         content = read_text(candidate)
         if content is None:
             continue
-        if candidate.suffix.lower() == ".rs":
+        if suffix == ".rs":
             content = production_rust(content)
-        is_code = candidate.suffix.lower() in {".rs", ".py"}
+        is_code = suffix in {".rs", ".py"}
         for line_number, line in enumerate(content.splitlines(), 1):
             trimmed = line.strip()
             if _SECRET_PRIVATE_KEY_PATTERN.search(trimmed):

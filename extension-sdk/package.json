@@ -1,0 +1,14 @@
+{
+  "name": "@sillage/extension-sdk",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "package:text-tools": "node scripts/package-text-tools.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  }
+}

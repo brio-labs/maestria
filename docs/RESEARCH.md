@@ -8,7 +8,9 @@ This document tracks experimental candidates for the Maestria search architectur
 
 ## 1. Evaluation Framework
 
-Candidates are evaluated strictly against the Maestria internal corpora. A candidate is eligible for promotion to the [ROADMAP.md](./ROADMAP.md) only if it demonstrates superior performance across the following budgets:
+Candidates are evaluated strictly against the Maestria internal corpora. A
+candidate is eligible for evaluated subsystem activation only if it
+demonstrates superior performance across the following budgets:
 
 * **Quality:** Precision, recall, exact-span retrieval, evidence-chain coverage, and relevance scores on standardized benchmarks.
 * **Latency:** P50, P95, and P99 response times for typical query loads.
@@ -17,6 +19,9 @@ Candidates are evaluated strictly against the Maestria internal corpora. A candi
 * **Privacy:** Compliance with local-first processing requirements, data sovereignty, provider disclosure, and retention guarantees.
 * **Security:** No ACL leakage, prohibited-candidate exposure, prompt-injection authorization, secret disclosure, quarantine escape, poisoning success, or fail-open behavior.
 * **Energy:** Joules per query or indexing operation where the platform can measure them. Unavailable telemetry remains explicit and is never fabricated.
+
+The product roadmap records product milestones; it is not a queue of models or
+research candidates.
 
 Synthetic or deterministic contract fixtures may prove schemas, lifecycle rules, and regressions. They do not prove product quality and cannot authorize a production promotion.
 
@@ -105,19 +110,30 @@ next candidates for a new dated evaluation.
 The sparse lane is English-only today (`prithivida/Splade_PP_en_v1`, BERT
 tokenizer). For multilingual contexts (e.g. French users), BGE-M3 was
 investigated as the leading candidate (MIT license, 100+ languages, explicit
-sparse output). Verdict: **not evaluable and not budget-feasible**:
+sparse output). Historical verdict recorded at the time: **not evaluable and not budget-feasible**:
 
-- **The trained sparse head is not released.** The official `BAAI/bge-m3`
-  checkpoint contains only the backbone (391 keys); the published
-  `sparse_linear.pt` is a 3.5 KB stub holding a `[1, 1024]` tensor, not the
-  trained `[250002, 1024]` projection. FlagEmbedding's own loader falls back
-  to a *randomly initialized* head when the `.pt` is missing or unusable, so
-  even the reference library cannot serve the real sparse model from the
-  release. Community ONNX exports either omit the head or export a broken
-  `sparse_vecs` output (vocab dimension collapsed to 1, verified in
-  `aapot/bge-m3-onnx`).
-- **Throughput excludes it from the frozen budgets.** Measured on this
-  machine (2-thread ONNX session): fp32 2.13 s and int8 0.79 s per 512-token
+- **The sparse-head shape does not establish missing or untrained weights.** The
+  original 2026-08-08 investigation reported 391 backbone keys and separately
+  reported a 3.5 KB `sparse_linear.pt` containing a `[1, 1024]` tensor. These
+  observations are retained as historical reports, not rechecked here. The
+  official FlagEmbedding implementation defines
+  `Linear(hidden_size, 1)`, applies ReLU to one scalar per token, then
+  scatters/max-reduces those scalars by `input_ids` into vocabulary IDs. For
+  `hidden_size = 1024`, `[1, 1024]` is the expected linear-weight shape; the
+  vocabulary-sized sparse representation is produced only after token-ID
+  aggregation. Shape and file size alone therefore do not establish that
+  trained weights are absent or random. The [official implementation at
+  revision `6eefbac0e0c185205fe210b999a4cbe55c97054e`](https://github.com/FlagOpen/FlagEmbedding/blob/6eefbac0e0c185205fe210b999a4cbe55c97054e/research/BGE_M3/modeling.py#L78-L123)
+  initializes a new head and loads saved pooler weights only when both
+  `colbert_linear.pt` and `sparse_linear.pt` exist; this code path does not
+  establish what the historical checkpoint contained. No weights were
+  downloaded and no export was retested for this correction. The historical
+  review also reported community ONNX exports omitting the sparse branch or
+  collapsing `sparse_vecs` to vocabulary dimension 1 in `aapot/bge-m3-onnx`;
+  these export observations remain reported, not newly reproduced.
+- **The CPU costs remain historical measurements as reported, not reproduced
+  here.** The 2026-08-08 record measured on a 2-thread ONNX session: fp32
+  2.13 s and int8 0.79 s per 512-token
   encode; the 147-chunk corpus re-encode with 6 parallel workers measures
   164.6 s fp32 and 65.8 s int8 — 13× over the 5 s `ingest_update_budget_ms`
   and ~15× over the gate's lifecycle-within-factor allowance against the
@@ -157,21 +173,27 @@ cases and judged spans (the corpus format has no language restriction), and
 pin multilingual-e5-small (budget-fitting, MIT) or LFM2.5-Embedding-350M
 (highest quality) in the dense lane.
 
-### 2.1.0b. Cross-model retrieval quality benchmark (BEIR/MTEB-style, dated 2026-08-09)
+### 2.1.0b. Cross-model retrieval-quality comparison on a sampled subcorpus (dated 2026-08-09)
 
-A standard retrieval benchmark compares the candidate models on standard
-datasets with standard metrics, following the BEIR/MTEB methodology:
-`scripts/retrieval_model_benchmark.py` (ir_datasets, the loader behind BEIR),
-MS MARCO passage dev (English) and mMARCO dev (French), nDCG@10 / MRR@10 /
-Recall@10 / Recall@100 with binary gains, and each model's reference encoding
-convention (SPLADE templates, e5 "query:"/"passage:" prefixes, mLateOn
-[Q]/[D] prefix tokens with MaxSim late interaction, BGE-M3/LFM2.5/MiniLM
-CLS or mean pooling). The corpus sample keeps every judged relevant passage
-plus seeded random fillers (200 queries, 5000 passages, seed 42); a purely
-random sample would drop the qrels. The sampled corpora inflate absolute
-values (relevant docs are ~2.5% of the sample, so BM25's 0.79 English nDCG@10
-is far above its ~0.30 full-corpus reference); the relative ranking is the
-reliable signal. Full report: `tests/contracts/model_retrieval_report_v1.json`.
+The exploratory comparison used `scripts/retrieval_model_benchmark.py`
+(`ir_datasets`, the loader behind BEIR) on MS MARCO passage dev (English) and
+mMARCO dev (French), with nDCG@10 / MRR@10 / Recall@10 / Recall@100, binary
+gains, and each model's encoding convention (SPLADE templates, e5
+"query:"/"passage:" prefixes, mLateOn [Q]/[D] prefix tokens with MaxSim late
+interaction, BGE-M3/LFM2.5/MiniLM CLS or mean pooling). It included 200 queries
+and a seeded 5,000-passage subcorpus (seed 42) containing every judged relevant
+passage plus random fillers. This is a result for that qrels-conditioned
+subcorpus and protocol, not a standard full-corpus BEIR/MTEB comparison. The
+observed order is conditional on the query/qrels set, sampled negatives,
+models, and encoding conventions; removing or changing hard negatives may
+change or invert model order. It does not establish a full-corpus ranking,
+quality of the current launcher, or state-of-the-art performance. Relevant
+passages were reported to be ~2.5% of the sample, inflating absolute scores:
+the reported BM25 English nDCG@10 of 0.788 is not like-for-like with its ~0.30
+full-corpus reference. Full historical report:
+`tests/contracts/model_retrieval_report_v1.json`. The table and report values
+are preserved; neither the retrieval run nor its rankings were reproduced for
+this correction.
 
 | Model | EN nDCG@10 | FR nDCG@10 | EN MRR@10 | FR MRR@10 | Languages |
 | --- | --- | --- | --- | --- | --- |
@@ -188,22 +210,23 @@ reliable signal. Full report: `tests/contracts/model_retrieval_report_v1.json`.
 | BM25 (tantivy defaults) | 0.788 | 0.590 | 0.753 | 0.554 | language-agnostic |
 | SPLADE pinned (110M) | 0.109 | 0.012 | 0.085 | 0.011 | English only |
 
-Findings: (1) the dense/late cluster dominates both languages; (2) on
-French, mDenseOn and LFM2.5 lead (0.919/0.917), mLateOn leads overall when
-both languages are weighted, and the bekko pair delivers near-top quality at
-25M/8M active parameters; (3) the small English models are outstanding on
-English (MiniLM-L12 0.987 — top of the table) and degrade gracefully on
-French (0.61-0.74), while SPLADE collapses (0.012) — the difference between
-"English-only" and "English-first with a multilingual tokenizer"; (4) BM25
-is the language-agnostic baseline and beats SPLADE on English in this sample
-(the sample inflation noted above favors exact-match models). The lifecycle
-budget analysis still governs what can be served: bekko-a8m (~10 ms/text),
-MiniLM (~13 ms), SPLADE (~57 ms), bekko-a25m and e5-small (~100-130 ms) fit
-or nearly fit the frozen 5 s budget; mLateOn/LFM2.5/BGE-M3/mDenseOn need the
-#427 budget re-justification.
+Findings for this sample, candidate set, and protocol only: (1) dense/late
+models occupy the upper part of both language columns; (2) mDenseOn and
+LFM2.5 lead the French nDCG@10 column (0.919/0.917), while any aggregate
+ordering depends on language weighting; (3) the listed small English models
+score highly on this English sample and lower on the French sample, while the
+pinned SPLADE result is low in both; (4) BM25 beats the pinned SPLADE result
+on English in this sample. These comparisons are exploratory, not evidence of
+a general model ranking. Historical lifecycle timing results are separate
+from this retrieval-quality ordering and do not qualify the current launcher:
+bekko-a8m (~10 ms/text), MiniLM (~13 ms), SPLADE (~57 ms), bekko-a25m and
+e5-small (~100-130 ms) fit or nearly fit the frozen 5 s budget; mLateOn,
+LFM2.5, BGE-M3, and mDenseOn need the #427 budget re-justification.
 
 Model-engineering notes recorded along the way: the official BGE-M3 sparse
-head is a stub (see §2.1.0a); the LFM2.5 ONNX export requires the repo's
+projection's `[1, 1024]` linear-weight shape is expected for hidden size 1024
+(see §2.1.0a); it neither proves weights are trained nor validates an export.
+The LFM2.5 ONNX export requires the repo's
 bidirectional modeling patch (`trust_remote_code` + a small `seq_idx`
 compatibility wrapper) — without it the embeddings are constant vectors; the
 sentence-transformers ONNX tokenizers (MiniLM-L6/L12) pad to a fixed 128
@@ -212,7 +235,7 @@ mask at pad positions or the embeddings lose all discrimination (measured:
 nDCG 0.009 -> 0.617 on French after the fix); the benchmark caches encoded
 vectors and the sampled dataset so re-runs cost minutes, not re-encodes.
 
-### 2.1.0c. Dense-lane promotion decision (dated 2026-08-09)
+### 2.1.0c. Historical dense-lane promotion decision (dated 2026-08-09)
 
 The re-justified judgment set v2 (`learned_sparse_task_corpus_v2.json`) scales
 the lifecycle budgets for encode lanes (initial/rebuild 220-440 s, incremental
@@ -225,7 +248,7 @@ evaluated for the first time: the local ONNX embedding sidecar
 `LocalHttpEmbeddingProvider`, with the manifest templates made configurable
 (`embedding_query_template`/`embedding_document_template`).
 
-**Result — DomainTerminology is promoted to the hybrid (lexical + dense)
+**Historical result — DomainTerminology was promoted to the hybrid (lexical + dense)
 route** (report `sha256:27027721675f67962f258684f568955332b53b3540cef9b7423dea53ccb53042`,
 ledger milestone v1.3):
 
@@ -238,14 +261,12 @@ ledger milestone v1.3):
 | p95 latency | ~140 ms | ~110-165 ms | within 250 ms |
 
 The previous RRF fusion (k=60) degraded top-5 precision (-67 % recall@5);
-the evaluated `NormalizedBlend` fusion (min-max per-lane normalization,
-lexical weight 0.7, dense/sparse share 0.3) preserves the lexical first hits
-while the dense lane contributes coverage below them. The hybrid promotion
-record is per-class (`served_classes = {DomainTerminology}`); ExactLiteral,
-NoEvidence, and Security stay lexical (the dense lane's batch eligibility is
-gated per query class). The daemon loads the record through
-`hybrid_policy` — a saved record activates the dense fusion for the served
-classes; removing it returns to shadow.
+the evaluated `NormalizedBlend` fusion used min-max per-lane normalization,
+lexical weight 0.7 and dense/sparse share 0.3. The historical hybrid promotion
+record was per-class (`served_classes = {DomainTerminology}`); ExactLiteral,
+NoEvidence and Security stayed lexical, with dense eligibility gated by query
+class. At that time, `hybrid_policy` loaded the saved record to activate dense
+fusion for those classes; removing it returned to shadow.
 
 Two measurement fixes were required for honest telemetry: the safety checks
 are evaluated on the Security fixtures only (regular classes are
@@ -254,19 +275,33 @@ unreachable for every route), and the registry transition ops reload the
 durable state (the prepare-time snapshot's event counters were stale,
 rejecting later transitions with sequence conflicts).
 
-**User-visible apport**: a multilingual dense lane (bekko-a25m, French
-nDCG@10 0.894 on mMARCO) now serves DomainTerminology queries fused with
-lexical, once the operator saves the record (`hybrid-dense-four-profile-2026-08-09`)
-or the daemon's next evaluation does. The sparse lane remains unpromoted
+The historical multilingual dense-lane result (bekko-a25m, French nDCG@10
+0.894 on mMARCO) supported DomainTerminology under record
+`hybrid-dense-four-profile-2026-08-09`. The sparse lane remained unpromoted
 (MRR regression vs the hybrid baseline under judgment set v2).
+
+The 2026-10-02 cutover requires the complete
+`hybrid-lexical-head-preserving-v1+fixed-k-rrf-v1:k=60` ranking identity.
+Generic lexical-head preservation now protects the actual first eligible
+lexical-baseline result, with Fixed-K RRF ordering the tail. Historical records
+without that identity cannot activate the new policy and fail closed to Shadow.
+The new 60-need bilingual candidate evaluation improved passage recall and
+preserved all 32 comparable lexical heads, but two frozen controls failed.
+Current serving qualification remains unpassed; see `docs/ROADMAP.md` for the
+immutable first outcomes and scope limits.
+Historical model results do not change the current route: it remains Shadow,
+with mandatory lexical quality retained.
 
 ### 2.1.1. Frozen learned-sparse task corpus
 
 The representative real-task freeze is `tests/contracts/learned_sparse_task_corpus_v1.json`.
 Its source manifest is content-addressed and names repository-relative task and evidence inputs.
 Normal retrieval cases use real Maestria task identifiers; synthetic cases are limited to
-adversarial and lifecycle coverage. Each final query class has two independent task cases,
-while development cases remain separate from the frozen final split.
+adversarial and lifecycle coverage. Each final query class has only two independent
+final task cases, a narrow basis for quality generalization; development cases
+remain separate from the frozen final split. #428's 31 timing repetitions per
+case/route characterize repeated machine timings, not 31 independent needs, and
+do not justify extrapolating the 147-chunk timing corpus to all user files.
 
 Judgments use an explicit three-level relevance scale, accepted exact spans, evidence-chain
 identities, citation expectations, freshness requirements, and security outcomes. Two judges
@@ -482,9 +517,12 @@ was built or promoted. The negative result is therefore: late interaction
 does not qualify for Stage A serving on this frozen run, and Stage B has no
 independent need authorization.
 
-## 4.5. Product-exit evidence checkpoint (dated 2026-09-11)
+## 4.5. Historical product-exit evidence checkpoint (dated 2026-09-11)
 
 The current ledger does not certify a product-complete retrieval surface.
+This dated section is historical retrieval evidence and does not certify a
+current product milestone.
+
 The machine-readable statuses are recorded in
 [`tests/contracts/benchmark_evidence_v1.json`](../tests/contracts/benchmark_evidence_v1.json).
 `v1.2` and `v1.3` contain complete real lane evaluations, but their pass
@@ -508,10 +546,10 @@ The required evidence task is a bounded product-exit report for the currently
 supported exact, lexical, dense-hybrid, repository, and visual surfaces. It
 must preserve the existing per-class routes and report quality, p50/p95/p99
 latency, memory, disk, privacy, security, freshness, update/rollback, and
-energy availability without converting unavailable counters into passes. The
-2026-09-11 run is an evidence snapshot, not completion of that gate; Phase 6
-remains open and no additional experimental lane is justified by the existence
-of an issue or adapter.
+energy availability without converting unavailable counters into passes.
+The 2026-09-11 run is an evidence snapshot, not completion of that retrieval
+gate; the former retrieval Phase 6 remained open and no additional
+experimental lane was justified by the existence of an issue or adapter.
 
 ### 4.5.1. Bounded supported-route run (2026-09-11)
 
@@ -565,16 +603,195 @@ the quality and latency improvement. The thread configuration is retained as
 a bounded research optimization; the visual route remains
 provider-dependent/research-only and shadowed.
 
+## 4.6. Historical retrieval roadmap checkpoint (dated 2026-09-11)
+
+This record was migrated from the former implementation roadmap. It is
+historical retrieval evidence, not a current product milestone or gate.
+
+**Historical checkpoint (2026-09-11):** Retrieval Phase 6 remained open. The
+learned-sparse and late-interaction evaluations were complete non-promoting
+decisions; the measured dense result promoted only `DomainTerminology`.
+
+The bounded supported-route run completed: repository process-RSS and
+persisted-index disk measurements emitted real values, while RAPL energy and
+serving-boundary security counters remained unavailable. The real visual
+provider had a measured four-thread ONNX optimization that materially reduced
+inference latency, but the optimized end-to-end run still exceeded four of six
+frozen visual latency budgets and left resource measurement status unavailable.
+
+The next retrieval gate was closing those evidence gaps for the exact,
+lexical, dense-hybrid, repository, and visual routes. No additional research
+lane was implemented solely because its issue was next in numeric order.
+
 ## 3. Promotion Criteria
 
-A candidate is promoted from this research document to an active architectural component only when:
+A candidate is eligible for evaluated subsystem activation only when:
 
 1. For each proposed served query class, it beats that class's eligible existing baseline on a frozen, versioned Maestria evaluation corpus; protected exact and lexical paths remain unchanged.
 2. It satisfies all requirements of [OPERATIONS.md](./OPERATIONS.md), including reproducibility, generation lifecycle, cancellation, degradation, and rollback.
 3. The integration is abstracted behind provider-neutral contracts and remains replaceable.
 4. The dated report records corpus, judgment, model/index, environment, quality, resource, privacy, security, and energy evidence.
-5. Promotion is restricted to the query classes and exact route configuration that won; all other paths remain shadowed or use the conservative baseline.
+5. Activation is restricted to the query classes and exact route configuration that won; all other paths remain shadowed or use the conservative baseline.
+
+These criteria govern retrieval subsystem activation; they do not schedule
+product milestones. The product roadmap is not a queue of models or research
+candidates.
 
 The numeric budgets in a frozen corpus are comparability gates, not universal
 product SLOs. Changing a budget requires a new corpus revision and a
 workload-backed rationale; a candidate cannot relax its own gate.
+
+## 5. Slint backend feasibility evidence (2026-09-23)
+
+A disposable Rust 2024 probe **outside the workspace**, pinned to Slint 1.18.1,
+used `default-features = false` with `std`, `backend-winit`,
+`renderer-software`, `accessibility`, and `compat-1-2`; both runs selected
+`SLINT_BACKEND=winit-software`. Slint requires Rust 1.92; the workspace
+requires 1.95. The same binary rendered on X11 (`DISPLAY=:1`,
+`WAYLAND_DISPLAY=""`) and the active Wayland compositor (`DISPLAY=""`,
+`WAYLAND_DISPLAY=wayland-1`). Keyboard input reached two standard `LineEdit`
+controls through Tab navigation, and Tab/Return activated a button that hid
+the window then restored it after 400 ms on both backends. See the
+[X11 capture](evidence/slint-x11.webp) and the
+[Wayland app-only crop](evidence/slint-wayland.webp). With both instances
+open, sampled process RSS was
+25.5 MiB (X11) and 34.8 MiB (Wayland), respectively.
+
+Twenty headless X11 process launches on the same machine, with warm page
+cache, measured process-spawn to `Window::show()` return and its stdout
+acknowledgment: p50 58.117 ms, p95 67.294 ms, p99 75.738 ms
+(range 38.317–75.738 ms). This does **not** measure painted pixels or
+interactivity, and the disposable probe does not load a catalog. It is not
+comparable to the historical Tauri activation acknowledgment or
+WebDriver-inclusive 1,051.115 ms cold bound.
+
+With `org.a11y.Status.IsEnabled` on a private AT-SPI bus, the X11 probe
+registered an application, frame, label, two `entry` roles and a `button` role.
+Its two entries initially had empty accessible names despite placeholder text.
+Setting `accessible-label` on each `LineEdit` made AT-SPI report `Search query`
+and `Secondary query` as named entries in a rebuilt probe. The real launcher
+must name its query and actions likewise. Wayland AT-SPI and spoken
+screen-reader output were not tested.
+
+This is **backend feasibility, not the shipped launcher**. The small probe has
+no catalog, daemon, shortcut or native action; its RSS cannot be compared as a
+product benchmark with Tauri's 552.543 MiB full launcher/WebKit sum.
+Actual cold interactive latency and full screen-reader traversal remain
+unmeasured; they must be checked on the actual Slint launcher before #518
+and #523 close.
+The experiment also did not validate a GPU renderer: software is the proven
+portable fallback, while accelerated rendering is an opt-in benchmark choice.
+
+Choose Slint's [Royalty-free Desktop, Mobile, and Web Applications License
+2.0](https://slint.dev/terms-and-conditions), not GPLv3, for the MIT/Apache
+workspace. Distribution requires either
+the `AboutSlint` widget in an About dialog reached from the top-level menu
+(or a splash screen without one), **or** Slint's
+[attribution badge](https://github.com/slint-ui/slint/tree/master/logo/MadeWithSlint-logo-whitebg.png)
+readily discoverable on a public page, preferably beside the downloads.
+The working-tree launcher now presents `AboutSlint` from its top-level About
+control (see the actual-window evidence below). Neither toolkit-alone
+distribution nor API exposure is intended. The workspace uses version-pinned
+Slint license exceptions rather than a blanket GPL allowance, and
+`cargo deny --workspace --all-features check all` passed on the audited graph.
+This does not certify an as-yet unbuilt release package.
+
+## 6. Actual Slint launcher process evidence (2026-09-24)
+
+The `maestria-launcher` debug binary, not the disposable probe, opened a
+resident Slint window on isolated X11 and the active Wayland compositor with
+the software renderer. Both runs used private singleton/preference directories,
+without the daemon or an embedding model. On X11, first-launch keyboard input
+produced `7*6 → 42`; Ctrl+K exposed **Copy Result** and Return closed the
+action overlay. Escape hid the window without terminating the process, and
+another `--activate` remapped the same singleton window. On Wayland, keyboard
+input produced `9*9 → 81`; Escape and `--activate` likewise hid and restored the
+window. `--quit` exited the Wayland process cleanly.
+
+The actual [X11 window](evidence/slint-launcher-x11.webp),
+[Wayland app-only crop](evidence/slint-launcher-wayland.webp), and
+[top-level About view](evidence/slint-launcher-about.webp) are cropped to the
+launcher. The About view visibly contains Slint's official `AboutSlint` logo,
+version, and link; this implements the chosen toolkit attribution route.
+X11 preferences switched both application surfaces and native widgets to
+the dark palette. Saving produced an isolated `launcher.toml` with
+`theme = "dark"`, and a fresh launcher process loaded that theme.
+
+Local release artifacts were also packaged as Debian and AppImage with
+`cargo-packager 0.11.8` (`NO_STRIP=1` avoids linuxdeploy's obsolete strip on
+Arch `.relr.dyn` libraries). The Debian control retains
+`Package: io-github-briolabs-maestria-launcher`, the desktop entry retains
+`io.github.briolabs.Maestria.Launcher`, and both archives contain the native
+executable, a real PNG icon, and Slint notices. An isolated Xvfb/JWM/D-Bus
+session ran the extracted Debian executable and the AppImage: AT-SPI exposed
+the named focused search entry with typed input, a discoverable About button,
+and the focused global-shortcut editor after Ctrl+Comma. This verifies
+package payloads and partial native accessibility, not an apt fresh install.
+
+One X11 debug-process sample from `/proc/<pid>/status` reported VmRSS 89,216
+kB while the Xvfb output scaled the 760×590 logical window to 1901×1475
+pixels. This is neither release RSS nor a matched Tauri comparison. Actual
+painted-pixel cold/activation percentiles, full AT-SPI navigation, Wayland
+portal-grant interaction, and fresh-install package behavior remain
+unmeasured. Do not close #518 or #523 on this evidence alone.
+
+## 7. Historical material accessibility register (2026-10-07)
+
+This is a documentary register, not an experiment or retrospective qualification.
+Public PR metadata and repository directory metadata were read; no model,
+dataset, private original, capture, or report payload was acquired or replayed.
+The existing BGE-M3 and sampled-subcorpus corrections above remain unchanged.
+
+### 7.1. Separate chronology and original/derived material
+
+| Claim source | Original material → derived material | Current access boundary |
+|---|---|---|
+| [#90](https://github.com/brio-labs/maestria/issues/90) foundation; [PR #425](https://github.com/brio-labs/maestria/pull/425) | July-30 v1 task freeze → initial sparse report and ledger v1.2 | PR #425 is closed, not merged. The current v1 corpus is publicly listed; retention of the initial report revision is unverified. |
+| [PR #426](https://github.com/brio-labs/maestria/pull/426), complete-telemetry revision | The same v1 freeze → a distinct fp32 report revision | Merged August 8. The earlier report bytes are not established by today's terminal report with the same filename. |
+| [PR #426](https://github.com/brio-labs/maestria/pull/426), int8 revision | The same v1 freeze and changed provider profile → a separate int8 report revision | Preserve this revision separately from both complete-telemetry fp32 and optimized #428. Exact historical bytes remain unverified here. |
+| [PR #428](https://github.com/brio-labs/maestria/pull/428) | The v1 freeze and optimized sparse lane → terminal v1 report | Merged August 9. The terminal report is publicly listed; no sparse promotion was produced. |
+| [#90](https://github.com/brio-labs/maestria/issues/90), multilingual observations; §2.1.0a | Historical checkpoint/export inspection and CPU timings → narrative/table | Earlier observations remain reported, not reproduced. The published head-shape correction does not verify historical checkpoint bytes. |
+| [#90](https://github.com/brio-labs/maestria/issues/90), sampled comparison; §2.1.0b | EN/FR queries, qrels and conditioned 5k sample → cross-model report | The derived report is publicly listed. Exact sampled inputs, caches, vectors and original run output remain unverified; this is not the 147-chunk task campaign. |
+| [PR #429](https://github.com/brio-labs/maestria/pull/429) | New v2 judgments and budgets → dense v2 report and historical promotion | Merged August 9. V2 corpus/report are publicly listed; the actual historical instance promotion record is unverified here. |
+| [PR #445](https://github.com/brio-labs/maestria/pull/445) | Distinct hybrid corpus and six-class evaluation → manual report and instance-store promotion | Merged August 17. The corpus is publicly listed; the exact manual report and uncommitted instance record are not established by the earlier v2 report. |
+| [#91](https://github.com/brio-labs/maestria/issues/91), [PR #511](https://github.com/brio-labs/maestria/pull/511), Stage A | Separate late-interaction corpus/profile → measured Stage A report | PR #511 merged September 10. Corpus and Stage A report are publicly listed; this merges evidence, not the rejected implementation. |
+| [PR #511](https://github.com/brio-labs/maestria/pull/511), Stage B | Stage A evidence → negative Stage B authorization decision | The decision is publicly listed. Stage B is a decision, not an executed indexed-retrieval experiment; the implementation remains separately archived. |
+| [#512](https://github.com/brio-labs/maestria/issues/512) | Historical reports/ledger → product-exit matrix | A derived checkpoint, not a new measurement or current product qualification. |
+| [#513](https://github.com/brio-labs/maestria/issues/513), §4.5.1 | Supported-route suites → generated reports and summary | Issue and documentation give different source/run bindings. Generated `target/` paths do not prove durable report retention or the identity of a single run. |
+| [#514](https://github.com/brio-labs/maestria/issues/514), §4.5.2 | Separate four-thread visual profile → generated report and timing tables | A committed visual report is publicly listed, but its exact association with the declared generated report is unverified. Removal of services/temporary environments does not establish report deletion or archival. |
+| [PR #515](https://github.com/brio-labs/maestria/pull/515), [#515](https://github.com/brio-labs/maestria/issues/515) | Resource telemetry proposal → declared checks/evidence linkage | PR #515 is open and unmerged. Proposal/check lists do not establish retained report bytes or a qualified route. |
+
+Public [PR API metadata](https://api.github.com/repos/brio-labs/maestria/pulls/425)
+established the merge-state distinctions; a non-null merge-commit field alone
+does not mean a closed PR merged. Public
+[directory metadata at the published source](https://api.github.com/repos/brio-labs/maestria/contents/tests/contracts?ref=4fb3a65e815e365ca5ca8e271b09dc7dacfa5520)
+listed the v1/v2 sparse corpora/reports, hybrid corpus, cross-model report,
+late-interaction corpus/Stage A report/Stage B decision, and visual report.
+Listing establishes public repository entries only: no payload hash agreement,
+historical execution reproduction, or identity with an earlier report revision.
+
+### 7.2. Availability is not retention permission
+
+The historical ledger and frozen snapshots are documentary derivatives; retain
+their original corpus/task labels and report revisions. Public access to a
+committed derivative or a repository license does not establish original-by-
+original permission to retain or share private tasks, external dataset inputs,
+provider requests, caches, captures, or instance-store promotion records.
+Those permissions remain unverified unless an explicit applicable grant exists.
+Provider no-input-retention declarations are not grants to archive their inputs.
+
+Distinguish **public metadata observed**, **private access established**,
+**absence explicitly reported**, and **availability unverified**. Do not infer
+private status merely from a real-task label. The original unavailable-search CI
+response is explicitly reported unretained in `OPERATIONS.md`; later observations
+cannot recover it. An unverified generated path is not proof of absence.
+
+The kit's historical SHA claim still lacks an exact publicly citable origin.
+Its digest/object identity and correction remain unverified. The independently
+documented #551 comment/PR-head discrepancy is a separate record, not a source
+mapping for that kit claim. [EVD-01](https://github.com/brio-labs/maestria/issues/563)
+explicitly excludes current public issue #561; do not attach the claim to,
+rewrite, or reopen that issue. No disputed digest is published by this register.
+EVD-01 remains open; main remains Shadow, PR #516 remains draft, and scientific
+and product qualification remain false.
+

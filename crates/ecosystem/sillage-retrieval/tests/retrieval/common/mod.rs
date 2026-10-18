@@ -1,0 +1,110 @@
+pub mod golden;
+
+use sillage_domain::{
+    ArtifactVersionId, ContentRange, CorpusScope, CorpusSnapshotId, EvidenceCandidate,
+    EvidenceCandidateDto, EvidenceRequirements, EvidenceSpan, FreshnessRequirement,
+    FreshnessStatus, IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprint,
+    RetrievalReason, RetrievalScoreSet, SearchBudget, SearchIntent, SearchPlan, SearchStage,
+    SourceLocation, StopConditions, StructureNodeId, TrustLabel,
+};
+use sillage_retrieval::{RetrievalError, RetrievalResult};
+
+pub fn fixture_scores(
+    bm25: u32,
+    dense: u32,
+) -> Result<RetrievalScoreSet, sillage_domain::SearchCompatibilityError> {
+    let mut lanes = Vec::new();
+    if bm25 != 0 {
+        let representation = sillage_domain::RepresentationName::new("lexical_text_v1");
+        lanes.push(sillage_domain::RetrievalLaneScore::new(
+            sillage_domain::RetrievalScoreKind::LexicalBm25,
+            i64::from(bm25),
+            sillage_domain::RetrievalRawRank::ranked(1),
+            sillage_domain::RetrievalScoreScale::unbounded("fixture_bm25"),
+            representation.clone(),
+            sillage_domain::RetrievalScoreFingerprint::new(
+                sillage_domain::RetrievalModelFingerprint::new(
+                    "fixture:lexical-bm25:v1".to_string(),
+                )?,
+                std::collections::BTreeMap::from([(
+                    "representation".to_string(),
+                    representation.0,
+                )]),
+            ),
+        ));
+    }
+    if dense != 0 {
+        let representation = sillage_domain::RepresentationName::new("dense_text_v1");
+        lanes.push(sillage_domain::RetrievalLaneScore::new(
+            sillage_domain::RetrievalScoreKind::DenseSimilarity,
+            i64::from(dense),
+            sillage_domain::RetrievalRawRank::ranked(1),
+            sillage_domain::RetrievalScoreScale::bounded_fixed_point(
+                "fixture_dense_micros",
+                1_000_000,
+                0,
+                1_000_000,
+            ),
+            representation.clone(),
+            sillage_domain::RetrievalScoreFingerprint::new(
+                sillage_domain::RetrievalModelFingerprint::new(
+                    "fixture:dense-similarity:v1".to_string(),
+                )?,
+                std::collections::BTreeMap::from([(
+                    "representation".to_string(),
+                    representation.0,
+                )]),
+            ),
+        ));
+    }
+    RetrievalScoreSet::new(lanes)
+}
+
+pub fn candidate_fixture() -> RetrievalResult<EvidenceCandidate> {
+    Ok(EvidenceCandidate::new(EvidenceCandidateDto {
+        evidence_id: sillage_domain::EvidenceId::new(23),
+        artifact_version: ArtifactVersionId::new(19),
+        source_span: EvidenceSpan::new(
+            Some(StructureNodeId::new(29)),
+            SourceLocation::file("notes/research.md".to_string(), 4, 8)?,
+            ContentRange::new(32, 96)
+                .map_err(|error| RetrievalError::Internal(error.to_string()))?,
+        )?,
+        scores: fixture_scores(91, 88)?,
+        trust: TrustLabel::Verified,
+        freshness: FreshnessStatus::UpToDate,
+        duplicate_cluster: Some(sillage_domain::DuplicateClusterId::new(31)),
+        reasons: vec![RetrievalReason::ExactMatch, RetrievalReason::CitationLink],
+        coverage_keys: vec![],
+    })?)
+}
+
+pub fn dummy_plan() -> RetrievalResult<SearchPlan> {
+    Ok(SearchPlan::builder()
+        .query_id(QueryId::new(1))
+        .original_query("test query".to_string())
+        .intent(SearchIntent::FactualLocal)
+        .scope(CorpusScope::Global)
+        .corpus_snapshot(CorpusSnapshotId::new(1))
+        .index_generation(IndexGenerationId::new(1))
+        .freshness(FreshnessRequirement::Any)
+        .modalities(ModalitySet::new(vec![Modality::Text]))
+        .stages(vec![SearchStage::InitialRetrieval])
+        .budgets(SearchBudget::new(1000, 100)?)
+        .stop_conditions(StopConditions {
+            max_results: 10,
+            min_score_threshold: 50,
+        })
+        .evidence_requirements(EvidenceRequirements {
+            required_claims: vec![],
+            required_subquestions: vec![],
+            minimum_sources: 0,
+            minimum_documents: 0,
+            minimum_sections: 0,
+            require_primary_sources: false,
+            minimum_corroboration: 1,
+        })
+        .fingerprint(RetrievalModelFingerprint::new("dummy-model".into())?)
+        .authorization(sillage_domain::RetrievalPolicySnapshot::global_default())
+        .build()?)
+}

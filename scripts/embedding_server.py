@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serve a local ONNX embedding model through Maestria's dense vector contract.
+"""Serve a local ONNX embedding model through Sillage's dense vector contract.
 
 The daemon's dense lane talks OpenAI-compatible embeddings: POST
 /v1/embeddings with {"input": str, "model": str, "dimensions": n?} returns
@@ -137,7 +137,7 @@ class EmbeddingServer(ThreadingHTTPServer):
 
 
 class RequestHandler(BaseHTTPRequestHandler):
-    server_version = "maestria-embedding/1"
+    server_version = "sillage-embedding/1"
 
     def do_POST(self) -> None:
         if self.path != EMBEDDINGS_PATH:

@@ -1,0 +1,26 @@
+{
+  "apiVersion": 1,
+  "id": "dev.sillage.text-tools",
+  "name": "Text Tools",
+  "version": "1.0.0",
+  "entrypoints": [
+    {
+      "id": "main",
+      "file": "dist/main.js"
+    }
+  ],
+  "commands": [
+    {
+      "id": "text-tools",
+      "title": "Text Tools",
+      "entrypointId": "main",
+      "description": "Convert text to a common case style, review it, then explicitly copy it."
+    }
+  ],
+  "permissions": [
+    {
+      "type": "copy",
+      "formats": ["text"]
+    }
+  ]
+}

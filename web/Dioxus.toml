@@ -1,5 +1,5 @@
 [application]
-name = "maestria-studio-web"
+name = "sillage-studio-web"
 out_dir = "dist"
 asset_dir = "assets"
 
@@ -7,7 +7,7 @@ asset_dir = "assets"
 pre_compress = false
 
 [web.app]
-title = "Maestria Studio"
+title = "Sillage Studio"
 
 [web.watcher]
 index_on_404 = true

@@ -1,0 +1,256 @@
+import { Button, LineEdit, ScrollView, TextEdit } from "std-widgets.slint";
+
+export struct UtilityRow { id: string, title: string, preview: string }
+
+export component UtilityPanel inherits Rectangle {
+    in property <bool> dark-mode;
+    in-out property <string> kind: "quicklinks";
+    in property <[UtilityRow]> rows;
+    in-out property <string> query;
+    in-out property <string> selected-id;
+    in-out property <string> entry-title;
+    in-out property <string> entry-content;
+    in property <string> saved-content;
+    in-out property <string> argument;
+    in property <string> message;
+    in property <bool> busy;
+    in property <bool> available;
+    in-out property <bool> editing: false;
+    property <int> selected-index: 0;
+    callback kind-requested(string);
+    callback filter-requested(string);
+    callback selected-requested(string);
+    callback save-requested(string, string, string);
+    callback remove-requested(string);
+    callback expand-requested(string, string);
+    callback capture-requested();
+    callback clear-requested();
+    callback close-requested();
+    background: root.dark-mode ? #141b20 : #f6f8f5;
+    clip: true;
+    forward-focus: keys;
+    public function focus-search() { filter.focus(); }
+    public function focus-editor() {
+        if (root.kind == "clipboard") { perform-action.focus(); }
+        else { parameters.focus(); }
+    }
+    function change-kind(value: string) {
+        root.kind = value;
+        root.editing = false;
+        root.selected-index = 0;
+        root.query = "";
+        root.kind-requested(value);
+        root.focus-search();
+    }
+    function select-entry() {
+        if (!root.busy && root.available && root.rows.length > 0 && root.selected-index < root.rows.length) {
+            root.selected-requested(root.rows[root.selected-index].id);
+        }
+    }
+    function create-entry() {
+        root.selected-id = "";
+        root.entry-title = "";
+        root.entry-content = "";
+        root.argument = "";
+        root.editing = true;
+        name.focus();
+    }
+    keys := FocusScope {
+        capture-key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                if (root.editing) {
+                    root.editing = false;
+                    root.focus-search();
+                } else { root.close-requested(); }
+                accept
+            } else if (!root.busy && root.available && root.kind != "clipboard"
+                && event.modifiers.control && (event.text == "n" || event.text == "N")) {
+                root.create-entry();
+                accept
+            } else if (!root.busy && root.editing && root.kind != "clipboard"
+                && event.modifiers.control && (event.text == "s" || event.text == "S")) {
+                root.save-requested(root.selected-id, root.entry-title, root.entry-content);
+                accept
+            } else if (!root.busy && !root.editing && event.text == Key.DownArrow) {
+                if (root.selected-index < root.rows.length - 1) { root.selected-index += 1; }
+                accept
+            } else if (!root.busy && !root.editing && event.text == Key.UpArrow) {
+                if (root.selected-index > 0) { root.selected-index -= 1; }
+                accept
+            } else if (!root.busy && !root.editing && (event.text == Key.Return || event.text == "\n")) {
+                root.select-entry();
+                accept
+            } else { reject }
+        }
+        VerticalLayout {
+            padding: 8px;
+            spacing: 8px;
+            HorizontalLayout {
+                spacing: 6px;
+                Button { text: "Quicklinks"; enabled: !root.busy; clicked => { root.change-kind("quicklinks"); } }
+                Button { text: "Snippets"; enabled: !root.busy; clicked => { root.change-kind("snippets"); } }
+                Button { text: "Clipboard"; enabled: !root.busy; clicked => { root.change-kind("clipboard"); } }
+                Rectangle { background: transparent; horizontal-stretch: 1; }
+                Button { text: "Back"; accessible-label: "Close utilities"; clicked => { root.close-requested(); } }
+            }
+            Text {
+                text: root.kind == "clipboard" ? "Explicit saves only · memory-only · expires after one hour · at most 100 entries. Never save secrets."
+                    : root.kind == "quicklinks" ? "HTTP(S) links only. Use {query} for a safely encoded parameter. No shell commands."
+                    : "Literal text with optional {query}. Expand and copy explicitly, then paste normally. No global typing surveillance.";
+                color: root.dark-mode ? #b2c0ba : #4a625b;
+                wrap: word-wrap;
+                font-size: 12px;
+                accessible-role: text;
+                accessible-label: self.text;
+            }
+            Text {
+                visible: root.message != "";
+                text: root.message;
+                color: root.dark-mode ? #eaf5ef : #1a2b2b;
+                wrap: word-wrap;
+                accessible-role: text;
+                accessible-label: self.text;
+            }
+            Rectangle {
+                background: transparent;
+                vertical-stretch: 1;
+                Rectangle {
+                    visible: !root.editing;
+                    width: parent.width;
+                    height: parent.height;
+                    VerticalLayout {
+                        spacing: 8px;
+                        filter := LineEdit {
+                            text <=> root.query;
+                            placeholder-text: "Search saved entries";
+                            accessible-label: "Search utilities";
+                            enabled: root.available;
+                            edited => { root.selected-index = 0; root.filter-requested(self.text); }
+                        }
+                        HorizontalLayout {
+                            if root.kind != "clipboard": Button {
+                                text: "New entry";
+                                accessible-label: "Create utility entry";
+                                enabled: root.available && !root.busy;
+                                clicked => { root.create-entry(); }
+                            }
+                            if root.kind == "clipboard": Button {
+                                text: "Save current clipboard";
+                                accessible-label: "Explicitly save current clipboard text";
+                                enabled: root.available && !root.busy;
+                                clicked => { root.capture-requested(); }
+                            }
+                            if root.kind == "clipboard": Button {
+                                text: "Clear history";
+                                accessible-label: "Clear saved clipboard history";
+                                enabled: root.available && !root.busy;
+                                clicked => { root.clear-requested(); }
+                            }
+                            Rectangle { background: transparent; horizontal-stretch: 1; }
+                        }
+                        ScrollView {
+                            vertical-stretch: 1;
+                            content-y: min(0px, self.height - (root.selected-index + 1) * 70px);
+                            VerticalLayout {
+                                spacing: 4px;
+                                for entry[index] in root.rows: Rectangle {
+                                    height: 66px;
+                                    vertical-stretch: 0;
+                                    border-radius: 8px;
+                                    border-width: 1px;
+                                    border-color: root.selected-index == index ? #76b69c : transparent;
+                                    background: root.selected-index == index ? (root.dark-mode ? #213b33 : #e4f1e9) : transparent;
+                                    VerticalLayout {
+                                        padding: 8px;
+                                        spacing: 3px;
+                                        Text { text: entry.title; color: root.dark-mode ? #eaf5ef : #1a2b2b; overflow: elide; font-weight: 600; }
+                                        Text { text: entry.preview; color: root.dark-mode ? #b2c0ba : #4a625b; overflow: elide; font-size: 12px; }
+                                    }
+                                    TouchArea {
+                                        accessible-role: button;
+                                        accessible-label: entry.title + ": " + entry.preview;
+                                        clicked => { root.selected-index = index; root.select-entry(); }
+                                    }
+                                }
+                                if root.rows.length == 0: Text {
+                                    text: !root.available ? "Saved entries are unavailable."
+                                        : root.query != "" ? "No matching saved entries."
+                                        : root.kind == "clipboard" ? "No saved clipboard text. Use Save current clipboard to capture it explicitly."
+                                        : "No saved entries. Create one to get started.";
+                                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                                    wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: self.text;
+                                }
+                            }
+                        }
+                    }
+                }
+                Rectangle {
+                    visible: root.editing;
+                    width: parent.width;
+                    height: parent.height;
+                    VerticalLayout {
+                        spacing: 8px;
+                        name := LineEdit {
+                            text <=> root.entry-title;
+                            placeholder-text: "Name";
+                            accessible-label: "Utility entry name";
+                            enabled: root.kind != "clipboard" && !root.busy;
+                        }
+                        body := TextEdit {
+                            text <=> root.entry-content;
+                            accessible-label: root.kind == "quicklinks" ? "Quicklink URL template" : "Utility entry text";
+                            read-only: root.kind == "clipboard" || root.busy;
+                            vertical-stretch: 1;
+                        }
+                        parameters := LineEdit {
+                            visible: root.kind != "clipboard";
+                            text <=> root.argument;
+                            placeholder-text: "Value for {query}";
+                            accessible-label: "Utility expansion parameter";
+                            accepted => {
+                                if (root.selected-id != "" && !root.busy && root.entry-content == root.saved-content) {
+                                    root.expand-requested(root.selected-id, self.text);
+                                }
+                            }
+                        }
+                        if root.selected-id != "" && root.entry-content != root.saved-content: Text {
+                            text: "Save the changed template before expanding it.";
+                            color: root.dark-mode ? #b2c0ba : #4a625b;
+                            wrap: word-wrap;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                        }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Button {
+                                text: "Entries";
+                                clicked => { root.editing = false; root.focus-search(); }
+                            }
+                            if root.kind != "clipboard": Button {
+                                text: "Save";
+                                accessible-label: "Save utility entry";
+                                enabled: !root.busy;
+                                clicked => { root.save-requested(root.selected-id, root.entry-title, root.entry-content); }
+                            }
+                            Button {
+                                text: "Delete";
+                                accessible-label: "Delete utility entry";
+                                enabled: root.selected-id != "" && !root.busy;
+                                clicked => { root.remove-requested(root.selected-id); }
+                            }
+                            Rectangle { background: transparent; horizontal-stretch: 1; }
+                            perform-action := Button {
+                                text: root.kind == "quicklinks" ? "Open link" : "Expand and copy";
+                                accessible-label: root.kind == "quicklinks" ? "Open expanded quicklink" : "Copy expanded utility text";
+                                enabled: root.selected-id != "" && !root.busy && root.entry-content == root.saved-content;
+                                clicked => { root.expand-requested(root.selected-id, root.argument); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

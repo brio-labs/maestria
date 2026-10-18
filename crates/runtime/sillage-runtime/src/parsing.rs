@@ -1,0 +1,319 @@
+mod ocr;
+
+use crate::config::EffectExecutionContext;
+use crate::persistence_barrier;
+use sillage_domain::{
+    Artifact, ArtifactId, BlobId, DomainInput, ParseArtifactRequest, ParseArtifactSource,
+    ParserStarted, content_hash,
+};
+use sillage_ports::FileMetadata;
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+impl EffectExecutionContext {
+    /// Parse an artifact into chunks, cards, and evidence.
+    /// Handles both fresh ingestion (blob storage + ParserStarted event)
+    /// and resume (blob already stored, ParserStarted already persisted).
+    pub(crate) async fn handle_parse_artifact(
+        &self,
+        request: ParseArtifactRequest,
+        persistence_barrier_timeout: Option<Duration>,
+    ) -> bool {
+        // 1. Resolve the artifact (repo → state → ephemeral).
+        let Some(artifact) = self
+            .resolve_artifact_for_parse(request.artifact_id, &request.source_path)
+            .await
+        else {
+            return false;
+        };
+
+        // 2. Resolve the bytes to parse and the blob identity.
+        let Ok((parse_bytes, blob_id, is_resume)) =
+            self.resolve_blob_for_parse(&request, artifact.id).await
+        else {
+            return false;
+        };
+
+        let path = PathBuf::from(&request.source_path);
+        let Ok(source_hash) = sillage_domain::ContentHash::new(content_hash(&parse_bytes)) else {
+            return false;
+        };
+
+        // 3. Check that the parser supports this file type.
+        if !self.check_parser_support(&path, &parse_bytes, artifact.id) {
+            if !self
+                .emit_terminal_parser_completed(
+                    artifact.id,
+                    sillage_domain::ArtifactVersionId::new(artifact.id.value()),
+                    sillage_ports::ParseStatus::Unsupported,
+                    &source_hash,
+                )
+                .await
+            {
+                return false;
+            }
+            return self.emit_start_full_text_index(artifact.id).await.is_ok();
+        }
+
+        // 4. On fresh ingestion, publish the durable ParserStarted marker and
+        //    wait for it to become observable in the event log (persistence barrier).
+        if !is_resume
+            && !self
+                .publish_parser_started(
+                    artifact.id,
+                    &artifact.title,
+                    &request.source_path,
+                    &source_hash,
+                    blob_id,
+                    persistence_barrier_timeout,
+                )
+                .await
+        {
+            return false;
+        }
+
+        // 5. Run the parser and emit domain inputs for the results.
+        self.parse_and_emit(
+            &request,
+            artifact.id,
+            parse_bytes,
+            blob_id,
+            source_hash,
+            path,
+        )
+        .await
+    }
+
+    /// Resolve the artifact for parsing: try the repository, then in-memory state,
+    /// then fall back to an ephemeral artifact for staged/resume ingestion.
+    async fn resolve_artifact_for_parse(
+        &self,
+        artifact_id: ArtifactId,
+        source_path: &str,
+    ) -> Option<Artifact> {
+        match self.adapters.artifact_repo.get(artifact_id) {
+            Ok(Some(artifact)) => Some(artifact),
+            Ok(None) => {
+                let state_read = self.state.read().await;
+                if let Some(artifact) = state_read.artifacts.get(&artifact_id).cloned() {
+                    Some(artifact)
+                } else {
+                    // Staged ingestion or resume: no persisted artifact yet. Construct an
+                    // ephemeral typed parse context so the parser can proceed with the
+                    // request metadata. The artifact is committed later by the domain
+                    // handler when it receives ParserCompleted.
+                    tracing::debug!(
+                        artifact_id = %artifact_id,
+                        "no persisted artifact; constructing ephemeral context for parse"
+                    );
+                    Some(Artifact {
+                        id: artifact_id,
+                        title: source_path.to_owned(),
+                        chunk_ids: BTreeSet::new(),
+                        card_ids: BTreeSet::new(),
+                        claim_ids: BTreeSet::new(),
+                        evidence_ids: BTreeSet::new(),
+                        index_status: sillage_domain::IndexStatus::default(),
+                        content_hash: None,
+                        parse_status: None,
+                        security: sillage_domain::SecurityMetadata::default(),
+                    })
+                }
+            }
+            Err(error) => {
+                tracing::error!(artifact_id = %artifact_id, %error, "failed to load artifact for parse");
+                None
+            }
+        }
+    }
+    /// Resolve the bytes to parse and the blob identity.
+    /// - `ParseArtifactSource::Inline`: store bytes in the blob store and
+    ///   obtain an immutable `BlobId`.
+    /// - `ParseArtifactSource::Blob`: fetch the exact bytes from the blob store.
+    async fn resolve_blob_for_parse(
+        &self,
+        request: &ParseArtifactRequest,
+        artifact_id: ArtifactId,
+    ) -> Result<(Vec<u8>, BlobId, bool), ()> {
+        match &request.source {
+            ParseArtifactSource::Blob(blob_id) => {
+                self.resolve_blob_for_parse_resumed(*blob_id, artifact_id)
+                    .await
+            }
+            ParseArtifactSource::Inline(source_bytes) => {
+                self.resolve_blob_for_parse_inline(source_bytes, artifact_id)
+            }
+        }
+    }
+
+    async fn resolve_blob_for_parse_resumed(
+        &self,
+        blob_id: BlobId,
+        artifact_id: ArtifactId,
+    ) -> Result<(Vec<u8>, BlobId, bool), ()> {
+        let expected_content_hash = {
+            let state_read = self.state.read().await;
+            state_read
+                .pending_parsers
+                .get(&artifact_id)
+                .filter(|started| started.artifact_id == artifact_id)
+                .map(|started| started.content_hash.clone())
+        };
+        let Some(expected_content_hash) = expected_content_hash else {
+            tracing::error!(
+                artifact_id = %artifact_id,
+                %blob_id,
+                "resume parse has no durable ParserStarted content hash; rejecting"
+            );
+            return Err(());
+        };
+        let bytes = match self.adapters.blob_store.get(blob_id) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                tracing::error!(
+                    artifact_id = %artifact_id,
+                    %blob_id,
+                    %error,
+                    "resume blob missing from store"
+                );
+                return Err(());
+            }
+        };
+        let actual_content_hash = content_hash(&bytes);
+        if actual_content_hash != expected_content_hash.as_str() {
+            tracing::error!(
+                artifact_id = %artifact_id,
+                %blob_id,
+                expected = %expected_content_hash.as_str(),
+                actual = %actual_content_hash,
+                "resume blob content hash does not match durable ParserStarted hash; rejecting"
+            );
+            return Err(());
+        }
+        Ok((bytes, blob_id, true))
+    }
+
+    fn resolve_blob_for_parse_inline(
+        &self,
+        source_bytes: &[u8],
+        artifact_id: ArtifactId,
+    ) -> Result<(Vec<u8>, BlobId, bool), ()> {
+        match self.adapters.blob_store.put(source_bytes.to_vec()) {
+            Ok(blob_id) => Ok((source_bytes.to_vec(), blob_id, false)),
+            Err(error) => {
+                tracing::error!(
+                    artifact_id = %artifact_id,
+                    %error,
+                    "failed to store source blob"
+                );
+                Err(())
+            }
+        }
+    }
+
+    /// Build a `FileMetadata` from the path and bytes, then check whether
+    /// the configured parser supports the file.
+    fn check_parser_support(
+        &self,
+        path: &Path,
+        parse_bytes: &[u8],
+        artifact_id: ArtifactId,
+    ) -> bool {
+        let metadata = FileMetadata {
+            path: path.to_path_buf(),
+            size: parse_bytes.len(),
+            extension: path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(str::to_owned),
+        };
+        if !self.adapters.parser.supports(&metadata) {
+            tracing::warn!(
+                artifact_id = %artifact_id,
+                parser = self.adapters.parser.id(),
+                path = %metadata.path.display(),
+                "parser does not support artifact"
+            );
+            return false;
+        }
+        true
+    }
+
+    /// Send `ParserStarted` and (when a barrier timeout is configured) block
+    /// until the event is observable in the event log. Returns `false` if the
+    /// barrier times out or a scan errors.
+    async fn publish_parser_started(
+        &self,
+        artifact_id: ArtifactId,
+        artifact_title: &str,
+        source_path: &str,
+        source_hash: &sillage_domain::ContentHash,
+        blob_id: BlobId,
+        barrier_timeout: Option<Duration>,
+    ) -> bool {
+        let title = {
+            let state_read = self.state.read().await;
+            state_read
+                .pending_artifacts
+                .get(&artifact_id)
+                .map_or_else(|| artifact_title.to_owned(), |p| p.title.clone())
+        };
+        // Await capacity instead of failing on a full channel: under
+        // parallel ingestion the bounded input channel backs up, and a
+        // Failed parse effect would cancel the runtime (the ParserStarted
+        // feedback is correlated with the parse, so ordering is preserved
+        // by the blocking send).
+        if Self::send_input_blocking(
+            &self.input_tx,
+            DomainInput::ParserStarted(ParserStarted {
+                artifact_id,
+                title,
+                source_path: source_path.to_owned(),
+                content_hash: source_hash.clone(),
+                blob_id,
+            }),
+            "parser started",
+        )
+        .await
+        .is_err()
+        {
+            return false;
+        }
+
+        // Persistence barrier: wait until the ParserStarted event is
+        // observable in the event log before proceeding to parse. This
+        // closes the crash window where the parser could start before
+        // the durable resume marker is committed.
+        // Only active when the runtime path supplies a timeout (production);
+        // direct unit-test calls skip this via None.
+        if let Some(barrier_timeout) = barrier_timeout {
+            let capped = barrier_timeout.min(Duration::from_secs(30));
+            let persisted = persistence_barrier::wait_for_event(
+                &*self.adapters.event_log,
+                sillage_ports::EventFilter {
+                    artifact_id: Some(artifact_id),
+                },
+                capped,
+                &tokio_util::sync::CancellationToken::new(),
+                "ParserStarted persistence barrier",
+                persistence_barrier::parser_started(artifact_id, blob_id, source_hash),
+            )
+            .await;
+            if !persisted {
+                // Degrade, do not fail the effect: under parallel ingestion
+                // the event-log write can lag past the cap, and failing here
+                // would retry-storm and cancel the runtime. The domain
+                // processes ParserStarted and ParserCompleted in channel
+                // order, so the marker still lands before the completion;
+                // a crash inside that window only re-opens the resume
+                // marker, which re-detection heals on the next run.
+                tracing::warn!(
+                    artifact_id = %artifact_id,
+                    "ParserStarted persistence barrier timed out; parsing without the barrier"
+                );
+            }
+        }
+        true
+    }
+}

@@ -2,9 +2,9 @@
 """
 Documentation consistency checker.
 
-Derives every CLI command and subcommand name from cli_types.rs,
-then verifies that the README documents them. Only flags genuine
-coverage gaps — not incidental prose matches.
+Derives every CLI command and subcommand name from cli_types.rs and its
+declared module files, then verifies that the README documents them.
+Only flags genuine coverage gaps — not incidental prose matches.
 
 Exit code 0 on full coverage, 1 on any gap.
 """
@@ -14,13 +14,23 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CLI_TYPES = REPO_ROOT / "crates" / "apps" / "maestria-cli" / "src" / "cli_types.rs"
+CLI_TYPES = REPO_ROOT / "crates" / "apps" / "sillage-cli" / "src" / "cli_types.rs"
 README = REPO_ROOT / "README.md"
 
-DAEMON_PROTOCOL = REPO_ROOT / "crates" / "apps" / "maestria-daemon" / "src" / "api" / "protocol.rs"
-DAEMON_API = REPO_ROOT / "crates" / "apps" / "maestria-daemon" / "src" / "api.rs"
-DAEMON_SERVER = REPO_ROOT / "crates" / "apps" / "maestria-daemon" / "src" / "api" / "server.rs"
+DAEMON_PROTOCOL = REPO_ROOT / "crates" / "apps" / "sillage-daemon" / "src" / "api" / "protocol.rs"
+DAEMON_API = REPO_ROOT / "crates" / "apps" / "sillage-daemon" / "src" / "api.rs"
+DAEMON_SERVER = REPO_ROOT / "crates" / "apps" / "sillage-daemon" / "src" / "api" / "server.rs"
 DAEMON_DOC = REPO_ROOT / "docs" / "DAEMON-API.md"
+
+def load_cli_types() -> str:
+    """Read the CLI enum source and its explicitly declared sibling modules."""
+    root = CLI_TYPES.read_text()
+    modules = [
+        (CLI_TYPES.parent / path).read_text()
+        for path in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', root)
+    ]
+    return "\n".join((root, *modules))
+
 
 def find_matching_brace(text: str, start: int) -> int:
     """Return the position just past the matching '}'. `text[start]` must be '{'."""
@@ -64,44 +74,39 @@ def extract_top_level_commands(text: str) -> dict:
     body = extract_enum_body(text, m.start())
 
     tree = {}
-    variant_re = re.compile(r'^\s+(\w+)\s*[{(;]', re.MULTILINE)
+    variant_re = re.compile(r'^ {4}([A-Z]\w*)\s*[{(;,]', re.MULTILINE)
     for vm in variant_re.finditer(body):
         name = vm.group(1)
         if name == "Cli":
             continue
-        if name in ("Search", "Index", "Task", "Evidence", "Memory", "Approval"):
-            enum_field = name + "Commands"
-            tree[name] = _extract_subcommand_children(text, enum_field, name)
+        enum_name = name + "Commands"
+        if re.search(_enum_pattern(enum_name), text):
+            tree[name] = _extract_subcommand_children(text, enum_name)
         else:
             tree[name] = None
     return tree
 
 
-def _extract_subcommand_children(text: str, enum_name: str, parent_cmd: str) -> dict:
-    """Extract children of a subcommand enum, handling nesting (e.g. Search > Code)."""
+def _extract_subcommand_children(text: str, enum_name: str) -> dict:
+    """Extract children of a subcommand enum, following nested command fields."""
     m = re.search(_enum_pattern(enum_name), text)
     if not m:
         return {}
 
     body = extract_enum_body(text, m.start())
     children = {}
-
-    variant_re = re.compile(r'^\s+(\w+)\s*[{(;]', re.MULTILINE)
+    variant_re = re.compile(r'^ {4}([A-Z]\w*)\s*[{(;,]', re.MULTILINE)
     for vm in variant_re.finditer(body):
         name = vm.group(1)
-        if name in ("Cli", "Commands", "SearchCommands", "CodeSearchCommands",
-                    "IndexCommands", "EvidenceCommands", "TaskCommands",
-                    "MemoryCommands", "ApprovalCommands", "CliTaskPriority",
-                    "ClientOperation"):
-            continue
-        sub_pat = (r'^\s+' + re.escape(name) +
-                   r'\s+\{[^}]*command\s*:\s*CodeSearchCommands')
-        if re.search(sub_pat, body, re.MULTILINE):
-            children[name] = _extract_subcommand_children(text, "CodeSearchCommands", name)
-        elif parent_cmd == "Search" and name == "Code":
-            children[name] = _extract_subcommand_children(text, "CodeSearchCommands", name)
-        else:
-            children[name] = None
+        nested = re.search(
+            r'^\s+' + re.escape(name) +
+            r'\s*\{[^}]*\bcommand\s*:\s*(\w+Commands)',
+            body, re.MULTILINE,
+        )
+        children[name] = (
+            _extract_subcommand_children(text, nested.group(1))
+            if nested else None
+        )
     return children
 
 
@@ -127,17 +132,17 @@ def find_readme_gaps(readme_text: str, tree: dict, prefix_words: list[str] | Non
                 heading_pattern = r'#{3,6}\s+`' + cmd_esc + r'`'
                 has_heading = bool(re.search(heading_pattern, readme_text, re.IGNORECASE))
 
-            # Check for usage like `maestria index generations` in a code block.
+            # Check for usage like `sillage index generations` in a code block.
             # Code blocks use fenced backticks, so no leading backtick on each line.
             # We check two variants:
-            #   1) Simple: `maestria <prefix> <cmd>` with no flags between words.
+            #   1) Simple: `sillage <prefix> <cmd>` with no flags between words.
             #   2) Deep: allows optional flags/args between command words, so
-            #      `maestria index -i .maestria-dev repository <path>` matches
+            #      `sillage index -i .sillage-dev repository <path>` matches
             #      `index repository`.
             if not has_usage:
                 esc_parts = [re.escape(_camel_to_kebab(w)) for w in prefix_words]
                 esc_parts.append(cmd_esc)
-                usage_pattern = (r'maestria\s+' + r'\s+'.join(esc_parts) +
+                usage_pattern = (r'sillage\s+' + r'\s+'.join(esc_parts) +
                                  r'(?:\s|`|$|\.|,|;|\)|\|)')
                 has_usage = bool(re.search(usage_pattern, readme_text))
             if not has_usage:
@@ -145,11 +150,11 @@ def find_readme_gaps(readme_text: str, tree: dict, prefix_words: list[str] | Non
                 for w in prefix_words:
                     esc_parts_deep.append(re.escape(_camel_to_kebab(w)))
                     # Allow optional flags/args between command words.
-                    # Includes \s+ so `index -i .maestria-dev repository` matches.
+                    # Includes \s+ so `index -i .sillage-dev repository` matches.
                     esc_parts_deep.append(r'(?:\s+-\S+(?:\s+\S+)*\s+)?')
                 esc_parts_deep.append(cmd_esc)
                 joined = ''.join(esc_parts_deep)
-                usage_pattern_deep = r'maestria\s+' + joined + r'(?:\s|`|$|\.|,|;|\)|\|)'
+                usage_pattern_deep = r'sillage\s+' + joined + r'(?:\s|`|$|\.|,|;|\)|\|)'
                 has_usage = bool(re.search(usage_pattern_deep, readme_text))
         documented = has_heading or has_usage
         if not documented:
@@ -232,12 +237,12 @@ def _daemon_documentation_gaps() -> list[str]:
 
 
 def main() -> int:
-    cli_text = CLI_TYPES.read_text()
+    cli_text = load_cli_types()
     readme_text = README.read_text()
 
     tree = extract_top_level_commands(cli_text)
 
-    print("=== Command tree extracted from cli_types.rs ===")
+    print("=== Command tree extracted from CLI types and modules ===")
     _print_tree(tree, 0)
 
     missing = find_readme_gaps(readme_text, tree)

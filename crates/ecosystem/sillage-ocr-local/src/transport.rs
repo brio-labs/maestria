@@ -1,0 +1,100 @@
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use serde::{Deserialize, Serialize};
+use sillage_ports::PortError;
+
+pub trait OcrTransport: Send + Sync {
+    fn post(&self, endpoint: &str, body: Vec<u8>) -> Result<Vec<u8>, PortError>;
+}
+
+impl OcrTransport for sillage_adapter_http::UreqJsonClient {
+    fn post(&self, endpoint: &str, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
+        self.post_url(endpoint, body)
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ChatCompletionRequest {
+    model: String,
+    messages: Vec<ChatMessage>,
+    temperature: u8,
+    skip_special_tokens: bool,
+    images_config: ImagesConfig,
+    stream: bool,
+}
+
+impl ChatCompletionRequest {
+    pub(crate) fn for_image(model: &str, prompt: &str, mime_type: &str, bytes: &[u8]) -> Self {
+        Self {
+            model: model.to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: vec![
+                    ChatContent::Text {
+                        text: prompt.to_string(),
+                    },
+                    ChatContent::Image {
+                        image_url: ImageUrl {
+                            url: format!("data:{mime_type};base64,{}", BASE64.encode(bytes)),
+                        },
+                    },
+                ],
+            }],
+            temperature: 0,
+            skip_special_tokens: false,
+            images_config: ImagesConfig {
+                image_mode: "gundam",
+            },
+            stream: false,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ChatMessage {
+    role: String,
+    content: Vec<ChatContent>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+enum ChatContent {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "image_url")]
+    Image { image_url: ImageUrl },
+}
+
+#[derive(Debug, Serialize)]
+struct ImageUrl {
+    url: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ImagesConfig {
+    image_mode: &'static str,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ChatCompletionResponse {
+    choices: Vec<Choice>,
+}
+
+impl ChatCompletionResponse {
+    pub(crate) fn text(self) -> Option<String> {
+        self.choices
+            .into_iter()
+            .next()
+            .and_then(|choice| choice.message.content)
+            .filter(|text| !text.trim().is_empty())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct Choice {
+    message: Message,
+}
+
+#[derive(Debug, Deserialize)]
+struct Message {
+    content: Option<String>,
+}

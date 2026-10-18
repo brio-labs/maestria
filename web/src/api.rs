@@ -400,7 +400,7 @@ mod tests {
     #[test]
     fn problem_branch_uses_full_type_uri() {
         let error = ClientError::Problem(ProblemDetails {
-            type_uri: "urn:maestria:studio:problem:revision-conflict".into(),
+            type_uri: "urn:sillage:studio:problem:revision-conflict".into(),
             title: "Revision conflict".into(),
             status: 409,
             detail: "reload".into(),

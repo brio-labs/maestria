@@ -168,15 +168,15 @@ class CodeownersCheckTests(unittest.TestCase):
             root = Path(tmp)
             CHECK.ROOT = root
             CHECK.CODEOWNERS_PATH = self.make_codeowners(root, [
-                "/crates/kernel/maestria-domain/   @carabistouflette",
-                "/crates/kernel/maestria-governance/ @carabistouflette",
-                "/crates/kernel/maestria-ports/      @carabistouflette",
+                "/crates/kernel/sillage-domain/   @carabistouflette",
+                "/crates/kernel/sillage-governance/ @carabistouflette",
+                "/crates/kernel/sillage-ports/      @carabistouflette",
                 "/crates/runtime/                    @carabistouflette",
-                "/crates/ecosystem/maestria-retrieval/ @carabistouflette",
-                "/crates/ecosystem/maestria-validation/ @carabistouflette",
+                "/crates/ecosystem/sillage-retrieval/ @carabistouflette",
+                "/crates/ecosystem/sillage-validation/ @carabistouflette",
                 "/crates/storage/                    @carabistouflette",
                 "/crates/harness/                    @carabistouflette",
-                "/crates/apps/maestria-daemon/       @carabistouflette",
+                "/crates/apps/sillage-daemon/       @carabistouflette",
                 "/crates/kernel/                   @carabistouflette",
                 "/crates/core/                     @carabistouflette",
                 "/crates/ecosystem/                @carabistouflette",
@@ -219,15 +219,15 @@ class CodeownersCheckTests(unittest.TestCase):
             root = Path(tmp)
             CHECK.ROOT = root
             CHECK.CODEOWNERS_PATH = self.make_codeowners(root, [
-                "/crates/kernel/maestria-domain/   @carabistouflette",
-                "/crates/kernel/maestria-governance/ @carabistouflette",
-                "/crates/kernel/maestria-ports/      @carabistouflette",
+                "/crates/kernel/sillage-domain/   @carabistouflette",
+                "/crates/kernel/sillage-governance/ @carabistouflette",
+                "/crates/kernel/sillage-ports/      @carabistouflette",
                 "/crates/runtime/                    @carabistouflette",
-                "/crates/ecosystem/maestria-retrieval/ @carabistouflette",
-                "/crates/ecosystem/maestria-validation/ @carabistouflette",
+                "/crates/ecosystem/sillage-retrieval/ @carabistouflette",
+                "/crates/ecosystem/sillage-validation/ @carabistouflette",
                 "/crates/storage/                    @carabistouflette",
                 # /crates/harness/ intentionally omitted
-                "/crates/apps/maestria-daemon/       @carabistouflette",
+                "/crates/apps/sillage-daemon/       @carabistouflette",
                 "/tests/property/                    @carabistouflette",
                 "/tests/replay/                      @carabistouflette",
                 "/docs/PHILOSOPHY.md                 @carabistouflette",

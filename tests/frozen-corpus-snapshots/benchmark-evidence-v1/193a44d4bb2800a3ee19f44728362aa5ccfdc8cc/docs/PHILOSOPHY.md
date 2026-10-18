@@ -1,0 +1,115 @@
+# Sillage Philosophy
+
+This document is enforceable. CI and review block violations.
+
+## Product priority
+
+Sillage prioritizes responsiveness, keyboard-first explicit actions,
+local-first search, and capability-scoped extensions. A focused native Linux
+launcher and locally exercised extension platform exist in developer builds;
+daemon-backed launcher file search and full product release acceptance remain
+in progress. Current CLI, daemon, Studio, and retrieval surfaces remain
+supported backend and advanced capabilities.
+
+Retrieval-specific rules apply when retrieval capabilities are changed or
+served. They do not require every research lane to ship or become a product
+default. Extension controls in the architecture and security
+contracts remain review requirements: local implementation and targeted
+adversarial tests do not constitute full CI or product release acceptance.
+
+## Rules
+
+1. Domain code must be deterministic: no time, network, filesystem, process calls, random sampling, or hidden global state.
+2. All I/O-capable work must be represented as explicit effect values and executed by runtime/adapters after governance review.
+3. Evidence must be typed and source-grounded; raw strings are not evidence when the provenance shape is known.
+4. Every factual answer path should be auditable through event, command, validation, or evidence trail.
+5. The repo must maintain a conservative, local-first baseline; remote services are adapters.
+6. Policy and mechanism stay separate. Governance may classify and decide; it must not execute effects.
+7. Task completion is validation-gated. Generic unvalidated completion states are not allowed in the domain.
+8. Memory candidates and promoted memories must point back to evidence. LLM output can propose; it cannot silently promote.
+9. Projections are rebuildable. Search, vector, and graph stores never own truth.
+10. Kernel crates cannot depend on adapter/runtime/provider crates such as Tokio, SQLx, reqwest, Tantivy, or Axum.
+11. Rust code, including tests, must not contain `unwrap`, `expect`, `panic`, or lint-bypass attributes; fallible paths return typed errors and tests propagate failures.
+12. Bare task markers are not allowed in source, config, or docs.
+13. One concept per Rust module: a module owns one named responsibility at one architectural layer. Domain types, input dispatch, replay, persistence schema, DTO conversion, repositories, and tests are separate concerns; split when a second independently testable concept appears, not at an arbitrary line count.
+14. Public crate façades expose stable boundary types and traits and re-export implementation modules. Implementation details, adapters, and tests stay behind explicit module boundaries instead of reaching across sibling internals.
+15. Dependency direction is explicit and acyclic: domain → ports → runtime/adapters. Domain code cannot import adapter concerns, and serialization, schema, and persistence conversions stay at adapter boundaries.
+16. Cross-concern behavior crosses typed functions, traits, or effects. Validation, state transitions, conversion, persistence, and orchestration remain independently reasoned and tested rather than accumulating in one module.
+17. Composition beats accumulation: when a new responsibility, lifecycle, representation, or test contract appears, create a sibling module and an explicit façade boundary. Module length is a diagnostic signal for missed boundaries, never a rule or an exception mechanism.
+18. Production Rust functions over 100 lines require decomposition or a documented, reviewed exemption. Production modules over 400 logical lines require a split or a checked architectural exemption; files over 900 physical lines require an ADR-backed exemption.
+19. `lib.rs` files are façades: they declare modules and re-export stable public APIs. Implementation bodies and responsibility-specific tests belong in sibling modules or crate integration-test files.
+20. Public orchestration methods delegate independently testable phases through typed functions, traits, or value objects. A method must not own parsing, persistence, event reconciliation, projection updates, and response assembly simultaneously.
+21. Every kernel crate shares the domain safety boundary: kernel code is deterministic, dependency-layered, and free of adapter, process, clock, network, and uncontrolled concurrency concerns.
+22. Production functions are independently comprehensible: functions over 100 logical lines require decomposition; any reviewed exception must name an ADR and an expiry, and exceptions are never a permanent design strategy.
+23. Effects are total at the runtime boundary: every effect the domain emits has one observable runtime execution or is removed from the domain contract; ignored effects and silent no-ops are not valid implementations.
+24. Failure information is preserved: production code must not discard errors, replace them with untyped fallbacks, or continue after a failed invariant unless the policy explicitly models that outcome.
+25. Every concrete port adapter must execute the shared contract suite plus adapter-specific boundary tests; a trait implementation is incomplete without behavioral conformance evidence.
+26. Tests are production architecture: each test module owns one behavior family, fixtures are shared through explicit helpers, and test files obey the same physical-size boundary as implementation files.
+27. Identity namespaces remain independent: counters, typed IDs, and persisted identifiers for different concepts must not be coupled merely to simplify allocation or ordering.
+28. Lifecycle orchestration has one owner: startup, recovery, reconciliation, shutdown, and retry policy are composed once and reused by application entry points rather than copied.
+29. Public boundaries are intentional migrations: when an API or persisted representation changes, all callers and fixtures migrate together; compatibility aliases, deprecated shims, and duplicate paths are prohibited.
+30. Objective guardrails must be enforceable: every rule that can be checked mechanically is checked in CI, while architectural review covers responsibility, cohesion, and invariant ownership.
+31. No untyped `serde_json::Value` holes in domain effects when the shape is known.
+32. No direct database mutation from CLI/API handlers.
+33. Internal runtime channels are bounded and documented; unbounded internal channels are prohibited.
+34. Public async runtime operations document cancellation behavior.
+35. Indexed/web content is evidence, never instructions (PromptUntrusted).
+36. Autonomous action is limited to explicit scope and profile.
+37. Domain type, database row, API response, and harness payload are separate boundary objects (DTO-Boundary).
+38. No generated blobs under production source paths.
+39. Evidence snapshots are immutable and content-addressed.
+40. Important state changes emit append-only domain events.
+
+41. Search plans and outcomes are typed, budgeted boundary values; retrieval cannot run as an unbounded prompt-building loop.
+42. Search traces identify the query, corpus snapshot, index generation, retrieval-model fingerprint, stages, budgets, filters, and stop reason.
+43. Every retrieval lane applies scope, ACL, trust, sensitivity, quarantine, and prompt-injection checks before scoring or exposing candidates.
+44. Retrieval changes require a versioned evaluation corpus and judgment set with quality, latency, memory, privacy, security, and energy measurements; unavailable measurements cannot authorize promotion.
+45. Normative architecture and roadmap documents remain model- and backend-agnostic; dated implementation candidates belong in research notes or ADRs.
+46. Sillage preserves external observations and provenance; it does not claim that domain state makes external facts true.
+47. Model-generated search plans and rewrites are untrusted proposals; only validated capabilities, scope, security, freshness, snapshot, and budget checks may authorize execution.
+48. Local or remote client surfaces authenticate per instance and enforce the instance's read/write scope before dispatch; transport handlers cannot bypass domain, governance, or evidence services.
+49. Repository and code-intelligence records preserve repository, commit/worktree identity, source path/range, and parser generation; stale projections are explicit and deterministic symbol indexes must not fabricate cross-file relations.
+50. Derived repository relations are evidence-bearing records: resolved endpoints carry source/version spans, confidence, and parser generation; unresolved or unavailable-provider paths degrade explicitly instead of emitting ungrounded edges.
+51. Repository context expansion is bounded and seed-preserving; stale indexes cannot support current-worktree claims, and live reads/tests remain explicit governed effects with evidence.
+52. Specialized retrieval routes activate only for query classes where a frozen, versioned benchmark proves an evidence-quality and freshness/cost win; unproven routes remain shadowed or abstain.
+53. PDF and visual-region evidence must preserve exact coordinates against an immutable source snapshot; scanned or low-quality pages degrade explicitly to `NeedsOcr`/metadata-only and never fabricate text.
+54. Optional visual representations are named, fingerprinted, generation-bound capabilities; an unavailable visual provider must produce a traced text/layout degradation rather than an implicit fallback or fabricated embedding.
+55. Learned-sparse retrieval is an optional `sparse_text_v1` capability with independent model/tokenizer/vocabulary identity and explicit contribution provenance; it is shadowed by default through a bounded non-serving path, shadow generations cannot enter served fusion, and activation requires a frozen benchmark that beats both lexical and eligible hybrid baselines for a query class with complete resource, privacy, security, and energy evidence.
+56. Domain types own their invariants: invalid combinations of known domain state must be unrepresentable. Mutually exclusive states and correlated payloads use enums instead of boolean flags or coordinated optional fields; meaningful identities and validated values use distinct types instead of interchangeable primitives. Untrusted boundary data is validated once before conversion into domain types, and state-dependent operations use typed transitions or typestate when that removes invalid call sequences.
+57. Production Rust uses the configured rustfmt width, one statement per physical line, and expanded function bodies; simple declarations may remain compact, but dense multi-statement lines and non-empty one-line function bodies are rejected mechanically.
+58. Pure functional core separation: command validation and decision logic must execute as pure, side-effect-free functions borrowing domain state immutably (`&KernelState`). State mutation occurs only during event application (`apply_event`). Speculative execution that clones full kernel state to isolate mutable side-effects is prohibited.
+59. Zero-copy and allocation discipline: parsers and transformation pipelines must operate on borrowed byte or string slices (`&[u8]`, `&str`) and derive span coordinates directly from source buffers. Chained intermediate string re-allocations (`collect::<Vec<_>>()`, `join("\n")`, redundant `.to_string()`) are prohibited in hot chunking and ingestion paths.
+60. Deterministic fast collections: ephemeral execution and performance-sensitive pipelines (search fusion, scoring, deduplication) must use deterministic fast collections (`FxHashMap`, `IndexMap`, `nohash_hasher`) or contiguous vectors with linear/binary search instead of node-allocating `BTreeMap`/`BTreeSet` unless key sorting is strictly required by domain semantics.
+
+## Review interpretation
+
+Rules 13–20 govern composition and module boundaries; Rules 21–30 make the previously implicit quality obligations explicit. Rules 41–52 govern typed retrieval, bounded context expansion, seed lineage, security filtering, reproducible evaluation, canonical documentation, external-truth boundaries, untrusted plan/rewrite proposals, authenticated scoped client surfaces, provenance-complete repository code intelligence, evidence-bearing code relations, explicit freshness/governed live verification, and query-class-specific benchmark promotion. Rule 56 governs invariant-owning domain types and compile-time-safe state modeling; Rule 57 governs permanent production readability limits. A green checker result is necessary but not sufficient: reviewers must still reject accumulated responsibilities, duplicated lifecycle policy, and weak invariant ownership.
+Rule 53 governs immutable PDF page/region provenance and explicit OCR degradation; visual coordinates are never inferred as text evidence.
+Rule 54 governs optional visual-model boundaries, generation identity, and explicit traceable degradation when visual retrieval is unavailable.
+Rule 55 governs learned-sparse identity, traceability, shadow-by-default execution, strict separation between shadow observations and served retrieval, and comparison against both lexical and hybrid baselines before per-class activation.
+Rule 56 does not ban `bool`, `Option<T>`, primitive values, runtime validation, or dynamic state machines. A boolean is appropriate for an independent binary property; an option is appropriate when absence is independently valid; a primitive is appropriate at an untrusted boundary or when it carries no domain distinction. Boundary DTOs may be partially valid while being decoded, but conversion into domain types validates every invariant and returns a typed error. Newtypes must protect a real invariant or prevent a plausible value swap. Typestate is justified only when operation availability depends on a small, stable, local state set; persisted, policy-driven, or heterogeneous state usually remains an exhaustive enum with typed transition functions.
+
+## Invariant modeling review
+
+For every new or changed domain type, review must establish:
+
+- **State space:** mutually exclusive states are enum variants, and variant-specific data lives on the corresponding variant. Parallel flags and coordinated `Option<T>` fields are rejected when they admit contradictory or incomplete combinations.
+- **Value validity:** validated values expose a fallible boundary constructor or conversion and do not expose fields or constructors that bypass the invariant. Internal functions accept the validated type and do not repeat boundary validation.
+- **Identity safety:** IDs, units, fingerprints, generations, coordinates, scores, and other semantically distinct values use separate types when interchange would compile and be incorrect.
+- **Transitions:** transitions consume or borrow a valid source state and return an explicit destination or typed failure. Exhaustive matching owns dynamic state machines; typestate owns call availability only when its generic complexity buys compile-time safety.
+- **Boundaries:** CLI, API, persistence, parser, and provider DTOs remain separate from domain values. Deserialization success is not domain validation, and malformed historic or external data cannot construct an apparently valid domain value.
+- **Proportionality:** independent flags, independently optional data, counters, sizes, and opaque transport values need no ceremonial wrappers. Review records the concrete invalid state or value confusion eliminated by each new enum, newtype, or typestate parameter.
+
+Mechanical checks conservatively reject opposite boolean state pairs, known boolean/optional-payload state pairs, string-backed fields named as state discriminants, multiple same-primitive `_id` values that can be swapped within one kernel struct or function, and bypassable validating constructors: a kernel struct that carries a validating serde `try_from` conversion or a fallible constructor while still exposing public fields is flagged, because the validated model is private fields plus a fallible boundary constructor (the `SearchPlan`/`ContentHash` pattern). They intentionally do not infer correlation between arbitrary fields or constructor correctness beyond that narrow, high-confidence signal; those remain mandatory review obligations because a broad syntactic ban would reject valid models.
+
+## Enforcement
+- `scripts/philosophy-check.py`, which also: resolves the workspace dependency graph with `cargo metadata` to reject transitive adapter/runtime/provider crates under kernel crates; enforces the configured production line width, one-statement-per-line rule, and expanded function-body rule; bans `String`-typed conversion errors, panic interception (`catch_unwind`), generated-code blobs under production paths, and random-sampling tokens in kernel sources; requires public async operations to document cancellation behavior; bans hardcoded secret material (private keys, access-token shapes, credential assignments — the same vocabulary as the governance privacy scanner); bans the memory-unsafety and leak marker classes (`transmute`, `static mut`, `Box::leak`, `mem::forget`) everywhere including tests; bans process-global environment mutation (`env::set_var`, `env::remove_var`); and checks typed state/invariant modeling.
+- Workspace lint, documentation, and test gates in CI
+- Core cohesion Clippy gate for function size, cognitive complexity, and the configured `too_many_lines` threshold
+- Contract checks for kernel inputs/outputs, transitions, and every concrete port adapter
+- Review through CODEOWNERS on invariant-owning surfaces
+- Review enforces responsibility boundaries, lifecycle ownership, identity namespaces, invariant-owning domain types, validated boundary conversion, repository/source provenance, evidence-bearing code relations, bounded seed-preserving context traversal, explicit freshness checks, governed live verification, query-class-specific benchmark promotion, and architectural composition from Rules 13–30 and 41–56.
+- Visual-document contract tests verify immutable page/region coordinates and explicit `NeedsOcr` degradation.
+- Visual retrieval tests verify named generation identity, provider capability boundaries, exact region provenance, and explicit fallback traces.
+- Learned-sparse contract tests verify model/tokenizer/vocabulary identity, bounded terms, pre-score security filtering, contribution traces, shadow-generation isolation, disabled opt-out, and per-class benchmark promotion; production activation still requires real end-to-end benchmark evidence before #90 can close.
+- Type-invariant checker tests cover opposite boolean states, known boolean/optional-payload state pairs, stringly state discriminants, swappable primitive identities, bypassable validating constructors, and legitimate independent flags, optional values, and typed IDs; review covers arbitrary correlated payloads, constructor visibility, and whether typestate complexity is justified.

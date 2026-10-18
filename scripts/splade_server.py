@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serve a local SPLADE-family ONNX model through Maestria's sparse vector contract."""
+"""Serve a local SPLADE-family ONNX model through Sillage's sparse vector contract."""
 
 from __future__ import annotations
 
@@ -184,7 +184,7 @@ class SparseServer(ThreadingHTTPServer):
 
 
 class RequestHandler(BaseHTTPRequestHandler):
-    server_version = "maestria-splade-sparse/1"
+    server_version = "sillage-splade-sparse/1"
 
     def do_POST(self) -> None:
         if self.path not in (SPARSE_PATH, SPARSE_BATCH_PATH):

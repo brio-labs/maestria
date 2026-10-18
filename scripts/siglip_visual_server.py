@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serve a local SigLIP ONNX model through Maestria's visual vector contract."""
+"""Serve a local SigLIP ONNX model through Sillage's visual vector contract."""
 
 from __future__ import annotations
 
@@ -163,7 +163,7 @@ class VisualServer(ThreadingHTTPServer):
 
 
 class RequestHandler(BaseHTTPRequestHandler):
-    server_version = "maestria-siglip-visual/1"
+    server_version = "sillage-siglip-visual/1"
 
     def do_POST(self) -> None:
         if self.path != VISUAL_PATH:

@@ -79,7 +79,7 @@ const evidence = {
 const retrieval = {
   index_generation: 1,
   corpus_snapshot: 1,
-  fingerprint: 'maestria-core:deterministic-v1',
+  fingerprint: 'sillage-core:deterministic-v1',
   lanes: {
     hybrid_state: 'Active',
     hybrid_served_classes: ['DomainTerminology'],
@@ -111,7 +111,7 @@ const retrieval = {
   },
 };
 
-async function installFixture(page: Page): Promise<void> {
+async function installFixture(page: Page, declaredCoverage = false): Promise<void> {
   await page.route('**/api/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -137,11 +137,12 @@ async function installFixture(page: Page): Promise<void> {
             query_id: 7,
             trace_id: 8,
             status: 'Succeeded',
-            fingerprint: 'maestria-core:deterministic-v1',
+            fingerprint: 'sillage-core:deterministic-v1',
             index_generation: 1,
             evidence: [evidenceA, evidenceB],
             coverage: {
-              percent_covered: 100,
+              percent_covered: declaredCoverage ? 50 : 100,
+              ...(declaredCoverage ? { basis: 'declared_requirements' } : {}),
               gaps: [],
               distinct_sources: 1,
               distinct_documents: 1,
@@ -196,7 +197,7 @@ async function installFixture(page: Page): Promise<void> {
       });
       return;
     }
-    await route.fulfill({ status: 404, contentType: 'application/problem+json', body: JSON.stringify({ type: 'urn:maestria:studio:problem:not-found', title: 'Not found', status: 404, detail: 'The requested resource was not found' }) });
+    await route.fulfill({ status: 404, contentType: 'application/problem+json', body: JSON.stringify({ type: 'urn:sillage:studio:problem:not-found', title: 'Not found', status: 404, detail: 'The requested resource was not found' }) });
   });
 }
 
@@ -209,9 +210,18 @@ test('searches and renders lane provenance', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'guide.md:10-15' })).toBeVisible();
   await expect(page.getByText('lexical_bm25: bm25 0.875')).toBeVisible();
   await expect(page.getByText('dense_similarity: cosine 0.234')).toBeVisible();
-  await expect(page.getByText('Coverage', { exact: true })).toBeVisible();
-  await expect(page.getByText('No gaps')).toBeVisible();
+  await expect(page.getByText('Not measured', { exact: true })).toBeVisible();
+  await expect(page.getByText('No gaps')).toHaveCount(0);
+  await expect(page.getByText('100%', { exact: true })).toHaveCount(0);
   await expect(page.getByText('1 sources · 1 documents · 2 sections · 0 conflicts')).toBeVisible();
+});
+test('labels search coverage against declared requirements', async ({ page }) => {
+  await installFixture(page, true);
+  await page.goto('/search#session=test');
+  await page.getByLabel('Search query').fill('axum routes');
+  await page.getByRole('button', { name: 'Search' }).click();
+  await expect(page.getByText('50% of declared requirements', { exact: true })).toBeVisible();
+  await expect(page.getByText('No gaps')).toBeVisible();
 });
 
 test('opens evidence from a search result', async ({ page }) => {

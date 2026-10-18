@@ -1,1 +1,1 @@
-pub const MAESTRIA_VERSION: &str = "0.1.0";
+pub const SILLAGE_VERSION: &str = "0.1.0";

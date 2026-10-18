@@ -13,6 +13,13 @@ else
     RUSTUP_HOME_DIR="${RUSTUP_HOME:-$HOME/.rustup}"
 fi
 
+# rustc resolves standard-library source locations differently without rust-src,
+# which changes the linked Wasm even with identical compiler/profile settings.
+if [[ ! -d "$SYSROOT_DIR/lib/rustlib/src/rust/library" ]]; then
+    echo "::error::Studio requires the pinned toolchain's rust-src component." >&2
+    exit 1
+fi
+
 REMAP_FLAGS=""
 # Order matters: rustc lets the LAST matching prefix win, so list remaps from
 # the most general ($HOME) to the most specific ($CARGO_HOME). This makes
@@ -33,6 +40,11 @@ fi
 REMAP_FLAGS="$REMAP_FLAGS --remap-path-prefix=$CARGO_HOME_DIR=/cargo"
 
 export RUSTFLAGS="${REMAP_FLAGS# }"
+
+# Pin Studio's generated Cargo profile instead of inheriting ambient release
+# settings from CARGO_HOME. Do not change native release profiles.
+export CARGO_PROFILE_WASM_RELEASE_LTO=thin
+export CARGO_PROFILE_WASM_RELEASE_CODEGEN_UNITS=16
 
 # Studio bundle mode: "fast" skips wasm-opt optimization passes for quick PR
 # checks (default); "release" applies the full -Oz pass and is used on main

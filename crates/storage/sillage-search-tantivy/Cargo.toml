@@ -1,0 +1,18 @@
+[package]
+name = "sillage-search-tantivy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sillage-domain = { workspace = true }
+sillage-ports = { workspace = true }
+sillage-governance = { workspace = true }
+tantivy = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+sillage-ports = { workspace = true, features = ["contract-tests"] }
+sillage-test-support = { workspace = true }

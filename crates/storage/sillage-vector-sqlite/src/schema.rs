@@ -1,0 +1,197 @@
+use rusqlite::{Connection, OptionalExtension};
+use sillage_ports::PortError;
+
+use crate::encoding::to_port_error;
+
+pub(crate) const SCHEMA_VERSION: i64 = 5;
+pub(crate) const SQLITE_VEC_BOOTSTRAP_SQL: &str =
+    "CREATE VIRTUAL TABLE IF NOT EXISTS vec_docs USING vec0(chunk_id TEXT, embedding float[1536])";
+
+pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
+    // WAL allows concurrent readers while the projection writer commits
+    // (live CLI progress reporting, read-only search serving beside the
+    // daemon). A no-op for in-memory databases.
+    connection
+        .execute_batch("PRAGMA journal_mode=WAL;")
+        .map_err(to_port_error)?;
+    let transaction = connection.transaction().map_err(to_port_error)?;
+
+    transaction
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS vector_projection_schema (
+                 id INTEGER PRIMARY KEY CHECK (id = 1),
+                 version INTEGER NOT NULL
+             );",
+        )
+        .map_err(to_port_error)?;
+
+    let version = transaction
+        .query_row(
+            "SELECT version FROM vector_projection_schema WHERE id = 1",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(to_port_error)?;
+
+    if let Some(version) = version {
+        apply_migrations(&transaction, version)?;
+    } else {
+        create_fresh_schema(&transaction)?;
+    }
+    // verify the schema
+    transaction
+        .query_row(
+            "SELECT chunk_id, dimension, embedding, content_hash, provider_id, model, \
+             model_version, generation_id, representation, fingerprint, disclosure_remote, \
+             retention_policy
+             FROM vector_embeddings LIMIT 1",
+            [],
+            |_| Ok(()),
+        )
+        .optional()
+        .map_err(to_port_error)?;
+
+    transaction.commit().map_err(to_port_error)?;
+
+    attempt_sqlite_vec_bootstrap(connection)?;
+    Ok(())
+}
+
+/// Applies the stepwise migrations for a pre-existing projection schema.
+fn apply_migrations(
+    transaction: &rusqlite::Transaction<'_>,
+    version: i64,
+) -> Result<(), PortError> {
+    if !(1..=SCHEMA_VERSION).contains(&version) {
+        return Err(PortError::InternalContext {
+            context: "unsupported vector projection schema version",
+            source: version.to_string(),
+        });
+    }
+    if version == 1 {
+        transaction
+            .execute_batch(
+                "ALTER TABLE vector_embeddings ADD COLUMN content_hash TEXT NOT NULL DEFAULT '';
+                     ALTER TABLE vector_embeddings ADD COLUMN model_version TEXT NOT NULL \
+                     DEFAULT '';
+                     UPDATE vector_projection_schema SET version = 2 WHERE id = 1;",
+            )
+            .map_err(to_port_error)?;
+    }
+    if version <= 2 {
+        transaction
+            .execute_batch(
+                "ALTER TABLE vector_embeddings ADD COLUMN provider_id TEXT NOT NULL DEFAULT '';
+                     ALTER TABLE vector_embeddings ADD COLUMN model TEXT NOT NULL DEFAULT '';
+                     UPDATE vector_projection_schema SET version = 3 WHERE id = 1;",
+            )
+            .map_err(to_port_error)?;
+    }
+    if version <= 3 {
+        transaction
+            .execute_batch(
+                "ALTER TABLE vector_embeddings ADD COLUMN generation_id TEXT NOT NULL \
+                     DEFAULT '';
+                     ALTER TABLE vector_embeddings ADD COLUMN representation TEXT NOT NULL \
+                     DEFAULT '';
+                     ALTER TABLE vector_embeddings ADD COLUMN fingerprint TEXT NOT NULL DEFAULT '';
+                     UPDATE vector_projection_schema SET version = 4 WHERE id = 1;",
+            )
+            .map_err(to_port_error)?;
+    }
+    if version <= 4 {
+        transaction
+            .execute_batch(
+                "ALTER TABLE vector_embeddings ADD COLUMN disclosure_remote INTEGER;
+                     ALTER TABLE vector_embeddings ADD COLUMN retention_policy TEXT;
+                     UPDATE vector_projection_schema SET version = 5 WHERE id = 1;",
+            )
+            .map_err(to_port_error)?;
+    }
+    Ok(())
+}
+
+/// Creates the current schema version from scratch.
+fn create_fresh_schema(transaction: &rusqlite::Transaction<'_>) -> Result<(), PortError> {
+    transaction
+        .execute_batch(
+            "INSERT INTO vector_projection_schema (id, version) VALUES (1, 5);
+                 CREATE TABLE IF NOT EXISTS vector_embeddings (
+                     chunk_id INTEGER PRIMARY KEY NOT NULL,
+                     dimension INTEGER NOT NULL,
+                     embedding BLOB NOT NULL,
+                     content_hash TEXT NOT NULL,
+                     provider_id TEXT NOT NULL,
+                     model TEXT NOT NULL,
+                     model_version TEXT NOT NULL,
+                     generation_id TEXT NOT NULL,
+                     representation TEXT NOT NULL,
+                     fingerprint TEXT NOT NULL,
+                     disclosure_remote INTEGER NOT NULL,
+                     retention_policy TEXT NOT NULL
+                 );
+                 CREATE INDEX IF NOT EXISTS idx_vector_embeddings_dimension
+                     ON vector_embeddings(dimension);",
+        )
+        .map_err(to_port_error)?;
+    Ok(())
+}
+
+/// Best-effort creation of the optional `sqlite-vec` virtual table.
+///
+/// Tolerates exactly the missing-module case (the `vec0` extension is an
+/// optional capability, so its absence is a valid outcome). Every other
+/// failure — locked, read-only, or corrupt database — is propagated so a
+/// genuine storage failure is not masked as an optional-capability absence
+/// (R24).
+pub(crate) fn attempt_sqlite_vec_bootstrap(connection: &Connection) -> Result<(), PortError> {
+    match connection.execute(SQLITE_VEC_BOOTSTRAP_SQL, []) {
+        Ok(_) => Ok(()),
+        Err(rusqlite::Error::SqliteFailure(_, Some(message)))
+            if is_missing_vec_module(&message) =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(to_port_error(error)),
+    }
+}
+
+fn is_missing_vec_module(message: &str) -> bool {
+    message.to_ascii_lowercase().contains("no such module")
+}
+
+#[cfg(test)]
+pub(crate) fn sqlite_vec_available(connection: &Connection) -> Result<bool, PortError> {
+    let sql: Option<String> = connection
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'vec_docs'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(to_port_error)?;
+
+    let Some(sql) = sql else {
+        return Ok(false);
+    };
+
+    let sql_upper = sql.to_uppercase();
+    let normalized = sql_upper.split_whitespace().collect::<Vec<_>>();
+
+    if normalized.len() >= 3
+        && normalized[0] == "CREATE"
+        && normalized[1] == "VIRTUAL"
+        && normalized[2] == "TABLE"
+    {
+        let using_idx = normalized.iter().position(|&t| t == "USING");
+        if let Some(module) = using_idx.and_then(|idx| normalized.get(idx + 1)) {
+            let unquoted = module.replace(['\'', '"', '`'], "");
+            if unquoted == "VEC0" || unquoted.starts_with("VEC0(") {
+                return Ok(true);
+            }
+        }
+    }
+
+    Ok(false)
+}

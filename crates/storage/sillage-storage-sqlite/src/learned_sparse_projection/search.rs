@@ -1,0 +1,252 @@
+use sillage_domain::SearchExecutionResource;
+use sillage_ports::{
+    BoundedSearch, PortError, SparseIdentity, SparseSearchHit, SparseSearchQuery, execution::Meter,
+};
+
+use super::{lifecycle, search_storage, storage};
+use crate::SqliteStore;
+
+/// The decoded projection resident in memory, valid only while the durable
+/// version matches the one it was loaded at. `postings` maps each term to the
+/// document indices sharing it, so a search only authorizes and scores the
+/// chunks that can actually contribute.
+#[derive(Clone)]
+pub(super) struct SearchCache {
+    pub(super) version: i64,
+    pub(super) documents: std::sync::Arc<Vec<search_storage::CachedDocument>>,
+    pub(super) postings: std::sync::Arc<std::collections::BTreeMap<u32, Vec<usize>>>,
+}
+
+struct SearchVisitor<'a> {
+    query: SparseSearchQuery,
+    filter: &'a dyn Fn(sillage_domain::ChunkId) -> Result<bool, PortError>,
+    contribution_cap: usize,
+    meter: Meter,
+    hits: Vec<SparseSearchHit>,
+    stopped: Option<SearchExecutionResource>,
+}
+
+impl SearchVisitor<'_> {
+    fn finish(self) -> Result<BoundedSearch<SparseSearchHit>, PortError> {
+        let limit =
+            usize::try_from(self.query.limit).map_err(|_| PortError::InvalidInputContext {
+                context: "sparse result limit",
+                source: "result limit exceeds platform range".to_string(),
+            })?;
+        Ok(sillage_ports::learned_sparse::finish_sparse_search(
+            self.meter,
+            self.hits,
+            limit,
+            self.stopped,
+        ))
+    }
+}
+
+impl search_storage::DocumentVisitor for SearchVisitor<'_> {
+    fn before_load(
+        &mut self,
+        document: search_storage::DocumentMetadata,
+    ) -> Result<search_storage::DocumentLoadDecision, PortError> {
+        if let Some(resource) = self.meter.candidate() {
+            self.stopped = Some(resource);
+            return Ok(search_storage::DocumentLoadDecision::Stop);
+        }
+        if !(self.filter)(document.chunk_id)? {
+            return Ok(search_storage::DocumentLoadDecision::Skip);
+        }
+        if let Some(resource) = self.meter.bytes(document.encoded_bytes) {
+            self.stopped = Some(resource);
+            return Ok(search_storage::DocumentLoadDecision::Stop);
+        }
+        Ok(search_storage::DocumentLoadDecision::Load)
+    }
+
+    fn after_load(
+        &mut self,
+        document: storage::StoredDocument,
+    ) -> Result<search_storage::DocumentVisit, PortError> {
+        let work = u64::try_from(
+            document
+                .vector
+                .terms()
+                .len()
+                .saturating_add(self.query.vector.terms().len()),
+        )
+        .map_err(|_| PortError::InvalidInputContext {
+            context: "sparse search work",
+            source: "term count exceeds platform range".to_string(),
+        })?;
+        if let Some(resource) = self.meter.work(work) {
+            self.stopped = Some(resource);
+            return Ok(search_storage::DocumentVisit::Stop);
+        }
+        if let Some(hit) = score_document(&self.query, &document, self.contribution_cap)? {
+            self.hits.push(hit);
+        }
+        Ok(search_storage::DocumentVisit::Continue)
+    }
+}
+
+pub(super) fn execute(
+    store: &SqliteStore,
+    identity: &SparseIdentity,
+    query: SparseSearchQuery,
+    filter: &dyn Fn(sillage_domain::ChunkId) -> Result<bool, PortError>,
+) -> Result<BoundedSearch<SparseSearchHit>, PortError> {
+    validate_query(identity, &query)?;
+    let lifecycle = lifecycle::read(store, identity)?;
+    if !matches!(
+        lifecycle,
+        sillage_domain::IndexLifecycle::Shadow | sillage_domain::IndexLifecycle::Active
+    ) {
+        return Err(PortError::Conflict {
+            message: "sparse projection is not searchable in its current lifecycle".to_string(),
+        });
+    }
+    let contribution_cap =
+        usize::try_from(query.max_contributions).map_err(|_| PortError::InvalidInputContext {
+            context: "sparse contribution cap",
+            source: "contribution cap exceeds platform range".to_string(),
+        })?;
+    let execution_budget = query.execution_budget;
+    let max_candidates = execution_budget.max_candidates();
+    let mut visitor = SearchVisitor {
+        query,
+        filter,
+        contribution_cap,
+        meter: Meter::new(execution_budget),
+        hits: Vec::new(),
+        stopped: None,
+    };
+    search_storage::visit_documents(store, identity, max_candidates, &mut visitor)?;
+    visitor.finish()
+}
+
+/// Document indices sharing at least one query term, in document order.
+fn matching_document_indices(
+    postings: &std::collections::BTreeMap<u32, Vec<usize>>,
+    query: &SparseSearchQuery,
+) -> Vec<usize> {
+    let mut selected = std::collections::BTreeSet::new();
+    for term in query.vector.terms() {
+        if let Some(indices) = postings.get(&term.term_id()) {
+            selected.extend(indices.iter().copied());
+        }
+    }
+    selected.into_iter().collect()
+}
+
+/// Executes a search over the cached projection documents, visiting only the
+/// documents that share at least one query term.
+pub(super) fn execute_cached(
+    documents: &[search_storage::CachedDocument],
+    postings: &std::collections::BTreeMap<u32, Vec<usize>>,
+    identity: &SparseIdentity,
+    store: &SqliteStore,
+    query: SparseSearchQuery,
+    filter: &dyn Fn(sillage_domain::ChunkId) -> Result<bool, PortError>,
+) -> Result<BoundedSearch<SparseSearchHit>, PortError> {
+    validate_query(identity, &query)?;
+    let lifecycle = lifecycle::read(store, identity)?;
+    if !matches!(
+        lifecycle,
+        sillage_domain::IndexLifecycle::Shadow | sillage_domain::IndexLifecycle::Active
+    ) {
+        return Err(PortError::Conflict {
+            message: "sparse projection is not searchable in its current lifecycle".to_string(),
+        });
+    }
+    let contribution_cap =
+        usize::try_from(query.max_contributions).map_err(|_| PortError::InvalidInputContext {
+            context: "sparse contribution cap",
+            source: "contribution cap exceeds platform range".to_string(),
+        })?;
+    let execution_budget = query.execution_budget;
+    let mut visitor = SearchVisitor {
+        filter,
+        contribution_cap,
+        meter: Meter::new(execution_budget),
+        hits: Vec::new(),
+        stopped: None,
+        query,
+    };
+    let visited = matching_document_indices(postings, &visitor.query);
+    let visited = visited
+        .into_iter()
+        .filter_map(|index| documents.get(index).cloned())
+        .collect::<Vec<_>>();
+    search_storage::visit_cached_documents(&visited, &mut visitor)?;
+    visitor.finish()
+}
+
+fn validate_query(identity: &SparseIdentity, query: &SparseSearchQuery) -> Result<(), PortError> {
+    if query.vector.identity() != identity {
+        return Err(PortError::InvalidInputContext {
+            context: "sparse query identity mismatch",
+            source: "query identity differs from projection identity".to_string(),
+        });
+    }
+    if u64::from(query.limit) != query.execution_budget.max_results() {
+        return Err(PortError::InvalidInputContext {
+            context: "sparse search result limit",
+            source: "query limit and execution budget max_results must agree".to_string(),
+        });
+    }
+    if query.limit == 0 {
+        return Err(PortError::InvalidInputContext {
+            context: "sparse search result limit",
+            source: "result limit must be positive".to_string(),
+        });
+    }
+    if query.max_contributions == 0 {
+        return Err(PortError::InvalidInputContext {
+            context: "sparse contribution cap",
+            source: "contribution cap must be positive".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn score_document(
+    query: &SparseSearchQuery,
+    document: &storage::StoredDocument,
+    contribution_cap: usize,
+) -> Result<Option<SparseSearchHit>, PortError> {
+    let contributions = sillage_ports::learned_sparse::dot_contributions(
+        document.vector.terms(),
+        query.vector.terms(),
+    );
+    if contributions.is_empty() {
+        return Ok(None);
+    }
+    let score = contributions
+        .iter()
+        .map(|(_, value)| *value)
+        .fold(0.0_f64, |total, value| total + value);
+    if !score.is_finite() || score <= 0.0 {
+        return Ok(None);
+    }
+    let mut trace = contributions
+        .into_iter()
+        .map(|(term_id, value)| (term_id, sillage_ports::learned_sparse::fixed_micros(value)))
+        .map(
+            |(term_id, contribution_micros)| sillage_ports::SparseTermContribution {
+                term_id,
+                contribution_micros,
+            },
+        )
+        .collect::<Vec<_>>();
+    trace.sort_by(|left, right| {
+        right
+            .contribution_micros
+            .cmp(&left.contribution_micros)
+            .then_with(|| left.term_id.cmp(&right.term_id))
+    });
+    trace.truncate(contribution_cap);
+    let score_micros = sillage_ports::learned_sparse::fixed_micros(score);
+    Ok(Some(SparseSearchHit {
+        chunk_id: document.chunk_id,
+        score_micros,
+        contributions: trace,
+    }))
+}

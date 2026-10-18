@@ -4,19 +4,16 @@ from __future__ import annotations
 
 from . import contract_tests, shared
 from .shared import (
-    _MOD_DECL_PATTERN,
     _find_function_bodies,
     _logical_line_count_scrubbed,
     _production_rust_files,
     _rust_syntax,
     _scrubbed_production,
-    _scrubbed_source,
-    is_test_source,
     logical_line_count,
     production_rust,
     read_text,
+    rust_module_declarations,
 )
-from . import contract_tests
 import datetime
 import re
 
@@ -80,6 +77,7 @@ def scan_exemption_expiry(today: str | None = None) -> list[str]:
 
 def scan_module_sizes() -> list[str]:
     violations = []
+    test_context = shared._module_test_context()
     for source in _production_rust_files(skip_tests=False):
         rel_path = source.relative_to(shared.ROOT)
         rel = rel_path.as_posix()
@@ -88,10 +86,11 @@ def scan_module_sizes() -> list[str]:
             continue
         if rel in MODULE_SIZE_EXEMPTIONS or rel in ADR_MODULE_EXEMPTIONS:
             continue
-        logical_lines = _logical_line_count_scrubbed(_scrubbed_source(source))
+        logical_lines = _logical_line_count_scrubbed(_scrubbed_production(source))
         physical_lines = len(content.splitlines())
-        if logical_lines > MAX_PRODUCTION_LOGICAL_LINES and not is_test_source(
-            rel_path
+        if (
+            logical_lines > MAX_PRODUCTION_LOGICAL_LINES
+            and not shared._is_test_only_rust_path(source, test_context)
         ):
             violations.append(
                 f"{rel} has {logical_lines} module logical lines "
@@ -106,36 +105,36 @@ def scan_module_sizes() -> list[str]:
 
 
 def scan_cohesion() -> list[str]:
-    """Emit cohesion / concept-density signals for large façade modules.
+    """Emit a heuristic review signal based on production module density.
 
-    Flags lib.rs files where the ratio of logical lines per declared module
-    exceeds a heuristic threshold, indicating a single file may be carrying
-    too many responsibilities.
+    A child-module count normalizes the size signal; it does not establish that
+    a file carries multiple responsibilities. The hard size budgets remain
+    independent checks.
     """
     violations = []
-    for rel_path, declared_modules in contract_tests.RESPONSIBILITY_MAPS.items():
-        source = shared.ROOT / rel_path
+    for source in contract_tests.responsibility_map_source_paths():
+        rel_path = source.relative_to(shared.ROOT).as_posix()
         if rel_path in ADR_MODULE_EXEMPTIONS:
-            continue
-        if not source.exists():
             continue
         content = read_text(source)
         if content is None:
             continue
-        production = content.split("#[cfg(test)]", 1)[0]
-        logical = logical_line_count(production)
-        num_modules = len(declared_modules)
-        if num_modules == 0:
+        production_modules = sum(
+            1
+            for declaration in rust_module_declarations(content)
+            if not declaration.parent_modules
+            and not declaration.inline
+            and not declaration.test_only
+        )
+        if production_modules == 0:
             continue
-        density = logical / num_modules
-        # If there are more than 15 logical lines per declared module in the
-        # lib.rs, the façade is likely accumulating responsibility that
-        # belongs in sibling modules.
+        logical = logical_line_count(production_rust(content))
+        density = logical / production_modules
         if density > 15.0:
             violations.append(
-                f"{rel_path} has {density:.1f} logical lines per module "
-                f"({logical} lines across {num_modules} modules) — "
-                f"cohesion signal: extract implementation to modules"
+                f"{rel_path} has {density:.1f} logical lines per production module "
+                f"({logical} lines across {production_modules} modules) — "
+                "cohesion review signal: inspect module boundaries"
             )
     return violations
 
@@ -217,14 +216,12 @@ def scan_readability_style() -> list[str]:
 
 
 def scan_mixed_responsibilities() -> list[str]:
-    """Flag non-façade modules that declare many sub-modules and are large.
+    """Emit a review signal for large non-façade modules with child modules.
 
-    Heuristic: a regular .rs file (not lib.rs / mod.rs / main.rs) that
-    declares 3+ child modules *and* exceeds 300 logical lines is likely
-    accumulating mixed responsibilities.
+    Child count plus size is a review heuristic, not proof of mixed
+    responsibilities.
     """
     violations: list[str] = []
-    mod_pattern = _MOD_DECL_PATTERN
     for source in _production_rust_files(skip_tests=True):
         if source.name in {"lib.rs", "mod.rs", "main.rs"}:
             continue
@@ -235,12 +232,17 @@ def scan_mixed_responsibilities() -> list[str]:
         content = read_text(source)
         if content is None:
             continue
-        production = production_rust(content)
-        mods = mod_pattern.findall(production)
+        child_modules = sum(
+            1
+            for declaration in rust_module_declarations(content)
+            if not declaration.parent_modules
+            and not declaration.inline
+            and not declaration.test_only
+        )
         logical = _logical_line_count_scrubbed(_scrubbed_production(source))
-        if len(mods) >= 3 and logical > 300:
+        if child_modules >= 3 and logical > 300:
             violations.append(
-                f"{rel} has {len(mods)} child modules and {logical} logical lines — "
-                f"mixed-responsibility signal: extract to dedicated module or ADR"
+                f"{rel} has {child_modules} child modules and {logical} logical lines — "
+                "mixed-responsibility review signal: inspect module boundaries"
             )
     return violations

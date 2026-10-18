@@ -2,7 +2,7 @@
 
 ## Context
 
-Maestria instances are intentionally isolated: each owns its manifest, source
+Sillage instances are intentionally isolated: each owns its manifest, source
 scope, database, blob store, index projections, and daemon credential. A useful
 cross-instance read must not turn that isolation into shared files, a shared
 database, or reuse of a provider daemon token. Those alternatives bypass the
@@ -17,7 +17,7 @@ candidate is retrieved or scored.
 Use local, provider-owned, read-only realm federation.
 
 - Every schema-v2 instance manifest owns one stable `RealmId`; existing
-  schema-v1 manifests require the explicit `maestria realm migrate` boundary.
+  schema-v1 manifests require the explicit `sillage realm migrate` boundary.
 - A provider issues at most one active realm-read grant for a consumer realm.
   The grant stores only a domain-separated digest of a randomly generated
   bearer credential, access (`search-only` or `search-and-open-evidence`), a

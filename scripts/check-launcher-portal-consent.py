@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+"""Exercise the installed launcher against a real private KDE GlobalShortcuts portal."""
+
+from collections import deque
+import os
+import re
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+import gi
+
+gi.require_version("Atspi", "2.0")
+from gi.repository import Atspi
+
+
+def descendants(root):
+    pending = deque([root])
+    for _ in range(2048):
+        if not pending:
+            break
+        node = pending.popleft()
+        yield node
+        try:
+            pending.extend(node.get_child_at_index(index) for index in range(node.get_child_count()))
+        except (AttributeError, RuntimeError):
+            continue
+
+
+def visible_button(name):
+    for node in descendants(Atspi.get_desktop(0)):
+        if node is None:
+            continue
+        try:
+            if (node.get_role() == Atspi.Role.PUSH_BUTTON and node.get_name() == name
+                    and node.get_state_set().contains(Atspi.StateType.SHOWING)):
+                return node
+        except (AttributeError, RuntimeError):
+            continue
+    return None
+
+
+def capture_private_display(destination):
+    try:
+        os.environ["GDK_BACKEND"] = "x11"
+        gi.require_version("Gdk", "3.0")
+        from gi.repository import Gdk
+        Gdk.init([])
+        screen = Gdk.Screen.get_default()
+        window = screen.get_root_window()
+        pixels = Gdk.pixbuf_get_from_window(window, 0, 0, window.get_width(), window.get_height())
+        if pixels is not None:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            pixels.savev(str(destination), "png", [], [])
+    except (Exception, SystemExit) as error:
+        print(f"Private screenshot unavailable: {error}", file=sys.stderr)
+
+
+def portal_evidence(path):
+    log = path.read_text(errors="replace")
+    blocks = re.split(r"(?=^(?:signal|method call|method return|error) time=)", log, flags=re.M)
+    responses = []
+    binding_handle = None
+    for block in blocks:
+        if "interface=org.freedesktop.portal.GlobalShortcuts; member=BindShortcuts" in block:
+            if 'string "activate-launcher"' not in block or 'string "CTRL+space"' not in block:
+                raise AssertionError(f"wrong shortcut requested by installed launcher: {block}")
+            handle = re.search(r'string "handle_token"\s+variant\s+string "([^"]+)"', block)
+            if handle is not None:
+                binding_handle = handle.group(1)
+        if "interface=org.freedesktop.portal.Request; member=Response" in block:
+            code = re.search(r"^\s+uint32 ([0-9]+)$", block, flags=re.M)
+            if code is not None:
+                responses.append((int(code.group(1)), block))
+    return log, responses, binding_handle
+
+
+def private_dialog_button(decision):
+    # KDE's Wayland dialog has no separate outer X11 window. Find its rendered
+    # white canvas / gray action-bar boundary on our owned 1280x800 Xvfb
+    # display instead of assuming where KWin placed the inner Wayland window.
+    previous_backend = os.environ.get("GDK_BACKEND")
+    os.environ["GDK_BACKEND"] = "x11"
+    try:
+        gi.require_version("Gdk", "3.0")
+        from gi.repository import Gdk
+        Gdk.init([])
+    finally:
+        if previous_backend is None:
+            os.environ.pop("GDK_BACKEND", None)
+        else:
+            os.environ["GDK_BACKEND"] = previous_backend
+    screen = Gdk.Screen.get_default()
+    root = screen.get_root_window()
+    image = Gdk.pixbuf_get_from_window(root, 0, 0, root.get_width(), root.get_height())
+    return dialog_button_in_image(image, decision)
+
+
+def dialog_button_in_image(image, decision):
+    if image is None or image.get_n_channels() != 3:
+        return None
+    pixels = bytes(image.get_pixels())
+    stride = image.get_rowstride()
+    channels = image.get_n_channels()
+    white_canvas = b"\xff\xff\xff" * 450
+
+    def color(x, y):
+        offset = y * stride + x * channels
+        return pixels[offset:offset + 3]
+
+    def gray(x, y, low, high):
+        red, green, blue = color(x, y)
+        return (low <= min(red, green, blue)
+                and max(red, green, blue) <= high
+                and max(red, green, blue) - min(red, green, blue) <= 8)
+
+    for y in range(100, image.get_height() - 65):
+        canvas = pixels[(y - 1) * stride:y * stride]
+        offset = canvas.find(white_canvas)
+        if offset < 0:
+            continue
+        x = offset // channels
+        if x + 500 >= image.get_width():
+            continue
+        if (all(gray(x + dx, y, 165, 245) for dx in (100, 250, 400))
+                and gray(x + 100, y + 40, 200, 245)
+                and color(x + 250, y - 100) == b"\xff\xff\xff"):
+            return x + (360 if decision == "allow" else 448), y + 34
+    return None
+
+
+def run(decision, session):
+    Atspi.init()
+    monitor = session / "portal-dbus.log"
+    binary = os.environ.get("SILLAGE_LOCAL_PORTAL_LAUNCHER", "/usr/bin/sillage-launcher")
+    provenance = "SOURCE_BUILT" if os.environ.get("SILLAGE_LOCAL_PORTAL_LAUNCHER") else "INSTALLED"
+    settings = session / "config/io.github.briolabs.Sillage.Launcher/launcher.toml"
+    launcher_log = (session / "launcher.log").open("w")
+    launcher = subprocess.Popen([binary, "--activate"], stdout=launcher_log, stderr=subprocess.STDOUT)
+    try:
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            if launcher.poll() is not None:
+                raise AssertionError(f"launcher exited before first-run Setup: {launcher.returncode}")
+            setup = visible_button("Set Up Shortcut")
+            if setup is not None:
+                component = setup.get_component_iface()
+                if component is not None:
+                    rect = Atspi.Component.get_extents(component, Atspi.CoordType.SCREEN)
+                    print(f"LAUNCHER_SETUP_ATSPI_BOUNDS={rect.x},{rect.y},{rect.width},{rect.height}", flush=True)
+                break
+            time.sleep(.1)
+        # Slint's Wayland tree may be absent or report an AT-SPI action that
+        # returns success without activating Setup. Use only the owned Xvfb
+        # pointer; KDE's actual portal response remains the acceptance proof.
+        subprocess.run(["xdotool", "mousemove", "700", "221", "click", "1"], check=True)
+        print("LAUNCHER_SETUP_USED_PRIVATE_X11_POINTER_NOT_ATSPI", flush=True)
+        deadline = time.monotonic() + 30
+        choice = "OK" if decision == "allow" else "Cancel"
+        while time.monotonic() < deadline:
+            log, responses, binding_handle = portal_evidence(monitor)
+            if launcher.poll() is not None:
+                raise AssertionError(f"launcher exited before KDE consent: {launcher.returncode}")
+            created = ("interface=org.freedesktop.portal.GlobalShortcuts; member=CreateSession" in log
+                       and binding_handle is not None
+                       and any(code == 0 and 'string "session_handle"' in block for code, block in responses))
+            if created:
+                button = visible_button(choice)
+                if button is not None:
+                    action = button.get_action_iface()
+                    if action is not None and Atspi.Action.do_action(action, 0):
+                        print(f"KDE_DIALOG_ATSPI_ACTION={choice}", flush=True)
+                        break
+                # Qt Quick can map its Wayland dialog after CreateSession and
+                # BindShortcuts. Click only once its canvas and action bar
+                # boundary are visible on the owned Xvfb display.
+                target = private_dialog_button(decision)
+                if target is not None:
+                    subprocess.run(
+                        ["xdotool", "mousemove", str(target[0]), str(target[1]), "click", "1"],
+                        check=True,
+                    )
+                    print(f"KDE_DIALOG_USED_PRIVATE_X11_POINTER_NOT_ATSPI={choice}={target}", flush=True)
+                    break
+            time.sleep(.1)
+        else:
+            raise AssertionError(f"KDE {choice} consent request did not reach the private portal: {log[-2600:]}")
+
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            log, responses, binding_handle = portal_evidence(monitor)
+            completed = [(code, block) for code, block in responses
+                         if binding_handle is not None
+                         and f"/{binding_handle};" in block.splitlines()[0]]
+            if completed:
+                code, block = completed[-1]
+                expected = 0 if decision == "allow" else 1
+                if code != expected:
+                    raise AssertionError(f"KDE {decision} returned portal response {code}, expected {expected}")
+                if decision == "allow":
+                    if ('string "shortcuts"' not in block
+                            or 'string "activate-launcher"' not in block
+                            or 'string "Ctrl+Space"' not in block):
+                        raise AssertionError(f"KDE did not grant activate-launcher: {block}")
+                    if settings.is_file() and 'shortcutSetup = "requested"' in settings.read_text():
+                        print(f"{provenance}_PORTAL_CREATE_SESSION_RESPONSE=0_BIND_RESPONSE=0_APPROVED_AND_PERSISTED", flush=True)
+                        return
+                elif not settings.exists():
+                    print(f"{provenance}_PORTAL_CREATE_SESSION_RESPONSE=0_BIND_RESPONSE=1_DENIED_WITHOUT_SETTINGS", flush=True)
+                    return
+            time.sleep(.1)
+        raise AssertionError(f"{decision} response did not produce expected launcher settings: {responses!r}")
+    except Exception:
+        capture_private_display(Path("target/launcher-portal-diagnostics") / f"{decision}.png")
+        raise
+    finally:
+        if launcher.poll() is None:
+            subprocess.run([binary, "--quit"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+            try:
+                launcher.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                launcher.terminate()
+                launcher.wait(timeout=5)
+        launcher_log.close()
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3 or sys.argv[1] not in ("allow", "deny"):
+        raise SystemExit("usage: check-launcher-portal-consent.py allow|deny PRIVATE_SESSION_ROOT")
+    decision, session = sys.argv[1], Path(sys.argv[2])
+    run(decision, session)

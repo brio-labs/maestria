@@ -1,39 +1,52 @@
-# Maestria Philosophy
+# Sillage Philosophy
 
 This document is enforceable. CI and review block violations.
+
+Sillage is an open-source native retrieval launcher and reusable search
+boundary for Linux, Windows, and macOS. Its core path is explicit search,
+authorized results, a sourced preview, and a user-selected action. Generation
+and chat are optional plugin or API-client capabilities, not required product
+steps; local use does not require an account, model, or pre-existing index.
+
+This mandate is a target, not a qualification claim. Existing Linux evidence
+proves only its named configurations and tasks; Windows and macOS remain
+unqualified. The current implementation and release state are reported in
+[`ROADMAP.md`](ROADMAP.md). Retrieval lanes and extension controls remain
+governed by the rules below; neither local tests nor source portability prove
+full product acceptance.
 
 ## Rules
 
 1. Domain code must be deterministic: no time, network, filesystem, process calls, random sampling, or hidden global state.
 2. All I/O-capable work must be represented as explicit effect values and executed by runtime/adapters after governance review.
 3. Evidence must be typed and source-grounded; raw strings are not evidence when the provenance shape is known.
-4. Every factual answer path should be auditable through event, command, validation, or evidence trail.
+4. Factual answer paths retain source provenance and an auditable explanation under the applicable source policy; this does not require a durable event or query history for every search.
 5. The repo must maintain a conservative, local-first baseline; remote services are adapters.
 6. Policy and mechanism stay separate. Governance may classify and decide; it must not execute effects.
 7. Task completion is validation-gated. Generic unvalidated completion states are not allowed in the domain.
 8. Memory candidates and promoted memories must point back to evidence. LLM output can propose; it cannot silently promote.
 9. Projections are rebuildable. Search, vector, and graph stores never own truth.
 10. Kernel crates cannot depend on adapter/runtime/provider crates such as Tokio, SQLx, reqwest, Tantivy, or Axum.
-11. Rust code, including tests, must not contain `unwrap`, `expect`, `panic`, or lint-bypass attributes; fallible paths return typed errors and tests propagate failures.
+11. Rust code, including tests, must not contain panic-capable `unwrap`/`expect` methods, explicit panic macros, panic interception, or lint-bypass attributes. Configured non-panicking extraction/fallback restrictions, including the current `unwrap_or*` policy, remain in force. Production code must return typed failures rather than assert an invariant, including in debug builds. Test-only code may assert expected behavior; fallible fixture setup and execution propagate the original errors instead of unwrapping, panicking, or discarding failures.
 12. Bare task markers are not allowed in source, config, or docs.
 13. One concept per Rust module: a module owns one named responsibility at one architectural layer. Domain types, input dispatch, replay, persistence schema, DTO conversion, repositories, and tests are separate concerns; split when a second independently testable concept appears, not at an arbitrary line count.
 14. Public crate façades expose stable boundary types and traits and re-export implementation modules. Implementation details, adapters, and tests stay behind explicit module boundaries instead of reaching across sibling internals.
 15. Dependency direction is explicit and acyclic: domain → ports → runtime/adapters. Domain code cannot import adapter concerns, and serialization, schema, and persistence conversions stay at adapter boundaries.
 16. Cross-concern behavior crosses typed functions, traits, or effects. Validation, state transitions, conversion, persistence, and orchestration remain independently reasoned and tested rather than accumulating in one module.
-17. Composition beats accumulation: when a new responsibility, lifecycle, representation, or test contract appears, create a sibling module and an explicit façade boundary. Module length is a diagnostic signal for missed boundaries, never a rule or an exception mechanism.
-18. Production Rust functions over 100 lines require decomposition or a documented, reviewed exemption. Production modules over 400 logical lines require a split or a checked architectural exemption; files over 900 physical lines require an ADR-backed exemption.
+17. Composition beats accumulation: when a new responsibility, lifecycle, representation, or test contract appears, create a sibling module and an explicit façade boundary. Length and module-density metrics do not prove cohesion or a responsibility boundary. Rules 18 and 22 impose separate hard readability guards; satisfying those guards never excuses mixed responsibilities.
+18. Production Rust function bodies over 100 logical lines require decomposition under Rule 22. Production modules over 400 logical lines require a split or a checked architectural exemption; Rust files, including test files, over 900 physical lines require an ADR-backed exemption. Logical budgets exclude proven test-only code and non-code text; physical budgets count the complete file.
 19. `lib.rs` files are façades: they declare modules and re-export stable public APIs. Implementation bodies and responsibility-specific tests belong in sibling modules or crate integration-test files.
 20. Public orchestration methods delegate independently testable phases through typed functions, traits, or value objects. A method must not own parsing, persistence, event reconciliation, projection updates, and response assembly simultaneously.
 21. Every kernel crate shares the domain safety boundary: kernel code is deterministic, dependency-layered, and free of adapter, process, clock, network, and uncontrolled concurrency concerns.
 22. Production functions are independently comprehensible: functions over 100 logical lines require decomposition; any reviewed exception must name an ADR and an expiry, and exceptions are never a permanent design strategy.
 23. Effects are total at the runtime boundary: every effect the domain emits has one observable runtime execution or is removed from the domain contract; ignored effects and silent no-ops are not valid implementations.
 24. Failure information is preserved: production code must not discard errors, replace them with untyped fallbacks, or continue after a failed invariant unless the policy explicitly models that outcome.
-25. Every concrete port adapter must execute the shared contract suite plus adapter-specific boundary tests; a trait implementation is incomplete without behavioral conformance evidence.
+25. Every concrete port adapter must execute the shared contract suite plus adapter-specific boundary tests, including source authorization and the selected retention/no-persistence behavior; a trait implementation is incomplete without behavioral conformance evidence.
 26. Tests are production architecture: each test module owns one behavior family, fixtures are shared through explicit helpers, and test files obey the same physical-size boundary as implementation files.
 27. Identity namespaces remain independent: counters, typed IDs, and persisted identifiers for different concepts must not be coupled merely to simplify allocation or ordering.
 28. Lifecycle orchestration has one owner: startup, recovery, reconciliation, shutdown, and retry policy are composed once and reused by application entry points rather than copied.
-29. Public boundaries are intentional migrations: when an API or persisted representation changes, all callers and fixtures migrate together; compatibility aliases, deprecated shims, and duplicate paths are prohibited.
-30. Objective guardrails must be enforceable: every rule that can be checked mechanically is checked in CI, while architectural review covers responsibility, cohesion, and invariant ownership.
+29. Internal API and persisted-representation changes use a clean cutover: migrate all callers and fixtures together, with no compatibility aliases, deprecated shims, or duplicate paths. A public versioned protocol may negotiate explicitly; any dated, bounded transition is permitted only under a separately approved ADR that names supported versions, migration, scope, end date, and removal criterion. This is not blanket authorization for compatibility code; no permanent alias or shim is allowed. [ADR-0011](adr/ADR-0011-source-retention-public-api.md) records this doctrine but does not authorize or implement a specific transition.
+30. Objective guardrails must be enforceable: mechanically verifiable invariants are checked in CI, while architectural review covers responsibility, cohesion, and invariant ownership. Line-density and child-module-count heuristics are reported as non-blocking review signals; they neither prove compliance nor authorize exemptions. A concrete architectural violation identified in review remains delivery-blocking. A required verification that cannot run is reported as unverified, not passed.
 31. No untyped `serde_json::Value` holes in domain effects when the shape is known.
 32. No direct database mutation from CLI/API handlers.
 33. Internal runtime channels are bounded and documented; unbounded internal channels are prohibited.
@@ -42,15 +55,15 @@ This document is enforceable. CI and review block violations.
 36. Autonomous action is limited to explicit scope and profile.
 37. Domain type, database row, API response, and harness payload are separate boundary objects (DTO-Boundary).
 38. No generated blobs under production source paths.
-39. Evidence snapshots are immutable and content-addressed.
-40. Important state changes emit append-only domain events.
+39. Evidence snapshots are immutable and content-addressed while retained; retention and any authorized purge are governed separately, and removal records its effect on provenance or verification.
+40. Important domain state changes emit append-only domain events. Search attempts and operational traces are not domain-state changes by default and need not be durably journaled.
 
-41. Search plans and outcomes are typed, budgeted boundary values; retrieval cannot run as an unbounded prompt-building loop.
-42. Search traces identify the query, corpus snapshot, index generation, retrieval-model fingerprint, stages, budgets, filters, and stop reason.
+41. Search plans and outcomes are typed, budgeted boundary values; retrieval cannot run as an unbounded prompt-building loop. Their execution state is ephemeral unless a separately authorized evidence policy applies.
+42. Search traces at runtime identify the query and retrieval context—corpus snapshot, index generation, retrieval-model fingerprint, stages, budgets, filters, and stop reason—within the authorized execution lifetime. Trace identity does not require persistent query, path, content, or catalogue data.
 43. Every retrieval lane applies scope, ACL, trust, sensitivity, quarantine, and prompt-injection checks before scoring or exposing candidates.
 44. Retrieval changes require a versioned evaluation corpus and judgment set with quality, latency, memory, privacy, security, and energy measurements; unavailable measurements cannot authorize promotion.
 45. Normative architecture and roadmap documents remain model- and backend-agnostic; dated implementation candidates belong in research notes or ADRs.
-46. Maestria preserves external observations and provenance; it does not claim that domain state makes external facts true.
+46. Sillage preserves external observations and provenance; it does not claim that domain state makes external facts true.
 47. Model-generated search plans and rewrites are untrusted proposals; only validated capabilities, scope, security, freshness, snapshot, and budget checks may authorize execution.
 48. Local or remote client surfaces authenticate per instance and enforce the instance's read/write scope before dispatch; transport handlers cannot bypass domain, governance, or evidence services.
 49. Repository and code-intelligence records preserve repository, commit/worktree identity, source path/range, and parser generation; stale projections are explicit and deterministic symbol indexes must not fabricate cross-file relations.
@@ -65,10 +78,19 @@ This document is enforceable. CI and review block violations.
 58. Pure functional core separation: command validation and decision logic must execute as pure, side-effect-free functions borrowing domain state immutably (`&KernelState`). State mutation occurs only during event application (`apply_event`). Speculative execution that clones full kernel state to isolate mutable side-effects is prohibited.
 59. Zero-copy and allocation discipline: parsers and transformation pipelines must operate on borrowed byte or string slices (`&[u8]`, `&str`) and derive span coordinates directly from source buffers. Chained intermediate string re-allocations (`collect::<Vec<_>>()`, `join("\n")`, redundant `.to_string()`) are prohibited in hot chunking and ingestion paths.
 60. Deterministic fast collections: ephemeral execution and performance-sensitive pipelines (search fusion, scoring, deduplication) must use deterministic fast collections (`FxHashMap`, `IndexMap`, `nohash_hasher`) or contiguous vectors with linear/binary search instead of node-allocating `BTreeMap`/`BTreeSet` unless key sorting is strictly required by domain semantics.
+61. Source scope, execution place, timing, documentary retention, representation, and resource budgets are independent per-source policy choices. Preferences and grants are control state whose persistence requires a separate explicit choice; local consent never implies remote disclosure.
+62. A no-document-persistence policy prohibits Sillage-controlled persistence of that source's queries, document paths, discovered-file catalogue, content, derivatives, and query-linked traces. An approved-root preference or grant is separate control state and may persist only under a distinct explicit choice; otherwise it is session-only. Operational traces are ephemeral by default; ordinary telemetry export is opt-in, and voluntary experiment evidence requires separate consent and purpose.
+63. Retirement or disabling does not mean physical purge. Purge is a separate authorized retention action; OS caches, swap, external-provider logs, and backups outside Sillage control are explicit limits, not an excuse to leave data in Sillage-controlled stores.
 
 ## Review interpretation
 
 Rules 13–20 govern composition and module boundaries; Rules 21–30 make the previously implicit quality obligations explicit. Rules 41–52 govern typed retrieval, bounded context expansion, seed lineage, security filtering, reproducible evaluation, canonical documentation, external-truth boundaries, untrusted plan/rewrite proposals, authenticated scoped client surfaces, provenance-complete repository code intelligence, evidence-bearing code relations, explicit freshness/governed live verification, and query-class-specific benchmark promotion. Rule 56 governs invariant-owning domain types and compile-time-safe state modeling; Rule 57 governs permanent production readability limits. A green checker result is necessary but not sufficient: reviewers must still reject accumulated responsibilities, duplicated lifecycle policy, and weak invariant ownership.
+
+Hard readability guards and declarative façade checks are necessary but do not establish SRP or cohesion. Module-density and child-module-count heuristics identify review candidates; review records the concrete competing responsibility, invalid state, value confusion, or bypass route before demanding an architectural change. Existing known-vocabulary state-modeling checks remain enforced at their current severity. Rust test-only scope follows target and module configuration, not filenames.
+The checker treats a Rust `cfg` predicate as test-only only when its expression necessarily requires `test`, so feature-enabled shipping routes remain active. It infers Cargo-conventional paths for named explicit targets that omit `path` and honors `autotests`, `autobins`, `autoexamples`, `autobenches`, and `build = false`; automatic flags suppress only auto-discovered roots, not explicit targets. Inner module guards apply to the containing file or scope and its descendants.
+Opaque constructed cross-package module references remain bounded to the package-local conservative fallback; this is not compiler-complete reachability.
+
+Rules 4, 25, and 39–42 together preserve auditable provenance and adapter conformance without making each query a durable event; Rules 61–63 govern source-policy separation, no-document-persistence, consent, and the distinction between retirement and purge. Rule 29 permits only an ADR-approved, dated public-version transition and still prohibits permanent aliases or shims.
 Rule 53 governs immutable PDF page/region provenance and explicit OCR degradation; visual coordinates are never inferred as text evidence.
 Rule 54 governs optional visual-model boundaries, generation identity, and explicit traceable degradation when visual retrieval is unavailable.
 Rule 55 governs learned-sparse identity, traceability, shadow-by-default execution, strict separation between shadow observations and served retrieval, and comparison against both lexical and hybrid baselines before per-class activation.
@@ -89,11 +111,13 @@ Mechanical checks conservatively reject opposite boolean state pairs, known bool
 
 ## Enforcement
 - `scripts/philosophy-check.py`, which also: resolves the workspace dependency graph with `cargo metadata` to reject transitive adapter/runtime/provider crates under kernel crates; enforces the configured production line width, one-statement-per-line rule, and expanded function-body rule; bans `String`-typed conversion errors, panic interception (`catch_unwind`), generated-code blobs under production paths, and random-sampling tokens in kernel sources; requires public async operations to document cancellation behavior; bans hardcoded secret material (private keys, access-token shapes, credential assignments — the same vocabulary as the governance privacy scanner); bans the memory-unsafety and leak marker classes (`transmute`, `static mut`, `Box::leak`, `mem::forget`) everywhere including tests; bans process-global environment mutation (`env::set_var`, `env::remove_var`); and checks typed state/invariant modeling.
+- The checker verifies source/module structure, configured token restrictions, and required documentation presence. Those checks do not prove error preservation, effect execution, cancellation behavior, adapter conformance, or source-retention behavior; compiler checks, architectural review, contract execution, and named runtime evidence remain independently required.
 - Workspace lint, documentation, and test gates in CI
 - Core cohesion Clippy gate for function size, cognitive complexity, and the configured `too_many_lines` threshold
 - Contract checks for kernel inputs/outputs, transitions, and every concrete port adapter
 - Review through CODEOWNERS on invariant-owning surfaces
 - Review enforces responsibility boundaries, lifecycle ownership, identity namespaces, invariant-owning domain types, validated boundary conversion, repository/source provenance, evidence-bearing code relations, bounded seed-preserving context traversal, explicit freshness checks, governed live verification, query-class-specific benchmark promotion, and architectural composition from Rules 13–30 and 41–56.
+- Review also verifies the six independent per-source policy dimensions, separate preference/grant consent, authorization and freshness at use, bounded coverage, ephemeral traces, opt-in telemetry export, separately consented experiment evidence, and explicit operating-system/external retention limits.
 - Visual-document contract tests verify immutable page/region coordinates and explicit `NeedsOcr` degradation.
 - Visual retrieval tests verify named generation identity, provider capability boundaries, exact region provenance, and explicit fallback traces.
 - Learned-sparse contract tests verify model/tokenizer/vocabulary identity, bounded terms, pre-score security filtering, contribution traces, shadow-generation isolation, disabled opt-out, and per-class benchmark promotion; production activation still requires real end-to-end benchmark evidence before #90 can close.

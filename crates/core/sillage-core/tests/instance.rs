@@ -1,0 +1,31 @@
+use std::path::PathBuf;
+
+use sillage_core::{InitInstanceInput, InstanceManifest, InstanceService};
+
+#[test]
+fn init_instance_returns_isolated_local_layout() -> Result<(), Box<dyn std::error::Error>> {
+    let realm_id = sillage_test_support::realm_id(10)?;
+    let plan = InstanceService::init_instance(InitInstanceInput {
+        root: PathBuf::from("/tmp/sillage/personal"),
+        realm_id: realm_id.clone(),
+    })?;
+
+    assert_eq!(
+        plan.layout.blobs_dir,
+        PathBuf::from("/tmp/sillage/personal/blobs/sha256")
+    );
+    assert_eq!(
+        plan.layout.full_text_index_dir,
+        PathBuf::from("/tmp/sillage/personal/indexes/full-text")
+    );
+    assert!(plan.directories.contains(&plan.layout.active_tasks_dir));
+    assert!(plan.manifest_contents.contains("schema_version=2"));
+    assert!(plan.manifest_contents.contains(realm_id.as_str()));
+    let manifest = InstanceManifest::decode(&plan.manifest_contents)?;
+    assert_eq!(manifest.realm_id, realm_id);
+    assert_eq!(manifest.root, plan.layout.root);
+    assert_eq!(manifest.read_roots, vec![plan.layout.root.clone()]);
+    assert!(manifest.excluded_patterns.iter().any(|item| item == ".env"));
+
+    Ok(())
+}

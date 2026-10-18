@@ -1,0 +1,275 @@
+use std::sync::Arc;
+
+use sillage_domain::{
+    Artifact, ArtifactId, Chunk, ChunkId, ContentHash, CorpusSnapshotId, Evidence, EvidenceKind,
+    IndexGenerationId, IndexStatus, LineRange, RetrievalModelFingerprint, SearchLaneStatus,
+    SearchPlan, SearchRewriteOrigin, SearchStatus, SnapshotRef, SourceSpan, StructureNodeId,
+};
+use sillage_ports::{
+    ArtifactRepository, BlobStore, ChunkRepository, EmbeddingIdentity, EmbeddingProvider,
+    EmbeddingRequest, EmbeddingResponse, EvidenceRepository, InMemoryArtifactRepository,
+    InMemoryBlobStore, InMemoryChunkRepository, InMemoryEvidenceRepository, InMemoryFullTextIndex,
+    InMemoryVectorIndex, PortError, ProviderDisclosure, RetentionPolicy, VectorIndex,
+};
+use sillage_retrieval::{
+    FixedKRrf, HybridExecutionPolicy, HybridLexicalHead, HybridPromotionRecord, RetrievalEngine,
+    SearchPlannerContext,
+    adapters::{
+        DenseChunkRetriever, DenseChunkRetrieverParts, EvidenceOutcomeEvaluator,
+        LexicalChunkRetriever, LexicalChunkRetrieverParts,
+    },
+    traits::CandidateRetriever,
+};
+struct VectorFixture {
+    artifacts: Arc<InMemoryArtifactRepository>,
+    chunks: Arc<InMemoryChunkRepository>,
+    evidence: Arc<InMemoryEvidenceRepository>,
+    blobs: Arc<InMemoryBlobStore>,
+    search_index: Arc<InMemoryFullTextIndex>,
+    vector_index: Arc<InMemoryVectorIndex>,
+}
+
+fn seed_vector_fixture() -> Result<VectorFixture, Box<dyn std::error::Error>> {
+    let artifact_id = ArtifactId::new(800);
+    let chunk_id = ChunkId::new(801);
+    let evidence_id = sillage_domain::evidence_id_for(artifact_id, 0);
+    let source = "literal source text\n";
+    let artifacts = Arc::new(InMemoryArtifactRepository::new());
+    let chunks = Arc::new(InMemoryChunkRepository::new());
+    let evidence = Arc::new(InMemoryEvidenceRepository::new());
+    let blobs = Arc::new(InMemoryBlobStore::new());
+    let search_index = Arc::new(InMemoryFullTextIndex::new());
+    let vector_index = Arc::new(InMemoryVectorIndex::new());
+
+    let blob_id = blobs.put(source.as_bytes().to_vec())?;
+    artifacts.put(Artifact {
+        id: artifact_id,
+        title: "semantic.md".to_string(),
+        chunk_ids: [chunk_id].into(),
+        security: sillage_domain::SecurityMetadata::default(),
+        card_ids: Default::default(),
+        claim_ids: Default::default(),
+        evidence_ids: [evidence_id].into(),
+        index_status: IndexStatus::Indexed,
+        content_hash: Some(ContentHash::new(sillage_core::content_hash(
+            source.as_bytes(),
+        ))?),
+        parse_status: None,
+    })?;
+    chunks.put(Chunk {
+        id: chunk_id,
+        artifact_id,
+        node_id: StructureNodeId::new(0),
+        source_span: SourceSpan::text_span(1, 1)?,
+        representations: vec![],
+        representations_digest: "sha256:fixture".to_string(),
+        order: 0,
+        text: "semantic token".to_string(),
+    })?;
+    evidence.put(Evidence {
+        id: evidence_id,
+        artifact_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "semantic.md".to_string(),
+            range: LineRange::new(1, 1)?,
+            snapshot: SnapshotRef::new(
+                blob_id,
+                ContentHash::new(sillage_core::content_hash(source.as_bytes()))?,
+            ),
+        },
+        excerpt: "literal source text".to_string(),
+        observed_at: sillage_domain::LogicalTick::new(1),
+        security: sillage_domain::SecurityMetadata::default(),
+    })?;
+    vector_index.index_embeddings(vec![sillage_ports::VectorEmbedding {
+        chunk_id,
+        vector: vec![0.0, 1.0],
+        provenance: sillage_ports::EmbeddingProvenance {
+            content_hash: "hash".to_string(),
+            identity: sillage_ports::contract_tests::fixture_embedding_identity("test-model", 2)?,
+            provider_id: "test-provider".to_string(),
+            model: "test-model".to_string(),
+            model_version: "test-v1".to_string(),
+            disclosure: sillage_ports::ProviderDisclosure {
+                remote: false,
+                retention: sillage_ports::RetentionPolicy::NoRetention,
+            },
+        },
+    }])?;
+
+    Ok(VectorFixture {
+        artifacts,
+        chunks,
+        evidence,
+        blobs,
+        search_index,
+        vector_index,
+    })
+}
+
+fn planner_context() -> Result<SearchPlannerContext, Box<dyn std::error::Error>> {
+    Ok(SearchPlannerContext {
+        corpus_snapshot: CorpusSnapshotId::new(1),
+        primary_generation: IndexGenerationId::new(1),
+        fingerprint: RetrievalModelFingerprint::new(
+            "sillage-core:hybrid-shadow-fixture".to_string(),
+        )?,
+        scope: None,
+    })
+}
+
+struct DenseFixtureEmbeddingProvider;
+
+impl EmbeddingProvider for DenseFixtureEmbeddingProvider {
+    fn disclosure(&self) -> ProviderDisclosure {
+        ProviderDisclosure {
+            remote: false,
+            retention: RetentionPolicy::NoRetention,
+        }
+    }
+    fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, PortError> {
+        Ok(EmbeddingResponse {
+            vector: vec![0.0, 1.0],
+            provider_id: "test-provider".to_string(),
+            model: request.model,
+            model_version: "test-v1".to_string(),
+            identity: request.identity,
+            disclosure: ProviderDisclosure {
+                remote: false,
+                retention: RetentionPolicy::NoRetention,
+            },
+        })
+    }
+
+    fn identity(&self) -> Option<EmbeddingIdentity> {
+        sillage_ports::contract_tests::fixture_embedding_identity("test-model", 2).ok()
+    }
+}
+
+fn build_search_engine(
+    policy: HybridExecutionPolicy,
+    include_dense: bool,
+) -> Result<(RetrievalEngine, SearchPlannerContext), Box<dyn std::error::Error>> {
+    let fixture = seed_vector_fixture()?;
+    let context = planner_context()?;
+    let mut retrievers: Vec<Arc<dyn CandidateRetriever>> = Vec::new();
+    retrievers.push(Arc::new(LexicalChunkRetriever::new(
+        LexicalChunkRetrieverParts {
+            index: fixture.search_index.clone(),
+            artifacts: fixture.artifacts.clone(),
+            chunks: fixture.chunks.clone(),
+            evidence: fixture.evidence.clone(),
+            blobs: fixture.blobs.clone(),
+        },
+        context.primary_generation,
+    )));
+    if include_dense {
+        retrievers.push(Arc::new(DenseChunkRetriever::new(
+            DenseChunkRetrieverParts {
+                index: fixture.vector_index.clone(),
+                artifacts: fixture.artifacts,
+                chunks: fixture.chunks,
+                evidence: fixture.evidence.clone(),
+                blobs: fixture.blobs,
+                embedding_provider: Arc::new(DenseFixtureEmbeddingProvider),
+            },
+            context.primary_generation,
+        )));
+    }
+
+    let engine = RetrievalEngine::new(
+        retrievers,
+        Arc::new(EvidenceOutcomeEvaluator::new(fixture.evidence)),
+        sillage_governance::RetrievalSecurityPolicy::default(),
+    )
+    .with_fusion(Arc::new(HybridLexicalHead::new(FixedKRrf::new(60))))
+    .with_hybrid_policy(policy);
+    Ok((engine, context))
+}
+
+fn execute_search(
+    engine: &RetrievalEngine,
+    plan: &SearchPlan,
+) -> Result<sillage_domain::SearchOutcome, Box<dyn std::error::Error>> {
+    let output = (engine.search(plan))?;
+    Ok(output)
+}
+
+#[test]
+fn shadow_does_not_execute_dense_lane() -> Result<(), Box<dyn std::error::Error>> {
+    let (engine, context) = build_search_engine(HybridExecutionPolicy::Shadow, true)?;
+    let plan = engine.plan("unrelated query", 5, &context)?;
+    let output = execute_search(&engine, &plan)?;
+    let trace = output.trace_data.as_deref().ok_or("trace data missing")?;
+    // Under Shadow the dense lane is not dispatched (4.3): its inference
+    // cost is not paid and no dense report is recorded.
+    let dense_report = trace
+        .lanes
+        .iter()
+        .find(|report| report.retriever_id == "dense_chunks");
+    assert!(
+        dense_report.is_none(),
+        "Shadow must not dispatch the dense lane"
+    );
+    assert_eq!(output.evidence.len(), 0);
+    assert_eq!(output.status, SearchStatus::NoEvidenceFound);
+    Ok(())
+}
+
+#[test]
+fn active_mode_serves_dense_fusion() -> Result<(), Box<dyn std::error::Error>> {
+    let mut served = std::collections::BTreeSet::new();
+    served.insert(sillage_retrieval::LearnedSparseQueryClass::DomainTerminology);
+    let record = HybridPromotionRecord::new(
+        "eval-test".to_string(),
+        "2026-07-16".to_string(),
+        served,
+        sillage_retrieval::HYBRID_SERVING_POLICY_ID,
+    )
+    .ok_or("promotion record must be non-empty")?;
+    let (engine, context) = build_search_engine(HybridExecutionPolicy::Active(record), true)?;
+    let plan = engine.plan("unrelated query", 5, &context)?;
+    let output = execute_search(&engine, &plan)?;
+    let trace = output.trace_data.as_deref().ok_or("trace data missing")?;
+    let dense_report = trace
+        .lanes
+        .iter()
+        .find(|report| report.retriever_id == "dense_chunks")
+        .ok_or("dense lane report missing")?;
+    assert_eq!(dense_report.status, SearchLaneStatus::Succeeded);
+    assert!(!dense_report.candidates.is_empty());
+    assert_eq!(output.evidence.len(), 1);
+    assert_eq!(output.status, SearchStatus::Answerable);
+    Ok(())
+}
+
+#[test]
+fn knowledge_search_trace_contains_deterministic_rewrites() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (engine, context) = build_search_engine(HybridExecutionPolicy::Shadow, false)?;
+    let invalid_plan = engine
+        .plan("find PR test", 5, &context)?
+        .with_original_query(String::new());
+    assert!(invalid_plan.is_err());
+
+    let plan = engine.plan("find PR test".to_string(), 5, &context)?;
+    let outcome = execute_search(&engine, &plan)?;
+    let trace = outcome.trace_data.as_deref().ok_or("trace data missing")?;
+    assert_eq!(trace.original_query, "find PR test");
+    assert!(
+        trace.expansions.is_empty(),
+        "initial-only plans must not claim context expansion"
+    );
+    assert!(
+        trace
+            .rewrites
+            .iter()
+            .any(|rewrite| rewrite.origin == SearchRewriteOrigin::Original)
+    );
+    assert!(trace.rewrites.iter().any(|rewrite| {
+        rewrite.origin == SearchRewriteOrigin::Deterministic
+            && rewrite.query.contains("Pull Request")
+    }));
+    Ok(())
+}

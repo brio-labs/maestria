@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,7 +23,7 @@ def _is_checker_source(path: Path) -> bool:
     return resolved == THIS_SCRIPT or resolved.parent == PACKAGE_DIR
 
 
-DOMAIN_ROOT = ROOT / "crates" / "kernel" / "maestria-domain"
+DOMAIN_ROOT = ROOT / "crates" / "kernel" / "sillage-domain"
 
 
 DOMAIN_SRC = DOMAIN_ROOT / "src"
@@ -31,9 +33,9 @@ DOMAIN_MANIFEST = DOMAIN_ROOT / "Cargo.toml"
 
 
 KERNEL_ROOTS = (
-    ROOT / "crates" / "kernel" / "maestria-domain",
-    ROOT / "crates" / "kernel" / "maestria-governance",
-    ROOT / "crates" / "kernel" / "maestria-ports",
+    ROOT / "crates" / "kernel" / "sillage-domain",
+    ROOT / "crates" / "kernel" / "sillage-governance",
+    ROOT / "crates" / "kernel" / "sillage-ports",
 )
 
 
@@ -46,6 +48,10 @@ SKIP_DIRS = {".git", "target", "node_modules", "dist", ".direnv", ".venv"}
 # Files exempted from the doctrine scan (e.g. vendored or legacy artifacts).
 SKIP_FILES = set()
 
+# Immutable corpus snapshots are source data, not active Rust compilation units.
+# General source and secret scans still inspect these historical bytes.
+FROZEN_SOURCE_ROOT = ROOT / "tests" / "frozen-corpus-snapshots"
+
 
 def should_skip(path: Path) -> bool:
     rel = path.relative_to(ROOT)
@@ -57,25 +63,81 @@ def should_skip(path: Path) -> bool:
     )
 
 
+def _external_patch_roots() -> set[Path]:
+    """Keep upstream Cargo patches outside first-party Rust doctrine checks.
+
+    Both an explicit path patch and a workspace exclusion are required.
+    General source and secret scans still inspect these dependency files.
+    """
+    document = _toml_document(read_text(ROOT / "Cargo.toml") or "")
+    workspace = document.get("workspace", {})
+    patches = document.get("patch", {})
+    if not isinstance(workspace, dict) or not isinstance(patches, dict):
+        return set()
+    patterns = workspace.get("exclude", [])
+    if not isinstance(patterns, list):
+        return set()
+    excluded = {
+        match.resolve()
+        for pattern in patterns
+        if isinstance(pattern, str)
+        for match in ROOT.glob(pattern)
+    }
+    roots: set[Path] = set()
+    for replacements in patches.values():
+        if not isinstance(replacements, dict):
+            continue
+        for specification in replacements.values():
+            if not isinstance(specification, dict):
+                continue
+            relative = specification.get("path")
+            if not isinstance(relative, str):
+                continue
+            candidate = (ROOT / relative).resolve()
+            if candidate == ROOT or not candidate.is_relative_to(ROOT):
+                continue
+            if any(candidate.is_relative_to(exclusion) for exclusion in excluded):
+                roots.add(candidate)
+    return roots
+
+
+def _rust_source_paths() -> Iterator[Path]:
+    # Prune only directories whose descendants should_skip already rejects.
+    for directory, names, filenames in os.walk(ROOT):
+        names[:] = [name for name in names if name not in SKIP_DIRS]
+        for name in filenames:
+            if name.endswith(".rs"):
+                yield Path(directory) / name
+
+
 def _production_rust_files(*, skip_tests: bool = True, sorted_: bool = False) -> Iterator[Path]:
-    iterator = sorted(ROOT.rglob("*.rs")) if sorted_ else ROOT.rglob("*.rs")
+    external_patches = _external_patch_roots()
+    test_context = _module_test_context() if skip_tests else {}
+    iterator = sorted(_rust_source_paths()) if sorted_ else _rust_source_paths()
     for path in iterator:
         if should_skip(path):
             continue
-        if skip_tests and is_test_source(path):
+        if any(path.is_relative_to(root) for root in external_patches):
+            continue
+        if path.is_relative_to(FROZEN_SOURCE_ROOT):
+            continue
+        if skip_tests and _is_test_only_rust_path(path, test_context):
             continue
         yield path
 
 
 def _kernel_rust_files(*, skip_tests: bool = True, sorted_: bool = False) -> Iterator[Path]:
+    test_context = _module_test_context() if skip_tests else {}
     for kernel_root in KERNEL_ROOTS:
         files = (kernel_root / "src").rglob("*.rs")
         if sorted_:
             files = sorted(files)
         for path in files:
-            if skip_tests and is_test_source(path):
+            if skip_tests and _is_test_only_rust_path(path, test_context):
                 continue
             yield path
+
+
 
 
 def _iter_scannable(root: Path) -> Iterator[Path]:
@@ -140,7 +202,7 @@ def _scrubbed_source(path: Path) -> str:
 
 
 def _scrubbed_production(path: Path) -> str:
-    """Like [`_scrubbed_source`], but truncated at `#[cfg(test)]` so test
+    """Like [`_scrubbed_source`], but masks `#[cfg(test)]` items so test
     modules inside production files do not count toward production budgets."""
     try:
         stat = path.stat()
@@ -211,43 +273,129 @@ def _gated_item_end(text: str, attr_start: int) -> int:
     return n
 
 
+_CFG_ATTRIBUTE = re.compile(
+    r"#\s*\[\s*cfg\s*\((?P<expression>[^\]]*)\)\s*\]",
+    re.DOTALL,
+)
+
+
+def _split_cfg_arguments(expression: str) -> list[str]:
+    arguments: list[str] = []
+    depth = 0
+    start = 0
+    for index, character in enumerate(expression):
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth < 0:
+                return []
+        elif character == "," and depth == 0:
+            arguments.append(expression[start:index].strip())
+            start = index + 1
+    if depth != 0:
+        return []
+    arguments.append(expression[start:].strip())
+    return arguments
+
+
+def _cfg_expression_requires_test(expression: str) -> bool:
+    expression = expression.strip()
+    if expression == "test":
+        return True
+    condition = re.fullmatch(r"(all|any|not)\s*\((.*)\)", expression, re.DOTALL)
+    if condition is None:
+        return False
+    operator, arguments_text = condition.groups()
+    arguments = _split_cfg_arguments(arguments_text)
+    if not arguments or any(not argument for argument in arguments):
+        return False
+    if operator == "all":
+        return any(_cfg_expression_requires_test(argument) for argument in arguments)
+    if operator == "any":
+        return all(_cfg_expression_requires_test(argument) for argument in arguments)
+    return False
+
+
+def _cfg_attribute_requires_test(attribute: str) -> bool:
+    condition = re.fullmatch(r"\s*cfg\s*\((.*)\)\s*", attribute, re.DOTALL)
+    return (
+        condition is not None
+        and _cfg_expression_requires_test(condition.group(1))
+    )
+
+
 def _cfg_test_item_extents(text: str) -> list[tuple[int, int]]:
-    """Extents of every `#[cfg(test)]`-gated item in *text*.
+    """Extents of cfg-gated items and inner scopes requiring test context.
 
     Offsets are located in syntax-scrubbed text so occurrences inside
-    comments or string literals never trigger removal; the scrubber blanks
-    those regions while preserving byte positions.
+    comments or string literals never trigger removal.
     """
     scrubbed = _rust_syntax(text)
+    leading_attributes, _ = _attributes_at(
+        text, scrubbed, 0, len(scrubbed)
+    )
+    if any(
+        inner and _cfg_attribute_requires_test(clean)
+        for clean, _raw, inner in leading_attributes
+    ):
+        return [(0, len(text))]
     extents: list[tuple[int, int]] = []
     search_from = 0
-    while True:
-        start = scrubbed.find("#[cfg(test)]", search_from)
-        if start == -1:
-            return extents
+    while match := _CFG_ATTRIBUTE.search(scrubbed, search_from):
+        if not _cfg_expression_requires_test(match.group("expression")):
+            search_from = match.end()
+            continue
+        start = match.start()
         end = _gated_item_end(scrubbed, start)
         extents.append((start, end))
         search_from = end
+    if "#![" in scrubbed:
+        for declaration in _rust_module_declarations(
+            text,
+            include_local=False,
+            scrubbed=scrubbed,
+        ):
+            if not declaration.inline or any(
+                start <= declaration.start < end for start, end in extents
+            ):
+                continue
+            module = _RUST_MODULE_ITEM.match(
+                scrubbed, declaration.start, declaration.end
+            )
+            if module is None:
+                continue
+            opening = _skip_rust_whitespace(
+                scrubbed, module.end(), declaration.end
+            )
+            if opening >= declaration.end or scrubbed[opening] != "{":
+                continue
+            closing = _matching_delimiter(scrubbed, opening, "{", "}")
+            if closing is None or closing >= declaration.end:
+                continue
+            inner_attributes, _ = _attributes_at(
+                text, scrubbed, opening + 1, closing
+            )
+            if _inner_scope_requires_test(inner_attributes):
+                extents.append(
+                    (declaration.item_prefix_start, declaration.end)
+                )
+    return extents
 
 
 def production_rust(text: str) -> str:
-    """Production portion of a Rust file: the source with every
-    `#[cfg(test)]`-gated item removed.
+    """Production portion of Rust source with test-only scopes blanked.
 
-    Test-only imports at the top of a file, test modules, and gated helper
-    functions are excluded while production code after them is preserved;
-    the literal appearing inside a comment or string never truncates.
+    Test-only imports, modules, and helper functions are excluded while
+    source positions and line breaks after them remain stable.
     """
     extents = _cfg_test_item_extents(text)
     if not extents:
         return text
-    kept: list[str] = []
-    cursor = 0
+    chars = list(text)
     for start, end in extents:
-        kept.append(text[cursor:start])
-        cursor = end
-    kept.append(text[cursor:])
-    return "".join(kept)
+        _blank_non_newlines(chars, start, end)
+    return "".join(chars)
 
 
 _FN_QUALIFIERS = r"(?:const\s+|async\s+|unsafe\s+|extern(?:\s+\"[^\"]*\")?\s+)*"
@@ -527,14 +675,780 @@ def _named_struct_fields_with_visibility(
     return structs
 
 
-def is_test_source(path: Path) -> bool:
-    """True for test-only files and directories.
+@dataclass(frozen=True)
+class RustModuleDeclaration:
+    """A module item parsed from syntax-scrubbed Rust source."""
 
-    Covers the `tests/` directory, `*_tests/` directories (e.g.
-    `watcher_tests/`), inline module files named `tests_*.rs`, `*_test.rs`,
-    `*_tests.rs`, `test_support.rs`, and `contract_tests/` modules so
-    production-scoped scans never treat test code as shipped code.
-    """
+    name: str
+    start: int
+    end: int
+    parent_modules: tuple[str, ...]
+    inline: bool
+    cfg_test: bool
+    test_only: bool
+    path: str | None
+    path_attribute: bool
+    path_supported: bool
+    item_prefix_start: int
+
+_RUST_PUBLIC_KEYWORD = re.compile(r"pub\b")
+_RUST_MODULE_ITEM = re.compile(r"mod\s+([A-Za-z_][A-Za-z0-9_]*)\b")
+_RUST_GENERIC_BRACED_ITEM = re.compile(
+    r"(?:(?:async|const|unsafe|extern|default)\s+)*"
+    r"(?:fn|impl|trait|struct|enum|union)\b"
+)
+_RUST_MACRO_BRACED_ITEM = re.compile(
+    r"(?:\bmacro_rules\s*!\s*[A-Za-z_]\w*|\bmacro\s+[A-Za-z_]\w*|"
+    r"(?:\$crate::)?(?:[A-Za-z_]\w*::)*[A-Za-z_]\w*\s*!)\s*$"
+)
+_RUST_INCLUDE_MACRO = re.compile(r"\binclude\s*!\s*\(")
+
+def _skip_rust_whitespace(text: str, index: int, end: int) -> int:
+    while index < end and text[index].isspace():
+        index += 1
+    return index
+
+
+def _attributes_at(
+    source: str,
+    scrubbed: str,
+    index: int,
+    end: int,
+) -> tuple[list[tuple[str, str, bool]], int]:
+    attributes: list[tuple[str, str, bool]] = []
+    cursor = index
+    while True:
+        cursor = _skip_rust_whitespace(scrubbed, cursor, end)
+        if cursor + 1 >= end or scrubbed[cursor] != "#":
+            return attributes, cursor
+        if scrubbed.startswith("#![", cursor):
+            opening = cursor + 2
+            inner = True
+        elif scrubbed.startswith("#[", cursor):
+            opening = cursor + 1
+            inner = False
+        else:
+            return attributes, cursor
+        closing = _matching_delimiter(scrubbed, opening, "[", "]")
+        if closing is None or closing >= end:
+            return attributes, cursor
+        attributes.append(
+            (
+                scrubbed[opening + 1 : closing],
+                source[opening + 1 : closing],
+                inner,
+            )
+        )
+        cursor = closing + 1
+
+
+def _rust_string_literal_value(value: str) -> str | None:
+    literal = re.fullmatch(r'\s*"([^"\\]*)"\s*', value, re.DOTALL)
+    if literal is not None:
+        return literal.group(1)
+    raw_literal = re.fullmatch(
+        r'\s*r(?P<hashes>#{0,255})"(?P<value>.*?)"(?P=hashes)\s*',
+        value,
+        re.DOTALL,
+    )
+    return raw_literal.group("value") if raw_literal is not None else None
+
+def _inner_scope_requires_test(
+    attributes: list[tuple[str, str, bool]],
+) -> bool:
+    return any(
+        inner and _cfg_attribute_requires_test(clean)
+        for clean, _raw, inner in attributes
+    )
+
+
+def _module_attribute_data(
+    attributes: list[tuple[str, str, bool]],
+) -> tuple[bool, str | None, bool, bool]:
+    cfg_test = any(
+        not inner and _cfg_attribute_requires_test(clean)
+        for clean, _raw, inner in attributes
+    )
+    path_attributes = [
+        (clean, raw)
+        for clean, raw, inner in attributes
+        if not inner and re.search(r"\bpath\s*=", clean)
+    ]
+    if not path_attributes:
+        return cfg_test, None, False, False
+    if len(path_attributes) != 1:
+        return cfg_test, None, True, False
+
+    clean, raw = path_attributes[0]
+    if re.fullmatch(r"\s*path\s*=\s*", clean) is None:
+        path_matches = list(re.finditer(r"\bpath\s*=", clean))
+        if len(path_matches) != 1:
+            return cfg_test, None, True, False
+        raw_value = raw[path_matches[0].end() :]
+        conditional_literal = re.match(
+            r'\s*"([^"\\]*)"', raw_value, re.DOTALL
+        )
+        if conditional_literal is not None:
+            return cfg_test, conditional_literal.group(1), True, False
+        conditional_raw_literal = re.match(
+            r'\s*r(?P<hashes>#{0,255})"(?P<value>.*?)"(?P=hashes)',
+            raw_value,
+            re.DOTALL,
+        )
+        if conditional_raw_literal is not None:
+            return (
+                cfg_test,
+                conditional_raw_literal.group("value"),
+                True,
+                False,
+            )
+        return cfg_test, None, True, False
+    literal = re.fullmatch(r'\s*path\s*=\s*"([^"\\]*)"\s*', raw, re.DOTALL)
+    if literal is not None:
+        return cfg_test, literal.group(1), True, True
+    raw_literal = re.fullmatch(
+        r'\s*path\s*=\s*r(?P<hashes>#{0,255})"(?P<value>.*?)"(?P=hashes)\s*',
+        raw,
+        re.DOTALL,
+    )
+    if raw_literal is None:
+        return cfg_test, None, True, False
+    return cfg_test, raw_literal.group("value"), True, True
+
+
+def _skip_rust_item(text: str, index: int, end: int) -> int:
+    depths = {"(": 0, "[": 0, "{": 0}
+    closing = {")": "(", "]": "[", "}": "{"}
+    cursor = index
+    while cursor < end:
+        token = text[cursor]
+        if token == ";" and not any(depths.values()):
+            return cursor + 1
+        if token == "{" and depths["("] == depths["["] == depths["{"] == 0:
+            closing_index = _matching_delimiter(text, cursor, "{", "}")
+            return end if closing_index is None else closing_index + 1
+        if token in depths:
+            depths[token] += 1
+        elif token in closing:
+            opener = closing[token]
+            depths[opener] = max(0, depths[opener] - 1)
+        cursor += 1
+    return end
+
+
+def _rust_braced_item_body(
+    text: str,
+    index: int,
+    end: int,
+) -> tuple[int, int] | None:
+    """Find the next non-macro braced scope in syntax-scrubbed Rust."""
+    generic_item = _RUST_GENERIC_BRACED_ITEM.match(text, index, end) is not None
+    depths = {"(": 0, "[": 0}
+    closing = {")": "(", "]": "["}
+    if generic_item:
+        depths["<"] = 0
+        closing[">"] = "<"
+    for cursor in range(index, end):
+        token = text[cursor]
+        if token == "{" and not any(depths.values()):
+            if _RUST_MACRO_BRACED_ITEM.search(text[index:cursor].rstrip()):
+                return None
+            body_end = _matching_delimiter(text, cursor, "{", "}")
+            if body_end is None or body_end >= end:
+                return None
+            return cursor, body_end
+        if token == ";" and not any(depths.values()):
+            return None
+        if token in depths:
+            depths[token] += 1
+        elif token in closing:
+            if token == ">" and cursor > index and text[cursor - 1] == "-":
+                continue
+            opener = closing[token]
+            depths[opener] = max(0, depths[opener] - 1)
+    return None
+
+
+def _module_item_start(text: str, index: int, end: int) -> int:
+    visibility = _RUST_PUBLIC_KEYWORD.match(text, index, end)
+    if visibility is None:
+        return index
+    cursor = _skip_rust_whitespace(text, visibility.end(), end)
+    if cursor < end and text[cursor] == "(":
+        closing = _matching_delimiter(text, cursor, "(", ")")
+        if closing is None or closing >= end:
+            return end
+        cursor = closing + 1
+    return _skip_rust_whitespace(text, cursor, end)
+
+def _module_item_prefix_start(text: str, index: int, end: int) -> int:
+    cursor = _skip_rust_whitespace(text, index, end)
+    while text.startswith("#![", cursor):
+        opening = cursor + 2
+        closing = _matching_delimiter(text, opening, "[", "]")
+        if closing is None or closing >= end:
+            return cursor
+        cursor = _skip_rust_whitespace(text, closing + 1, end)
+    return cursor
+
+def _rust_module_declarations(
+    text: str,
+    *,
+    include_local: bool,
+    scrubbed: str | None = None,
+) -> tuple[RustModuleDeclaration, ...]:
+    """Parse module items, optionally including block-local declarations."""
+    scrubbed = _rust_syntax(text) if scrubbed is None else scrubbed
+    declarations: list[RustModuleDeclaration] = []
+
+    def parse_scope(
+        scope_start: int,
+        scope_end: int,
+        parent_modules: tuple[str, ...],
+        inherited_test_only: bool,
+    ) -> None:
+        cursor = scope_start
+        while cursor < scope_end:
+            scope_item_start = cursor
+            attributes, item_start = _attributes_at(
+                text, scrubbed, cursor, scope_end
+            )
+            if _inner_scope_requires_test(attributes):
+                inherited_test_only = True
+            attributes = [
+                attribute for attribute in attributes if not attribute[2]
+            ]
+            item_start = _module_item_start(scrubbed, item_start, scope_end)
+            module = _RUST_MODULE_ITEM.match(
+                scrubbed, item_start, scope_end
+            )
+            if module is None:
+                if not include_local:
+                    cursor = _skip_rust_item(scrubbed, item_start, scope_end)
+                    continue
+                item_body = _rust_braced_item_body(
+                    scrubbed, item_start, scope_end
+                )
+                if item_body is None:
+                    cursor = _skip_rust_item(scrubbed, item_start, scope_end)
+                    continue
+                body_start, body_end = item_body
+                body_test_only = inherited_test_only or _module_attribute_data(
+                    attributes
+                )[0]
+                parse_scope(
+                    body_start + 1,
+                    body_end,
+                    parent_modules,
+                    body_test_only,
+                )
+                cursor = body_end + 1
+                continue
+
+            item_prefix_start = _module_item_prefix_start(
+                scrubbed, scope_item_start, scope_end
+            )
+            name = module.group(1)
+            delimiter = _skip_rust_whitespace(
+                scrubbed, module.end(), scope_end
+            )
+            cfg_test, path, path_attribute, path_supported = (
+                _module_attribute_data(attributes)
+            )
+            test_only = inherited_test_only or cfg_test
+            if delimiter < scope_end and scrubbed[delimiter] == ";":
+                module_end = delimiter + 1
+                declarations.append(
+                    RustModuleDeclaration(
+                        name,
+                        module.start(),
+                        module_end,
+                        parent_modules,
+                        False,
+                        cfg_test,
+                        test_only,
+                        path,
+                        path_attribute,
+                        path_supported,
+                        item_prefix_start,
+                    )
+                )
+                cursor = module_end
+                continue
+            if delimiter < scope_end and scrubbed[delimiter] == "{":
+                closing = _matching_delimiter(
+                    scrubbed, delimiter, "{", "}"
+                )
+                if closing is None or closing >= scope_end:
+                    cursor = scope_end
+                    continue
+                module_end = closing + 1
+                declarations.append(
+                    RustModuleDeclaration(
+                        name,
+                        module.start(),
+                        module_end,
+                        parent_modules,
+                        True,
+                        cfg_test,
+                        test_only,
+                        path,
+                        path_attribute,
+                        path_supported,
+                        item_prefix_start,
+                    )
+                )
+                parse_scope(
+                    delimiter + 1,
+                    closing,
+                    parent_modules + (name,),
+                    test_only,
+                )
+                cursor = module_end
+                continue
+            cursor = _skip_rust_item(scrubbed, item_start, scope_end)
+
+    parse_scope(0, len(scrubbed), (), False)
+    return tuple(declarations)
+
+
+def rust_module_declarations(text: str) -> tuple[RustModuleDeclaration, ...]:
+    """Return module items with their actual cfg and path attribute context."""
+    return _rust_module_declarations(text, include_local=False)
+
+
+def _rust_include_paths(
+    text: str,
+    scrubbed: str | None = None,
+) -> tuple[tuple[str, ...], bool]:
+    """Return literal include paths and an opaque production-reference flag."""
+    scrubbed = _rust_syntax(text) if scrubbed is None else scrubbed
+    paths: list[str] = []
+    opaque = False
+    production_source: str | None = None
+    for include in _RUST_INCLUDE_MACRO.finditer(scrubbed):
+        opening = include.end() - 1
+        closing = _matching_delimiter(scrubbed, opening, "(", ")")
+        path = (
+            None
+            if closing is None
+            else _rust_string_literal_value(text[opening + 1 : closing])
+        )
+        if path is None:
+            if production_source is None:
+                production_source = production_rust(text)
+            if production_source[include.start()] == text[include.start()]:
+                opaque = True
+        else:
+            paths.append(path)
+    return tuple(paths), opaque
+
+
+def _top_level_module_declarations(text: str) -> set[str]:
+    """Return root-level external declarations not gated by `cfg(test)`."""
+    return {
+        declaration.name
+        for declaration in rust_module_declarations(text)
+        if not declaration.parent_modules
+        and not declaration.inline
+        and not declaration.test_only
+    }
+
+_MODULE_CONTEXT_ROOT: Path | None = None
+_MODULE_CONTEXT: dict[Path, frozenset[bool]] = {}
+_MODULE_CONTEXT_SIGNATURE: tuple[
+    tuple[Path, int, int, int, int, int], ...
+] | None = None
+
+
+def _crate_module_roots(crate_root: Path) -> set[tuple[Path, bool]]:
+    """Return Cargo target roots paired with their test-only context."""
+    document = _toml_document(read_text(crate_root / "Cargo.toml") or "")
+    package = document.get("package")
+    if not isinstance(package, dict):
+        return set()
+    project_root = ROOT.resolve()
+    roots: set[tuple[Path, bool]] = set()
+
+    def add(path: object, test_only: bool) -> None:
+        if not isinstance(path, str):
+            return
+        candidate = Path(path)
+        if not candidate.is_absolute():
+            candidate = crate_root / candidate
+        try:
+            candidate = candidate.resolve()
+        except (OSError, RuntimeError):
+            return
+        if candidate.is_file() and candidate.is_relative_to(project_root):
+            roots.add((candidate, test_only))
+
+    library = document.get("lib")
+    library_path = (
+        library.get("path")
+        if isinstance(library, dict) and isinstance(library.get("path"), str)
+        else "src/lib.rs"
+    )
+    add(library_path, False)
+
+    def target_entries(name: str) -> list[dict[str, object]]:
+        targets = document.get(name)
+        if isinstance(targets, dict):
+            return [targets]
+        if isinstance(targets, list):
+            return [target for target in targets if isinstance(target, dict)]
+        return []
+
+    def conventional_target_path(
+        target_name: str,
+        target: dict[str, object],
+    ) -> Path | None:
+        target_name_value = target.get("name")
+        if not isinstance(target_name_value, str) or not target_name_value:
+            return None
+        if (
+            target_name == "bin"
+            and target_name_value == package.get("name")
+        ):
+            main_binary = crate_root / "src" / "main.rs"
+            if main_binary.is_file():
+                return main_binary
+        directory_name = {
+            "bin": "src/bin",
+            "example": "examples",
+            "test": "tests",
+            "bench": "benches",
+        }.get(target_name)
+        if directory_name is None:
+            return None
+        flat_target = (
+            crate_root / directory_name / f"{target_name_value}.rs"
+        )
+        if flat_target.is_file():
+            return flat_target
+        nested_target = (
+            crate_root / directory_name / target_name_value / "main.rs"
+        )
+        return nested_target if nested_target.is_file() else None
+
+    for target_name, test_only in (
+        ("bin", False),
+        ("example", False),
+        ("test", True),
+        ("bench", False),
+    ):
+        for target in target_entries(target_name):
+            target_path = target.get("path")
+            if target_path is None:
+                inferred_path = conventional_target_path(target_name, target)
+                if inferred_path is None:
+                    continue
+                target_path = inferred_path.as_posix()
+            add(target_path, test_only)
+
+    if package.get("autobins") is not False:
+        add("src/main.rs", False)
+    build_script = package.get("build", True)
+    if build_script is not False:
+        add(
+            build_script if isinstance(build_script, str) else "build.rs",
+            False,
+        )
+    for directory_name, automatic_target_flag in (
+        ("src/bin", "autobins"),
+        ("examples", "autoexamples"),
+        ("benches", "autobenches"),
+    ):
+        if package.get(automatic_target_flag) is False:
+            continue
+        directory = crate_root / directory_name
+        if not directory.is_dir():
+            continue
+        for source in directory.glob("*.rs"):
+            add(source.as_posix(), False)
+        for source in directory.glob("*/main.rs"):
+            add(source.as_posix(), False)
+
+    tests_directory = crate_root / "tests"
+    if package.get("autotests") is not False and tests_directory.is_dir():
+        for source in tests_directory.glob("*.rs"):
+            add(source.as_posix(), True)
+        for source in tests_directory.glob("*/main.rs"):
+            add(source.as_posix(), True)
+    return roots
+
+def _rust_module_reachability(
+    project_root: Path,
+) -> dict[Path, frozenset[bool]]:
+    reachability: dict[Path, set[bool]] = {}
+    visited: set[tuple[Path, bool, bool, Path]] = set()
+    crate_roots = _workspace_production_roots()
+    package_files: dict[Path, set[Path]] = {}
+    opaque_packages: set[Path] = set()
+
+    def visit(
+        path: Path,
+        test_only: bool,
+        crate_root_file: bool,
+        package_root: Path,
+    ) -> None:
+        try:
+            source_path = path.resolve()
+        except (OSError, RuntimeError):
+            return
+        if (
+            not source_path.is_file()
+            or not source_path.is_relative_to(project_root)
+        ):
+            return
+        source = read_text(source_path)
+        scrubbed = _rust_syntax(source) if source is not None else None
+        effective_test_only = test_only
+        if source is not None and scrubbed is not None:
+            leading_attributes, _ = _attributes_at(
+                source, scrubbed, 0, len(scrubbed)
+            )
+            if _inner_scope_requires_test(leading_attributes):
+                effective_test_only = True
+        reachability.setdefault(source_path, set()).add(effective_test_only)
+        package_files.setdefault(package_root, set()).add(source_path)
+        state = (
+            source_path,
+            effective_test_only,
+            crate_root_file,
+            package_root,
+        )
+        if state in visited:
+            return
+        visited.add(state)
+
+        if source is None or scrubbed is None:
+            return
+        include_paths, opaque_include = _rust_include_paths(source, scrubbed)
+        # Only opaque references in shipping sources taint their package.
+        if opaque_include and not effective_test_only:
+            opaque_packages.add(package_root)
+        module_directory = (
+            source_path.parent
+            if crate_root_file or source_path.name == "mod.rs"
+            else source_path.with_suffix("")
+        )
+        declarations = _rust_module_declarations(
+            source,
+            include_local=True,
+            scrubbed=scrubbed,
+        )
+        inline_modules: dict[
+            tuple[str, ...], list[RustModuleDeclaration]
+        ] = {}
+        for declaration in declarations:
+            if declaration.inline:
+                prefix = declaration.parent_modules + (declaration.name,)
+                inline_modules.setdefault(prefix, []).append(declaration)
+        for declaration in declarations:
+            if declaration.inline:
+                continue
+            child_test_only = effective_test_only or declaration.test_only
+            parent_directories = {module_directory}
+            prefix: tuple[str, ...] = ()
+            for parent in declaration.parent_modules:
+                prefix += (parent,)
+                inline_parent = next(
+                    (
+                        candidate
+                        for candidate in inline_modules.get(prefix, ())
+                        if candidate.start
+                        <= declaration.start
+                        < candidate.end
+                    ),
+                    None,
+                )
+                next_directories: set[Path] = set()
+                for parent_directory in parent_directories:
+                    if inline_parent is None or not inline_parent.path_attribute:
+                        next_directories.add(parent_directory / parent)
+                        continue
+                    if inline_parent.path is None:
+                        if not child_test_only:
+                            opaque_packages.add(package_root)
+                        next_directories.add(parent_directory / parent)
+                        continue
+                    inline_path = Path(inline_parent.path)
+                    if not inline_path.is_absolute():
+                        base_directory = (
+                            source_path.parent
+                            if not inline_parent.parent_modules
+                            else parent_directory
+                        )
+                        inline_path = base_directory / inline_path
+                    next_directories.add(inline_path)
+                    # Conditional paths leave the default module directory
+                    # active for the other feature configurations.
+                    if not inline_parent.path_supported:
+                        next_directories.add(parent_directory / parent)
+                parent_directories = next_directories
+            if not parent_directories:
+                continue
+            if (
+                declaration.path_attribute
+                and not declaration.path_supported
+                and child_test_only
+            ):
+                continue
+            if (
+                declaration.path_attribute
+                and declaration.path is None
+                and declaration.path_supported
+            ):
+                continue
+            candidates: list[Path] = []
+            for parent_directory in parent_directories:
+                default_candidates = [
+                    parent_directory / f"{declaration.name}.rs",
+                    parent_directory / declaration.name / "mod.rs",
+                ]
+                if not declaration.path_attribute:
+                    candidates.extend(default_candidates)
+                    continue
+                if declaration.path is None:
+                    if not child_test_only:
+                        opaque_packages.add(package_root)
+                    candidates.extend(default_candidates)
+                    continue
+                target = Path(declaration.path)
+                if not target.is_absolute():
+                    # Top-level path attributes resolve beside the source file;
+                    # nested ones resolve from their inline module directory.
+                    base_directory = (
+                        source_path.parent
+                        if not declaration.parent_modules
+                        else parent_directory
+                    )
+                    target = base_directory / target
+                candidates.append(target)
+                # A conditional `path` selects an alternate to the default.
+                if not declaration.path_supported:
+                    candidates.extend(default_candidates)
+
+            existing: set[Path] = set()
+            for candidate in candidates:
+                try:
+                    resolved = candidate.resolve()
+                except (OSError, RuntimeError):
+                    continue
+                if (
+                    resolved.is_file()
+                    and resolved.is_relative_to(project_root)
+                ):
+                    existing.add(resolved)
+            if len(existing) == 1:
+                visit(next(iter(existing)), child_test_only, False, package_root)
+            elif len(existing) > 1:
+                # Ambiguous module layouts are invalid Rust; do not let either
+                # candidate inherit a test-only exemption.
+                for candidate in existing:
+                    visit(candidate, False, False, package_root)
+
+        for include_path in include_paths:
+            target = Path(include_path)
+            if not target.is_absolute():
+                target = source_path.parent / target
+            visit(target, False, False, package_root)
+
+    standalone_tree = (
+        crate_roots is None and not (project_root / "Cargo.toml").exists()
+    )
+    if standalone_tree:
+        for source in _rust_source_paths():
+            if (
+                source.name in {"lib.rs", "main.rs"}
+                and source.parent.name == "src"
+            ):
+                visit(source, False, True, project_root)
+    elif crate_roots is not None:
+        for crate_root in crate_roots:
+            for target, test_only in _crate_module_roots(crate_root):
+                visit(target, test_only, True, crate_root)
+
+
+    # Opaque shipping references may target any Rust source reached by their
+    # package; never downgrade unrelated workspace packages.
+    for package_root in opaque_packages:
+        for source in package_files.get(package_root, ()):
+            contexts = reachability[source]
+            if True in contexts:
+                contexts.add(False)
+    return {
+        source: frozenset(contexts)
+        for source, contexts in reachability.items()
+    }
+
+
+def _module_source_signature(
+    project_root: Path,
+) -> tuple[tuple[Path, int, int, int, int, int], ...]:
+    sources: list[tuple[Path, int, int, int, int, int]] = []
+    for directory, names, filenames in os.walk(project_root):
+        names[:] = [name for name in names if name not in SKIP_DIRS]
+        for name in filenames:
+            if name != "Cargo.toml" and not name.endswith(".rs"):
+                continue
+            path = Path(directory) / name
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            sources.append(
+                (
+                    path,
+                    stat.st_dev,
+                    stat.st_ino,
+                    stat.st_mtime_ns,
+                    stat.st_ctime_ns,
+                    stat.st_size,
+                )
+            )
+    return tuple(sorted(sources))
+
+
+def _module_test_context() -> dict[Path, frozenset[bool]]:
+    """Cache classification per root and source signature, never across edits."""
+    global _MODULE_CONTEXT_ROOT, _MODULE_CONTEXT, _MODULE_CONTEXT_SIGNATURE
+    project_root = ROOT.resolve()
+    signature = _module_source_signature(project_root)
+    if (
+        _MODULE_CONTEXT_ROOT != project_root
+        or _MODULE_CONTEXT_SIGNATURE != signature
+    ):
+        context = _rust_module_reachability(project_root)
+        _MODULE_CONTEXT = context
+        _MODULE_CONTEXT_ROOT = project_root
+        _MODULE_CONTEXT_SIGNATURE = signature
+    return _MODULE_CONTEXT
+
+
+def _is_test_only_rust_path(
+    path: Path,
+    context: dict[Path, frozenset[bool]],
+) -> bool:
+    try:
+        source = path if path.is_absolute() else ROOT / path
+        source = source.resolve()
+    except (OSError, RuntimeError):
+        return False
+    reachability = context.get(source)
+    return (
+        reachability is not None
+        and True in reachability
+        and False not in reachability
+    )
+
+
+def is_test_source(path: Path) -> bool:
+    """True only for Rust sources reachable through test targets or `cfg(test)`."""
+    path = Path(path)
+    if path.suffix.lower() == ".rs":
+        return _is_test_only_rust_path(path, _module_test_context())
     return (
         "tests" in path.parts
         or any(segment.endswith("_tests") for segment in path.parts)
@@ -545,43 +1459,6 @@ def is_test_source(path: Path) -> bool:
         or (path.suffix == ".py" and path.stem.startswith("test_"))
     )
 
-
-_MOD_DECL_PATTERN = re.compile(
-    r"\bmod\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*;",
-)
-
-
-def _top_level_module_declarations(text: str) -> set[str]:
-    """Return top-level module declarations, excluding exact cfg(test) only."""
-    source = _rust_syntax(text)
-    pattern = _MOD_DECL_PATTERN
-    declarations: set[str] = set()
-    depth = 0
-    cursor = 0
-    for match in pattern.finditer(source):
-        between = source[cursor : match.start()]
-        for token in between:
-            if token == "{":
-                depth += 1
-            elif token == "}":
-                depth = max(0, depth - 1)
-        cursor = match.end()
-        if depth:
-            continue
-        prefix = source[: match.start()]
-        tail = re.split(r"[;}]", prefix)[-1]
-        attributes = re.findall(r"#\s*\[[^\]]*\]", tail)
-        remainder = re.sub(r"#\s*\[[^\]]*\]", "", tail).strip()
-        test_cfg = any(
-            re.fullmatch(r"#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]", attribute)
-            for attribute in attributes
-        )
-        if test_cfg and re.fullmatch(
-            r"(?:pub(?:\s*\([^)]*\))?)?", remainder
-        ):
-            continue
-        declarations.add(match.group(1))
-    return declarations
 
 
 def logical_line_count(content: str) -> int:
@@ -728,7 +1605,6 @@ def production_lib_paths() -> list[Path]:
         if source is not None
         and source.is_file()
         and not should_skip(source)
-        and not is_test_source(source)
     )
 
 

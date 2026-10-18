@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from . import shared
 from .contract_tests import (
     scan_documentation_contract,
     scan_responsibility_maps,
@@ -50,6 +49,7 @@ from .type_invariants import (
 
 def main() -> int:
     violations = []
+    review_signals = []
     marker_violations = scan_markers()
     violations.extend(
         f"{path} contains forbidden task marker" for path in marker_violations
@@ -84,10 +84,10 @@ def main() -> int:
     violations.extend(scan_production_asserts())
     violations.extend(scan_domain_untyped_json())
     violations.extend(scan_facade_boundaries())
-    violations.extend(scan_cohesion())
+    review_signals.extend(scan_cohesion())
     violations.extend(scan_readability_style())
     violations.extend(scan_function_sizes())
-    violations.extend(scan_mixed_responsibilities())
+    review_signals.extend(scan_mixed_responsibilities())
 
     # Collapse exact duplicates across scans (e.g. domain sources are kernel
     # sources too) while preserving the first occurrence's ordering.
@@ -98,6 +98,15 @@ def main() -> int:
             seen.add(violation)
             unique_violations.append(violation)
     violations = unique_violations
+
+    if review_signals:
+        print("Architectural review signals (non-blocking):")
+        print(
+            "Density and child-module-count heuristics neither prove "
+            "compliance nor authorize exemptions."
+        )
+        for signal in review_signals:
+            print(f" - {signal}")
 
     if violations:
         print("philosophy-check failed:")

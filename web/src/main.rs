@@ -1,3 +1,3 @@
 fn main() {
-    dioxus::launch(maestria_studio_web::App);
+    dioxus::launch(sillage_studio_web::App);
 }

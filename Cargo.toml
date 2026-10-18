@@ -1,48 +1,61 @@
 [package]
-name = "maestria"
+name = "sillage"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Maestria local-first, source-grounded second-brain runtime"
+description = "Sillage Linux-first launcher and extension platform with local semantic search"
 publish = false
 
 [workspace]
 resolver = "2"
+exclude = ["vendor/global-hotkey", "vendor/accesskit_unix"]
 members = [
     "web",
-    "crates/apps/maestria-daemon",
-    "crates/apps/maestria-studio",
-    "crates/apps/maestria-cli",
-     "crates/core/maestria-core",
-     "crates/ecosystem/maestria-memory",
-     "crates/ecosystem/maestria-code-intel",
-     "crates/ecosystem/maestria-parsers",
-     "crates/ecosystem/maestria-index-selection",
-     "crates/ecosystem/maestria-validation",
-     "crates/ecosystem/maestria-web-evidence",
-     "crates/harness/maestria-harness",
-     "crates/ecosystem/maestria-retrieval",
-     "crates/harness/maestria-harness-cli",
-     "crates/kernel/maestria-domain",
-     "crates/kernel/maestria-governance",
-     "crates/kernel/maestria-ports",
-     "crates/runtime/maestria-runtime",
-     "crates/storage/maestria-blob-fs",
-     "crates/storage/maestria-search-tantivy",
-     "crates/storage/maestria-storage-sqlite",
-     "crates/storage/maestria-vector-sqlite",
-     "crates/storage/maestria-graph-sqlite",
-    "crates/ecosystem/maestria-adapter-http",
-    "crates/ecosystem/maestria-ocr-local",
-     "crates/ecosystem/maestria-embedding-openai",
-     "crates/ecosystem/maestria-visual-local",
-     "crates/ecosystem/maestria-sparse-local",
-     "crates/test-support/maestria-test-support",
+    "crates/apps/sillage-daemon",
+    "crates/apps/sillage-studio",
+    "crates/apps/sillage-cli",
+    "crates/apps/sillage-search",
+    "crates/apps/sillage-launcher",
+    "crates/apps/sillage-extension-worker",
+     "crates/core/sillage-core",
+     "crates/ecosystem/sillage-memory",
+     "crates/ecosystem/sillage-code-intel",
+     "crates/ecosystem/sillage-parsers",
+     "crates/ecosystem/sillage-index-selection",
+     "crates/ecosystem/sillage-validation",
+     "crates/ecosystem/sillage-web-evidence",
+    "crates/ecosystem/sillage-extensions",
+     "crates/harness/sillage-harness",
+     "crates/ecosystem/sillage-retrieval",
+     "crates/harness/sillage-harness-cli",
+     "crates/kernel/sillage-domain",
+     "crates/kernel/sillage-governance",
+     "crates/kernel/sillage-ports",
+     "crates/runtime/sillage-runtime",
+     "crates/storage/sillage-blob-fs",
+     "crates/storage/sillage-search-tantivy",
+     "crates/storage/sillage-storage-sqlite",
+     "crates/storage/sillage-vector-sqlite",
+     "crates/storage/sillage-graph-sqlite",
+    "crates/ecosystem/sillage-adapter-http",
+    "crates/ecosystem/sillage-ocr-local",
+     "crates/ecosystem/sillage-embedding-openai",
+     "crates/ecosystem/sillage-visual-local",
+     "crates/ecosystem/sillage-sparse-local",
+     "crates/test-support/sillage-test-support",
  ]
 
+[patch.crates-io]
+# global-hotkey 0.8.0 otherwise leaves X11 ungrabs buffered after unregister.
+global-hotkey = { path = "vendor/global-hotkey" }
+# accesskit_unix 0.22.1 emits cache signals without the D-Bus argument tuple
+# and can unregister a live object when Slint reuses its node ID before queued
+# accessibility lifecycle messages are processed.
+accesskit_unix = { path = "vendor/accesskit_unix" }
+
 [workspace.package]
-version = "0.0.0"
+version = "0.0.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
@@ -88,31 +101,31 @@ dioxus = { version = "0.7.10", features = ["web", "router"] }
 insta = { version = "1", features = ["yaml"] }
 
 # Internal
-maestria-core = { path = "crates/core/maestria-core" }
-maestria-studio = { path = "crates/apps/maestria-studio" }
-maestria-daemon = { path = "crates/apps/maestria-daemon" }
-maestria-governance = { path = "crates/kernel/maestria-governance" }
-maestria-domain = { path = "crates/kernel/maestria-domain" }
-maestria-ports = { path = "crates/kernel/maestria-ports" }
-maestria-runtime = { path = "crates/runtime/maestria-runtime" }
-maestria-blob-fs = { path = "crates/storage/maestria-blob-fs" }
-maestria-search-tantivy = { path = "crates/storage/maestria-search-tantivy" }
-maestria-sqlite-support = { path = "crates/storage/maestria-sqlite-support" }
-maestria-storage-sqlite = { path = "crates/storage/maestria-storage-sqlite" }
-maestria-vector-sqlite = { path = "crates/storage/maestria-vector-sqlite" }
-maestria-graph-sqlite = { path = "crates/storage/maestria-graph-sqlite" }
-maestria-memory = { path = "crates/ecosystem/maestria-memory" }
-maestria-code-intel = { path = "crates/ecosystem/maestria-code-intel" }
-maestria-parsers = { path = "crates/ecosystem/maestria-parsers" }
-maestria-index-selection = { path = "crates/ecosystem/maestria-index-selection" }
-maestria-validation = { path = "crates/ecosystem/maestria-validation" }
-maestria-web-evidence = { path = "crates/ecosystem/maestria-web-evidence" }
-maestria-retrieval = { path = "crates/ecosystem/maestria-retrieval" }
-maestria-adapter-http = { path = "crates/ecosystem/maestria-adapter-http" }
-maestria-ocr-local = { path = "crates/ecosystem/maestria-ocr-local" }
-maestria-embedding-openai = { path = "crates/ecosystem/maestria-embedding-openai" }
-maestria-visual-local = { path = "crates/ecosystem/maestria-visual-local" }
-maestria-sparse-local = { path = "crates/ecosystem/maestria-sparse-local" }
-maestria-harness = { path = "crates/harness/maestria-harness" }
-maestria-harness-cli = { path = "crates/harness/maestria-harness-cli" }
-maestria-test-support = { path = "crates/test-support/maestria-test-support" }
+sillage-core = { path = "crates/core/sillage-core" }
+sillage-studio = { path = "crates/apps/sillage-studio" }
+sillage-daemon = { path = "crates/apps/sillage-daemon" }
+sillage-governance = { path = "crates/kernel/sillage-governance" }
+sillage-domain = { path = "crates/kernel/sillage-domain" }
+sillage-ports = { path = "crates/kernel/sillage-ports" }
+sillage-runtime = { path = "crates/runtime/sillage-runtime" }
+sillage-blob-fs = { path = "crates/storage/sillage-blob-fs" }
+sillage-search-tantivy = { path = "crates/storage/sillage-search-tantivy" }
+sillage-sqlite-support = { path = "crates/storage/sillage-sqlite-support" }
+sillage-storage-sqlite = { path = "crates/storage/sillage-storage-sqlite" }
+sillage-vector-sqlite = { path = "crates/storage/sillage-vector-sqlite" }
+sillage-graph-sqlite = { path = "crates/storage/sillage-graph-sqlite" }
+sillage-memory = { path = "crates/ecosystem/sillage-memory" }
+sillage-code-intel = { path = "crates/ecosystem/sillage-code-intel" }
+sillage-parsers = { path = "crates/ecosystem/sillage-parsers" }
+sillage-index-selection = { path = "crates/ecosystem/sillage-index-selection" }
+sillage-validation = { path = "crates/ecosystem/sillage-validation" }
+sillage-web-evidence = { path = "crates/ecosystem/sillage-web-evidence" }
+sillage-retrieval = { path = "crates/ecosystem/sillage-retrieval" }
+sillage-adapter-http = { path = "crates/ecosystem/sillage-adapter-http" }
+sillage-ocr-local = { path = "crates/ecosystem/sillage-ocr-local" }
+sillage-embedding-openai = { path = "crates/ecosystem/sillage-embedding-openai" }
+sillage-visual-local = { path = "crates/ecosystem/sillage-visual-local" }
+sillage-sparse-local = { path = "crates/ecosystem/sillage-sparse-local" }
+sillage-harness = { path = "crates/harness/sillage-harness" }
+sillage-harness-cli = { path = "crates/harness/sillage-harness-cli" }
+sillage-test-support = { path = "crates/test-support/sillage-test-support" }

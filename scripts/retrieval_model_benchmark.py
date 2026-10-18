@@ -14,7 +14,7 @@ Compares retrieval models on standard datasets with standard metrics:
   [Q]/[D] prefix tokens and MaxSim late interaction, BGE-M3 CLS pooling,
   LFM2.5 CLS pooling, MiniLM mean pooling, BM25 reference (k1=1.2, b=0.75,
   matching tantivy's defaults).
-- Vectors are cached under .maestria/bench-vectors so re-runs skip encodes.
+- Vectors are cached under .sillage/bench-vectors so re-runs skip encodes.
 
 Usage:
     python3 scripts/retrieval_model_benchmark.py [--langs en fr] \
@@ -35,8 +35,8 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
-MODELS_DIR = ROOT / ".maestria" / "models"
-CACHE_DIR = ROOT / ".maestria" / "bench-vectors"
+MODELS_DIR = ROOT / ".sillage" / "models"
+CACHE_DIR = ROOT / ".sillage" / "bench-vectors"
 REPORT_DIR = ROOT / "target" / "benchmark-reports"
 
 MAX_TOKENS = 512

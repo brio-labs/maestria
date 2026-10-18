@@ -18,17 +18,21 @@ class PhilosophyCheckFixture(unittest.TestCase):
             "DOMAIN_SRC": shared.DOMAIN_SRC,
             "DOMAIN_MANIFEST": shared.DOMAIN_MANIFEST,
             "KERNEL_ROOTS": shared.KERNEL_ROOTS,
-            "RESPONSIBILITY_MAPS": contract_tests.RESPONSIBILITY_MAPS,
         }
+        self._old_responsibility_map_paths = (
+            contract_tests.RESPONSIBILITY_MAP_PATHS
+        )
 
     def tearDown(self) -> None:
         for name, value in self._old_globals.items():
-            module = contract_tests if name == "RESPONSIBILITY_MAPS" else shared
-            setattr(module, name, value)
+            setattr(shared, name, value)
+        contract_tests.RESPONSIBILITY_MAP_PATHS = (
+            self._old_responsibility_map_paths
+        )
 
     def configure_root(self, root: Path) -> None:
         kernel_root = root / "crates" / "kernel"
-        domain_root = kernel_root / "maestria-domain"
+        domain_root = kernel_root / "sillage-domain"
         setattr(shared, "ROOT", root)
         setattr(
             shared, "THIS_SCRIPT", root / "scripts" / "philosophy-check.py"
@@ -41,24 +45,7 @@ class PhilosophyCheckFixture(unittest.TestCase):
             "KERNEL_ROOTS",
             tuple(
                 kernel_root / name
-                for name in ("maestria-domain", "maestria-governance", "maestria-ports")
+                for name in ("sillage-domain", "sillage-governance", "sillage-ports")
             ),
         )
-        setattr(
-            contract_tests,
-            "RESPONSIBILITY_MAPS",
-            {
-                "crates/kernel/maestria-ports/src/traits.rs": (
-                    "errors",
-                    "repositories",
-                    "lifecycle",
-                    "indexing",
-                    "embedding",
-                    "harness",
-                    "graph",
-                    "web",
-                    "approval",
-                    "search",
-                ),
-            },
-        )
+        contract_tests.RESPONSIBILITY_MAP_PATHS = frozenset()

@@ -2,376 +2,62 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from . import shared
 from .shared import (
-    _top_level_module_declarations,
+    RustModuleDeclaration,
+    _production_rust_files,
     production_lib_paths,
     read_text,
+    rust_module_declarations,
     should_skip,
 )
-import re
 
-RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
-    "src/lib.rs": (
-        "version",
-    ),
-    "web/src/lib.rs": (
-        "api",
-        "api_types",
-        "ask",
-        "app",
-        "components",
-        "drafts",
-        "index",
-        "index_types",
-        "markdown",
-        "nav",
-        "pages",
-        "repositories",
-        "repository_index_types",
-        "repository_tree",
-        "retrieval",
-        "route",
-        "search",
-        "session",
-        "state",
-        "tasks",
-    ),
-    "crates/kernel/maestria-ports/src/traits.rs": (
-        "errors",
-        "repositories",
-        "lifecycle",
-        "indexing",
-        "embedding",
-        "provider_transport",
-        "harness",
-        "graph",
-        "web",
-        "approval",
-        "search",
-    ),
-    "crates/kernel/maestria-ports/src/lib.rs": (
-        "version",
-        "execution",
-        "learned_sparse",
-        "learned_sparse_observations",
-        "lexical",
-        "full_text",
-        "traits",
-        "visual",
-        "ocr",
-        "parsing",
-        "text",
-        "validation",
-        "in_memory",
-        "contract_tests",
-        "graph_contract_tests",
-        "learned_sparse_contract_tests",
-        "ocr_contract_tests",
-        "visual_contract_tests",
-    ),
-    "crates/kernel/maestria-domain/src/lib.rs": (
-        "approval_outcome",
-        "effects",
-        "evidence_source",
-        "entities",
-        "errors",
-        "events",
-        "evidence_pack",
-        "federated_evidence_bounds",
-        "generations",
-        "grant_token_digest",
-        "ids",
-        "input",
-        "inputs",
-        "kernel_state",
-        "notebook_inputs",
-        "model_agent",
-        "notebook",
-        "ocr",
-        "provenance",
-        "replay",
-        "search",
-        "realm_identity",
-        "security",
-        "security_snapshot",
-        "sparse_namespace",
-        "task_status",
-        "types",
-    ),
-    "crates/kernel/maestria-governance/src/lib.rs": (
-        "approval",
-        "autonomy",
-        "federation",
-        "memory",
-        "plan_validation",
-        "privacy_exclusions",
-        "prompt_injection",
-        "retrieval",
-        "risk",
-        "scope",
-        "secret_scanning",
-        "validation",
-    ),
-    "crates/runtime/maestria-runtime/src/lib.rs": (
-        "effect_executor_shutdown",
-        "config",
-        "effect_admission",
-        "effect_dispatch",
-        "effect_execution",
-        "effect_execution_dispatch",
-        "effect_result",
-        "harness",
-        "harness_gate",
-        "indexing",
-        "notebook_draft",
-        "ocr",
-        "parser_mapping",
-        "parsing",
-        "parsing_records",
-        "persistence",
-        "persistence_barrier",
-        "proposal_recovery",
-        "proposal_persistence",
-        "proposal_workflow",
-        "shell_policy",
-        "supervision",
-        "validation",
-        "vector_indexing",
-        "web_evidence",
-        "parsing_terminal",
-        "approval",
-        "completion",
-        "runtime",
-        "runtime_effects",
-        "runtime_handle",
-        "runtime_loop",
-        "runtime_transition",
-    ),
-    # ── core ──────────────────────────────────────────────────────────
-    "crates/core/maestria-core/src/lib.rs": (
-        "error",
-        "evidence_opening",
-        "ingestion",
-        "instance",
-        "manifest",
-        "manifest_scope",
-        "metrics",
-        "notebook_draft_opening",
-        "ports",
-        "provenance",
-        "types",
-    ),
-    "crates/apps/maestria-cli/src/lib.rs": (
-        "test_support",
-    ),
-    "crates/apps/maestria-studio/src/lib.rs": (
-        "agent",
-        "http",
-        "server",
-    ),
-    "crates/apps/maestria-daemon/src/lib.rs": (
-        "api",
-        "lock",
-        "search_executor",
-        "approval_recovery",
-        "projection_recovery",
-        "projection_watermark",
-        "vector_startup",
-        "full_text_recovery",
-        "parser_resume",
-        "recovery_inputs",
-        "supervision_recovery",
-        "validation_recovery",
-        "lifecycle",
-        "mutation_session",
-        "watcher",
-        "lifecycle_entry",
-        "instance_setup",
-        "providers",
-        "learned_sparse_benchmark_executor",
-        "sparse_startup",
-        "runtime_construction",
-        "blocked_patterns",
-        "db_retry",
-        "evidence_open",
-        "source_identity",
-        "notebook_draft_open",
-        "projection_open",
-        "recovery_staging",
-        "repository_source_registration",
-    ),
-    "crates/apps/maestria-daemon/src/api.rs": (
-        "protocol",
-        "server",
-        "services",
-        "token",
-    ),
-    # -- storage ------------------------------------------------------
-    "crates/storage/maestria-sqlite-support/src/lib.rs": (
-        "connection",
-        "db_retry",
-        "error",
-        "ids",
-        "security",
-    ),
-    "crates/storage/maestria-storage-sqlite/src/lib.rs": (
-        "db_retry",
-        "events",
-        "id_allocator",
-        "journal",
-        "learned_sparse_io",
-        "learned_sparse_projection",
-        "payloads",
-        "projection_cleanup",
-        "repositories",
-        "schema",
-        "schema_validation",
-        "sqlite_store",
-    ),
-    "crates/storage/maestria-search-tantivy/src/lib.rs": (
-        "constructors",
-        "error",
-        "keys",
-        "lexical_operations",
-        "migration",
-        "operations",
-        "operations_cards",
-        "operations_chunks",
-        "schema",
-        "scoring",
-        "search_helpers",
-        "documents",
-        "tantivy_index",
-        "execution",
-    ),
-    "crates/harness/maestria-harness/src/lib.rs": (
-        "adapter",
-        "command",
-        "process",
-        "tokenize",
-    ),
-    "crates/storage/maestria-blob-fs/src/lib.rs": (
-        "store",
-    ),
-    "crates/storage/maestria-graph-sqlite/src/lib.rs": (
-        "conversion",
-        "migration",
-        "graph",
-    ),
-    "crates/storage/maestria-vector-sqlite/src/lib.rs": (
-        "encoding",
-        "schema",
-        "operations",
-        "vector_index",
-    ),
-    # ── ecosystem ─────────────────────────────────────────────────────
-    "crates/ecosystem/maestria-adapter-http/src/lib.rs": (
-        "client",
-        "helpers",
-    ),
-    "crates/ecosystem/maestria-memory/src/lib.rs": (
-        "memory_service",
-    ),
-    "crates/ecosystem/maestria-ocr-local/src/lib.rs": (
-        "rasterizer",
-        "transport",
-        "ocr_provider",
-    ),
-    "crates/ecosystem/maestria-web-evidence/src/lib.rs": (
-        "web_fetcher",
-    ),
-    "crates/ecosystem/maestria-embedding-openai/src/lib.rs": (
-        "embedding_provider",
-    ),
-    "crates/ecosystem/maestria-visual-local/src/lib.rs": (
-        "dto",
-        "visual_provider",
-    ),
-    "crates/ecosystem/maestria-sparse-local/src/lib.rs": (
-        "dto",
-        "sparse_provider",
-    ),
-    "crates/ecosystem/maestria-retrieval/src/lib.rs": (
-        "adapters",
-        "benchmark_common",
-        "bounded_reranker",
-        "diversity",
-        "engine",
-        "fusion",
-        "golden",
-        "learned_sparse_benchmark",
-        "learned_sparse_corpus",
-        "learned_sparse_policy",
-        "repository_benchmark",
-        "rewrite",
-        "traits",
-        "types",
-        "visual_benchmark",
-        "visual_reranker",
-        "monotonic",
-    ),
-    "crates/test-support/maestria-test-support/src/lib.rs": (
-        "error",
-        "git",
-        "fs",
-        "fixtures",
-    ),
-    "crates/ecosystem/maestria-code-intel/src/lib.rs": (
-        "builder",
-        "changes",
-        "context",
-        "context_assembly",
-        "context_support",
-        "delta",
-        "error",
-        "freshness",
-        "identity",
-        "incremental",
-        "markers",
-        "language",
-        "metadata",
-        "query",
-        "references",
-        "symbols",
-        "types",
-        "index",
-        "walk",
-        "selection",
-    ),
-    "crates/ecosystem/maestria-parsers/src/lib.rs": (
-        "cargo_toml",
-        "chunking",
-        "generic_text",
-        "markdown",
-        "pdf",
-        "pdf_geometry",
-        "pdf_layout",
-        "pdf_tree",
-        "plain_text",
-        "python_source",
-        "registry",
-        "rust_source",
-        "tree_builder",
-        "typescript_source",
-    ),
-    "crates/ecosystem/maestria-index-selection/src/lib.rs": (
-        "policy",
-        "scan",
-        "classify",
-        "candidates",
-        "repo",
-        "profile",
-    ),
-    "crates/ecosystem/maestria-validation/src/lib.rs": (
-        "runner",
-        "search_provenance",
-        "search_security",
-        "search_validators",
-        "types",
-        "validators",
-    ),
-}
+RESPONSIBILITY_MAP_PATHS: frozenset[str] = frozenset(
+    {
+        "src/lib.rs",
+        "web/src/lib.rs",
+        "crates/kernel/sillage-ports/src/traits.rs",
+        "crates/kernel/sillage-ports/src/lib.rs",
+        "crates/kernel/sillage-domain/src/lib.rs",
+        "crates/kernel/sillage-governance/src/lib.rs",
+        "crates/runtime/sillage-runtime/src/lib.rs",
+        "crates/core/sillage-core/src/lib.rs",
+        "crates/apps/sillage-cli/src/lib.rs",
+        "crates/apps/sillage-studio/src/lib.rs",
+        "crates/apps/sillage-launcher/src/lib.rs",
+        "crates/apps/sillage-daemon/src/lib.rs",
+        "crates/apps/sillage-daemon/src/api.rs",
+        "crates/storage/sillage-sqlite-support/src/lib.rs",
+        "crates/storage/sillage-storage-sqlite/src/lib.rs",
+        "crates/storage/sillage-search-tantivy/src/lib.rs",
+        "crates/harness/sillage-harness/src/lib.rs",
+        "crates/storage/sillage-blob-fs/src/lib.rs",
+        "crates/storage/sillage-graph-sqlite/src/lib.rs",
+        "crates/storage/sillage-vector-sqlite/src/lib.rs",
+        "crates/ecosystem/sillage-adapter-http/src/lib.rs",
+        "crates/ecosystem/sillage-memory/src/lib.rs",
+        "crates/ecosystem/sillage-ocr-local/src/lib.rs",
+        "crates/ecosystem/sillage-web-evidence/src/lib.rs",
+        "crates/ecosystem/sillage-embedding-openai/src/lib.rs",
+        "crates/ecosystem/sillage-extensions/src/lib.rs",
+        "crates/ecosystem/sillage-visual-local/src/lib.rs",
+        "crates/ecosystem/sillage-sparse-local/src/lib.rs",
+        "crates/ecosystem/sillage-retrieval/src/lib.rs",
+        "crates/test-support/sillage-test-support/src/lib.rs",
+        "crates/ecosystem/sillage-code-intel/src/lib.rs",
+        "crates/ecosystem/sillage-parsers/src/lib.rs",
+        "crates/ecosystem/sillage-index-selection/src/lib.rs",
+        "crates/ecosystem/sillage-validation/src/lib.rs",
+    }
+)
+
+_RESPONSIBILITY_MAP_HEADER = re.compile(r"^//[!|/]\s*Responsibility map:\s*$")
+_RESPONSIBILITY_MAP_ENTRY = re.compile(
+    r"^//[!|/]\s*-\s*`([^`]+)`\s*:\s*(.*?)\s*$"
+)
 
 
 CANONICAL_DOC_MARKERS = {
@@ -410,7 +96,7 @@ CANONICAL_DOC_SECTIONS = {
         "## 2. State and Recovery",
         "## 4. Data Evolution",
     ),
-    "docs/ROADMAP.md": ("## Phase 1:", "## Phase 6:"),
+    "docs/ROADMAP.md": ("## Milestone 1:", "## Milestone 4:"),
     "docs/RESEARCH.md": ("## 1. Evaluation Framework", "## 3. Promotion Criteria"),
 }
 
@@ -422,7 +108,7 @@ POLICY_DOC_MARKERS = {
         "43. Every retrieval lane",
         "44. Retrieval changes",
         "45. Normative architecture",
-        "46. Maestria preserves",
+        "preserves external observations and provenance",
         "47. Model-generated search plans",
         "55. Learned-sparse retrieval",
         "56. Domain types own",
@@ -503,65 +189,123 @@ def scan_documentation_contract() -> list[str]:
     return violations
 
 
-def scan_responsibility_maps() -> list[str]:
-    violations = []
-    header_pattern = re.compile(r"^//[!|/] Responsibility map:\s*$")
-    bullet_pattern = re.compile(r"^//[!|/]\s*-\s*`([^`]+)`\s*:")
-    for rel_path, declared_modules in RESPONSIBILITY_MAPS.items():
-        source = shared.ROOT / rel_path
+def responsibility_map_source_paths() -> tuple[Path, ...]:
+    """Return policy sources, production facades, and header-bearing maps."""
+    facades = set(production_lib_paths())
+    sources = {
+        shared.ROOT / relative_path
+        for relative_path in RESPONSIBILITY_MAP_PATHS
+    }
+    sources.update(facades)
+    for source in _production_rust_files(skip_tests=True, sorted_=True):
         content = read_text(source)
         if content is None:
-            violations.append(f"{rel_path} responsibility map file not present")
+            continue
+        if any(
+            _RESPONSIBILITY_MAP_HEADER.match(line)
+            for line in content.splitlines()
+        ):
+            sources.add(source)
+    return tuple(sorted(sources))
+
+
+def scan_responsibility_maps() -> list[str]:
+    violations: list[str] = []
+    facades = set(production_lib_paths())
+    required_paths = set(RESPONSIBILITY_MAP_PATHS)
+    for source in responsibility_map_source_paths():
+        rel_path = source.relative_to(shared.ROOT).as_posix()
+        content = read_text(source)
+        if content is None:
+            violations.append(
+                f"{rel_path} responsibility map source is missing or unreadable"
+            )
             continue
 
         lines = content.splitlines()
-        if not any(header_pattern.match(line) for line in lines):
-            violations.append(f"{rel_path} lacks a responsibility map header")
-            continue
+        has_header = any(_RESPONSIBILITY_MAP_HEADER.match(line) for line in lines)
+        entries: dict[str, tuple[str, int]] = {}
+        for line_number, line in enumerate(lines, start=1):
+            match = _RESPONSIBILITY_MAP_ENTRY.match(line)
+            if match is None:
+                continue
+            module, description = match.groups()
+            description = description.strip()
+            if module in entries:
+                first_line = entries[module][1]
+                violations.append(
+                    f"{rel_path}:{line_number} repeats responsibility entry "
+                    f"for module '{module}' (first listed at line {first_line})"
+                )
+            else:
+                entries[module] = (description, line_number)
+            if not description:
+                violations.append(
+                    f"{rel_path}:{line_number} module '{module}' "
+                    "has no responsibility description"
+                )
 
-        observed_modules = tuple(
-            match.group(1)
-            for line in lines
-            for match in [bullet_pattern.match(line)]
-            if match is not None
-        )
-        if observed_modules != declared_modules:
-            for module in declared_modules:
-                if module not in observed_modules:
-                    violations.append(
-                        f"{rel_path} responsibility map is missing module '{module}'"
-                    )
-            for module in observed_modules:
-                if module not in declared_modules:
-                    violations.append(
-                        f"{rel_path} responsibility map has extra module '{module}'"
-                    )
+        required_map = source in facades or rel_path in required_paths
+        if not has_header:
+            if required_map or entries:
+                violations.append(f"{rel_path} has no responsibility map header")
+            if not entries:
+                continue
 
-        declared_mods = _top_level_module_declarations(content)
-        for module in sorted(declared_mods - set(declared_modules)):
-            violations.append(f"{rel_path} responsibility map omits module '{module}'")
-        for module in declared_modules:
-            if module not in declared_mods:
-                violations.append(f"{rel_path} does not declare module '{module}'")
-            module_dir = source.with_name(source.stem)
-            module_path = module_dir / f"{module}.rs"
-            if not module_path.exists():
-                legacy_path = source.parent / f"{module}.rs"
-                if not legacy_path.exists():
-                    # Check directory module: module/<mod.rs> or <stem>/module/<mod.rs>
-                    dir_mod = module_dir / module / "mod.rs"
-                    if not dir_mod.exists():
-                        # For lib.rs files, check source.parent/<module>/mod.rs
-                        alt_dir_mod = source.parent / module / "mod.rs"
-                        if not alt_dir_mod.exists():
-                            violations.append(
-                                f"{rel_path} responsibility module file missing: {module}.rs"
-                            )
-    configured_maps = set(RESPONSIBILITY_MAPS)
-    for source in production_lib_paths():
-        rel_path = source.relative_to(shared.ROOT).as_posix()
-        if rel_path not in configured_maps:
-            violations.append(
-                f"{rel_path} production module has no configured responsibility map"
+        declarations: dict[str, list[tuple[RustModuleDeclaration, int]]] = {}
+        for declaration in rust_module_declarations(content):
+            if (
+                declaration.parent_modules
+                or declaration.inline
+                or declaration.test_only
+            ):
+                continue
+            line_number = content.count("\n", 0, declaration.start) + 1
+            declarations.setdefault(declaration.name, []).append(
+                (declaration, line_number)
             )
+
+        for module, module_declarations in declarations.items():
+            if module not in entries:
+                line_number = module_declarations[0][1]
+                violations.append(
+                    f"{rel_path}:{line_number} production module '{module}' "
+                    "has no responsibility entry"
+                )
+        for module, (_description, line_number) in entries.items():
+            if module not in declarations:
+                violations.append(
+                    f"{rel_path}:{line_number} responsibility entry names "
+                    f"undeclared module '{module}'"
+                )
+
+        checked_source_paths: set[tuple[str, tuple[Path, ...]]] = set()
+        for module, module_declarations in declarations.items():
+            for declaration, line_number in module_declarations:
+                if declaration.path_attribute:
+                    if not declaration.path_supported or declaration.path is None:
+                        continue
+                    module_paths = (source.parent / declaration.path,)
+                else:
+                    module_dir = source.with_name(source.stem)
+                    module_paths = (
+                        module_dir / f"{module}.rs",
+                        source.parent / f"{module}.rs",
+                        module_dir / module / "mod.rs",
+                        source.parent / module / "mod.rs",
+                    )
+                source_key = (module, module_paths)
+                if source_key in checked_source_paths:
+                    continue
+                checked_source_paths.add(source_key)
+                if not any(module_path.is_file() for module_path in module_paths):
+                    source_detail = (
+                        f" at '{declaration.path}'"
+                        if declaration.path_attribute and declaration.path is not None
+                        else ""
+                    )
+                    violations.append(
+                        f"{rel_path}:{line_number} production module '{module}' "
+                        f"has no source file{source_detail}"
+                    )
     return violations

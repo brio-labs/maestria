@@ -32,7 +32,11 @@ const citation = {
   },
 };
 
-async function installFixture(page: Page, conflict = false): Promise<void> {
+async function installFixture(
+  page: Page,
+  conflict = false,
+  declaredCoverage = false,
+): Promise<void> {
   let draftSaved = false;
   let draftDeleted = false;
   await page.route('**/api/**', async (route) => {
@@ -100,7 +104,7 @@ async function installFixture(page: Page, conflict = false): Promise<void> {
         status: 409,
         contentType: 'application/problem+json',
         body: JSON.stringify({
-          type: 'urn:maestria:studio:problem:revision-conflict',
+          type: 'urn:sillage:studio:problem:revision-conflict',
           title: 'Revision conflict',
           status: 409,
           detail: 'The resource changed; reload and retry',
@@ -121,7 +125,9 @@ async function installFixture(page: Page, conflict = false): Promise<void> {
           citations: [citation],
           context: {
             answerability: 'grounded',
-            coverage: { percent_covered: 100, distinct_sources: 1 },
+            coverage: declaredCoverage
+              ? { percent_covered: 75, basis: 'declared_requirements', distinct_sources: 1 }
+              : { percent_covered: 100, distinct_sources: 1 },
             gaps: [],
             citations: [citation],
             trace_id: 8,
@@ -136,7 +142,7 @@ async function installFixture(page: Page, conflict = false): Promise<void> {
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: citation.evidence }) });
       return;
     }
-    await route.fulfill({ status: 404, contentType: 'application/problem+json', body: JSON.stringify({ type: 'urn:maestria:studio:problem:not-found', title: 'Not found', status: 404, detail: 'The requested resource was not found' }) });
+    await route.fulfill({ status: 404, contentType: 'application/problem+json', body: JSON.stringify({ type: 'urn:sillage:studio:problem:not-found', title: 'Not found', status: 404, detail: 'The requested resource was not found' }) });
   });
 }
 
@@ -169,8 +175,8 @@ test('creates a notebook and completes the workspace flow', async ({ page }) => 
   await page.getByLabel('Question').fill('How are routes configured?');
   await page.getByRole('button', { name: 'Ask' }).click();
   await expect(page.getByText('Grounded answer')).toBeVisible();
-  await expect(page.getByText('Answerability: grounded')).toBeVisible();
-  await expect(page.getByText('Coverage: 100% across 1 source(s)')).toBeVisible();
+  await expect(page.getByText('Coverage: not measured · 1 source(s)')).toBeVisible();
+  await expect(page.getByText('100%', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: /Guide/ }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('button', { name: 'Close' }).click();
@@ -181,6 +187,17 @@ test('creates a notebook and completes the workspace flow', async ({ page }) => 
   await expect(page.getByText('Revision 1')).toBeVisible();
 });
 
+test('labels notebook coverage against declared requirements', async ({ page }) => {
+  await installFixture(page, false, true);
+  await page.goto('/');
+  await page.getByLabel('Notebook title').fill('Research notes');
+  await page.getByRole('button', { name: 'Create notebook' }).click();
+  await expect(page).toHaveURL(/\/notebooks\/1$/);
+  await page.getByRole('link', { name: 'Ask', exact: true }).click();
+  await page.getByLabel('Question').fill('How are routes configured?');
+  await page.getByRole('button', { name: 'Ask' }).click();
+  await expect(page.getByText('Coverage: 75% of declared requirements across 1 source(s)')).toBeVisible();
+});
 test('retains draft text after a revision conflict', async ({ page }) => {
   await installFixture(page, true);
   await page.goto('/notebooks/1/drafts');
@@ -204,7 +221,7 @@ test('deletes a saved draft and clears its selection', async ({ page }) => {
 test('continues only to a validated remembered notebook', async ({ page }) => {
   await installFixture(page);
   await page.addInitScript(() => {
-    window.sessionStorage.setItem('maestria.studio.notebook', '1');
+    window.sessionStorage.setItem('sillage.studio.notebook', '1');
   });
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
@@ -215,11 +232,12 @@ test('continues only to a validated remembered notebook', async ({ page }) => {
 test('clears an invalid remembered notebook instead of offering Continue', async ({ page }) => {
   await installFixture(page);
   await page.addInitScript(() => {
-    window.sessionStorage.setItem('maestria.studio.notebook', '999');
+    window.sessionStorage.setItem('sillage.studio.notebook', '999');
   });
   await page.goto('/');
+  await expect(page.getByText('1 selected sources', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Continue' })).toHaveCount(0);
-  const remembered = await page.evaluate(() => window.sessionStorage.getItem('maestria.studio.notebook'));
+  const remembered = await page.evaluate(() => window.sessionStorage.getItem('sillage.studio.notebook'));
   expect(remembered).toBeNull();
 });
 

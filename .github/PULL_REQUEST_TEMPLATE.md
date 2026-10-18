@@ -6,7 +6,7 @@
 
 - Which invariants in `docs/SPECS.md` are affected?
 
-## Maestria checklist
+## Sillage checklist
 
 - [ ] `cargo fmt --all -- --check`
 - [ ] `cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::too_many_lines -D clippy::cognitive_complexity -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic -D clippy::disallowed_methods`

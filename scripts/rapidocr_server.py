@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serve RapidOCR through Maestria's loopback OCR transport contract."""
+"""Serve RapidOCR through Sillage's loopback OCR transport contract."""
 
 from __future__ import annotations
 
@@ -91,7 +91,7 @@ class RapidOcrServer(ThreadingHTTPServer):
 
 
 class RequestHandler(BaseHTTPRequestHandler):
-    server_version = "maestria-rapidocr/1"
+    server_version = "sillage-rapidocr/1"
 
     def do_POST(self) -> None:
         if self.path != OCR_PATH:

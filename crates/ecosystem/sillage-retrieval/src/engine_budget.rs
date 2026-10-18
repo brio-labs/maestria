@@ -1,0 +1,177 @@
+use sillage_domain::{
+    SearchExecution, SearchExecutionBudget, SearchExecutionCompletion, SearchExecutionUsage,
+    SearchPlan,
+};
+
+pub(crate) fn execution_with_budget(
+    budget: SearchExecutionBudget,
+    completion: SearchExecutionCompletion,
+) -> SearchExecution {
+    SearchExecution::new(budget, SearchExecutionUsage::default(), completion)
+}
+
+pub(crate) fn add_usage(total: &mut SearchExecutionUsage, usage: SearchExecutionUsage) {
+    total.results = total.results.saturating_add(usage.results);
+    total.candidates = total.candidates.saturating_add(usage.candidates);
+    total.work_units = total.work_units.saturating_add(usage.work_units);
+    total.bytes_read = total.bytes_read.saturating_add(usage.bytes_read);
+}
+
+pub(crate) fn usage_within_budget(
+    usage: SearchExecutionUsage,
+    budget: SearchExecutionBudget,
+) -> bool {
+    usage.results <= budget.max_results()
+        && usage.candidates <= budget.max_candidates()
+        && usage.work_units <= budget.max_work_units()
+        && budget
+            .max_bytes_read()
+            .is_none_or(|limit| usage.bytes_read <= limit.get())
+}
+
+#[cfg(test)]
+#[path = "engine_budget_tests.rs"]
+mod tests;
+
+pub(crate) fn partition_allowance(total: u64, lanes: usize, lane: usize) -> u64 {
+    let lanes = lanes.max(1) as u64;
+    let base = total / lanes;
+    let remainder = total % lanes;
+    base + if (lane as u64) < remainder { 1 } else { 0 }
+}
+
+/// Allocates the execution budget for one retrieval lane.
+pub fn lane_budget(
+    plan: &SearchPlan,
+    remaining: SearchExecutionUsage,
+    lanes: usize,
+    lane: usize,
+) -> Option<SearchExecutionBudget> {
+    let global = match plan.execution_budget() {
+        Ok(budget) => budget,
+        Err(error) => {
+            tracing::warn!(%error, "lane_budget: invalid execution budget");
+            return None;
+        }
+    };
+    let max_candidates = global.max_candidates().saturating_sub(remaining.candidates);
+    let candidate_limit = partition_allowance(max_candidates, lanes, lane);
+    let max_work_units = global.max_work_units().saturating_sub(remaining.work_units);
+    if candidate_limit == 0 || max_work_units == 0 {
+        return None;
+    }
+    let remaining_bytes = global
+        .max_bytes_read()
+        .map(|limit| limit.get().saturating_sub(remaining.bytes_read));
+    if remaining_bytes == Some(0) {
+        return None;
+    }
+    let partitioned_bytes = remaining_bytes.map(|limit| partition_allowance(limit, lanes, lane));
+    if partitioned_bytes == Some(0) {
+        return None;
+    }
+    let max_bytes = partitioned_bytes.and_then(std::num::NonZeroU64::new);
+    match SearchExecutionBudget::with_byte_limit(
+        // Each lane's pre-fusion result window is bounded by its share of the
+        // candidate budget. The plan's max_results remains the final selector
+        // ceiling, applied after fusion.
+        candidate_limit,
+        candidate_limit,
+        partition_allowance(max_work_units, lanes, lane),
+        max_bytes,
+    ) {
+        Ok(budget) => Some(budget),
+        Err(error) => {
+            tracing::warn!(%error, "lane_budget: invalid byte-limited budget");
+            None
+        }
+    }
+}
+pub(crate) fn remaining_budget(
+    plan: &SearchPlan,
+    usage: SearchExecutionUsage,
+) -> Option<SearchExecutionBudget> {
+    let global = match plan.execution_budget() {
+        Ok(budget) => budget,
+        Err(error) => {
+            tracing::warn!(%error, "remaining_budget: invalid execution budget");
+            return None;
+        }
+    };
+    // `usage.results` counts lane-produced candidates and may exceed the
+    // final-result ceiling; the latter is applied after fusion.
+    let max_results = global.max_results();
+    let max_candidates = global.max_candidates().saturating_sub(usage.candidates);
+    let max_work_units = global.max_work_units().saturating_sub(usage.work_units);
+    if max_candidates == 0 || max_work_units == 0 {
+        return None;
+    }
+    let max_bytes = global
+        .max_bytes_read()
+        .map(|limit| limit.get().saturating_sub(usage.bytes_read));
+    if max_bytes == Some(0) {
+        return None;
+    }
+    match SearchExecutionBudget::with_byte_limit(
+        max_results,
+        max_candidates,
+        max_work_units,
+        max_bytes.and_then(std::num::NonZeroU64::new),
+    ) {
+        Ok(budget) => Some(budget),
+        Err(error) => {
+            tracing::warn!(%error, "remaining_budget: invalid byte-limited budget");
+            None
+        }
+    }
+}
+
+/// Counting semaphore bounding concurrent lane executions to the plan's
+/// `max_concurrency` budget.
+///
+/// The permit guard releases on drop, so a panicking or early-returning
+/// lane cannot leak capacity.
+pub(super) struct LanePermits {
+    available: std::sync::Mutex<usize>,
+    released: std::sync::Condvar,
+}
+
+impl LanePermits {
+    pub(super) fn new(total: usize) -> Self {
+        Self {
+            available: std::sync::Mutex::new(total.max(1)),
+            released: std::sync::Condvar::new(),
+        }
+    }
+
+    pub(super) fn acquire(&self) -> LanePermit<'_> {
+        let mut available = match self.available.lock() {
+            Ok(available) => available,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        while *available == 0 {
+            available = match self.released.wait(available) {
+                Ok(available) => available,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+        }
+        *available -= 1;
+        LanePermit { permits: self }
+    }
+}
+
+/// Held permit; releases one lane-execution slot on drop.
+pub(super) struct LanePermit<'a> {
+    permits: &'a LanePermits,
+}
+
+impl Drop for LanePermit<'_> {
+    fn drop(&mut self) {
+        let mut available = match self.permits.available.lock() {
+            Ok(available) => available,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *available += 1;
+        self.permits.released.notify_one();
+    }
+}

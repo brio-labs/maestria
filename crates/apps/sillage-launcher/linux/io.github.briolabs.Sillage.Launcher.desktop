@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Sillage Launcher
+Comment=Keyboard-first desktop launcher for Sillage
+Exec=sillage-launcher --activate
+Icon=sillage-launcher
+Terminal=false
+Categories=Utility;
+StartupWMClass=io.github.briolabs.Sillage.Launcher

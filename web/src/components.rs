@@ -72,7 +72,7 @@ pub fn Shell(title: String, active_notebook: Option<u64>, children: Element) -> 
         div { class: "min-h-screen bg-page text-ink",
             header { class: "border-b border-line bg-panel px-4 py-3 md:px-8",
                 div { class: "mx-auto flex max-w-7xl items-center justify-between gap-4",
-                    a { href: "/", class: "text-lg font-bold text-ink-strong", "Maestria Studio" }
+                    a { href: "/", class: "text-lg font-bold text-ink-strong", "Sillage Studio" }
                     div { class: "flex items-center gap-3 text-sm",
                         span {
                             class: if agent_ready { "text-success" } else { "text-warning" },
