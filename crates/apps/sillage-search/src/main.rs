@@ -42,6 +42,11 @@ enum Commands {
         #[command(subcommand)]
         command: OwnerCommands,
     },
+    /// Configure a reusable consumer connection without storing a bearer credential.
+    Profile {
+        #[command(subcommand)]
+        command: ProfileCommands,
+    },
     /// Search a provider through a separate local process.
     Search {
         #[command(flatten)]
@@ -93,6 +98,21 @@ enum OwnerCommands {
     Grant {
         #[command(subcommand)]
         command: GrantCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProfileCommands {
+    /// Write a new non-secret profile for repeated consumer API calls.
+    Configure {
+        #[arg(long)]
+        profile_file: PathBuf,
+        #[arg(long)]
+        socket_path: PathBuf,
+        #[arg(long)]
+        consumer_realm: String,
+        #[arg(long)]
+        credential_file: PathBuf,
     },
 }
 
@@ -172,12 +192,15 @@ enum GrantSensitivity {
 
 #[derive(Args)]
 struct ConsumerApiArgs {
-    #[arg(long)]
-    socket_path: PathBuf,
-    #[arg(long)]
-    consumer_realm: String,
-    #[arg(long)]
-    credential_file: PathBuf,
+    /// Load socket, realm, and separate credential-file paths from a profile.
+    #[arg(long, conflicts_with = "socket_path")]
+    profile: Option<PathBuf>,
+    #[arg(long, required_unless_present = "profile", conflicts_with = "profile")]
+    socket_path: Option<PathBuf>,
+    #[arg(long, required_unless_present = "profile", conflicts_with = "profile")]
+    consumer_realm: Option<String>,
+    #[arg(long, required_unless_present = "profile", conflicts_with = "profile")]
+    credential_file: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -195,6 +218,28 @@ async fn dispatch(command: Commands) -> Result<()> {
             sillage_daemon::run_instance_with_profile(instance_dir, AutonomyProfile::ReadOnly).await
         }
         Commands::Owner { command } => owner::dispatch_owner(command).await,
+        Commands::Profile {
+            command:
+                ProfileCommands::Configure {
+                    profile_file,
+                    socket_path,
+                    consumer_realm,
+                    credential_file,
+                },
+        } => {
+            consumer::create_consumer_profile(
+                &profile_file,
+                socket_path,
+                consumer_realm,
+                credential_file,
+            )?;
+            writeln!(
+                std::io::stdout().lock(),
+                "created consumer profile {}",
+                profile_file.display()
+            )?;
+            Ok(())
+        }
         Commands::Search {
             consumer,
             query,
@@ -298,6 +343,209 @@ fn parse_expiry_seconds(value: &str) -> std::result::Result<u64, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct TempProfile(PathBuf);
+
+    impl TempProfile {
+        fn fresh_path() -> PathBuf {
+            static NEXT_PROFILE: AtomicUsize = AtomicUsize::new(0);
+            std::env::temp_dir().join(format!(
+                "sillage-search-profile-{}-{}.json",
+                std::process::id(),
+                NEXT_PROFILE.fetch_add(1, Ordering::Relaxed)
+            ))
+        }
+
+        fn unused() -> Self {
+            Self(Self::fresh_path())
+        }
+
+        fn create(contents: &[u8]) -> Result<Self> {
+            let path = Self::fresh_path();
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)?;
+            file.write_all(contents)?;
+            Ok(Self(path))
+        }
+    }
+
+    impl Drop for TempProfile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    fn valid_profile_json() -> String {
+        format!(
+            r#"{{
+                "socket_path": "/run/sillage.sock",
+                "consumer_realm": "{}",
+                "credential_file": "/tmp/consumer.credential"
+            }}"#,
+            "a".repeat(64)
+        )
+    }
+
+    fn resolve_profile_args(path: &Path) -> Result<consumer::ConsumerConnectionProfile> {
+        consumer::resolve_consumer_connection(ConsumerApiArgs {
+            profile: Some(path.to_path_buf()),
+            socket_path: None,
+            consumer_realm: None,
+            credential_file: None,
+        })
+    }
+
+    #[test]
+    fn profile_configuration_writes_only_non_secret_metadata() -> Result<()> {
+        let file = TempProfile::unused();
+        let args: Vec<std::ffi::OsString> = vec![
+            "sillage-search".into(),
+            "profile".into(),
+            "configure".into(),
+            "--profile-file".into(),
+            file.0.as_os_str().to_owned(),
+            "--socket-path".into(),
+            "/run/sillage.sock".into(),
+            "--consumer-realm".into(),
+            "a".repeat(64).into(),
+            "--credential-file".into(),
+            "/tmp/consumer.credential".into(),
+        ];
+        let cli = Cli::try_parse_from(args)?;
+        let Commands::Profile {
+            command:
+                ProfileCommands::Configure {
+                    profile_file,
+                    socket_path,
+                    consumer_realm,
+                    credential_file,
+                },
+        } = cli.command
+        else {
+            return Err(anyhow!("arguments did not select profile configuration"));
+        };
+        consumer::create_consumer_profile(
+            &profile_file,
+            socket_path,
+            consumer_realm,
+            credential_file,
+        )?;
+
+        let contents = std::fs::read(&file.0)?;
+        let value: serde_json::Value = serde_json::from_slice(&contents)?;
+        let object = value
+            .as_object()
+            .ok_or_else(|| anyhow!("consumer profile was not a JSON object"))?;
+        assert_eq!(object.len(), 3);
+        let realm = "a".repeat(64);
+        assert_eq!(object["socket_path"].as_str(), Some("/run/sillage.sock"));
+        assert_eq!(object["consumer_realm"].as_str(), Some(realm.as_str()));
+        assert_eq!(
+            object["credential_file"].as_str(),
+            Some("/tmp/consumer.credential")
+        );
+        assert!(!object.contains_key("credential"));
+        Ok(())
+    }
+
+    #[test]
+    fn consumer_profile_loads_validated_connection_values() -> Result<()> {
+        let file = TempProfile::create(valid_profile_json().as_bytes())?;
+        let profile = resolve_profile_args(&file.0)?;
+
+        assert_eq!(profile.socket_path, PathBuf::from("/run/sillage.sock"));
+        assert_eq!(profile.consumer_realm, "a".repeat(64));
+        assert_eq!(
+            profile.credential_file,
+            PathBuf::from("/tmp/consumer.credential")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn status_command_uses_consumer_profile() -> Result<()> {
+        let file = TempProfile::create(valid_profile_json().as_bytes())?;
+        let cli = Cli::try_parse_from([
+            std::ffi::OsString::from("sillage-search"),
+            std::ffi::OsString::from("status"),
+            std::ffi::OsString::from("--profile"),
+            file.0.as_os_str().to_owned(),
+        ])?;
+        let Commands::Status { consumer } = cli.command else {
+            return Err(anyhow!("arguments did not select consumer status"));
+        };
+        let connection = consumer::resolve_consumer_connection(consumer)?;
+
+        assert_eq!(connection.socket_path, PathBuf::from("/run/sillage.sock"));
+        assert_eq!(connection.consumer_realm, "a".repeat(64));
+        assert_eq!(
+            connection.credential_file,
+            PathBuf::from("/tmp/consumer.credential")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn consumer_profile_rejects_an_embedded_credential() -> Result<()> {
+        let secret = "bearer-secret-must-not-be-loaded";
+        let contents = format!(
+            r#"{{
+                "socket_path": "/run/sillage.sock",
+                "consumer_realm": "{}",
+                "credential_file": "/tmp/consumer.credential",
+                "credential": "{secret}"
+            }}"#,
+            "a".repeat(64)
+        );
+        let file = TempProfile::create(contents.as_bytes())?;
+        let error =
+            resolve_profile_args(&file.0).expect_err("embedded credentials must be rejected");
+
+        let error_message = format!("{error:#}");
+        assert!(error_message.contains("credential"));
+        assert!(!error_message.contains(secret));
+        Ok(())
+    }
+
+    #[test]
+    fn consumer_profile_rejects_invalid_realm_and_oversized_input() -> Result<()> {
+        let invalid_realm = r#"{
+            "socket_path": "/run/sillage.sock",
+            "consumer_realm": "",
+            "credential_file": "/tmp/consumer.credential"
+        }"#;
+        let file = TempProfile::create(invalid_realm.as_bytes())?;
+        assert!(resolve_profile_args(&file.0).is_err());
+
+        let oversized = vec![b' '; (consumer::MAX_CONSUMER_PROFILE_BYTES + 1) as usize];
+        let file = TempProfile::create(&oversized)?;
+        let error = resolve_profile_args(&file.0).expect_err("oversized profiles must be rejected");
+        assert!(error.to_string().contains("maximum size"));
+        Ok(())
+    }
+
+    #[test]
+    fn direct_consumer_arguments_remain_available() -> Result<()> {
+        let cli = Cli::try_parse_from(vec![
+            "sillage-search".to_string(),
+            "status".to_string(),
+            "--socket-path".to_string(),
+            "/run/sillage.sock".to_string(),
+            "--consumer-realm".to_string(),
+            "a".repeat(64),
+            "--credential-file".to_string(),
+            "/tmp/consumer.credential".to_string(),
+        ])?;
+        let Commands::Status { consumer } = cli.command else {
+            return Err(anyhow!("arguments did not select consumer status"));
+        };
+        let connection = consumer::resolve_consumer_connection(consumer)?;
+        assert_eq!(connection.socket_path, PathBuf::from("/run/sillage.sock"));
+        Ok(())
+    }
 
     #[test]
     fn owner_grant_accepts_repeated_read_root_arguments() -> Result<()> {
