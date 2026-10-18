@@ -23,11 +23,11 @@ export struct ActionRow {
 
 export component LauncherWindow inherits Window {
     title: "Sillage Launcher";
-    preferred-width: 760px;
-    preferred-height: 760px;
+    preferred-width: 750px;
+    preferred-height: 500px;
     min-width: 640px;
-    min-height: 540px;
-    background: root.dark-mode ? #141b20 : #f6f8f5;
+    min-height: 440px;
+    background: root.dark-mode ? #131416 : #ffffff;
 
     in-out property <bool> dark-mode: true;
     in-out property <bool> reduce-motion: false;
@@ -363,115 +363,15 @@ export component LauncherWindow inherits Window {
     }
 
     Rectangle {
-        background: root.dark-mode ? #141b20 : #f6f8f5;
-        border-color: root.dark-mode ? #344442 : #d1ddd5;
+        background: root.dark-mode ? #131416 : #ffffff;
+        border-color: root.dark-mode ? #26272e : #e2e3e8;
         border-width: 1px;
-        border-radius: 18px;
+        border-radius: 14px;
 
         VerticalLayout {
-            padding: 16px;
+            padding: 12px;
             spacing: 8px;
 
-            HorizontalLayout {
-                height: 32px;
-                spacing: 10px;
-                Rectangle {
-                    width: 22px;
-                    height: 22px;
-                    border-radius: 6px;
-                    background: #78dfb5;
-                    Text {
-                        text: "S";
-                        color: #112019;
-                        font-size: 14px;
-                        font-weight: 700;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                }
-                Text {
-                    text: "SILLAGE";
-                    color: root.dark-mode ? #eaf5ef : #1a2b2b;
-                    font-size: 13px;
-                    font-weight: 700;
-                    letter-spacing: 2.6px;
-                    vertical-alignment: center;
-                }
-                Rectangle { horizontal-stretch: 1; background: transparent; }
-                Text {
-                    text: "your space";
-                    color: root.dark-mode ? #b2c0ba : #4a625b;
-                    font-size: 12px;
-                    vertical-alignment: center;
-                }
-                Button {
-                    text: "About";
-                    accessible-role: button;
-                    accessible-label: "Open About Sillage and Slint attribution";
-                    clicked => {
-                        root.close-utilities();
-                        if (root.preferences-open) {
-                            root.preferences-open = false;
-                            root.preferences-closed();
-                        }
-                        if (root.passage-view-open) {
-                            root.passage-view-closed();
-                        }
-                        if (root.extensions-open) {
-                            root.extensions-open = false;
-                            root.extensions-closed();
-                        }
-                        root.actions-open = false;
-                        root.about-open = true;
-                        about-back.focus();
-                    }
-                }
-                Button {
-                    text: "Extensions";
-                    accessible-role: button;
-                    accessible-label: "Manage installed extensions and permissions";
-                    clicked => {
-                        root.close-utilities();
-                        if (root.preferences-open) {
-                            root.preferences-open = false;
-                            root.preferences-closed();
-                        }
-                        if (root.passage-view-open) {
-                            root.passage-view-closed();
-                        }
-                        root.about-open = false;
-                        root.actions-open = false;
-                        root.extensions-open = true;
-                        root.extension-view = "extensions";
-                        root.extensions-requested();
-                    }
-                }
-                Button {
-                    text: "Utilities";
-                    accessible-role: button;
-                    accessible-label: "Manage quicklinks snippets and explicit clipboard history";
-                    clicked => { root.open-utilities("quicklinks"); }
-                }
-                Button {
-                    text: "Preferences";
-                    accessible-role: button;
-                    accessible-label: "Open launcher preferences";
-                    clicked => {
-                        root.close-utilities();
-                        root.about-open = false;
-                        if (root.passage-view-open) {
-                            root.passage-view-closed();
-                        }
-                        if (root.extensions-open) {
-                            root.extensions-open = false;
-                            root.extensions-closed();
-                        }
-                        root.actions-open = false;
-                        root.preferences-tab = "general";
-                        root.preferences-requested();
-                    }
-                }
-            }
 
             Rectangle {
                 vertical-stretch: 1;
@@ -480,16 +380,16 @@ export component LauncherWindow inherits Window {
                     visible: !root.preferences-open && !root.about-open && !root.passage-view-open && !root.extensions-open && !root.utilities-open;
                     spacing: 8px;
                     Rectangle {
-                        height: 56px;
-                        border-radius: 12px;
-                        background: root.dark-mode ? #202d30 : #ffffff;
-                        border-color: root.dark-mode ? #5d8176 : #87b29f;
+                        height: 52px;
+                        border-radius: 10px;
+                        background: root.dark-mode ? #1a1a1f : #f5f6f8;
+                        border-color: root.dark-mode ? #2a2b34 : #dfe1e7;
                         border-width: 1px;
                         HorizontalLayout {
                             padding-left: 14px;
                             padding-right: 14px;
                             spacing: 10px;
-                            Text { text: "⌕"; color: #85e3bf; font-size: 24px; vertical-alignment: center; }
+                            Text { text: "⌕"; color: root.dark-mode ? #828494 : #6b6d7c; font-size: 22px; vertical-alignment: center; }
                             search-input := LineEdit {
                                 text <=> root.query;
                                 placeholder-text: "Search applications, commands, and documents, or calculate…";
@@ -497,11 +397,21 @@ export component LauncherWindow inherits Window {
                                 edited => { root.query-changed(self.text); }
                                 accepted => { root.activate-selected(); }
                             }
-                            Text {
-                                text: "CTRL K  ACTIONS";
-                                color: root.dark-mode ? #cdebdc : #17694f;
-                                font-size: 10px;
-                                vertical-alignment: center;
+                            Rectangle {
+                                width: 108px;
+                                height: 26px;
+                                border-radius: 6px;
+                                background: root.dark-mode ? #24252d : #e6e8ee;
+                                border-color: root.dark-mode ? #31333d : #d4d6de;
+                                border-width: 1px;
+                                Text {
+                                    text: "CTRL K  ACTIONS";
+                                    color: root.dark-mode ? #9da0b0 : #5c5e6d;
+                                    font-size: 10px;
+                                    font-weight: 600;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
                             }
                         }
                     }
@@ -615,105 +525,118 @@ export component LauncherWindow inherits Window {
                         accessible-role: list;
                         accessible-label: "Launcher results";
                         VerticalLayout {
-                            spacing: 8px;
+                            spacing: 3px;
                             for row[index] in root.results : Rectangle {
-                                height: row.kind == "passage_group" ? 24px
-                                    : (row.kind == "passage" || row.kind == "file" ? 112px : 60px);
-                                border-radius: row.kind == "passage_group" ? 4px : 10px;
+                                height: row.kind == "passage_group" ? 22px
+                                    : (row.kind == "passage" || row.kind == "file" ? 96px : 48px);
+                                border-radius: row.kind == "passage_group" ? 4px : 7px;
                                 background: row.kind == "passage_group"
                                     ? transparent
                                     : (root.selected-index == index
-                                        ? (root.dark-mode ? #263e39 : #e2f2e9)
-                                        : (root.dark-mode ? #1c282b : #ffffff));
-                                border-color: root.selected-index == index
-                                    ? (root.dark-mode ? #83e2bd : #67a98a)
-                                    : (root.dark-mode ? #354946 : #dce5df);
+                                        ? (root.dark-mode ? #24252c : #eaecee)
+                                        : transparent);
+                                border-color: row.kind == "passage_group"
+                                    ? transparent
+                                    : (root.selected-index == index
+                                        ? (root.dark-mode ? #363844 : #d5d7df)
+                                        : transparent);
                                 border-width: row.kind == "passage_group" ? 0px : 1px;
                                 Text {
                                     visible: row.kind == "passage_group";
                                     accessible-role: text;
                                     accessible-label: row.accessible_name;
                                     text: row.title;
-                                    color: root.dark-mode ? #abc0b7 : #4a625b;
+                                    color: root.dark-mode ? #7d808f : #646675;
                                     font-size: 11px;
-                                    font-weight: 700;
+                                    font-weight: 600;
                                     letter-spacing: 0.5px;
                                     vertical-alignment: center;
                                     overflow: elide;
                                 }
                                 HorizontalLayout {
                                     visible: row.kind != "passage_group";
-                                    padding-left: 12px;
-                                    padding-right: 12px;
-                                    spacing: 10px;
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    spacing: 12px;
                                     Rectangle {
                                         visible: row.kind != "passage";
-                                        width: 30px;
-                                        height: 30px;
-                                        border-radius: 8px;
-                                        background: root.selected-index == index ? #356554 : #2d4c54;
+                                        width: 28px;
+                                        height: 28px;
+                                        border-radius: 7px;
+                                        background: root.selected-index == index
+                                            ? (root.dark-mode ? #32343e : #dcdfe6)
+                                            : (root.dark-mode ? #1e1f24 : #e8eaee);
+                                        border-color: root.dark-mode ? #2e3039 : #d2d5dc;
+                                        border-width: 1px;
                                         Text {
                                             text: row.kind == "calculation" ? "="
-                                                : (row.kind == "application" ? "+"
-                                                    : ((row.kind == "file" || row.kind == "path") ? "F"
+                                                : (row.kind == "application" ? "⌘"
+                                                    : ((row.kind == "file" || row.kind == "path") ? "≡"
                                                         : (row.kind == "document" ? "P" : "⌕")));
-                                            color: #d8ffed;
-                                            font-size: 17px;
+                                            color: root.selected-index == index
+                                                ? (root.dark-mode ? #ffffff : #111215)
+                                                : (root.dark-mode ? #a0a3b2 : #5c5e6d);
+                                            font-size: 15px;
                                             horizontal-alignment: center;
                                             vertical-alignment: center;
                                         }
                                     }
                                     VerticalLayout {
-                                        spacing: 3px;
+                                        spacing: 2px;
+                                        alignment: center;
                                         Text {
                                             text: row.title;
-                                            color: root.dark-mode ? #f3f6f4 : #1a2b2b;
-                                            font-size: 13px;
-                                            font-weight: 700;
+                                            color: root.selected-index == index
+                                                ? (root.dark-mode ? #ffffff : #111215)
+                                                : (root.dark-mode ? #f0f1f4 : #24262e);
+                                            font-size: 13.5px;
+                                            font-weight: 500;
                                             overflow: elide;
                                         }
                                         Text {
                                             text: row.subtitle;
-                                            color: root.dark-mode ? #b2c0ba : #4a625b;
-                                            font-size: 11px;
+                                            color: root.selected-index == index
+                                                ? (root.dark-mode ? #9ea1b2 : #4f515e)
+                                                : (root.dark-mode ? #7a7d8d : #707280);
+                                            font-size: 11.5px;
                                             overflow: elide;
                                         }
                                         HorizontalLayout {
                                             visible: row.kind == "passage" || row.kind == "file";
-                                            height: 34px;
+                                            height: 28px;
                                             spacing: 0px;
                                             Text {
                                                 width: 170px;
-                                                height: 30px;
+                                                height: 28px;
                                                 text: row.excerpt_before;
-                                                color: root.dark-mode ? #d0dbd5 : #354741;
+                                                color: root.dark-mode ? #c4c6d4 : #454752;
                                                 font-size: 11px;
                                                 vertical-alignment: center;
                                                 overflow: elide;
                                             }
                                             Rectangle {
                                                 width: 110px;
-                                                height: 28px;
+                                                height: 24px;
                                                 border-radius: 4px;
                                                 background: row.excerpt_match == ""
                                                     ? transparent
-                                                    : (root.dark-mode ? #eed77c : #f4d45f);
+                                                    : (root.dark-mode ? #4a3e1b : #fef3c7);
                                                 Text {
                                                     width: 110px;
-                                                    height: 28px;
+                                                    height: 24px;
                                                     text: row.excerpt_match;
-                                                    color: #202519;
+                                                    color: root.dark-mode ? #fbbf24 : #92400e;
                                                     font-size: 11px;
-                                                    font-weight: 700;
+                                                    font-weight: 600;
                                                     vertical-alignment: center;
                                                     overflow: elide;
                                                 }
                                             }
                                             Text {
                                                 width: 170px;
-                                                height: 30px;
+                                                height: 28px;
                                                 text: row.excerpt_after;
-                                                color: root.dark-mode ? #d0dbd5 : #354741;
+                                                color: root.dark-mode ? #c4c6d4 : #454752;
                                                 font-size: 11px;
                                                 vertical-alignment: center;
                                                 overflow: elide;
@@ -721,17 +644,23 @@ export component LauncherWindow inherits Window {
                                         }
                                     }
                                     Rectangle { horizontal-stretch: 1; background: transparent; }
-                                    Text {
-                                        text: row.kind == "document"
-                                            ? (index == root.selected-index ? "Open passages  ↵" : "")
-                                            : (row.kind == "path"
-                                                ? (index == root.selected-index ? "Copy path  ↵" : "")
-                                                : ((row.kind == "passage" || row.kind == "file")
-                                                    ? (index == root.selected-index ? "Open details  ↵" : "")
-                                                    : (index == root.selected-index ? "Open  ↵" : "")));
-                                        color: root.dark-mode ? #c4e8d8 : #17694f;
-                                        font-size: 11px;
-                                        vertical-alignment: center;
+                                    if index == root.selected-index : Rectangle {
+                                        width: 104px;
+                                        height: 24px;
+                                        border-radius: 5px;
+                                        background: root.dark-mode ? #2d2f39 : #d8dae2;
+                                        border-color: root.dark-mode ? #3b3e4a : #cbced7;
+                                        border-width: 1px;
+                                        Text {
+                                            text: row.kind == "document" ? "Open passages ↵"
+                                                : (row.kind == "path" ? "Copy path ↵"
+                                                    : ((row.kind == "passage" || row.kind == "file") ? "Open details ↵" : "Open ↵"));
+                                            color: root.dark-mode ? #dcdfe9 : #222328;
+                                            font-size: 10px;
+                                            font-weight: 600;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
                                     }
                                 }
                                 TouchArea {
@@ -1126,14 +1055,16 @@ export component LauncherWindow inherits Window {
                                     color: root.dark-mode ? #b2c0ba : #4a625b;
                                     font-size: 11px;
                                     wrap: word-wrap;
+                                    accessible-role: text;
+                                    accessible-label: self.text;
                                 }
                                 Text {
-                                    text: "Enable document search approves indexing only the displayed folder. Choosing or changing a folder does not enable indexing. Explicit enablement is saved for future starts.";
+                                    text: "Approval covers this folder and eligible files in its subfolders. Hidden, ignored or excluded, symlinked and unsupported files are skipped; scanned PDFs without searchable text need OCR. Changed-source payloads use a 64 MiB aggregate admission budget; files larger than 64 MiB are skipped. This is not a total memory or RSS limit. Folder selection alone never enables indexing; explicit consent is saved for future starts.";
                                     color: root.dark-mode ? #b2c0ba : #4a625b;
                                     font-size: 11px;
                                     wrap: word-wrap;
                                     accessible-role: text;
-                                    accessible-label: "Enablement approves indexing only the folder shown above. No other folder is included. A separate read-only search process uses no models or cloud and runs only while the launcher is running. Explicit enablement is saved for future starts.";
+                                    accessible-label: "Approval covers this folder and eligible files in its subfolders. Hidden, ignored or excluded, symlinked and unsupported files are skipped; scanned PDFs without searchable text need OCR. Changed-source payloads use a 64 MiB aggregate admission budget; files larger than 64 MiB are skipped. This is not a total memory or RSS limit. The separate read-only search process uses no models or cloud and runs only while the launcher is running. Explicit consent is saved for future starts.";
                                 }
                                 Text {
                                     visible: root.search-setup-busy && root.search-setup-status == "";
@@ -1359,9 +1290,11 @@ export component LauncherWindow inherits Window {
                                     && (!root.search-setup-enabled || root.search-setup-error != "")
                                     && !root.preferences-read-only;
                                 accessible-role: button;
-                                accessible-label: root.search-setup-root != ""
-                                    ? "Approve indexing only the selected folder and enable document search"
-                                    : "Choose a folder before enabling document search";
+                                accessible-label: root.search-setup-error != ""
+                                    ? "Retry document search setup for the selected folder"
+                                    : (root.search-setup-root != ""
+                                        ? "Approve the selected folder and eligible files in its subfolders to enable document search"
+                                        : "Choose a folder before enabling document search");
                                 clicked => {
                                     if (root.search-setup-root != ""
                                         && root.search-setup-consent
@@ -1593,43 +1526,140 @@ export component LauncherWindow inherits Window {
 
             Rectangle {
                 height: 1px;
-                background: root.dark-mode ? #334441 : #d1ddd5;
+                background: root.dark-mode ? #222328 : #e4e5eb;
             }
             HorizontalLayout {
-                height: 36px;
+                height: 34px;
                 visible: !root.utilities-open;
-                spacing: 12px;
+                spacing: 8px;
+                padding-left: 6px;
+                padding-right: 6px;
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    Rectangle {
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 4px;
+                        background: #ff6363;
+                        y: (parent.height - self.height) / 2;
+                    }
+                    Text {
+                        text: "Sillage";
+                        color: root.dark-mode ? #8b8d9b : #6a6c78;
+                        font-size: 11.5px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Rectangle { width: 6px; background: transparent; }
+
                 Text {
                     visible: root.actions-open && !root.passage-view-open;
-                    text: "↑ ↓  Select action";
-                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                    text: "↑↓ Select action";
+                    color: root.dark-mode ? #6f7180 : #848696;
                     font-size: 11px;
+                    vertical-alignment: center;
                 }
                 Text {
                     visible: !root.actions-open && !root.preferences-open && !root.about-open && !root.extensions-open;
-                    text: root.passage-view-open ? "↑ ↓  Scroll passages" : "↑ ↓  Navigate results";
-                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                    text: root.passage-view-open ? "↑↓ Scroll passages" : "↑↓ Navigate";
+                    color: root.dark-mode ? #6f7180 : #848696;
                     font-size: 11px;
+                    vertical-alignment: center;
                 }
                 Text {
                     visible: !root.preferences-open && !root.about-open && !root.extensions-open && !root.passage-view-open;
-                    text: root.actions-open ? "↵  Run action" : "↵  Open";
-                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                    text: root.actions-open ? "↵ Run action" : "↵ Open";
+                    color: root.dark-mode ? #c2c4d2 : #32333a;
                     font-size: 11px;
+                    font-weight: 500;
+                    vertical-alignment: center;
                 }
                 Text {
                     visible: !root.preferences-open && !root.about-open && !root.extensions-open && !root.passage-view-open;
-                    text: "Ctrl K  Actions";
-                    color: root.dark-mode ? #b2c0ba : #4a625b;
+                    text: "Ctrl+K Actions";
+                    color: root.dark-mode ? #8b8d9b : #6a6c78;
                     font-size: 11px;
+                    vertical-alignment: center;
                 }
+
                 Rectangle { horizontal-stretch: 1; background: transparent; }
+
+                Button {
+                    text: "Extensions";
+                    accessible-role: button;
+                    accessible-label: "Manage installed extensions and permissions";
+                    clicked => {
+                        root.close-utilities();
+                        if (root.preferences-open) {
+                            root.preferences-open = false;
+                            root.preferences-closed();
+                        }
+                        if (root.passage-view-open) {
+                            root.passage-view-closed();
+                        }
+                        root.about-open = false;
+                        root.actions-open = false;
+                        root.extensions-open = true;
+                        root.extension-view = "extensions";
+                        root.extensions-requested();
+                    }
+                }
+                Button {
+                    text: "Utilities";
+                    accessible-role: button;
+                    accessible-label: "Manage quicklinks snippets and explicit clipboard history";
+                    clicked => { root.open-utilities("quicklinks"); }
+                }
+                Button {
+                    text: "Preferences";
+                    accessible-role: button;
+                    accessible-label: "Open launcher preferences";
+                    clicked => {
+                        root.close-utilities();
+                        root.about-open = false;
+                        if (root.passage-view-open) {
+                            root.passage-view-closed();
+                        }
+                        if (root.extensions-open) {
+                            root.extensions-open = false;
+                            root.extensions-closed();
+                        }
+                        root.actions-open = false;
+                        root.preferences-tab = "general";
+                        root.preferences-requested();
+                    }
+                }
+                Button {
+                    text: "About";
+                    accessible-role: button;
+                    accessible-label: "Open About Sillage and Slint attribution";
+                    clicked => {
+                        root.close-utilities();
+                        if (root.preferences-open) {
+                            root.preferences-open = false;
+                            root.preferences-closed();
+                        }
+                        if (root.passage-view-open) {
+                            root.passage-view-closed();
+                        }
+                        if (root.extensions-open) {
+                            root.extensions-open = false;
+                            root.extensions-closed();
+                        }
+                        root.actions-open = false;
+                        root.about-open = true;
+                        about-back.focus();
+                    }
+                }
                 Button {
                     text: root.actions-open
-                        ? "Esc  Close actions"
+                        ? "Esc Close actions"
                         : (root.about-open || root.preferences-open || root.extensions-open || root.passage-view-open
-                            ? "Esc  Back"
-                            : "Esc  Dismiss");
+                            ? "Esc Back"
+                            : "Esc Dismiss");
                     accessible-role: button;
                     accessible-label: root.actions-open
                         ? "Close the current result actions"

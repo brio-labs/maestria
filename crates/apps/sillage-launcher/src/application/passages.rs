@@ -160,8 +160,17 @@ pub(super) struct SearchMetadata {
     detail: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+enum SearchCoverageBasis {
+    #[default]
+    NotRequested,
+    DeclaredRequirements,
+}
+
 #[derive(Debug, Clone)]
 struct SearchCoverage {
+    basis: SearchCoverageBasis,
     percent_covered: u8,
     distinct_sources: usize,
     distinct_documents: usize,
@@ -184,10 +193,21 @@ impl SearchMetadata {
             details.push(format!("index generation {generation}"));
         }
         if let Some(coverage) = &self.coverage {
-            details.push(format!(
-                "{}% coverage · {} documents · {} sources",
-                coverage.percent_covered, coverage.distinct_documents, coverage.distinct_sources
-            ));
+            let coverage_summary = match coverage.basis {
+                SearchCoverageBasis::NotRequested => {
+                    format!(
+                        "{} documents · {} sources",
+                        coverage.distinct_documents, coverage.distinct_sources
+                    )
+                }
+                SearchCoverageBasis::DeclaredRequirements => format!(
+                    "{}% of declared requirements · {} documents · {} sources",
+                    coverage.percent_covered,
+                    coverage.distinct_documents,
+                    coverage.distinct_sources
+                ),
+            };
+            details.push(coverage_summary);
         }
         if let Some(detail) = &self.detail {
             details.push(detail.clone());

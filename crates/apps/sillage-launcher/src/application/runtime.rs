@@ -160,7 +160,41 @@ fn select_backend(background: bool) -> Result<(), Box<dyn Error>> {
         .backend_name("winit".into())
         .renderer_name("software".into())
         .with_winit_window_attributes_hook(move |attributes| {
-            attributes.with_decorations(false).with_active(!background)
+            #[cfg(target_os = "linux")]
+            {
+                use slint::winit_030::winit::platform::wayland::WindowAttributesExtWayland;
+                use slint::winit_030::winit::platform::x11::{WindowAttributesExtX11, WindowType};
+                use slint::winit_030::winit::window::WindowLevel;
+
+                let mut attr = attributes
+                    .with_decorations(false)
+                    .with_active(!background)
+                    .with_window_level(WindowLevel::AlwaysOnTop);
+
+                attr = WindowAttributesExtX11::with_name(
+                    attr,
+                    "io.github.briolabs.Sillage.Launcher",
+                    "sillage-launcher",
+                );
+                attr = WindowAttributesExtX11::with_x11_window_type(
+                    attr,
+                    vec![
+                        WindowType::Dialog,
+                        WindowType::Utility,
+                        WindowType::Splash,
+                    ],
+                );
+                attr = WindowAttributesExtWayland::with_name(
+                    attr,
+                    "io.github.briolabs.Sillage.Launcher",
+                    "sillage-launcher",
+                );
+                attr
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                attributes.with_decorations(false).with_active(!background)
+            }
         })
         .select()?;
     Ok(())
@@ -200,36 +234,13 @@ fn install_window_handlers(ui: &LauncherWindow, state: Arc<LauncherState>) {
 
     #[cfg(target_os = "linux")]
     {
-        use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
+        use slint::winit_030::EventResult;
 
-        let mut was_focused = false;
-        let blur_ui = ui.as_weak();
-        ui.window().on_winit_window_event(move |window, event| {
-            match event {
-                winit::event::WindowEvent::Focused(true) => was_focused = true,
-                winit::event::WindowEvent::Focused(false)
-                    if was_focused && state.hide_requested().is_ok_and(|requested| requested) =>
-                {
-                    was_focused = false;
-                    match state.dismiss() {
-                        Ok(()) => {
-                            if let Some(window_ui) = blur_ui.upgrade() {
-                                super::window::close_extension_panel(&window_ui);
-                                window_ui.invoke_close_utilities();
-                            }
-                            if let Err(error) = window.hide() {
-                                eprintln!("Launcher dismissal failed: {error}");
-                            }
-                        }
-                        Err(error) => {
-                            if let Some(window_ui) = blur_ui.upgrade() {
-                                window_ui.set_notice(error.message.into());
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
+        ui.window().on_winit_window_event(move |_window, _event| {
+            // Under Wayland and tiling window managers (Hyprland, Sway), pointer movement
+            // over background windows triggers focus transitions. Auto-closing on blur causes
+            // the launcher to vanish immediately on mouse movement.
+            // The launcher is dismissed via Escape, executing an action (Return), or the shortcut.
             EventResult::Propagate
         });
     }

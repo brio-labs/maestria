@@ -37,7 +37,7 @@ pub use protocol_notebook::{
     NotebookSummary,
 };
 pub use protocol_read::{
-    CoverageResponse, EvidenceResponse, EvidenceSourceResponse, RetrievalLaneStatus,
+    CoverageBasis, CoverageResponse, EvidenceResponse, EvidenceSourceResponse, RetrievalLaneStatus,
     RetrievalPromotionRecordWire, RetrievalPromotionRecords, RetrievalStatusResponse,
     SearchEvidenceResponse, SearchExcludedSource, SearchIndexingStatus,
     SearchPassagePreviewResponse, SearchPathResultResponse, SearchRawRankResponse, SearchResponse,

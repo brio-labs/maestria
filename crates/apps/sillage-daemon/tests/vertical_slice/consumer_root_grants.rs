@@ -397,6 +397,11 @@ async fn verify_scoped_search_and_evidence(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let shared = search_as_consumer(consumer, "orchid").await?;
     assert!(!shared.evidence.is_empty(), "approved passage is missing");
+    assert_eq!(
+        shared.coverage.basis,
+        sillage_daemon::CoverageBasis::NotRequested,
+        "plain search does not declare coverage requirements"
+    );
     assert!(shared.evidence.iter().all(|evidence| {
         matches!(
             evidence.preview.as_ref().map(|preview| &preview.location),

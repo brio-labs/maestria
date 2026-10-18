@@ -1,4 +1,5 @@
 use super::*;
+use std::fmt::Write as _;
 
 impl SearchSetup {
     pub(super) async fn finish_operation(
@@ -217,28 +218,9 @@ impl SearchSetup {
             .last_error
             .as_deref()
             .is_some_and(|error| !error.trim().is_empty());
-        let detail = format!(
-            "{} files indexed · {} pending{}",
-            root.indexed_file_count,
-            status.indexing.pending_file_count,
-            if root.excluded_file_count == 0 {
-                String::new()
-            } else {
-                format!(" · {} excluded", root.excluded_file_count)
-            }
-        );
-        let ready = !status.indexing.scanning
-            && status.indexing.pending_file_count == 0
-            && status.indexing.last_scan_unix_ms.is_some()
-            && !has_indexing_error;
+        let detail = owner_status_detail(root, &status, has_indexing_error);
+        let label = owner_status_label(root, &status, has_indexing_error);
         let error = has_indexing_error.then(|| "Sillage reported an indexing issue.".to_string());
-        let label = if has_indexing_error {
-            "Indexing issue"
-        } else if ready {
-            "Ready"
-        } else {
-            "Indexing"
-        };
         self.publish_status(true, Some(managed.root.clone()), label, &detail, error);
         Ok(())
     }
@@ -271,3 +253,285 @@ impl SearchSetup {
         });
     }
 }
+
+const MAX_STATUS_DETAIL_BYTES: usize = 768;
+const MAX_DISPLAYED_SUPPORTED_FORMATS: usize = 4;
+const MAX_SUPPORTED_FORMATS_TO_INSPECT: usize = 32;
+
+fn owner_status_label(
+    root: &RootStatus,
+    status: &RootsStatus,
+    has_indexing_error: bool,
+) -> &'static str {
+    if has_indexing_error {
+        "Indexing issue"
+    } else if status.indexing.admission_oversized_file_count > 0 {
+        "Partial coverage"
+    } else if status.indexing.scanning
+        || status.indexing.pending_file_count > 0
+        || status.indexing.last_scan_unix_ms.is_none()
+    {
+        "Indexing"
+    } else if root.excluded_file_count > 0
+        || status.ocr_needed_file_count > 0
+        || root.exclusion_scan_truncated
+        || status.exclusion_scan_truncated
+    {
+        "Partial coverage"
+    } else {
+        "Ready"
+    }
+}
+
+fn owner_status_detail(
+    root: &RootStatus,
+    status: &RootsStatus,
+    has_indexing_error: bool,
+) -> String {
+    let ocr_needed = status.ocr_needed_file_count.max(
+        root.exclusions_by_reason
+            .get("needs_ocr")
+            .copied()
+            .unwrap_or_default(),
+    );
+    let mut detail = format!(
+        "{} indexed · {} pending · {} excluded · {} OCR needed",
+        root.indexed_file_count,
+        status.indexing.pending_file_count,
+        root.excluded_file_count,
+        ocr_needed
+    );
+    let admission_limit_mib = status.indexing.admission_budget_bytes / (1024 * 1024);
+    let oversized_count = status.indexing.admission_oversized_file_count;
+    let deferred_count = status
+        .indexing
+        .admission_deferred_file_count
+        .saturating_sub(oversized_count);
+    if deferred_count > 0 {
+        write!(
+            detail,
+            " · Deferred source files: {deferred_count}; automatically rechecked on later scans under the {admission_limit_mib} MiB source-read budget."
+        )
+        .expect("writing to a String cannot fail");
+    }
+    if oversized_count > 0 {
+        write!(
+            detail,
+            " · Oversized source files not read: {oversized_count}; per-file limit {admission_limit_mib} MiB."
+        )
+        .expect("writing to a String cannot fail");
+    }
+
+    if root.excluded_file_count > 0 {
+        append_exclusion_reasons(&mut detail, root, ocr_needed);
+    }
+
+    let formats = supported_format_summary(&status.supported_formats);
+    write!(detail, " · Supported formats: {formats}").expect("writing to a String cannot fail");
+
+    if status.indexing.scanning || status.indexing.pending_file_count > 0 {
+        detail.push_str(" · Scanning continues while the folder stays available.");
+    }
+    if root.exclusion_scan_truncated || status.exclusion_scan_truncated {
+        detail.push_str(" · Exclusion counts may be incomplete; choose a smaller folder for a more complete count.");
+    }
+    if ocr_needed > 0 {
+        detail.push_str(" · For OCR-needed files, use text-based PDFs or OCR them first.");
+    }
+    if root.excluded_file_count > ocr_needed {
+        detail.push_str(
+            " · Excluded sources are not searchable; review folder ignore and exclusion rules.",
+        );
+    }
+    if has_indexing_error {
+        detail.push_str(
+            " · Scan issue: check folder availability and restart the launcher to retry.",
+        );
+    }
+    bound_status_detail(detail)
+}
+
+fn append_exclusion_reasons(detail: &mut String, root: &RootStatus, ocr_needed: usize) {
+    if root.exclusions_by_reason.is_empty() {
+        if root.excluded_file_count > ocr_needed {
+            detail.push_str(" · Other exclusion reasons not reported");
+        }
+        return;
+    }
+
+    const REASONS: [(&str, &str); 7] = [
+        ("unsupported_format", "unsupported format"),
+        ("hidden", "hidden"),
+        ("ignore_rule", "ignore rule"),
+        ("privacy_exclusion", "privacy exclusion"),
+        ("symbolic_link", "symbolic link"),
+        ("instance_internal", "Sillage internal"),
+        ("source_changed_or_missing", "changed/missing"),
+    ];
+
+    let mut classified = ocr_needed;
+    let mut has_reason = false;
+    for (reason, label) in REASONS {
+        let count = root
+            .exclusions_by_reason
+            .get(reason)
+            .copied()
+            .unwrap_or_default();
+        if count == 0 {
+            continue;
+        }
+        classified = classified.saturating_add(count);
+        append_exclusion_reason(detail, label, count, &mut has_reason);
+    }
+
+    let other_count = root.excluded_file_count.saturating_sub(classified);
+    if other_count > 0 {
+        append_exclusion_reason(detail, "other/unreported", other_count, &mut has_reason);
+    }
+}
+
+fn append_exclusion_reason(detail: &mut String, label: &str, count: usize, has_reason: &mut bool) {
+    if !*has_reason {
+        detail.push_str(" · Exclusions: ");
+        *has_reason = true;
+    } else {
+        detail.push_str(", ");
+    }
+    write!(detail, "{count} {label}").expect("writing to a String cannot fail");
+}
+
+fn supported_format_summary(formats: &[String]) -> String {
+    let mut summary = String::new();
+    let mut displayed = 0;
+    for format in formats.iter().take(MAX_SUPPORTED_FORMATS_TO_INSPECT) {
+        let Some(label) = displayable_supported_format(format) else {
+            continue;
+        };
+        if displayed == MAX_DISPLAYED_SUPPORTED_FORMATS {
+            break;
+        }
+        if displayed > 0 {
+            summary.push_str(", ");
+        }
+        summary.push_str(label);
+        displayed += 1;
+    }
+
+    if displayed == 0 {
+        return "not reported".to_string();
+    }
+    let omitted = formats.len().saturating_sub(displayed);
+    if omitted > 0 {
+        write!(summary, " + {omitted} more").expect("writing to a String cannot fail");
+    }
+    summary
+}
+
+fn displayable_supported_format(format: &str) -> Option<&str> {
+    if format == "Cargo.toml (exact filename)" {
+        return Some("Cargo.toml");
+    }
+    let bytes = format.as_bytes();
+    (bytes.len() > 1
+        && bytes.len() <= 16
+        && bytes[0] == b'.'
+        && bytes[1..].iter().all(u8::is_ascii_alphanumeric))
+    .then_some(format)
+}
+
+fn bound_status_detail(mut detail: String) -> String {
+    if detail.len() > MAX_STATUS_DETAIL_BYTES {
+        let mut end = MAX_STATUS_DETAIL_BYTES - "…".len();
+        while !detail.is_char_boundary(end) {
+            end -= 1;
+        }
+        detail.truncate(end);
+        detail.push('…');
+    }
+    detail
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn parse_status(indexing: serde_json::Value) -> RootsStatus {
+        serde_json::from_value(json!({
+            "roots": [{
+                "path": "/private/approved",
+                "indexed_file_count": 8,
+                "excluded_file_count": 0
+            }],
+            "indexing": indexing
+        }))
+        .expect("indexing status should be readable")
+    }
+
+    #[test]
+    fn legacy_status_defaults_admission_fields() {
+        let status = parse_status(json!({
+            "scanning": false,
+            "pending_file_count": 0,
+            "last_scan_unix_ms": 12,
+            "last_error": null
+        }));
+        assert_eq!(status.indexing.admission_budget_bytes, 0);
+        assert_eq!(status.indexing.admission_deferred_file_count, 0);
+        assert_eq!(status.indexing.admission_oversized_file_count, 0);
+        assert_eq!(
+            owner_status_label(&status.roots[0], &status, false),
+            "Ready"
+        );
+    }
+
+    #[test]
+    fn oversized_sources_are_partial_and_raw_errors_stay_private() {
+        let mut status = parse_status(json!({
+            "scanning": false,
+            "pending_file_count": 2,
+            "admission_budget_bytes": 67108864,
+            "admission_deferred_file_count": 2,
+            "admission_oversized_file_count": 1,
+            "last_scan_unix_ms": 24,
+            "last_error": "/private/approved/report.pdf: sensitive raw error content"
+        }));
+        let root = &status.roots[0];
+        let detail = owner_status_detail(root, &status, true);
+        assert_eq!(owner_status_label(root, &status, true), "Indexing issue");
+        assert!(!detail.contains("/private/"));
+        assert!(!detail.contains("sensitive raw error content"));
+        assert!(detail.len() <= MAX_STATUS_DETAIL_BYTES);
+
+        status.indexing.last_error = None;
+        assert_eq!(
+            owner_status_label(&status.roots[0], &status, false),
+            "Partial coverage"
+        );
+    }
+
+    #[test]
+    fn temporary_admission_deferrals_remain_indexing_until_retried() {
+        let mut status = parse_status(json!({
+            "scanning": true,
+            "pending_file_count": 1,
+            "admission_budget_bytes": 67108864,
+            "admission_deferred_file_count": 1,
+            "admission_oversized_file_count": 0,
+            "last_scan_unix_ms": 24,
+            "last_error": null
+        }));
+        assert_eq!(
+            owner_status_label(&status.roots[0], &status, false),
+            "Indexing"
+        );
+
+        status.indexing.scanning = false;
+        status.indexing.pending_file_count = 0;
+        status.indexing.admission_deferred_file_count = 0;
+        assert_eq!(
+            owner_status_label(&status.roots[0], &status, false),
+            "Ready"
+        );
+    }
+}
+

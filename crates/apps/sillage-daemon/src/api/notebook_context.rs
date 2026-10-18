@@ -86,13 +86,7 @@ pub(crate) async fn context(
         index_generation: outcome.index_generation.value(),
         fingerprint: outcome.fingerprint.as_str().to_owned(),
         answerability: format!("{:?}", outcome.status),
-        coverage: CoverageResponse {
-            percent_covered: outcome.coverage.percent_covered(),
-            gaps: outcome.coverage.gaps_identified().to_vec(),
-            distinct_sources: outcome.coverage.distinct_sources(),
-            distinct_documents: outcome.coverage.distinct_documents(),
-            distinct_sections: outcome.coverage.distinct_sections(),
-        },
+        coverage: CoverageResponse::from_coverage(&outcome.coverage),
         gaps: outcome.coverage.gaps_identified().to_vec(),
         citations,
     })

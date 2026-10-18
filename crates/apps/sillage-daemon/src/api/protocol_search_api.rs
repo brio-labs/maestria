@@ -60,6 +60,12 @@ pub struct SearchApiIndexingStatusResponse {
     pub ignored_by_default: Vec<String>,
     pub scanning: bool,
     pub pending_file_count: usize,
+    #[serde(default)]
+    pub admission_budget_bytes: usize,
+    #[serde(default)]
+    pub admission_deferred_file_count: usize,
+    #[serde(default)]
+    pub admission_oversized_file_count: usize,
     pub last_scan_unix_ms: Option<u64>,
     pub last_scan_error: bool,
 }

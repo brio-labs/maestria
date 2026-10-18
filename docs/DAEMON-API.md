@@ -87,6 +87,10 @@ human-readable string `error`, and a machine-readable `error_code` from:
 `daemon_unavailable` is returned when the socket accepts no connection —
 nothing is serving the instance right now (never started, stopped, or
 killed). Clients may treat it as "run locally" instead of as a failure.
+Search and notebook-context responses expose `coverage.basis`: treat
+`not_requested` and legacy responses without a basis as unmeasured. A
+`declared_requirements` percentage measures only explicitly supplied claims or
+subquestions; it is neither corpus coverage nor answer correctness.
 
 ## Notebook operations
 
@@ -138,6 +142,13 @@ with bounded per-root indexed-source counts, exclusions, OCR-needed PDFs, and
 watcher scanning/pending/error fields. Only the instance token can administer
 roots; a consumer grant's separate `indexing_status` response is limited to
 its frozen approved roots and never authorizes root changes.
+
+Owner and consumer indexing-status responses include `admission_budget_bytes`,
+`admission_deferred_file_count`, and `admission_oversized_file_count`. The
+current 67,108,864-byte budget caps source payloads held by watcher scans and
+unconfirmed deliveries; it is not a parser/native-memory or process-RSS limit.
+Deferred counts also include files that changed while being read; oversized
+counts identify the subset above the per-file limit.
 
 `scanning` remains true while accepted deliveries, removals, parser work, or
 interactive source-snapshot preparation are outstanding. After ingestion

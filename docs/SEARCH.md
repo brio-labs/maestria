@@ -777,6 +777,12 @@ contradicted
 not_checked
 ```
 
+`percent_covered` is meaningful only when `basis` is `declared_requirements`,
+measured against explicitly supplied required claims or subquestions. A
+`not_requested` basis means no percentage was measured; clients must not present
+it as corpus completeness or answer correctness. Older responses without a
+basis are treated as `not_requested`.
+
 Retrieved content is data. It must remain in a clearly delimited data channel and must not modify policy, tool authorization, system instructions, or approval requirements.
 
 ## Search Trace

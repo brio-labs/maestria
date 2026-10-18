@@ -49,7 +49,7 @@ def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit(
             "usage: check-launcher-accessibility.py EXPECTED_QUERY|--preferences|"
-            "--offer|--setup-offer|--requested-shortcut|--defer-offer|--defer-offer-no-seat|--no-offer|"
+            "--document-search|--offer|--setup-offer|--requested-shortcut|--defer-offer|--defer-offer-no-seat|--no-offer|"
             "--save-preferences|--conflict-rejected|--calculation|--application|"
             "--reset-cancel|--reset-begin|--reset-hidden|--reset-cleared"
         )
@@ -286,6 +286,45 @@ def main() -> None:
                     return
                 time.sleep(0.05)
                 continue
+            if expected_query == "--document-search":
+                tab = buttons.get("Show document search setup preferences")
+                if window is not None and tab is not None:
+                    action = tab.get_action_iface()
+                    if action is not None and Atspi.Action.do_action(action, 0):
+                        expected_query = "--document-search-copy"
+                time.sleep(0.05)
+                continue
+            if expected_query == "--document-search-copy":
+                copy_labels = [
+                    name.casefold()
+                    for _, role, name in role_nodes
+                    if role == Atspi.Role.TEXT and name
+                ]
+                required = (
+                    "subfolders",
+                    "hidden",
+                    "symlinked",
+                    "unsupported",
+                    "ocr",
+                    "64 mib",
+                    "not a total memory or rss limit",
+                )
+                if window is not None and any(
+                    all(term in label for term in required) for label in copy_labels
+                ):
+                    general = buttons.get("Show general launcher preferences")
+                    action = general.get_action_iface() if general is not None else None
+                    if action is None or not Atspi.Action.do_action(action, 0):
+                        raise SystemExit(
+                            "AT-SPI could not return to General preferences"
+                        )
+                    print(
+                        "AT-SPI exposed document-search scope, exclusions and resource limits",
+                        flush=True,
+                    )
+                    return
+                time.sleep(0.05)
+                continue
             if expected_query == "--preferences":
                 accelerator = next(
                     (
@@ -353,6 +392,12 @@ def main() -> None:
             f"Preferences diagnostic: window={window is not None}, "
             f"accelerator={accelerator is not None}, save={save is not None}, "
             f"focused={accelerator is not None and accelerator.get_state_set().contains(Atspi.StateType.FOCUSED)}",
+            file=sys.stderr,
+        )
+    if expected_query in ("--document-search", "--document-search-copy"):
+        print(
+            f"Document-search diagnostic: window={window is not None}, "
+            f"buttons={sorted(observed_buttons)}",
             file=sys.stderr,
         )
     raise SystemExit(

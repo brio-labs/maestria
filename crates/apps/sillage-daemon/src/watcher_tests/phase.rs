@@ -1,6 +1,6 @@
 use super::*;
 use sillage_domain::ArtifactDetected;
-use std::path::PathBuf;
+use std::{env, fs, path::PathBuf, process};
 use tokio::sync::mpsc;
 
 #[tokio::test]
@@ -41,6 +41,7 @@ async fn phase_detect_additions_emits_for_new_file() -> Result<(), Box<dyn std::
             source_path: "/tmp/new.md".to_owned(),
             artifact_id: detected.artifact_id,
             content_hash: sillage_test_support::content_hash_str(10),
+            source_bytes: b"content".len(),
             status: PendingDeliveryStatus::Enqueued,
         })
     );
@@ -269,5 +270,52 @@ async fn phase_detect_additions_full_channel_completes_without_false_commit()
         "deferred file must not get a state artifact_id committed"
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn scan_accounts_for_unconfirmed_delivery_bytes_before_admitting_sources()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = env::temp_dir().join(format!(
+        "sillage-watcher-inflight-admission-{}",
+        process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root)?;
+    fs::write(root.join("new.md"), b"new")?;
+
+    let (input_tx, mut input_rx) = mpsc::channel(256);
+    let mut watcher = Watcher {
+        layout: InstanceLayout::for_root(root.join("instance")),
+        manifest: Arc::new(RwLock::new(test_manifest(root.clone())?)),
+        input_tx,
+        artifact_ids: BTreeMap::new(),
+        shutdown: CancellationToken::new(),
+        state: WatchState::default(),
+        scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
+        pending: BTreeMap::new(),
+        receipts: test_receipts()?,
+    };
+    let source_path = "/previous/source.md";
+    let artifact_id = sillage_domain::ArtifactId::new(1);
+    watcher.pending.insert(
+        pending_delivery_key(source_path, artifact_id.value()),
+        PendingDelivery {
+            source_path: source_path.to_owned(),
+            artifact_id,
+            content_hash: sillage_test_support::content_hash_str(1),
+            source_bytes: MAX_ADMITTED_SOURCE_BYTES - 2,
+            status: PendingDeliveryStatus::Enqueued,
+        },
+    );
+
+    watcher.scan_once_inner(None).await?;
+
+    assert!(input_rx.try_recv().is_err());
+    assert_eq!(watcher.state.pending_files, 1);
+    assert_eq!(watcher.state.admission_deferred_files, 1);
+    assert_eq!(watcher.state.oversized_files, 0);
+    assert!(watcher.state.last_error.is_none());
+    fs::remove_dir_all(root)?;
     Ok(())
 }

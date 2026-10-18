@@ -191,9 +191,45 @@ pinned at `0.0.1` and `main` is always the current build.
 - Clarify explicit standard-library and Tokio imports in the launcher search
   setup, source refresh, and typed-search modules; this is import-only and
   changes no runtime behavior or public API.
+### Evidence coverage contract
+
+- Distinguish unrequested coverage from explicit declared-requirement percentage
+  in the daemon API, launcher, Studio web UI and diagnostics; keep every consumer
+  from presenting vacuous coverage as corpus completeness or answer correctness.
+
+### Search adoption and scope diagnostics
+
+- Add reusable, non-secret consumer profiles without weakening provider grants
+  or storing bearer credentials in profile files.
+- Explain indexing, OCR, exclusion and supported-format limits in launcher
+  search setup instead of presenting a partial index as fully ready.
+- Bound changed-source ingestion to a 67,108,864-byte watcher payload budget;
+  defer sources until capacity frees, skip and report oversized files, and expose
+  admission counts in owner and consumer status without claiming an RSS cap.
+- Truthfully document and enforce lifecycle semantics: launcher shutdown stops
+  owned child processes while preserving consent and local data; managed Disable
+  revokes owner authority, removes approved roots, and unlinks credentials
+  without erasing local profile data; external Disconnect detaches locally and
+  leaves provider state untouched; no product Erase action exists.
+- Open Tantivy full-text index read-only in `sillage doctor` when `meta.json`
+  exists, preventing `LockBusy` writer contention during diagnosis.
+- Add least-privilege `search-only` profile smoke testing in standalone package
+  verifier, confirming cited passage previews while direct evidence reopening is
+  denied.
+- Document real-participant study prerequisites, keep Dense Hybrid and
+  learned-sparse in Shadow following consumed bilingual cases, and record
+  7.5 MiB vs 100 MiB text scale boundaries.
 
 ### Daily-driver launcher workflows
 
+- Redesign launcher shell to follow Raycast design language: remove top web-app
+  navigation bar, place search bar at the very top with `Ctrl+K Actions` pill,
+  replace bulky bordered cards with clean frameless list items and rounded
+  selection highlights, and introduce a minimalist Raycast footer action bar.
+- Declare floating launcher window attributes (`AlwaysOnTop`, non-resizable,
+  X11 `Dialog`/`Utility`/`Splash`, and exact `io.github.briolabs.Sillage.Launcher`
+  application ID on Wayland) to support floating presentation under tiling window
+  managers like Hyprland, Sway, and i3; document ready-to-use window rules.
 - Tighten result/action and preference layouts, preserve selected result identity
   across refreshes, skip document headers during navigation, and layer Escape
   through actions, cited detail and the resident window. Add native HTTP(S),

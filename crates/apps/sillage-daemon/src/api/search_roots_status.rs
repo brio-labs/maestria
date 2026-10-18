@@ -103,6 +103,9 @@ pub(in crate::api::services) async fn status_for_roots(
         indexing: SearchIndexingStatus {
             scanning: watcher.scanning,
             pending_file_count: watcher.pending_files,
+            admission_budget_bytes: watcher.admission_budget_bytes,
+            admission_deferred_file_count: watcher.admission_deferred_files,
+            admission_oversized_file_count: watcher.oversized_files,
             last_scan_unix_ms: watcher.last_scan_unix_ms,
             last_error,
             last_error_truncated,

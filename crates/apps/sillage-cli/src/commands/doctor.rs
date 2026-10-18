@@ -12,7 +12,11 @@ pub fn run(instance_dir: PathBuf) -> Result<()> {
     let manifest = helpers::load_manifest(&layout)?;
     let _sqlite_store = SqliteStore::open(&layout.database_path)?;
     let _blob_store = FsBlobStore::open(&layout.blobs_dir)?;
-    let _search_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
+    let _search_index = if layout.full_text_index_dir.join("meta.json").exists() {
+        TantivyFullTextIndex::open_read_only(&layout.full_text_index_dir)?
+    } else {
+        TantivyFullTextIndex::open(&layout.full_text_index_dir)?
+    };
     let parser = ParserRegistry::with_defaults();
     println!("ok instance {}", layout.root.display());
     println!("ok database {}", layout.database_path.display());
