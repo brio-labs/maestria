@@ -2,7 +2,8 @@ use serde::Deserialize;
 
 use super::{
     MAX_EXCERPT_BYTES, MAX_HASH_BYTES, MAX_PASSAGES, MAX_PATH_BYTES, MAX_PATH_RESULTS, Passage,
-    PassageLocation, PassageSearchResult, PathResult, SearchCoverage, SearchMetadata, safe_status,
+    PassageLocation, PassageSearchResult, PathResult, SearchCoverage, SearchCoverageBasis,
+    SearchMetadata, safe_status,
 };
 
 pub(super) fn parse_search(output: &[u8], query: &str) -> Option<PassageSearchResult> {
@@ -17,6 +18,7 @@ fn parse_search_data(data: SearchData) -> PassageSearchResult {
     let paths = parse_paths(data.path_results);
     let metadata = SearchMetadata {
         coverage: data.coverage.map(|coverage| SearchCoverage {
+            basis: coverage.basis,
             percent_covered: coverage.percent_covered,
             distinct_sources: coverage.distinct_sources,
             distinct_documents: coverage.distinct_documents,
@@ -170,6 +172,8 @@ struct SearchPathResult {
 #[derive(Deserialize)]
 struct SearchCoverageResponse {
     percent_covered: u8,
+    #[serde(default)]
+    basis: SearchCoverageBasis,
     distinct_sources: usize,
     distinct_documents: usize,
 }
@@ -222,4 +226,39 @@ enum PreviewLocation {
     },
     #[serde(other)]
     Unsupported,
+}
+#[cfg(test)]
+mod tests {
+    use super::parse_search;
+
+    #[test]
+    fn old_unmeasured_coverage_is_not_rendered_as_a_percentage()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let output = br#"{"type":"search","data":{"query":"token refresh","evidence":[],"coverage":{"percent_covered":100,"distinct_sources":1,"distinct_documents":1}}}"#;
+        let result =
+            parse_search(output, "token refresh").ok_or("legacy search response did not parse")?;
+        assert!(!result.metadata.summary().contains("100%"));
+        assert!(
+            result
+                .metadata
+                .summary()
+                .contains("1 documents · 1 sources")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn declared_requirement_coverage_is_labeled_with_its_basis()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let output = br#"{"type":"search","data":{"query":"token refresh","evidence":[],"coverage":{"percent_covered":50,"basis":"declared_requirements","distinct_sources":1,"distinct_documents":1}}}"#;
+        let result = parse_search(output, "token refresh")
+            .ok_or("search response with declared coverage did not parse")?;
+        assert!(
+            result
+                .metadata
+                .summary()
+                .contains("50% of declared requirements")
+        );
+        Ok(())
+    }
 }

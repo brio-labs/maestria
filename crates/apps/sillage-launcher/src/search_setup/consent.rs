@@ -44,7 +44,7 @@ impl SearchSetup {
                 snapshot.busy = false;
                 snapshot.root = None;
                 snapshot.status = "Disconnected external".to_string();
-                snapshot.detail = "The launcher disconnected from the external search service; its provider was not stopped or modified.".to_string();
+                snapshot.detail = "Disconnected locally. The external provider, its grants, stored data and configured credential file are unchanged.".to_string();
                 snapshot.error = None;
             });
             return Ok(());
@@ -54,7 +54,7 @@ impl SearchSetup {
         let mut owned = match timeout(remaining, self.operation.lock()).await {
             Ok(owned) => owned,
             Err(_) => {
-                let error = "Search settings were cleared locally; owned authority cleanup is deferred while another operation finishes.".to_string();
+                let error = "Search settings were cleared locally; owned authority cleanup is deferred while another operation finishes. Local search data were not erased.".to_string();
                 self.update_snapshot(|snapshot| {
                     snapshot.enabled = false;
                     snapshot.busy = false;
@@ -293,9 +293,9 @@ impl SearchSetup {
         owned.active = None;
         if stop.is_err() && owned.child.is_some() {
             let error = if cleanup.is_err() {
-                "Search settings were cleared locally, but the launcher-owned service did not stop before the five-second deadline; authority cleanup is also deferred.".to_string()
+                "Search settings were cleared locally, but the launcher-owned service did not stop before the five-second deadline; authority cleanup is also deferred. Local search data were not erased.".to_string()
             } else {
-                "Search settings were cleared locally, but the launcher-owned service did not stop before the five-second deadline.".to_string()
+                "Search settings were cleared locally, but the launcher-owned service did not stop before the five-second deadline. Local search data were not erased.".to_string()
             };
             self.publish_disabled_warning(&error);
             return Err(error);
@@ -303,11 +303,11 @@ impl SearchSetup {
         let socket_warning = stop.is_err();
         if cleanup.is_err() || socket_warning {
             let detail = if cleanup.is_err() && was_running {
-                "Search settings were cleared and the launcher-owned process was stopped; authority cleanup is deferred until its service is available."
+                "Search settings were cleared and the launcher-owned process was stopped; authority cleanup is deferred until its service is available. Local search data were not erased."
             } else if cleanup.is_err() {
-                "Search settings were cleared locally; managed authority cleanup is deferred while its service is offline."
+                "Search settings were cleared locally; managed authority cleanup is deferred while its service is offline. Local search data were not erased."
             } else {
-                "Search settings were cleared and the launcher-owned process stopped; socket absence could not be confirmed, so no endpoint was removed."
+                "Search settings were cleared and the launcher-owned process stopped; socket absence could not be confirmed, so no endpoint was removed. Local search data were not erased."
             };
             let error = if cleanup.is_err() {
                 "Managed owner authority cleanup is deferred; no external service was contacted."
@@ -324,10 +324,12 @@ impl SearchSetup {
             });
             return Ok(());
         }
-        self.show_search_off(
-            None,
-            "Applications remain available without document search.",
-        );
+        let detail = if managed.is_some() || owned.marker.is_some() {
+            "Launcher-owned grant revoked and folder removed from search; service stopped. Local database, event log, blobs, indexes and daemon token remain; watcher-state entries are updated as removals settle. Disable is not Erase."
+        } else {
+            "Applications remain available without document search."
+        };
+        self.show_search_off(None, detail);
         Ok(())
     }
 }

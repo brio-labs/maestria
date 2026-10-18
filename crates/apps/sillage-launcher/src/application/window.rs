@@ -15,6 +15,10 @@ pub(super) fn activate_launcher(
     frontend: Arc<Frontend>,
     runtime: tokio::runtime::Handle,
 ) {
+    if window.window().is_visible() {
+        hide_launcher(&window.as_weak(), &state);
+        return;
+    }
     match state.request_activation() {
         Ok(Some(generation)) => {
             frontend.generation.store(generation, Ordering::Release);

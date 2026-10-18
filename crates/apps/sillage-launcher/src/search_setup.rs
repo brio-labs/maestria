@@ -239,6 +239,12 @@ struct OwnedGrant {
 struct RootsStatus {
     roots: Vec<RootStatus>,
     indexing: IndexingStatus,
+    #[serde(default)]
+    ocr_needed_file_count: usize,
+    #[serde(default)]
+    supported_formats: Vec<String>,
+    #[serde(default)]
+    exclusion_scan_truncated: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -247,6 +253,10 @@ struct RootStatus {
     path: String,
     indexed_file_count: usize,
     excluded_file_count: usize,
+    #[serde(default)]
+    exclusions_by_reason: std::collections::BTreeMap<String, usize>,
+    #[serde(default)]
+    exclusion_scan_truncated: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -254,6 +264,12 @@ struct RootStatus {
 struct IndexingStatus {
     scanning: bool,
     pending_file_count: usize,
+    #[serde(default)]
+    admission_budget_bytes: usize,
+    #[serde(default)]
+    admission_deferred_file_count: usize,
+    #[serde(default)]
+    admission_oversized_file_count: usize,
     last_scan_unix_ms: Option<u64>,
     last_error: Option<String>,
 }
