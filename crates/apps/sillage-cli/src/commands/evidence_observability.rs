@@ -49,7 +49,22 @@ pub fn run_evidence_coverage(instance_dir: PathBuf, task_id: u64) -> Result<()> 
         println!("search_query={}", plan.original_query());
         println!("search_trace={}", outcome.trace);
         println!("search_status={:?}", outcome.status);
-        println!("coverage_percent={}%", outcome.coverage.percent_covered());
+        let coverage_requested = !outcome.coverage.required_claims().is_empty()
+            || !outcome.coverage.required_subquestions().is_empty();
+        println!(
+            "coverage_basis={}",
+            if coverage_requested {
+                "declared_requirements"
+            } else {
+                "not_requested"
+            }
+        );
+        if coverage_requested {
+            println!(
+                "coverage_percent_of_declared_requirements={}%",
+                outcome.coverage.percent_covered()
+            );
+        }
         println!("coverage_gaps={:?}", outcome.coverage.gaps_identified());
         println!("required_claims={:?}", outcome.coverage.required_claims());
         println!(

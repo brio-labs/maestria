@@ -67,8 +67,27 @@ pub fn run_search_compare(
     println!("fingerprint_b={}", right.plan.fingerprint().as_str());
     println!("status_a={:?}", left.outcome.status);
     println!("status_b={:?}", right.outcome.status);
-    println!("coverage_a={}%", left.outcome.coverage.percent_covered());
-    println!("coverage_b={}%", right.outcome.coverage.percent_covered());
+    for (label, coverage) in [
+        ("a", &left.outcome.coverage),
+        ("b", &right.outcome.coverage),
+    ] {
+        let coverage_requested =
+            !coverage.required_claims().is_empty() || !coverage.required_subquestions().is_empty();
+        println!(
+            "coverage_{label}_basis={}",
+            if coverage_requested {
+                "declared_requirements"
+            } else {
+                "not_requested"
+            }
+        );
+        if coverage_requested {
+            println!(
+                "coverage_{label}_percent_of_declared_requirements={}%",
+                coverage.percent_covered()
+            );
+        }
+    }
     println!("evidence_count_a={}", left.outcome.evidence.len());
     println!("evidence_count_b={}", right.outcome.evidence.len());
     println!("stop_reason_a={:?}", trace(&left)?.stop_reason);

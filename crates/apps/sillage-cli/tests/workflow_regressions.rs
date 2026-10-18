@@ -244,3 +244,19 @@ fn reindex_hides_superseded_artifact_versions_from_default_search()
     assert!(!superseded.contains(&format!("evidence={first_evidence}")));
     Ok(())
 }
+
+#[test]
+fn doctor_succeeds_while_full_text_index_writer_is_held() -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = TempDir::new("sillage-test-doctor-workspace")?;
+    let instance = TempDir::new("sillage-test-doctor-instance")?;
+    let ip = instance.path().to_string_lossy();
+    let wp = workspace.path().to_string_lossy();
+    assert_init_ok(ip.as_ref(), wp.as_ref())?;
+
+    let layout = InstanceLayout::for_root(instance.path().to_path_buf());
+    let _writer_guard = sillage_search_tantivy::TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
+
+    let output = assert_ok(&["doctor", "-i", ip.as_ref()])?;
+    assert!(output.contains("ok full_text_index"), "doctor did not confirm full_text_index: {output}");
+    Ok(())
+}
