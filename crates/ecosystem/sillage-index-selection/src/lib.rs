@@ -31,6 +31,6 @@ pub use repo::{
     scan_repository_candidates,
 };
 pub use scan::{
-    DirFeatures, collect_files, dir_features, is_home_root, is_privacy_excluded_path,
-    is_supported_source_file, supported_source_formats,
+    CANONICAL_EXCLUDED_NAMES, DirFeatures, collect_files, dir_features, is_home_root,
+    is_privacy_excluded_path, is_supported_source_file, supported_source_formats,
 };

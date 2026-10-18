@@ -89,6 +89,14 @@ fn selected_files(
 ) -> (BTreeSet<PathBuf>, bool) {
     let limit = (*remaining_budget / 2).max(1);
     let walker = ignore::WalkBuilder::new(root)
+        .filter_entry(|entry| {
+            if let Some(name) = entry.file_name().to_str() {
+                if sillage_index_selection::CANONICAL_EXCLUDED_NAMES.contains(&name) {
+                    return false;
+                }
+            }
+            true
+        })
         .hidden(true)
         .ignore(true)
         .git_ignore(true)
@@ -135,6 +143,14 @@ fn excluded_inventory(
     samples_truncated: &mut bool,
 ) -> (usize, BTreeMap<String, usize>, bool) {
     let walker = ignore::WalkBuilder::new(root)
+        .filter_entry(|entry| {
+            if let Some(name) = entry.file_name().to_str() {
+                if sillage_index_selection::CANONICAL_EXCLUDED_NAMES.contains(&name) {
+                    return false;
+                }
+            }
+            true
+        })
         .standard_filters(false)
         .follow_links(false)
         .sort_by_file_name(|left, right| left.cmp(right))

@@ -123,6 +123,11 @@ pub const WALK_EXCLUDED_NAMES: &[&str] = &[
     "target",
     "dist",
     "build",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "env",
+    "Envs",
     ".env.*",
 ];
 

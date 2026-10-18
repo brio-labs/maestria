@@ -93,11 +93,20 @@ pub fn enumerate_apps() -> Result<Vec<AppEntry>, LauncherError> {
             )
         });
     }
+    discover_local_projects(&mut by_id);
     Ok(by_id.into_values().collect())
 }
 
 /// Launch a currently-installed desktop application with the native GIO context.
 pub fn launch_app(desktop_id: &str) -> Result<(), LauncherError> {
+    if let Some(path_str) = desktop_id.strip_prefix("project:") {
+        let path = Path::new(path_str);
+        if path.is_dir() {
+            let uri = gio::File::for_path(path).uri();
+            return gio::AppInfo::launch_default_for_uri(&uri, None::<&gio::AppLaunchContext>)
+                .map_err(|error| LauncherError::launch_failed(error.to_string()));
+        }
+    }
     if desktop_id.is_empty() || desktop_id.as_bytes().contains(&0) {
         return Err(LauncherError::app_unavailable(
             "the selected application identifier is invalid",
@@ -234,4 +243,53 @@ fn owned_string(value: &str) -> Option<String> {
 
 fn path_to_string(path: &Path) -> Option<String> {
     owned_string(path.to_str()?)
+}
+fn discover_local_projects(by_id: &mut BTreeMap<String, AppEntry>) {
+    let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else {
+        return;
+    };
+    let candidates = [
+        home.join("Work/Repos"),
+        home.join("Work"),
+        home.join("Projects"),
+        home.join("Dev"),
+        home.join("Repos"),
+        home.join("code"),
+    ];
+    for base in candidates {
+        if !base.is_dir() {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&base) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() && path.join(".git").exists() {
+                let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                    continue;
+                };
+                let id = format!("project:{}", path.display());
+                if by_id.contains_key(&id) {
+                    continue;
+                }
+                by_id.insert(
+                    id.clone(),
+                    AppEntry::new(
+                        id,
+                        name.to_string(),
+                        format!("Project repository in {}", base.display()),
+                        vec![
+                            "project".to_string(),
+                            "git".to_string(),
+                            "repo".to_string(),
+                            name.to_lowercase(),
+                        ],
+                        Some("folder".to_string()),
+                        path.to_string_lossy().to_string(),
+                    ),
+                );
+            }
+        }
+    }
 }

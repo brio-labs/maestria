@@ -73,7 +73,19 @@ pub(super) fn socket_path_exists(path: &Path) -> Result<bool, String> {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             Err("The managed search socket path is occupied by a symbolic link.".to_string())
         }
-        Ok(_) => Ok(true),
+        Ok(_) => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::net::UnixStream;
+                if let Err(error) = UnixStream::connect(path) {
+                    if error.kind() == io::ErrorKind::ConnectionRefused {
+                        let _ = fs::remove_file(path);
+                        return Ok(false);
+                    }
+                }
+            }
+            Ok(true)
+        }
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
         Err(_) => Err("Could not inspect the managed search socket path.".to_string()),
     }

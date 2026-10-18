@@ -51,6 +51,10 @@ pub const CANONICAL_EXCLUDED_NAMES: &[&str] = &[
     "dist",
     "build",
     "__pycache__",
+    ".venv",
+    "venv",
+    "env",
+    "Envs",
 ];
 
 /// Shared default privacy exclusions, built once per process.
@@ -67,7 +71,17 @@ pub fn is_privacy_excluded_path(path: &Path) -> bool {
         let name = component.as_os_str().to_string_lossy();
         matches!(
             name.as_ref(),
-            ".ssh" | ".gnupg" | "node_modules" | "target" | "dist" | "build"
+            ".ssh"
+                | ".gnupg"
+                | "node_modules"
+                | "target"
+                | "dist"
+                | "build"
+                | "__pycache__"
+                | ".venv"
+                | "venv"
+                | "env"
+                | "Envs"
         ) || name.starts_with(".env.")
     }) || default_exclusions.is_excluded(path)
 }
@@ -124,6 +138,14 @@ pub fn collect_files(path: &Path, recursive: bool) -> Result<Vec<PathBuf>> {
 
     let mut files = Vec::new();
     let walker = ignore::WalkBuilder::new(path)
+        .filter_entry(|entry| {
+            if let Some(name) = entry.file_name().to_str() {
+                if CANONICAL_EXCLUDED_NAMES.contains(&name) {
+                    return false;
+                }
+            }
+            true
+        })
         .hidden(true)
         .ignore(true)
         .git_ignore(true)
@@ -132,13 +154,13 @@ pub fn collect_files(path: &Path, recursive: bool) -> Result<Vec<PathBuf>> {
         .build();
 
     for result in walker {
-        let entry = result?;
+        let entry = match result {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
         let entry_path = entry.path();
-        if let Some(error) = entry.error() {
-            return Err(anyhow::anyhow!(
-                "index traversal failed at {}: {error}",
-                entry_path.display()
-            ));
+        if entry.error().is_some() {
+            continue;
         }
 
         if entry

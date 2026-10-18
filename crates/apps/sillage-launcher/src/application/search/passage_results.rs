@@ -128,10 +128,20 @@ pub(in crate::application) fn build_result_rows(
     query: &str,
     generation: u64,
 ) -> (Vec<ResultRow>, Vec<DisplayedResult>, usize) {
-    let mut rows = model.accepted.iter().map(result_row).collect::<Vec<_>>();
-    let mut displayed = (0..model.accepted.len())
-        .map(DisplayedResult::Application)
-        .collect::<Vec<_>>();
+    let filter = model.result_filter.as_str();
+    let mut rows = Vec::new();
+    let mut displayed = Vec::new();
+    for (index, app) in model.accepted.iter().enumerate() {
+        let is_project = app.id.starts_with("app:project:");
+        if filter == "all" || (filter == "files" && is_project) {
+            let mut row = result_row(app);
+            if is_project && filter == "files" {
+                row.kind = "file".into();
+            }
+            rows.push(row);
+            displayed.push(DisplayedResult::Application(index));
+        }
+    }
     let mut groups = BTreeMap::<String, Vec<usize>>::new();
     for (index, accepted) in model.accepted_passages.iter().enumerate() {
         groups

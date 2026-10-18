@@ -113,7 +113,15 @@ pub(super) fn scan_manifest(
         let normalized_instance_root = normalized_instance_root.clone();
         let walker = ignore::WalkBuilder::new(root)
             .filter_entry(move |entry| {
-                !is_source_internal_path(&normalized_root, entry.path(), &normalized_instance_root)
+                if is_source_internal_path(&normalized_root, entry.path(), &normalized_instance_root) {
+                    return false;
+                }
+                if let Some(name) = entry.file_name().to_str() {
+                    if sillage_index_selection::CANONICAL_EXCLUDED_NAMES.contains(&name) {
+                        return false;
+                    }
+                }
+                true
             })
             .hidden(true)
             .ignore(true)
