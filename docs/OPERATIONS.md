@@ -51,6 +51,12 @@ service manager stop). The watcher persists its latest path/hash state to
 `system/watcher-state.json` before shutdown; unchanged files are not reindexed
 on restart.
 
+This is a pause, not revocation or erasure. The approved-root manifest,
+managed consent, profile/instance directory, database, event log, blobs,
+indexes and watcher state remain. The launcher has no separate Pause control;
+normal launcher shutdown stops its owned child without revoking saved consent,
+and a later launcher start can resume managed search.
+
 Non-idempotent harness effects are paused during daemon recovery and are not
 replayed without explicit operator approval. Idempotent operations (parsing,
 indexing, validation) resume through the event-log recovery mechanism on the
@@ -73,6 +79,13 @@ domain-input channel. The observer stops with the daemon cancellation token and
 persists its latest state before shutdown. A watcher-state persistence error
 fails lifecycle shutdown and is returned to the daemon caller rather than being
 logged and discarded.
+
+Changed-source admission is capped at 67,108,864 payload bytes across the
+watcher scan batch and deliveries awaiting a durable `ParserStarted` receipt.
+Files that do not fit are deferred for later scans; a source larger than the
+per-file limit is not read. Owner and consumer indexing status reports the
+budget and deferred/oversized counts. This is not a parser/native-memory or
+process-RSS limit; qualify process-tree memory separately.
 
 The observer polls every second. At most eight detections await a durable
 `ParserStarted` receipt; the bounded runtime channel applies additional
@@ -344,12 +357,20 @@ backend or install the optional search component on demand.
 
 Choose a local folder, inspect its displayed canonical path, and select
 **Enable document search**. Choosing a folder alone does not configure or start
-search. Enable approves exactly the displayed root, creates a private managed
-profile under `${XDG_DATA_HOME:-$HOME/.local/share}/sillage/launcher-search`,
-creates its bounded search/evidence credential, and starts standalone
-`sillage-search`. Private directories are mode 0700 and credentials mode 0600.
+search. Enable approves the displayed root and eligible files within it,
+including subfolders. It creates a private managed profile under
+`${XDG_DATA_HOME:-$HOME/.local/share}/sillage/launcher-search`, creates its
+bounded search/evidence credential, and starts standalone `sillage-search`.
+Private directories are mode 0700 and credentials mode 0600.
 No credential entry, manual grant/init command or launcher settings edit is
 required. Existing unmarked profiles are not adopted or chmodded.
+
+Eligible descendants are subject to hidden, ignore/exclusion, symlink and
+format rules; unsupported files are skipped, and scanned PDFs without text
+are not searchable until OCR is supplied. Changed-source admission uses a
+64 MiB aggregate budget and a 64 MiB per-file limit. Oversized files are
+skipped; files deferred for aggregate capacity are rechecked on later scans.
+These bound admitted source data, not total memory or RSS.
 
 The UI shows **Indexing** with indexed/pending counts. **Ready** requires a
 completed durable scan, zero pending work and no indexing error. Close
@@ -358,15 +379,38 @@ passage. Copy and source-open actions reopen current evidence under the grant;
 the default viewer may not jump to the cited line or page.
 
 Saved explicit managed consent resumes on later launcher starts. It does not
-enable login autostart or start a model. Choosing a replacement folder retires
-the old managed approval and requires new confirmation. **Disable document
-search** clears launcher configuration and visible document content, revokes the
-owned authority and stops the owned child within one absolute five-second
-deadline. Failed cleanup is shown as an error rather than successful disablement.
-Application launching, shortcut reactivation and arithmetic remain usable.
-Selecting a folder does not change an existing external connection; explicit
-Disable disconnects only the launcher client and does not stop, revoke or modify
-that external provider.
+enable login autostart or start a model. There is no separate in-session Pause
+action: normal launcher shutdown stops the owned child under one absolute
+five-second deadline while preserving consent and profile data for the next
+start. A timeout or stop error is reported instead of a successful shutdown.
+Choosing a replacement folder retires the old managed approval and requires new
+confirmation. **Disable document search** clears launcher configuration and
+visible document content, revokes the launcher-owned grant, removes the approved
+folder from Sillage's managed search roots, and unlinks its tracked private
+grant credential after revocation (an unlink, not a secure overwrite). It stops
+the owned child within one absolute five-second deadline. The local
+profile/instance remains, including its database, event log, blobs, indexes and
+daemon token. The watcher-state file remains; per-source entries are updated as
+removals settle. Disable is not Erase.
+When pending source removals are durably processed, the source version becomes
+stale and no longer surfaces in retrieval, but this is logical retirement, not a
+physical purge. If authority cleanup is deferred, grant revocation is not
+confirmed; if child shutdown fails, the UI reports the owned service may remain
+running. A cleanup failure is visible rather than represented as successful
+Disable. Application launching, shortcut reactivation and arithmetic remain
+usable. For an external connection, Disable disconnects only the launcher
+client; its provider, grants, stored data and configured credential file are
+unchanged.
+
+A standalone `sillage-search owner grant revoke <digest>` revokes the
+provider-side grant and records that revocation, but retains the consumer
+credential file and all profile/instance data. It is not an erase operation.
+
+No product-level Erase action or instance-purge command is available. Removing
+a root or revoking a grant restricts access; neither removes the profile's
+database, event log, blobs or indexes. ADR-0009 remains proposed and concerns
+retrieval-audit retirement markers, not physical deletion. No source-original,
+backup/snapshot or external-provider erasure is promised.
 
 A fresh private source-built X11 run passed the complete 240-Markdown-file
 workflow, including native selection of a comma/space folder, visible Indexing
@@ -651,15 +695,66 @@ must not read. Root scopes cannot be edited on an issued credential.
 
 The command prints the grant digest and consumer realm, but not the bearer
 credential; it creates the credential file with owner-only mode `0600`. Save
-the printed grant digest for later revocation. For a headless client, give
-`sillage-search search` the provider socket, this realm and credential file:
+the printed grant digest for later revocation. For repeated headless calls,
+create a local non-secret profile; the bearer remains in the separate private
+credential file. The profile is created with mode 0600 and will not overwrite
+an existing file:
 
 ```bash
-sillage-search search \
+PROFILE="$HOME/.config/sillage/search-client.json"
+(umask 077; mkdir -p "$(dirname "$PROFILE")")
+sillage-search profile configure --profile-file "$PROFILE" \
   --socket-path "$INSTANCE/system/daemon.sock" \
-  --consumer-realm "$consumer_realm" --credential-file "$CREDENTIAL" \
+  --consumer-realm "$consumer_realm" \
+  --credential-file "$CREDENTIAL"
+sillage-search search --profile "$PROFILE" \
   --limit 5 "a phrase from an approved source"
 ```
+
+For one-off use, `sillage-search search` also accepts the direct
+`--socket-path`, `--consumer-realm`, and `--credential-file` arguments. All
+consumer operations accept `--profile`, including `status`, `indexing-status`,
+`source-revision`, and `open-evidence`.
+
+#### Least-privilege client process: `search-only` profile
+
+For an independent client process that needs only passage previews and should
+not be able to reopen complete source evidence, issue a `search-only` grant
+instead of `search-and-open-evidence`:
+
+```bash
+consumer_realm="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+sillage-search owner grant create-external --instance-dir "$INSTANCE" \
+  --consumer-realm "$consumer_realm" --credential-file "$CREDENTIAL" \
+  --access search-only --max-sensitivity internal \
+  --read-root "$READ_ROOT" \
+  --max-results 5 --max-evidence-bytes 512 --expires-in-seconds 86400
+
+sillage-search profile configure --profile-file "$PROFILE" \
+  --socket-path "$INSTANCE/system/daemon.sock" \
+  --consumer-realm "$consumer_realm" \
+  --credential-file "$CREDENTIAL"
+
+# Search returns typed cited passage previews:
+sillage-search search --profile "$PROFILE" --limit 5 "query phrase"
+
+# Direct evidence reopening is denied:
+sillage-search open-evidence --profile "$PROFILE" --evidence-id 1
+# Output: Error: daemon request failed (Unauthorized): federation access denied
+```
+
+This qualifies an independent **client process** using the existing
+`sillage-search` CLI package, non-secret profile, and private bearer
+credential. It does not qualify a named third-party application or agent.
+Studio's ACP agent has no Search API client and receives context supplied by
+Studio; it is not an external Search API consumer.
+
+Search responses include `coverage.basis`. `not_requested` means no required
+claims or subquestions were supplied; treat `percent_covered` as unmeasured and
+do not present it as corpus coverage. `declared_requirements` means the
+percentage is the share of those explicit requirements supported by evidence,
+not a probability that an answer is correct. Older responses without `basis`
+must be treated as `not_requested`.
 
 To connect the launcher to that external provider, edit its user-owned schema-1
 settings file at `${XDG_CONFIG_HOME:-$HOME/.config}/io.github.briolabs.Sillage.Launcher/launcher.toml`.
@@ -679,10 +774,11 @@ Replace the example home paths and realm. The launcher requires an absolute
 socket path, a 64-character hexadecimal realm and an absolute credential path.
 Keep `sillage-search` installed and on `PATH`. Restart the launcher after
 manual editing (`sillage-launcher --quit`, then `sillage-launcher --activate`).
-**Disable document search** also disconnects an external launcher connection
-without changing its provider. Alternatively, removing the optional `[search]`
-table and restarting disables its passage requests without uninstalling either
-package. Revoke the provider grant separately if access should end for every client.
+For an external connection, **Disable document search** clears only the
+launcher-side connection. It leaves the configured credential file in place
+and does not stop or modify the provider, revoke its grants, or erase its
+stored data. Revoke the provider grant separately if access should end for
+every client.
 
 In search results, Up and Down move between actionable rows and stop at the
 first or last actionable result. Document-group headings are labels, not
@@ -1272,14 +1368,42 @@ setup/observer failures are retained separately.
 
 This is **not** fresh CI-installed acceptance or bilingual quality evidence.
 It does not attribute the historical Return failures, Tantivy writer, or
-original outer shutdown survivor. Historical writer attribution remains
-unresolved and, by the bounded release decision, is **not an active release
-gate**. Fresh exact-package installed acceptance and the frozen personal-corpus
+original outer shutdown survivor.
+
+The `sillage doctor` diagnostic command previously opened the full-text
+Tantivy index with write access without acquiring the daemon instance lock,
+failing with `LockBusy` whenever the index was in use. It now opens the index
+read-only when `meta.json` exists. This diagnostic fix does not attribute the
+cause of historical CI issue [#517](https://github.com/brio-labs/maestria/issues/517)
+(`learned_sparse_activation_tests` `LockBusy` on fresh fixtures during startup
+projection reconciliation), which remains open. No retries or timeouts mask
+underlying index lock contention.
+
+For scale qualification, the deterministic 10,000-file benchmark fixture
+contains 7,833,400 bytes (~7.5 MiB) of Markdown text across 10,000 files; it
+does not qualify behavior near the 100 MiB upper text bound. The 45 timeouts in
+the 800-sample historical installed benchmark remain retained first outcomes;
+the low round-trips observed in source-built diagnostics do not replace that
+installed evidence.
+
+In ranking, lexical retrieval remains the active baseline. Dense Hybrid and
+learned-sparse default to Shadow, and their promotion tables remain empty.
+The October 2026 60-need bilingual freeze improved macro recall but failed two
+controls; those 60 cases and controls are consumed and must not be retargeted
+or replayed. Prerequisites for a defensible fresh quality gate require:
+
+1. An approved participant recruitment and informed consent protocol for personal content.
+2. A consented personal-content document corpus (distinct from repository code and documentation).
+3. At least 50 participant-formulated bilingual French/English information needs.
+4. Multi-annotator relevance judgments with documented inter-annotator agreement and gold adjudication protocol.
+5. Document- and passage-level relevance annotations with exact accepted spans.
+6. Pinned evaluation environment and model fingerprints.
+
+Fresh exact-package installed acceptance and the frozen personal-corpus
 French/English evaluation remain gates; PR #516 stays draft until they pass.
 Authorization before content I/O, exact roots, fresh reopening, durable audit,
 Bubblewrap isolation, cancellation, interactive-search admission, and the
 **100-ms internal deadline** are unchanged.
-
 ### Disable, uninstall, and choose local-data retention
 
 Before removing packages, stop their processes explicitly: close active

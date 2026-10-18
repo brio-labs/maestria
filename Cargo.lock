@@ -7092,6 +7092,7 @@ dependencies = [
  "anyhow",
  "clap",
  "libc",
+ "serde",
  "serde_json",
  "sillage-core",
  "sillage-daemon",

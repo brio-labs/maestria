@@ -100,6 +100,30 @@ Use `sillage-launcher --activate` to show and focus the resident window and
 `sillage-launcher --quit` for an explicit shutdown. Closing or unfocusing the
 window hides it without ending the resident process.
 
+#### Window manager floating rules (Hyprland, Sway, i3)
+
+By default, tiling window managers may tile newly created windows. Sillage
+launcher declares `WindowType::Dialog`, `Utility`, and `AlwaysOnTop` on X11 and
+sets its application ID to `io.github.briolabs.Sillage.Launcher`. For dedicated
+floating behavior like Rofi or Raycast:
+
+**Hyprland** (`hyprland.conf`):
+```ini
+windowrulev2 = float, class:^(io.github.briolabs.Sillage.Launcher|sillage-launcher)$
+windowrulev2 = center, class:^(io.github.briolabs.Sillage.Launcher|sillage-launcher)$
+windowrulev2 = stayfocused, class:^(io.github.briolabs.Sillage.Launcher|sillage-launcher)$
+```
+
+**Sway** (`~/.config/sway/config`):
+```ini
+for_window [app_id="io.github.briolabs.Sillage.Launcher"] floating enable, move position center
+```
+
+**i3** (`~/.config/i3/config`):
+```ini
+for_window [class="io.github.briolabs.Sillage.Launcher"] floating enable
+```
+
 The final Debian and AppImage were built against Ubuntu 24.04, and both
 packaged executables passed a `glibc` ≤2.39 ABI check and native X11/Wayland
 smoke on this host. The Debian apt-installed into a disposable Ubuntu 24.04
@@ -278,25 +302,47 @@ launcher or on `PATH`.
 2. Open **Document search** from the setup entry or Preferences (Ctrl+Comma).
 3. Choose a local folder in the native chooser. The canonical selected path is
    displayed; selection alone does not start or configure search.
-4. Select **Enable document search** to approve indexing only that folder.
-   The launcher creates its private profile and scoped credential automatically,
-   then starts the separate read-only `sillage-search` process. No model starts.
+4. Select **Enable document search** to approve the displayed folder and eligible
+   files within it, including subfolders. Hidden, ignored/excluded, symlinked
+   and unsupported files are skipped; scanned PDFs without text are not
+   searchable until OCR is supplied. Changed-source payload admission has a
+   64 MiB aggregate budget; files over the 64 MiB per-file limit are skipped,
+   and files deferred for capacity are rechecked on later scans. These bound
+   source admission, not total memory or RSS. The launcher creates its private
+   profile and scoped credential automatically, then starts the separate
+   read-only `sillage-search` process. No model starts.
 5. Observe **Indexing**, the indexed/pending counts, and **Ready** once the
    durable scan completes with no pending files or indexing error. Large folders
    can take time; an error is not presented as Ready.
 6. Close Preferences, search text inside a document, and press Return to inspect
    its cited passage. Copy Citation, Copy Passage and Open Source reopen current
    evidence under the grant before acting.
-7. **Disable document search** in Preferences removes the launcher configuration,
-   clears previous document content and stops its owned service. Application
-   launching, the configured shortcut and arithmetic remain available.
+7. **Disable document search** clears launcher configuration and visible document
+   content, requests managed grant/root cleanup, and stops the owned service.
+   Deferred authority cleanup or a missed shutdown deadline is surfaced as an
+   error; local search data are not erased. Application launching, the configured
+   shortcut and arithmetic remain available.
 
-Explicit managed enablement is saved and may resume only while the launcher is
-running. Changing folders retires the old managed approval and requires a new
-Enable action. There is no credential entry, settings-file editing or manual
-search initialization in this workflow. An external connection is left unchanged
-by folder selection; Disable disconnects that launcher client without modifying
-its external provider.
+Explicit managed enablement is saved and resumes on later launcher starts; the
+service runs only while the launcher is running. There is no separate in-session
+Pause control: closing the launcher stops its owned child and preserves consent
+and profile data for the next start. A timeout or stop failure is surfaced.
+Changing folders retires the old managed approval and requires a new Enable
+action. There is no credential entry, settings-file editing or manual search
+initialization in this workflow.
+
+Managed Disable revokes the launcher-owned grant and removes its approved root
+when provider cleanup succeeds, then unlinks its tracked credential. If cleanup
+is deferred, revocation is not confirmed. The profile/instance remains, including
+its database, event log, blobs, indexes, daemon token and watcher-state file.
+Source removal is logical; stale results are filtered as durable removals settle.
+No product Erase action or instance-purge command exists.
+
+Folder selection leaves external connections unchanged. For an external
+connection, Disable only disconnects the launcher client; the provider, its
+grants, stored data and configured credential file remain unchanged. Provider-
+side grant revocation denies future access but does not erase that credential or
+provider data.
 
 A fresh isolated source-built X11 run completed this workflow with 240 Markdown
 files, including a folder name containing spaces and a comma, saved-consent
@@ -333,6 +379,24 @@ socketPath = "/home/you/Documents/sillage-search/system/daemon.sock"
 consumerRealm = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 credentialFile = "/home/you/.config/sillage/search-client.key"
 ```
+
+For headless client processes, `sillage-search` also supports non-secret
+consumer profiles using `--profile` with either `search-and-open-evidence` or
+least-privilege `search-only` grants. Under a `search-only` grant, queries return
+typed cited passage previews while direct evidence reopening is denied. This
+qualifies a separate client process, not an external third-party application or
+agent.
+
+Serving defaults to the lexical baseline. Dense Hybrid and learned-sparse policies
+default to Shadow with empty promotion tables. The 60-case French/English
+evaluation improved macro recall but failed two controls; those cases and controls
+are consumed and cannot be replayed.
+
+The deterministic 10,000-file benchmark fixture contains ~7.5 MiB text, not near
+the 100 MiB upper text bound, and historical installed runs retain 45 timeouts
+across 800 observations. `sillage doctor` opens Tantivy full-text indexes
+read-only when `meta.json` exists, resolving diagnostic lock conflicts without
+attributing historical CI issue #517.
 
 Without search enablement, with an unavailable service, or after a denial,
 application search remains available. An earlier isolated X11 Slint run found a phrase only
