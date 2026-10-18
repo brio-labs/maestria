@@ -125,6 +125,7 @@ impl Watcher {
             {
                 continue;
             }
+            let source_bytes = observation.bytes.len();
             let input = match build_artifact_detected_input(
                 &observation.path,
                 observation.bytes,
@@ -172,6 +173,7 @@ impl Watcher {
                     source_path: key.clone(),
                     artifact_id,
                     content_hash: observation.hash.clone(),
+                    source_bytes,
                     status,
                 },
             );

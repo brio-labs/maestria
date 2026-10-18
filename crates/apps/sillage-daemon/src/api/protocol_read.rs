@@ -91,13 +91,48 @@ pub enum SearchScoreScaleResponse {
     },
 }
 
+/// The basis on which a coverage percentage was measured.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CoverageBasis {
+    /// No required claims or subquestions were declared.
+    #[default]
+    NotRequested,
+    /// Percentage of explicitly declared required claims and subquestions supported.
+    DeclaredRequirements,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoverageResponse {
+    /// Meaningful only when `basis` is `declared_requirements`; never corpus coverage or
+    /// probability of answer correctness.
     pub percent_covered: u8,
+    /// Defaults conservatively for responses from older daemons.
+    #[serde(default)]
+    pub basis: CoverageBasis,
     pub gaps: Vec<String>,
     pub distinct_sources: usize,
     pub distinct_documents: usize,
     pub distinct_sections: usize,
+}
+
+impl CoverageResponse {
+    pub(crate) fn from_coverage(coverage: &sillage_domain::EvidenceCoverage) -> Self {
+        Self {
+            percent_covered: coverage.percent_covered(),
+            basis: if coverage.required_claims().is_empty()
+                && coverage.required_subquestions().is_empty()
+            {
+                CoverageBasis::NotRequested
+            } else {
+                CoverageBasis::DeclaredRequirements
+            },
+            gaps: coverage.gaps_identified().to_vec(),
+            distinct_sources: coverage.distinct_sources(),
+            distinct_documents: coverage.distinct_documents(),
+            distinct_sections: coverage.distinct_sections(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -222,6 +257,12 @@ pub struct SearchExcludedSource {
 pub struct SearchIndexingStatus {
     pub scanning: bool,
     pub pending_file_count: usize,
+    #[serde(default)]
+    pub admission_budget_bytes: usize,
+    #[serde(default)]
+    pub admission_deferred_file_count: usize,
+    #[serde(default)]
+    pub admission_oversized_file_count: usize,
     pub last_scan_unix_ms: Option<u64>,
     pub last_error: Option<String>,
     pub last_error_truncated: bool,
@@ -271,4 +312,57 @@ pub struct TaskSummary {
     pub priority: String,
     pub evidence_ids: Vec<u64>,
     pub validation_report_id: Option<u64>,
+}
+#[cfg(test)]
+mod tests {
+    use super::{CoverageBasis, CoverageResponse};
+    use sillage_domain::{EvidenceCoverage, EvidenceCoverageDto};
+
+    fn coverage(
+        percent_covered: u8,
+        required_claims: Vec<String>,
+    ) -> Result<EvidenceCoverage, Box<dyn std::error::Error>> {
+        Ok(EvidenceCoverage::new(EvidenceCoverageDto {
+            percent_covered,
+            gaps_identified: Vec::new(),
+            required_claims,
+            required_subquestions: Vec::new(),
+            distinct_sources: 1,
+            distinct_documents: 1,
+            distinct_sections: 1,
+            candidate_coverage_keys: Vec::new(),
+        })?)
+    }
+
+    #[test]
+    fn coverage_basis_separates_unrequested_from_measured_requirements()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let unrequested = CoverageResponse::from_coverage(&coverage(100, Vec::new())?);
+        assert_eq!(unrequested.basis, CoverageBasis::NotRequested);
+        assert_eq!(
+            serde_json::to_value(&unrequested)?["basis"],
+            "not_requested"
+        );
+
+        let measured = CoverageResponse::from_coverage(&coverage(
+            50,
+            vec!["refresh the access token".to_string()],
+        )?);
+        assert_eq!(measured.basis, CoverageBasis::DeclaredRequirements);
+        assert_eq!(
+            serde_json::to_value(&measured)?["basis"],
+            "declared_requirements"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_coverage_response_defaults_to_not_requested() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let response: CoverageResponse = serde_json::from_str(
+            r#"{"percent_covered":100,"gaps":[],"distinct_sources":1,"distinct_documents":1,"distinct_sections":1}"#,
+        )?;
+        assert_eq!(response.basis, CoverageBasis::NotRequested);
+        Ok(())
+    }
 }

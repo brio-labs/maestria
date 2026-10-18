@@ -194,10 +194,20 @@ pub struct AskContext {
     pub source_selection_digest: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CoverageBasis {
+    #[default]
+    NotRequested,
+    DeclaredRequirements,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Coverage {
     #[serde(default)]
     pub percent_covered: f64,
+    #[serde(default)]
+    pub basis: CoverageBasis,
     #[serde(default)]
     pub distinct_sources: usize,
 }
@@ -343,6 +353,8 @@ pub enum SearchScoreScale {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct CoverageWire {
     pub percent_covered: u8,
+    #[serde(default)]
+    pub basis: CoverageBasis,
     #[serde(default)]
     pub gaps: Vec<String>,
     pub distinct_sources: usize,

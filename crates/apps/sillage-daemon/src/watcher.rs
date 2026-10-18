@@ -60,6 +60,11 @@ const MAX_CONCURRENT_SCANS: usize = 4;
 /// behind an entire scan's event-log writes and parse effects.
 const MAX_ENQUEUED_DELIVERIES: usize = 8;
 
+/// Bound source payload bytes held by watcher scan observations and enqueued
+/// deliveries until their durable `ParserStarted` receipt. This is not an RSS
+/// limit; parser-owned buffers and native allocations are measured separately.
+const MAX_ADMITTED_SOURCE_BYTES: usize = 64 * 1024 * 1024;
+
 pub(crate) fn spawn(
     layout: InstanceLayout,
     manifest: Arc<RwLock<InstanceManifest>>,
@@ -184,23 +189,41 @@ impl Watcher {
         let permit = permits.acquire().await.context("acquire scan permit")?;
         let previous_artifact_ids = self.state.artifact_ids.clone();
         let confirmed = self.phase_confirm_deliveries()?;
+        let confirmed_source_bytes = confirmed.iter().fold(0usize, |total, (_, delivery)| {
+            total.saturating_add(delivery.source_bytes)
+        });
+        let outstanding_source_bytes = self
+            .pending
+            .values()
+            .filter(|delivery| delivery.status == PendingDeliveryStatus::Enqueued)
+            .map(|delivery| delivery.source_bytes)
+            .fold(0usize, usize::saturating_add)
+            .saturating_sub(confirmed_source_bytes);
+        let available_source_bytes =
+            MAX_ADMITTED_SOURCE_BYTES.saturating_sub(outstanding_source_bytes);
         let manifest = self.manifest.read().clone();
-        let (observations, signatures) =
-            scan_manifest(&manifest, &self.state.signatures, &self.state.files)?;
+        let scan = scan_manifest(
+            &manifest,
+            &self.state.signatures,
+            &self.state.files,
+            available_source_bytes,
+        )?;
+        let admission_deferred_files = scan.admission_deferred_files;
+        let oversized_files = scan.oversized_files;
         let mut current = self
-            .phase_detect_additions(observations, confirmed.len())
+            .phase_detect_additions(scan.observations, confirmed.len())
             .await?;
 
         // Unchanged accepted files produced no observation; retain their hash
         // so source removals can still be reconciled.
-        for key in signatures.keys() {
+        for key in scan.signatures.keys() {
             if !current.contains_key(key)
                 && let Some(hash) = self.state.files.get(key)
             {
                 current.insert(key.clone(), hash.clone());
             }
         }
-        self.state.signatures = signatures;
+        self.state.signatures = scan.signatures;
 
         // An accepted delivery whose source disappeared or changed before this
         // scan still needs a durable revocation.
@@ -254,7 +277,9 @@ impl Watcher {
             delivery.status == PendingDeliveryStatus::Enqueued
                 || current.get(&delivery.source_path) == Some(&delivery.content_hash)
         });
-        let pending_files = self.pending_file_count_for(&current);
+        let pending_files = self
+            .pending_file_count_for(&current)
+            .saturating_add(admission_deferred_files);
 
         let previous_files = std::mem::replace(&mut self.state.files, current);
         self.phase_detect_removals(previous_files, previous_artifact_ids)
@@ -285,6 +310,8 @@ impl Watcher {
             SnapshotReadiness::Failed(error) => Some(error),
         };
         self.state.pending_files = pending_files;
+        self.state.admission_deferred_files = admission_deferred_files;
+        self.state.oversized_files = oversized_files;
         self.state.last_scan_unix_ms = Some(unix_time_millis());
         persist_state(&self.layout, &self.state)
     }

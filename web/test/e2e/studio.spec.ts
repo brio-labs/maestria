@@ -32,7 +32,11 @@ const citation = {
   },
 };
 
-async function installFixture(page: Page, conflict = false): Promise<void> {
+async function installFixture(
+  page: Page,
+  conflict = false,
+  declaredCoverage = false,
+): Promise<void> {
   let draftSaved = false;
   let draftDeleted = false;
   await page.route('**/api/**', async (route) => {
@@ -121,7 +125,9 @@ async function installFixture(page: Page, conflict = false): Promise<void> {
           citations: [citation],
           context: {
             answerability: 'grounded',
-            coverage: { percent_covered: 100, distinct_sources: 1 },
+            coverage: declaredCoverage
+              ? { percent_covered: 75, basis: 'declared_requirements', distinct_sources: 1 }
+              : { percent_covered: 100, distinct_sources: 1 },
             gaps: [],
             citations: [citation],
             trace_id: 8,
@@ -169,8 +175,8 @@ test('creates a notebook and completes the workspace flow', async ({ page }) => 
   await page.getByLabel('Question').fill('How are routes configured?');
   await page.getByRole('button', { name: 'Ask' }).click();
   await expect(page.getByText('Grounded answer')).toBeVisible();
-  await expect(page.getByText('Answerability: grounded')).toBeVisible();
-  await expect(page.getByText('Coverage: 100% across 1 source(s)')).toBeVisible();
+  await expect(page.getByText('Coverage: not measured · 1 source(s)')).toBeVisible();
+  await expect(page.getByText('100%', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: /Guide/ }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('button', { name: 'Close' }).click();
@@ -181,6 +187,17 @@ test('creates a notebook and completes the workspace flow', async ({ page }) => 
   await expect(page.getByText('Revision 1')).toBeVisible();
 });
 
+test('labels notebook coverage against declared requirements', async ({ page }) => {
+  await installFixture(page, false, true);
+  await page.goto('/');
+  await page.getByLabel('Notebook title').fill('Research notes');
+  await page.getByRole('button', { name: 'Create notebook' }).click();
+  await expect(page).toHaveURL(/\/notebooks\/1$/);
+  await page.getByRole('link', { name: 'Ask', exact: true }).click();
+  await page.getByLabel('Question').fill('How are routes configured?');
+  await page.getByRole('button', { name: 'Ask' }).click();
+  await expect(page.getByText('Coverage: 75% of declared requirements across 1 source(s)')).toBeVisible();
+});
 test('retains draft text after a revision conflict', async ({ page }) => {
   await installFixture(page, true);
   await page.goto('/notebooks/1/drafts');
@@ -218,6 +235,7 @@ test('clears an invalid remembered notebook instead of offering Continue', async
     window.sessionStorage.setItem('sillage.studio.notebook', '999');
   });
   await page.goto('/');
+  await expect(page.getByText('1 selected sources', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Continue' })).toHaveCount(0);
   const remembered = await page.evaluate(() => window.sessionStorage.getItem('sillage.studio.notebook'));
   expect(remembered).toBeNull();

@@ -1,7 +1,9 @@
 use axum::{extract::State, response::Json};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sillage_daemon::api::{ClientOperation, ClientResponse, NotebookContextResponse};
+use sillage_daemon::api::{
+    ClientOperation, ClientResponse, CoverageBasis, NotebookContextResponse,
+};
 
 use super::{
     error::{ProblemCode, StudioError},
@@ -72,6 +74,7 @@ pub struct StudioAskContext {
 #[derive(Debug, Clone, Serialize)]
 pub struct StudioCoverage {
     pub percent_covered: u8,
+    pub basis: CoverageBasis,
     pub gaps: Vec<String>,
     pub distinct_sources: usize,
     pub distinct_documents: usize,
@@ -200,6 +203,7 @@ fn map_context(context: &NotebookContextResponse) -> Result<StudioAskContext, St
         answerability: context.answerability.clone(),
         coverage: StudioCoverage {
             percent_covered: context.coverage.percent_covered,
+            basis: context.coverage.basis,
             gaps: context.coverage.gaps.clone(),
             distinct_sources: context.coverage.distinct_sources,
             distinct_documents: context.coverage.distinct_documents,
@@ -293,7 +297,7 @@ mod tests {
 
     fn grounded_context() -> Result<super::StudioAskContext, Box<dyn std::error::Error>> {
         let daemon: NotebookContextResponse = serde_json::from_str(
-            r#"{"query":"rust","query_id":7,"trace_id":8,"source_selection_digest":"digest","index_generation":3,"fingerprint":"fp","answerability":"grounded","coverage":{"percent_covered":75,"gaps":["missing API"],"distinct_sources":1,"distinct_documents":1,"distinct_sections":2},"gaps":["missing API"],"citations":[{"rank":1,"score":930,"evidence":{"evidence_id":42,"artifact_id":9,"artifact_title":"Guide","artifact_content_hash":"hash","source":{"type":"file","path":"guide.md","start_line":4,"end_line":9,"content_hash":"hash"},"excerpt":"Axum routes","observed_at":11}}]}"#,
+            r#"{"query":"rust","query_id":7,"trace_id":8,"source_selection_digest":"digest","index_generation":3,"fingerprint":"fp","answerability":"grounded","coverage":{"percent_covered":75,"basis":"declared_requirements","gaps":["missing API"],"distinct_sources":1,"distinct_documents":1,"distinct_sections":2},"gaps":["missing API"],"citations":[{"rank":1,"score":930,"evidence":{"evidence_id":42,"artifact_id":9,"artifact_title":"Guide","artifact_content_hash":"hash","source":{"type":"file","path":"guide.md","start_line":4,"end_line":9,"content_hash":"hash"},"excerpt":"Axum routes","observed_at":11}}]}"#,
         )?;
         match map_context(&daemon) {
             Ok(value) => Ok(value),
@@ -304,7 +308,7 @@ mod tests {
     #[test]
     fn context_wire_is_flattened_for_studio_clients() -> Result<(), Box<dyn std::error::Error>> {
         let daemon: NotebookContextResponse = serde_json::from_str(
-            r#"{"query":"rust","query_id":7,"trace_id":8,"source_selection_digest":"digest","index_generation":3,"fingerprint":"fp","answerability":"grounded","coverage":{"percent_covered":75,"gaps":["missing API"],"distinct_sources":1,"distinct_documents":1,"distinct_sections":2},"gaps":["missing API"],"citations":[{"rank":1,"score":930,"evidence":{"evidence_id":42,"artifact_id":9,"artifact_title":"Guide","artifact_content_hash":"hash","source":{"type":"file","path":"guide.md","start_line":4,"end_line":9,"content_hash":"hash"},"excerpt":"Axum routes","observed_at":11}}]}"#,
+            r#"{"query":"rust","query_id":7,"trace_id":8,"source_selection_digest":"digest","index_generation":3,"fingerprint":"fp","answerability":"grounded","coverage":{"percent_covered":75,"basis":"declared_requirements","gaps":["missing API"],"distinct_sources":1,"distinct_documents":1,"distinct_sections":2},"gaps":["missing API"],"citations":[{"rank":1,"score":930,"evidence":{"evidence_id":42,"artifact_id":9,"artifact_title":"Guide","artifact_content_hash":"hash","source":{"type":"file","path":"guide.md","start_line":4,"end_line":9,"content_hash":"hash"},"excerpt":"Axum routes","observed_at":11}}]}"#,
         )?;
         let studio = match map_context(&daemon) {
             Ok(value) => value,
@@ -313,6 +317,7 @@ mod tests {
         let json = serde_json::to_value(studio)?;
         assert_eq!(json["answerability"], "grounded");
         assert_eq!(json["coverage"]["percent_covered"], 75);
+        assert_eq!(json["coverage"]["basis"], "declared_requirements");
         assert_eq!(json["citations"][0]["evidence"]["evidence_id"], 42);
         assert_eq!(json["citations"][0]["evidence"]["source"]["type"], "file");
         Ok(())

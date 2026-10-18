@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::{
-    api::{ApiClient, AskContext, AskRequest, AskTurn, Citation, DraftPreview},
+    api::{ApiClient, AskContext, AskRequest, AskTurn, Citation, CoverageBasis, DraftPreview},
     components::{CitationList, EvidenceDialog, WorkspaceContext, set_alert},
     markdown::render_markdown,
     route::Route,
@@ -278,12 +278,15 @@ fn AskCoverage(context: Option<AskContext>) -> Element {
         None => "unknown".to_owned(),
     };
     let coverage = context.coverage.map_or_else(
-        || "Coverage unavailable".to_owned(),
-        |value| {
-            format!(
-                "{:.0}% across {} source(s)",
+        || "unavailable".to_owned(),
+        |value| match value.basis {
+            CoverageBasis::NotRequested => {
+                format!("not measured · {} source(s)", value.distinct_sources)
+            }
+            CoverageBasis::DeclaredRequirements => format!(
+                "{:.0}% of declared requirements across {} source(s)",
                 value.percent_covered, value.distinct_sources
-            )
+            ),
         },
     );
     rsx! {

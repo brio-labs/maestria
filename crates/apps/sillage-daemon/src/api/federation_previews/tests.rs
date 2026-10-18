@@ -1,5 +1,6 @@
 use super::super::protocol::{
-    CoverageResponse, SearchEvidenceResponse, SearchPathResultResponse, SearchResponse,
+    CoverageBasis, CoverageResponse, SearchEvidenceResponse, SearchPathResultResponse,
+    SearchResponse,
 };
 use super::*;
 
@@ -60,6 +61,7 @@ fn one_hundred_previews_fit_the_aggregate_response_budget() -> anyhow::Result<()
             path_results: Vec::new(),
             coverage: CoverageResponse {
                 percent_covered: 100,
+                basis: CoverageBasis::NotRequested,
                 gaps: Vec::new(),
                 distinct_sources: 1,
                 distinct_documents: 1,
@@ -117,6 +119,7 @@ fn path_results_fit_the_daemon_response_byte_budget() -> anyhow::Result<()> {
                 .collect(),
             coverage: CoverageResponse {
                 percent_covered: 100,
+                basis: CoverageBasis::NotRequested,
                 gaps: Vec::new(),
                 distinct_sources: 0,
                 distinct_documents: 0,

@@ -2,8 +2,8 @@ use dioxus::prelude::*;
 
 use crate::{
     api::{
-        ApiClient, CoverageWire, SearchEvidence, SearchRawRank, SearchResponse, SearchScore,
-        SearchScoreScale,
+        ApiClient, CoverageBasis, CoverageWire, SearchEvidence, SearchRawRank, SearchResponse,
+        SearchScore, SearchScoreScale,
     },
     components::{EvidenceDialog, Shell, WorkspaceContext, alert},
     session::Session,
@@ -182,28 +182,40 @@ fn score_value(score: &SearchScore) -> String {
 
 #[component]
 fn CoveragePanel(coverage: CoverageWire, conflict_count: usize) -> Element {
+    let measured = coverage.basis == CoverageBasis::DeclaredRequirements;
     let percent = coverage.percent_covered.min(100);
+    let coverage_label = if measured {
+        format!("{percent}% of declared requirements")
+    } else {
+        "Not measured".to_owned()
+    };
     rsx! {
         section {
             class: "mb-6 rounded-lg border border-line bg-panel p-4",
             div { class: "flex items-center justify-between gap-3",
                 h2 { class: "font-semibold text-ink-strong", "Coverage" }
-                span { class: "text-sm text-ink-muted", "{percent}%" }
+                span { class: "text-sm text-ink-muted", "{coverage_label}" }
             }
-            div {
-                class: "mt-2 h-2 w-full overflow-hidden rounded bg-muted",
-                aria_label: "Coverage percent",
+            if measured {
                 div {
-                    class: "h-full bg-accent",
-                    style: "width: {percent}%"
+                    class: "mt-2 h-2 w-full overflow-hidden rounded bg-muted",
+                    aria_label: "Coverage percent of declared requirements",
+                    div {
+                        class: "h-full bg-accent",
+                        style: "width: {percent}%"
+                    }
+                }
+            } else {
+                p { class: "mt-2 text-sm text-ink-muted",
+                    "No explicit requirements were supplied; percentages are not available."
                 }
             }
             p { class: "mt-3 text-sm text-ink-muted",
                 "{coverage.distinct_sources} sources · {coverage.distinct_documents} documents · {coverage.distinct_sections} sections · {conflict_count} conflicts"
             }
-            if coverage.gaps.is_empty() {
+            if coverage.gaps.is_empty() && measured {
                 p { class: "mt-2 text-sm text-success", "No gaps" }
-            } else {
+            } else if !coverage.gaps.is_empty() {
                 div { class: "mt-2",
                     p { class: "text-sm font-medium text-ink-muted", "Gaps" }
                     ul { class: "list-disc pl-5 text-sm text-ink-muted",

@@ -34,6 +34,7 @@ pub(super) struct PendingDelivery {
     pub(super) source_path: String,
     pub(super) artifact_id: sillage_domain::ArtifactId,
     pub(super) content_hash: String,
+    pub(super) source_bytes: usize,
     pub(super) status: PendingDeliveryStatus,
 }
 

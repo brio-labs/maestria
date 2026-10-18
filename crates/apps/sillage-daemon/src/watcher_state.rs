@@ -27,6 +27,10 @@ pub(super) struct WatchState {
     #[serde(default)]
     pub(super) pending_files: usize,
     #[serde(default)]
+    pub(super) admission_deferred_files: usize,
+    #[serde(default)]
+    pub(super) oversized_files: usize,
+    #[serde(default)]
     pub(super) scanning: bool,
 }
 
@@ -111,6 +115,9 @@ pub(crate) struct WatcherStatus {
     pub(crate) indexed_sources: Vec<(String, String)>,
     pub(crate) current_artifact_ids: BTreeMap<String, u64>,
     pub(crate) pending_files: usize,
+    pub(crate) admission_budget_bytes: usize,
+    pub(crate) admission_deferred_files: usize,
+    pub(crate) oversized_files: usize,
     pub(crate) scanning: bool,
     pub(crate) last_scan_unix_ms: Option<u64>,
     pub(crate) last_error: Option<String>,
@@ -133,6 +140,9 @@ pub(crate) fn status(layout: &InstanceLayout) -> WatcherStatus {
         indexed_sources: state.files.into_iter().collect(),
         current_artifact_ids,
         pending_files: state.pending_files,
+        admission_budget_bytes: super::MAX_ADMITTED_SOURCE_BYTES,
+        admission_deferred_files: state.admission_deferred_files,
+        oversized_files: state.oversized_files,
         scanning: state.scanning,
         last_scan_unix_ms: state.last_scan_unix_ms,
         last_error: state.last_error,

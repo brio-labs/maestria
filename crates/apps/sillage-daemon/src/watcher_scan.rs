@@ -3,6 +3,7 @@ use sillage_core::{InstanceManifest, content_hash};
 use std::{
     collections::BTreeMap,
     fs,
+    io::Read,
     path::{Component, Path, PathBuf},
 };
 
@@ -14,6 +15,14 @@ pub(super) struct Observation {
     pub(super) path: PathBuf,
     pub(super) bytes: Vec<u8>,
     pub(super) hash: String,
+}
+
+#[derive(Debug, Default)]
+pub(super) struct ScanResult {
+    pub(super) observations: Vec<Observation>,
+    pub(super) signatures: BTreeMap<String, FileSignature>,
+    pub(super) admission_deferred_files: usize,
+    pub(super) oversized_files: usize,
 }
 
 /// Scan manifest roots using `ignore::WalkBuilder` for gitignore/.ignore-aware
@@ -84,9 +93,11 @@ pub(super) fn scan_manifest(
     manifest: &InstanceManifest,
     previous: &BTreeMap<String, FileSignature>,
     recorded: &BTreeMap<String, String>,
-) -> Result<(Vec<Observation>, BTreeMap<String, FileSignature>)> {
-    let mut observations = Vec::new();
-    let mut signatures = BTreeMap::new();
+    source_byte_budget: usize,
+) -> Result<ScanResult> {
+    let mut scan = ScanResult::default();
+    let mut admitted_source_bytes = 0usize;
+    let source_byte_budget = source_byte_budget.min(super::MAX_ADMITTED_SOURCE_BYTES);
     let instance_root = manifest.root.clone();
     let normalized_instance_root = match sillage_governance::lexical_normalize(&instance_root) {
         Some(normalized) => normalized,
@@ -112,12 +123,14 @@ pub(super) fn scan_manifest(
             .follow_links(false)
             .build();
         for result in walker {
-            let entry = result?;
-            if let Some(error) = entry.error() {
-                return Err(anyhow::anyhow!(
-                    "traversal error at {}: {error}",
-                    entry.path().display()
-                ));
+            let entry = match result {
+                Ok(entry) => entry,
+                Err(_) => {
+                    continue;
+                }
+            };
+            if entry.error().is_some() {
+                continue;
             }
             let path = entry.path().to_path_buf();
 
@@ -146,24 +159,103 @@ pub(super) fn scan_manifest(
             // shutdown) must be re-read so they are delivered after a
             // restart (issue #440).
             let key = source_key(&path);
-            let metadata = fs::metadata(&path)
-                .with_context(|| format!("stat watched file {}", path.display()))?;
+            let mut file = match fs::File::open(&path) {
+                Ok(file) => file,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::PermissionDenied
+                        || error.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    continue;
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| format!("open watched file {}", path.display()));
+                }
+            };
+            let metadata = match file.metadata() {
+                Ok(metadata) => metadata,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::PermissionDenied
+                        || error.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    continue;
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| format!("stat watched file {}", path.display()));
+                }
+            };
+            if !metadata.is_file() {
+                continue;
+            }
             let signature = file_signature(&metadata);
             if previous.get(&key) == Some(&signature) && recorded.contains_key(&key) {
-                signatures.insert(key, signature);
+                scan.signatures.insert(key, signature);
                 continue;
             }
 
-            let bytes =
-                fs::read(&path).with_context(|| format!("read watched file {}", path.display()))?;
-            observations.push(Observation {
+            let remaining_bytes = source_byte_budget.saturating_sub(admitted_source_bytes);
+            if signature.size > remaining_bytes as u64 {
+                scan.admission_deferred_files += 1;
+                if signature.size > super::MAX_ADMITTED_SOURCE_BYTES as u64 {
+                    scan.oversized_files += 1;
+                }
+                continue;
+            }
+
+            let capacity = usize::try_from(signature.size)
+                .unwrap_or(remaining_bytes)
+                .min(remaining_bytes);
+            let mut bytes = Vec::with_capacity(capacity);
+            // Limit the read to the statted size so concurrent growth cannot
+            // expand this batch past the reserved source-byte budget.
+            if let Err(error) = (&mut file).take(signature.size).read_to_end(&mut bytes) {
+                if error.kind() == std::io::ErrorKind::PermissionDenied
+                    || error.kind() == std::io::ErrorKind::NotFound
+                {
+                    continue;
+                }
+                return Err(error).with_context(|| format!("read watched file {}", path.display()));
+            }
+            let handle_signature = match file.metadata() {
+                Ok(metadata) => file_signature(&metadata),
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::PermissionDenied
+                        || error.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    continue;
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| format!("re-stat watched file {}", path.display()));
+                }
+            };
+            let path_signature = match fs::metadata(&path) {
+                Ok(metadata) => file_signature(&metadata),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    scan.admission_deferred_files += 1;
+                    continue;
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("re-stat watched file {}", path.display())
+                    });
+                }
+            };
+            if bytes.len() as u64 != signature.size
+                || handle_signature != signature
+                || path_signature != signature
+            {
+                scan.admission_deferred_files += 1;
+                continue;
+            }
+
+            admitted_source_bytes = admitted_source_bytes.saturating_add(bytes.len());
+            scan.observations.push(Observation {
                 path,
                 hash: content_hash(&bytes),
                 bytes,
             });
-            signatures.insert(key, signature);
+            scan.signatures.insert(key, signature);
         }
     }
-    observations.sort_by(|left, right| left.path.cmp(&right.path));
-    Ok((observations, signatures))
+    scan.observations.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(scan)
 }

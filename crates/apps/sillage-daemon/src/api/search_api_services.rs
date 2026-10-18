@@ -123,6 +123,9 @@ fn indexing_status_response(status: SearchRootsStatusResponse) -> SearchApiIndex
         ignored_by_default: status.ignored_by_default,
         scanning: status.indexing.scanning,
         pending_file_count: status.indexing.pending_file_count,
+        admission_budget_bytes: status.indexing.admission_budget_bytes,
+        admission_deferred_file_count: status.indexing.admission_deferred_file_count,
+        admission_oversized_file_count: status.indexing.admission_oversized_file_count,
         last_scan_unix_ms: status.indexing.last_scan_unix_ms,
         last_scan_error: status.indexing.last_error.is_some(),
     }
