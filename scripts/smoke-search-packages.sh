@@ -284,7 +284,34 @@ if [[ "$(stat -c '%a' "$credential_file")" != 600 ]]; then
   fail "external grant credential file is not private mode 0600"
 fi
 
-consumer_args=(--socket-path "$socket_path" --consumer-realm "$consumer_realm" --credential-file "$credential_file")
+profile_file="$root/consumer-profile.json"
+if ! "$binary" profile configure \
+  --profile-file "$profile_file" \
+  --socket-path "$socket_path" \
+  --consumer-realm "$consumer_realm" \
+  --credential-file "$credential_file" \
+  >"$root/profile-configure.out" 2>"$root/profile-configure.err"; then
+  cat "$root/profile-configure.err" >&2
+  fail "could not create the reusable consumer profile"
+fi
+if [[ "$(stat -c '%a' "$profile_file")" != 600 ]]; then
+  fail "consumer profile is not private mode 0600"
+fi
+python3 - "$profile_file" "$socket_path" "$consumer_realm" "$credential_file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    profile = json.load(stream)
+expected = {
+    "socket_path": sys.argv[2],
+    "consumer_realm": sys.argv[3],
+    "credential_file": sys.argv[4],
+}
+if profile != expected:
+    raise SystemExit("consumer profile did not contain exactly the non-secret connection fields")
+PY
+consumer_args=(--profile "$profile_file")
 ungranted_args=(--socket-path "$socket_path" --consumer-realm "$ungranted_realm" --credential-file "$credential_file")
 status_json="$root/consumer-status.json"
 if ! "$binary" status "${consumer_args[@]}" >"$status_json" 2>"$root/consumer-status.err"; then
@@ -548,6 +575,64 @@ if (
 ):
     raise SystemExit("opened PDF evidence lacked its authorized source path or typed page/region citation")
 PY
+
+# Qualify an independent client process using a search-only profile.
+# It receives typed cited previews while direct evidence-open is denied.
+search_only_realm="$(printf '%064x' 55)"
+if [[ "$search_only_realm" == "$provider_realm" || "$search_only_realm" == "$consumer_realm" ]]; then
+  search_only_realm="$(printf '%064x' 56)"
+fi
+search_only_credential="$root/search-only.credential"
+if ! search_only_grant_output="$("$binary" owner grant create-external \
+  --instance-dir "$instance" \
+  --consumer-realm "$search_only_realm" \
+  --credential-file "$search_only_credential" \
+  --access search-only \
+  --max-sensitivity internal \
+  --read-root "$approved_root" \
+  --max-results 1 \
+  --max-evidence-bytes 512 \
+  --expires-in-seconds 900 2>"$root/search-only-grant.err")"; then
+  cat "$root/search-only-grant.err" >&2
+  fail "could not create the bounded external search-only grant"
+fi
+search_only_profile="$root/search-only-profile.json"
+if ! "$binary" profile configure \
+  --profile-file "$search_only_profile" \
+  --socket-path "$socket_path" \
+  --consumer-realm "$search_only_realm" \
+  --credential-file "$search_only_credential" \
+  >"$root/search-only-profile.out" 2>"$root/search-only-profile.err"; then
+  cat "$root/search-only-profile.err" >&2
+  fail "could not configure the search-only consumer profile"
+fi
+if ! "$binary" search --profile "$search_only_profile" --limit 1 "$phrase" >"$root/search-only-search.json" 2>"$root/search-only-search.err"; then
+  cat "$root/search-only-search.err" >&2
+  fail "search-only profile consumer search request failed"
+fi
+search_only_id="$(python3 - "$root/search-only-search.json" "$phrase" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    response = json.load(stream)
+evidence = response.get("data", {}).get("evidence", [])
+if len(evidence) != 1:
+    raise SystemExit("search-only query did not return exactly one cited passage")
+item = evidence[0]
+preview = item.get("preview") or {}
+if sys.argv[2] not in preview.get("excerpt", ""):
+    raise SystemExit("search-only preview lacked expected excerpt text")
+print(item["evidence_id"])
+PY
+)" || fail "could not validate search-only cited preview"
+if "$binary" open-evidence --profile "$search_only_profile" --evidence-id "$search_only_id" >"$root/search-only-open.out" 2>"$root/search-only-open.err"; then
+  fail "search-only profile consumer unexpectedly reopened full evidence"
+fi
+if [[ "$(<"$root/search-only-open.err")" != *"federation access denied"* ]]; then
+  cat "$root/search-only-open.err" >&2
+  fail "search-only evidence open denial did not report federation access denied"
+fi
 
 # Approving a later root must not expand an already issued consumer credential.
 other_root="$root/other-approved-root"

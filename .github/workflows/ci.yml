@@ -48,7 +48,6 @@ jobs:
               - '.github/workflows/**'
               - '.github/actions/**'
               - 'scripts/*'
-              - '!scripts/*.py'
               - 'scripts/verify-search-packages.py'
               - 'scripts/check-combined-extension-broker.py'
               - 'scripts/check-version-upgrade.py'

@@ -49,6 +49,7 @@ activate_suite() {
       fail "unknown package suite $suite"
       ;;
   esac
+  select_search_state "$suite"
 }
 
 usage() {
@@ -224,39 +225,81 @@ process_is_live() {
   [[ -n "$state" && "$state" != Z && "$state" != X ]]
 }
 
+shutdown_deadline() {
+  python3 -c 'import time; print(time.monotonic_ns() + 5_000_000_000)'
+}
+await_process_shutdown() {
+  python3 - "$@" <<'PY'
+import os
+import select
+import subprocess
+import sys
+import time
+
+pid, deadline = map(int, sys.argv[1:3])
+started = deadline - 5_000_000_000
+quit_process = None
+descriptors = []
+try:
+    if len(sys.argv) == 4:
+        quit_process = subprocess.Popen([sys.argv[3], "--quit"], stdout=subprocess.DEVNULL)
+    for target in [pid] + ([quit_process.pid] if quit_process is not None else []):
+        try:
+            descriptor = os.pidfd_open(target)
+        except ProcessLookupError:
+            continue
+        descriptors.append(descriptor)
+        remaining = max(0, (deadline - time.monotonic_ns()) / 1e9)
+        if not select.select([descriptor], [], [], remaining)[0]:
+            raise TimeoutError("five-second process absence gate failed")
+    if quit_process is not None and quit_process.wait() != 0:
+        raise RuntimeError("resident launcher quit request failed")
+    elapsed = time.monotonic_ns() - started
+    if time.monotonic_ns() > deadline:
+        raise TimeoutError("five-second shutdown deadline exceeded")
+    print(elapsed)
+except (TimeoutError, RuntimeError) as error:
+    if quit_process is not None and quit_process.poll() is None:
+        quit_process.terminate()
+    print(str(error), file=sys.stderr)
+    raise SystemExit(1)
+finally:
+    for descriptor in descriptors:
+        os.close(descriptor)
+PY
+}
 stop_search_best_effort() {
   [[ -n "$search_pid" ]] || return 0
-  if process_is_live "$search_pid"; then
-    kill -TERM "$search_pid" 2>/dev/null || true
-    for attempt in {1..200}; do process_is_live "$search_pid" || break; sleep .05; done
-    if process_is_live "$search_pid"; then kill -KILL "$search_pid" 2>/dev/null || true; fi
-  fi
+  kill -TERM "$search_pid" 2>/dev/null || true
+  await_process_shutdown "$search_pid" "$1" >/dev/null || return 1
   wait "$search_pid" 2>/dev/null || true
   search_pid=
 }
 stop_launcher_best_effort() {
   [[ -n "$launcher_pid" ]] || return 0
-  if process_is_live "$launcher_pid"; then
-    timeout --kill-after=1s 5s "${binary_paths[0]}" --quit >/dev/null 2>&1 || true
-    for attempt in {1..100}; do process_is_live "$launcher_pid" || break; sleep .05; done
-    if process_is_live "$launcher_pid"; then kill -TERM -- "-$launcher_pid" 2>/dev/null || kill -TERM "$launcher_pid" 2>/dev/null || true; fi
-  fi
+  kill -TERM -- "-$launcher_pid" 2>/dev/null || kill -TERM "$launcher_pid" 2>/dev/null || true
+  await_process_shutdown "$launcher_pid" "$1" >/dev/null || return 1
   wait "$launcher_pid" 2>/dev/null || true
   launcher_pid=
 }
 cleanup_inner() {
-  local status=$?
+  local status=$? deadline shutdown_failed=false
   trap - EXIT INT TERM
-  stop_launcher_best_effort
-  stop_search_best_effort
+  deadline="$(shutdown_deadline)"
+  stop_launcher_best_effort "$deadline" || shutdown_failed=true
+  stop_search_best_effort "$deadline" || shutdown_failed=true
   for pid in "$wm_pid" "$registry_pid"; do
     if [[ -n "$pid" ]]; then
       kill -TERM "$pid" 2>/dev/null || true
-      for attempt in {1..100}; do process_is_live "$pid" || break; sleep .05; done
-      if process_is_live "$pid"; then kill -KILL "$pid" 2>/dev/null || true; fi
-      wait "$pid" 2>/dev/null || true
+      if await_process_shutdown "$pid" "$deadline" >/dev/null; then
+        wait "$pid" 2>/dev/null || true
+      else
+        shutdown_failed=true
+      fi
     fi
   done
+  printf 'VERSION_UPGRADE_CLEANUP_SHUTDOWN five_second_absence_gate=%s force_kill_sent=false\n' "$([[ "$shutdown_failed" == false ]] && printf true || printf false)"
+  if [[ "$shutdown_failed" == true && "$status" -eq 0 ]]; then status=125; fi
   [[ ! -s "$launcher_log" ]] || cat "$launcher_log" >&2
   [[ ! -s "$search_log" ]] || cat "$search_log" >&2
   exit "$status"
@@ -435,43 +478,61 @@ start_launcher() {
 }
 stop_launcher_gracefully() {
   [[ -n "$launcher_pid" ]] || return 0
-  local status=0
-  timeout --kill-after=1s 10s "${binary_paths[0]}" --quit >/dev/null || { cat "$launcher_log" >&2; fail 'installed resident launcher --quit request failed'; }
-  for attempt in {1..200}; do process_is_live "$launcher_pid" || break; sleep .05; done
-  if process_is_live "$launcher_pid"; then fail 'resident launcher did not stop gracefully after --quit'; fi
+  local status=0 deadline elapsed_ns
+  deadline="$(shutdown_deadline)"
+  elapsed_ns="$(await_process_shutdown "$launcher_pid" "$deadline" "${binary_paths[0]}")" || { cat "$launcher_log" >&2; fail 'resident launcher did not stop gracefully within five seconds after --quit'; }
   wait "$launcher_pid" || status=$?
   [[ "$status" -eq 0 ]] || fail "resident launcher exited with status $status after --quit"
   launcher_pid=
-  printf 'VERSION_UPGRADE_LAUNCHER_STOPPED_GRACEFULLY exit_status=%s\n' "$status"
+  printf 'VERSION_UPGRADE_LAUNCHER_STOPPED_GRACEFULLY exit_status=%s shutdown_elapsed_ns=%s five_second_absence_gate=true force_kill_sent=false\n' "$status" "$elapsed_ns"
 }
 
-search_root="$root/search"
-instance="$search_root/instance"
-approved_root="$search_root/approved-root"
-ungranted_root="$search_root/ungranted-root"
-credential_file="$search_root/consumer.credential"
-socket_path="$instance/system/daemon.sock"
-primary_phrase='The silver kestrel carries an upgrade-proof compass through quiet rain'
-ungranted_phrase='A violet meteor hides the ungranted upgrade-only archive'
-fixture="$approved_root/upgrade-passage.md"
-ungranted_fixture="$ungranted_root/private-note.md"
-mkdir -m 700 "$approved_root" "$ungranted_root"
-printf '%s\n' '# Durable version upgrade passage' "$primary_phrase." >"$fixture"
-printf '%s\n' '# Unapproved private root' "$ungranted_phrase." >"$ungranted_fixture"
-fixture="$(realpath -- "$fixture")"
-approved_root="$(realpath -- "$approved_root")"
-ungranted_root="$(realpath -- "$ungranted_root")"
+legacy_search_root="$root/search/legacy"
+current_search_root="$root/search/current"
+select_search_state() {
+  local profile="$1"
+  case "$profile" in
+    legacy)
+      search_profile=legacy
+      search_root="$legacy_search_root"
+      primary_phrase='The silver kestrel carries an upgrade-proof compass through quiet rain'
+      ungranted_phrase='A violet meteor hides the ungranted Maestria upgrade-only archive'
+      ;;
+    current)
+      search_profile=current
+      search_root="$current_search_root"
+      primary_phrase='The amber heron preserves an isolated Sillage search namespace through winter drizzle'
+      ungranted_phrase='A copper comet marks the ungranted Sillage upgrade-only archive'
+      ;;
+    *)
+      fail "unknown search namespace $profile"
+      ;;
+  esac
+  instance="$search_root/instance"
+  approved_root="$search_root/approved-root"
+  ungranted_root="$search_root/ungranted-root"
+  credential_file="$search_root/consumer.credential"
+  socket_path="$instance/system/daemon.sock"
+  fixture="$approved_root/upgrade-passage.md"
+  ungranted_fixture="$ungranted_root/private-note.md"
+}
 
 search_cli() { timeout --kill-after=1s 12s "${binary_paths[1]}" "$@"; }
 
 setup_search_instance() {
-  mkdir -m 700 "$instance"
+  mkdir -m 700 -p "$search_root"
+  mkdir -m 700 "$approved_root" "$ungranted_root" "$instance"
+  printf '%s\n' "# Durable $search_profile version upgrade passage" "$primary_phrase." >"$fixture"
+  printf '%s\n' "# Unapproved private $search_profile root" "$ungranted_phrase." >"$ungranted_fixture"
+  fixture="$(realpath -- "$fixture")"
+  approved_root="$(realpath -- "$approved_root")"
+  ungranted_root="$(realpath -- "$ungranted_root")"
   if ! search_cli init --instance-dir "$instance" --read-root "$approved_root" >"$search_root/init.out" 2>"$search_root/init.err"; then
     cat "$search_root/init.err" >&2
-    fail 'installed search binary could not initialize the one private search instance'
+    fail "installed $search_profile search binary could not initialize its private search instance"
   fi
   provider_realm="$(sed -n 's/^realm_id=//p' "$instance/manifest.txt")"
-  [[ "$provider_realm" =~ ^[0-9a-f]{64}$ ]] || fail 'private search instance has no valid provider realm'
+  [[ "$provider_realm" =~ ^[0-9a-f]{64}$ ]] || fail "$search_profile search instance has no valid provider realm"
   consumer_realm="$(printf '%064x' 1)"
   [[ "$consumer_realm" != "$provider_realm" ]] || consumer_realm="$(printf '%064x' 2)"
   ungranted_realm="$(printf '%064x' 3)"
@@ -487,15 +548,15 @@ create_search_grant() {
     cat "$search_root/grant-create.err" >&2
     fail 'installed search binary could not create one root-scoped consumer grant'
   fi
-  [[ "$grant_output" == *"consumer_realm=$consumer_realm"* && "$grant_output" == *'state=active'* ]] || fail 'external grant output did not confirm the one consumer grant'
-  [[ "$grant_output" == *"allowed_roots=[\"$approved_root\"]"* ]] || fail 'consumer grant did not freeze exactly the approved private root'
+  [[ "$grant_output" == *"consumer_realm=$consumer_realm"* && "$grant_output" == *'state=active'* ]] || fail "$search_profile external grant output did not confirm its consumer grant"
+  [[ "$grant_output" == *"allowed_roots=[\"$approved_root\"]"* ]] || fail "$search_profile consumer grant did not freeze exactly its approved private root"
   grant_digest="$(sed -n 's/^grant_token_digest=//p' <<<"$grant_output")"
-  [[ "$grant_digest" =~ ^[0-9a-f]{64}$ && -s "$credential_file" ]] || fail 'private search grant lacks its digest or credential'
-  [[ "$(stat -c '%a' "$credential_file")" == 600 ]] || fail 'search credential is not mode 0600'
+  [[ "$grant_digest" =~ ^[0-9a-f]{64}$ && -s "$credential_file" ]] || fail "$search_profile search grant lacks its digest or credential"
+  [[ "$(stat -c '%a' "$credential_file")" == 600 ]] || fail "$search_profile search credential is not mode 0600"
   consumer_args=(--socket-path "$socket_path" --consumer-realm "$consumer_realm" --credential-file "$credential_file")
   ungranted_args=(--socket-path "$socket_path" --consumer-realm "$ungranted_realm" --credential-file "$credential_file")
-  printf 'VERSION_UPGRADE_SEARCH_INSTANCE path=%s provider_realm=%s consumer_realm=%s grant_digest=%s approved_root=%s ungranted_root=%s\n' \
-    "$instance" "$provider_realm" "$consumer_realm" "$grant_digest" "$approved_root" "$ungranted_root"
+  printf 'VERSION_UPGRADE_SEARCH_NAMESPACE profile=%s instance=%s grant=active credential_mode=0600 approved_root=%s ungranted_root=%s\n' \
+    "$search_profile" "$instance" "$approved_root" "$ungranted_root"
 }
 
 wait_for_search_index() {
@@ -546,15 +607,15 @@ PY
 
 stop_search_gracefully() {
   [[ -n "$search_pid" ]] || return 0
-  local status=0
+  local status=0 deadline elapsed_ns
+  deadline="$(shutdown_deadline)"
   kill -INT "$search_pid" 2>/dev/null || fail 'cannot request graceful search daemon shutdown'
-  for attempt in {1..200}; do process_is_live "$search_pid" || break; sleep .05; done
-  if process_is_live "$search_pid"; then fail 'search daemon failed to stop gracefully (SIGKILL is not accepted)'; fi
+  elapsed_ns="$(await_process_shutdown "$search_pid" "$deadline")" || fail 'search daemon failed to stop gracefully within five seconds (SIGKILL is not accepted)'
   wait "$search_pid" || status=$?
   [[ "$status" -eq 0 ]] || fail "search daemon exited with status $status after SIGINT"
   search_pid=
   [[ ! -e "$socket_path" ]] || fail 'gracefully stopped search daemon left its private socket behind'
-  printf 'VERSION_UPGRADE_SEARCH_DAEMON_STOPPED_GRACEFULLY exit_status=%s\n' "$status"
+  printf 'VERSION_UPGRADE_SEARCH_DAEMON_STOPPED_GRACEFULLY exit_status=%s shutdown_elapsed_ns=%s five_second_absence_gate=true force_kill_sent=false\n' "$status" "$elapsed_ns"
 }
 
 verify_search_behavior() {
@@ -671,9 +732,12 @@ import stat
 import sys
 from pathlib import Path
 root = Path(sys.argv[1])
-if not root.is_dir() or root.is_symlink():
+root_metadata = root.lstat()
+if not stat.S_ISDIR(root_metadata.st_mode):
     raise SystemExit(f"private persistent state directory is missing or not a real directory: {root}")
 digest = hashlib.sha256()
+digest.update(b".")
+digest.update(stat.S_IMODE(root_metadata.st_mode).to_bytes(4, "big"))
 for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
     metadata = path.lstat()
     if stat.S_ISLNK(metadata.st_mode) or not (stat.S_ISREG(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode)):
@@ -687,6 +751,25 @@ for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_p
 print(digest.hexdigest())
 PY
 }
+
+hash_private_file() {
+  python3 - "$1" <<'PY'
+import hashlib
+import stat
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+metadata = path.lstat()
+if not stat.S_ISREG(metadata.st_mode):
+    raise SystemExit(f"private persistent state file is missing or not a regular file: {path}")
+content = path.read_bytes()
+digest = hashlib.sha256()
+digest.update(stat.S_IMODE(metadata.st_mode).to_bytes(4, "big"))
+digest.update(len(content).to_bytes(8, "big"))
+digest.update(content)
+print(digest.hexdigest())
+PY
+}
 state_key_hex="$(printf '%s' upgrade-proof | od -An -tx1 | tr -d ' \n')"
 legacy_extension_data_file="$legacy_extension_store/data/$extension_id/$extension_id/$state_key_hex"
 current_extension_data_file="$current_extension_store/data/$extension_id/$extension_id/$state_key_hex"
@@ -695,11 +778,13 @@ select_profile_state() {
   local profile="$1"
   case "$profile" in
     legacy)
+      profile_config_dir="$root/config/$LEGACY_APP_ID"
       profile_config_file="$legacy_config_file"
       profile_extension_store="$legacy_extension_store"
       profile_extension_data_file="$legacy_extension_data_file"
       ;;
     current)
+      profile_config_dir="$root/config/$CURRENT_APP_ID"
       profile_config_file="$current_config_file"
       profile_extension_store="$current_extension_store"
       profile_extension_data_file="$current_extension_data_file"
@@ -712,39 +797,42 @@ select_profile_state() {
 
 snapshot_private_state() {
   local label="$1" profile="$2"
+  select_search_state "$profile"
   select_profile_state "$profile"
   [[ -s "$profile_config_file" ]] || fail "$label $profile launcher settings file is missing"
   [[ "$(stat -c '%a' "$profile_config_file")" == 600 ]] || fail "$label $profile launcher settings file is not private mode 0600"
   [[ -s "$profile_extension_data_file" && "$(<"$profile_extension_data_file")" == "$profile_state_value" ]] || fail "$label $profile extension private storage value is missing or changed"
-  [[ "$(stat -c '%a' "$profile_extension_data_file")" == 600 ]] || fail "$label $profile extension state file is not private mode 0600"
-  config_sha="$(sha256sum -- "$profile_config_file" | cut -d ' ' -f 1)"
+  [[ "$(stat -c '%a' "$profile_extension_data_file")" == 600 ]] || fail "$label $profile extension state file is not mode 0600"
+  [[ -s "$credential_file" && "$(stat -c '%a' "$credential_file")" == 600 ]] || fail "$label $profile search credential is missing or not mode 0600"
+  config_sha="$(hash_tree "$profile_config_dir")"
   extension_sha="$(hash_tree "$profile_extension_store")"
   search_sha="$(hash_tree "$instance")"
-  credential_sha="$(sha256sum -- "$credential_file" | cut -d ' ' -f 1)"
-  printf 'CROSSNAME_PROFILE_STATE profile=%s phase=%s launcher_settings_sha256=%s extension_permissions_and_data_sha256=%s explicit_search_instance_sha256=%s consumer_credential_sha256=%s\n' \
-    "$profile" "$label" "$config_sha" "$extension_sha" "$search_sha" "$credential_sha"
+  credential_sha="$(hash_private_file "$credential_file")"
+  printf 'CROSSNAME_PROFILE_STATE profile=%s phase=%s launcher_settings=verified extension_permissions_and_data=verified search_instance=verified consumer_credential=verified\n' \
+    "$profile" "$label"
 }
 
 assert_profile_state_matches() {
   local label="$1" profile="$2" expected_config="$3" expected_extension="$4"
   select_profile_state "$profile"
-  [[ "$(sha256sum -- "$profile_config_file" | cut -d ' ' -f 1)" == "$expected_config" ]] || fail "$label modified $profile launcher settings"
-  [[ "$(hash_tree "$profile_extension_store")" == "$expected_extension" ]] || fail "$label modified $profile extension permissions/package/data"
+  [[ "$(hash_tree "$profile_config_dir")" == "$expected_config" ]] || fail "$label modified $profile launcher settings bytes or modes"
+  [[ "$(hash_tree "$profile_extension_store")" == "$expected_extension" ]] || fail "$label modified $profile extension permissions/package/data bytes or modes"
   [[ "$(<"$profile_extension_data_file")" == "$profile_state_value" ]] || fail "$label changed the $profile extension profile value"
-  printf 'CROSSNAME_PROFILE_STATE_UNCHANGED profile=%s phase=%s launcher_settings_sha256=%s extension_store_sha256=%s\n' \
-    "$profile" "$label" "$expected_config" "$expected_extension"
+  printf 'CROSSNAME_PROFILE_STATE_UNCHANGED profile=%s phase=%s launcher_settings=verified extension_store=verified\n' \
+    "$profile" "$label"
 }
 
 assert_private_state_matches() {
   local label="$1" profile="$2" expected_config="$3" expected_extension="$4" expected_search="$5" expected_credential="$6"
+  select_search_state "$profile"
   select_profile_state "$profile"
-  [[ "$(sha256sum -- "$profile_config_file" | cut -d ' ' -f 1)" == "$expected_config" ]] || fail "$label modified $profile launcher settings"
-  [[ "$(hash_tree "$profile_extension_store")" == "$expected_extension" ]] || fail "$label modified $profile extension permissions/package/data"
-  [[ "$(hash_tree "$instance")" == "$expected_search" ]] || fail "$label modified the explicit private search instance/consumer grant"
-  [[ "$(sha256sum -- "$credential_file" | cut -d ' ' -f 1)" == "$expected_credential" ]] || fail "$label modified the external consumer credential"
+  [[ "$(hash_tree "$profile_config_dir")" == "$expected_config" ]] || fail "$label modified $profile launcher settings bytes or modes"
+  [[ "$(hash_tree "$profile_extension_store")" == "$expected_extension" ]] || fail "$label modified $profile extension permissions/package/data bytes or modes"
+  [[ "$(hash_tree "$instance")" == "$expected_search" ]] || fail "$label modified the $profile explicit search instance/grant bytes or modes"
+  [[ "$(hash_private_file "$credential_file")" == "$expected_credential" ]] || fail "$label modified the $profile consumer credential bytes or mode"
   [[ "$(<"$profile_extension_data_file")" == "$profile_state_value" ]] || fail "$label changed the $profile extension profile value"
-  printf 'CROSSNAME_PROFILE_STATE_UNCHANGED profile=%s phase=%s launcher_settings_sha256=%s extension_store_sha256=%s explicit_search_instance_sha256=%s consumer_credential_sha256=%s\n' \
-    "$profile" "$label" "$expected_config" "$expected_extension" "$expected_search" "$expected_credential"
+  printf 'CROSSNAME_PROFILE_STATE_UNCHANGED profile=%s phase=%s launcher_settings=verified extension_store=verified search_instance=verified consumer_credential=verified\n' \
+    "$profile" "$label"
 }
 
 for package in "${all_product_package_names[@]}"; do
@@ -761,8 +849,11 @@ activate_suite legacy
 setup_search_instance
 start_search_daemon
 create_search_grant
+legacy_consumer_realm="$consumer_realm"
+legacy_credential_file="$credential_file"
 wait_for_search_index
 verify_search_behavior legacy-maestria ""
+legacy_evidence_id="$primary_evidence_id"
 
 start_launcher
 window="$launcher_window"
@@ -787,8 +878,22 @@ printf 'CROSSNAME_PROFILE_ISOLATION_VERIFIED legacy_app_id=%s current_app_id=%s 
   "$LEGACY_APP_ID" "$CURRENT_APP_ID" "$legacy_config_file"
 
 activate_suite current
+setup_search_instance
 start_search_daemon
-verify_search_behavior sillage-explicit-private-instance "$primary_evidence_id"
+create_search_grant
+wait_for_search_index
+if search_cli search --socket-path "$socket_path" --consumer-realm "$legacy_consumer_realm" \
+  --credential-file "$legacy_credential_file" --limit 1 "$primary_phrase" \
+  >"$search_root/legacy-credential-on-current.stdout" 2>"$search_root/legacy-credential-on-current.stderr"; then
+  fail 'legacy Maestria consumer credential unexpectedly authorized against the separate Sillage instance'
+fi
+[[ ! -s "$search_root/legacy-credential-on-current.stdout" && "$(<"$search_root/legacy-credential-on-current.stderr")" == *Unauthorized* ]] || {
+  cat "$search_root/legacy-credential-on-current.stderr" >&2
+  fail 'legacy Maestria consumer credential did not receive typed Unauthorized against the Sillage instance'
+}
+printf 'VERSION_UPGRADE_SEARCH_NAMESPACE_ISOLATION legacy_credential_on_current=Unauthorized\n'
+verify_search_behavior sillage-explicit-private-instance ""
+current_evidence_id="$primary_evidence_id"
 stop_search_gracefully
 
 [[ ! -e "$current_config_file" && ! -e "$current_extension_store" ]] || fail 'Sillage config or extension profile appeared before its first launcher run'
@@ -800,6 +905,7 @@ stop_launcher_gracefully
 [[ -s "$current_config_file" ]] || fail 'Sillage preferences UI did not persist its configured settings after fresh-defaults verification'
 [[ "$(stat -c '%a' "$current_config_file")" == 600 ]] || fail 'Sillage preferences UI did not persist mode 0600 settings'
 printf 'CROSSNAME_PROFILE_FRESH_DEFAULTS_TRANSITION config_persisted=true mode=0600 configured_via=preferences_ui\n'
+assert_private_state_matches after-sillage-defaults-and-configuration legacy "$legacy_saved_config_sha" "$legacy_saved_extension_sha" "$legacy_saved_search_sha" "$legacy_saved_credential_sha"
 
 start_launcher
 window="$launcher_window"
@@ -813,7 +919,7 @@ current_saved_config_sha="$config_sha"
 current_saved_extension_sha="$extension_sha"
 current_saved_search_sha="$search_sha"
 current_saved_credential_sha="$credential_sha"
-assert_profile_state_matches after-sillage-profile-creation legacy "$legacy_saved_config_sha" "$legacy_saved_extension_sha"
+assert_private_state_matches after-sillage-profile-creation legacy "$legacy_saved_config_sha" "$legacy_saved_extension_sha" "$legacy_saved_search_sha" "$legacy_saved_credential_sha"
 
 run_apt 'remove only the canonical Sillage package suite, leaving the distinct Maestria suite installed' remove --yes --no-install-recommends "${CURRENT_PACKAGE_NAMES[@]}"
 for binary in "${CURRENT_BINARY_PATHS[@]}"; do
@@ -825,17 +931,17 @@ for package in "${CURRENT_PACKAGE_NAMES[@]}"; do
 done
 verify_installed_set old
 assert_private_state_matches after-sillage-remove current "$current_saved_config_sha" "$current_saved_extension_sha" "$current_saved_search_sha" "$current_saved_credential_sha"
-assert_profile_state_matches after-sillage-remove legacy "$legacy_saved_config_sha" "$legacy_saved_extension_sha"
+assert_private_state_matches after-sillage-remove legacy "$legacy_saved_config_sha" "$legacy_saved_extension_sha" "$legacy_saved_search_sha" "$legacy_saved_credential_sha"
 
 run_apt 'reinstall the exact canonical Sillage artifacts' install --yes --no-install-recommends "${package_paths[3]}" "${package_paths[4]}" "${package_paths[5]}"
 verify_installed_set new
 verify_installed_set old
 assert_private_state_matches after-sillage-reinstall current "$current_saved_config_sha" "$current_saved_extension_sha" "$current_saved_search_sha" "$current_saved_credential_sha"
-assert_profile_state_matches after-sillage-reinstall legacy "$legacy_saved_config_sha" "$legacy_saved_extension_sha"
+assert_private_state_matches after-sillage-reinstall legacy "$legacy_saved_config_sha" "$legacy_saved_extension_sha" "$legacy_saved_search_sha" "$legacy_saved_credential_sha"
 
 activate_suite current
 start_search_daemon
-verify_search_behavior sillage-reinstall "$primary_evidence_id"
+verify_search_behavior sillage-reinstall "$current_evidence_id"
 start_launcher
 window="$launcher_window"
 timeout --kill-after=1s 45s python3 "$SCRIPT_DIR/check-version-upgrade.py" verify current "$root" "$window"
@@ -854,7 +960,7 @@ fi
   cat "$search_root/final-revoked.stderr" >&2
   fail 'revoked search consumer did not receive typed Unauthorized'
 }
-printf '%s\n' "CROSSNAME_SEARCH_GRANT_REVOKED digest=$grant_digest denial=Unauthorized"
+printf '%s\n' "CROSSNAME_SEARCH_GRANT_REVOKED profile=current denial=Unauthorized"
 stop_search_gracefully
 
 start_launcher
@@ -862,5 +968,5 @@ window="$launcher_window"
 timeout --kill-after=1s 45s python3 "$SCRIPT_DIR/check-version-upgrade.py" revoke current "$root" "$window"
 [[ "$(<"$current_extension_data_file")" == "$profile_state_value" ]] || fail 'revoking the Sillage extension permission unexpectedly removed its private data'
 stop_launcher_gracefully
-assert_profile_state_matches final legacy "$legacy_saved_config_sha" "$legacy_saved_extension_sha"
-printf '%s\n' "CROSSNAME_INSTALL_ACCEPTANCE_PASSED legacy_run=$LEGACY_ARTIFACT_RUN legacy_upstream=${old_upstreams[0]} current_upstream=${new_upstreams[0]} legacy_source=$LEGACY_SOURCE_REVISION current_source=$new_source_revision legacy_launcher_and_extension_profile_unchanged=true current_profile_retained_through_remove_reinstall=true explicit_private_search_instance_reused=true search_evidence_id=$primary_evidence_id revoked_grants=search,current-extension private_xvfb=true private_dbus=true bwrap_worker=true"
+assert_private_state_matches final-current-revocation legacy "$legacy_saved_config_sha" "$legacy_saved_extension_sha" "$legacy_saved_search_sha" "$legacy_saved_credential_sha"
+printf '%s\n' "CROSSNAME_INSTALL_ACCEPTANCE_PASSED legacy_run=$LEGACY_ARTIFACT_RUN legacy_upstream=${old_upstreams[0]} current_upstream=${new_upstreams[0]} legacy_source=$LEGACY_SOURCE_REVISION current_source=$new_source_revision legacy_launcher_extension_search_and_credential_unchanged=true separate_legacy_and_current_search_instances=true current_profile_retained_through_remove_reinstall=true legacy_search_evidence_id=$legacy_evidence_id current_search_evidence_id=$current_evidence_id revoked_grants=current-search,current-extension private_xvfb=true private_dbus=true bwrap_worker=true"

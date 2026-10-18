@@ -222,6 +222,7 @@ smoke_window() {
     cat "$log" >&2
     return 1
   fi
+  timeout 20s python3 scripts/check-launcher-accessibility.py --document-search
   timeout 20s python3 scripts/check-launcher-accessibility.py --reset-cancel
   timeout 20s python3 scripts/check-launcher-accessibility.py --reset-begin
   "$@" --activate

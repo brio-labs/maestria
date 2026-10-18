@@ -167,6 +167,20 @@ def assert_not_showing(label: str):
             raise RuntimeError(f"launcher unexpectedly shows {label!r}")
 
 
+def wait_for_not_showing(*labels: str):
+    deadline = time.monotonic() + 5
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            for label in labels:
+                assert_not_showing(label)
+            return
+        except RuntimeError as error:
+            last_error = error
+        time.sleep(0.04)
+    raise RuntimeError(f"launcher did not finish dismissing {labels!r} within five seconds") from last_error
+
+
 def wait_for_checkbox_state(label: str, checked: bool):
     deadline = time.monotonic() + 5
     actual = None
@@ -208,8 +222,7 @@ def verify_fresh_defaults():
     print("CROSSNAME_PROFILE_DEFAULTS_VERIFIED profile=current phase=first-launch reduce_motion=false shortcut=Control+Space shortcut_setup=unconfigured theme=system seeded_legacy_reduce_motion=true seeded_legacy_shortcut_setup=deferred inherited_nondefault_values=false", flush=True)
 
     accessible_action("Not Now")
-    assert_not_showing("Set Up Shortcut")
-    assert_not_showing("Not Now")
+    wait_for_not_showing("Set Up Shortcut", "Not Now")
     accessible_action("Open launcher preferences")
     checkbox = expect_showing("Reduce interface motion")
     if checkbox.get_state_set().contains(Atspi.StateType.CHECKED):
@@ -226,8 +239,7 @@ def verify_fresh_defaults():
     exact_text("Global shortcut accelerator", "Control+Space")
     expect_showing("System ✓")
     accessible_action("Close preferences")
-    assert_not_showing("Set Up Shortcut")
-    assert_not_showing("Not Now")
+    wait_for_not_showing("Set Up Shortcut", "Not Now")
     print("CROSSNAME_PROFILE_CONFIGURED_AFTER_DEFAULTS profile=current phase=first-launch reduce_motion=true shortcut=Control+Space shortcut_setup=deferred theme=system transition=preferences_ui", flush=True)
 
 
